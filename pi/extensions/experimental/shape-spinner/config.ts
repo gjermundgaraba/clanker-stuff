@@ -21,52 +21,16 @@ export const colors = [
   "gray",
 ] as const;
 
-export const backgrounds = ["dark", "light"] as const;
-
 export const motions = ["animated", "static"] as const;
 
-/** Pi's working indicator plus the shared editor's border status kinds. */
-export const kinds = ["working", "retry", "compaction", "branchSummary"] as const;
-
-export type Kind = (typeof kinds)[number];
-
-const LookSchema = Type.Object(
-  { color: Type.Enum(colors), enabled: Type.Boolean(), shape: Type.Enum(shapes) },
-  { additionalProperties: false },
-);
-
 export const ConfigSchema = Type.Object(
-  {
-    background: Type.Enum(backgrounds),
-    looks: Type.Object(
-      {
-        branchSummary: LookSchema,
-        compaction: LookSchema,
-        retry: LookSchema,
-        working: LookSchema,
-      },
-      { additionalProperties: false },
-    ),
-    motion: Type.Enum(motions),
-    version: Type.Literal(1),
-  },
+  { color: Type.Enum(colors), motion: Type.Enum(motions), shape: Type.Enum(shapes) },
   { additionalProperties: false },
 );
 
 export type Config = Static<typeof ConfigSchema>;
 
-// Shape signals the kind of work; color follows its severity.
-export const defaultConfig = (): Config => ({
-  background: "dark",
-  looks: {
-    branchSummary: { color: "blue", enabled: true, shape: "octahedron" },
-    compaction: { color: "purple", enabled: true, shape: "cube" },
-    retry: { color: "orange", enabled: true, shape: "tetrahedron" },
-    working: { color: "cyan", enabled: true, shape: "orb" },
-  },
-  motion: "animated",
-  version: 1,
-});
+export const defaultConfig = (): Config => ({ color: "cyan", motion: "animated", shape: "orb" });
 
 export const configPath = () => getExtensionStoragePaths("shape-spinner").configFile;
 

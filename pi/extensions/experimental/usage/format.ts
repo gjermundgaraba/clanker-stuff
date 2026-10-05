@@ -1,3 +1,5 @@
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
+
 import { providerDisplayName } from "./providers.js";
 import type {
   SupportedProvider,
@@ -9,10 +11,8 @@ import type {
 
 const WINDOW_ORDER = {
   "5h": 0,
-  "7d": 2,
-  day: 1,
-  month: 4,
-  week: 3,
+  week: 1,
+  month: 2,
 } satisfies Record<UsageWindowId, number>;
 
 const USD_FORMAT = new Intl.NumberFormat("en-US", {
@@ -24,8 +24,6 @@ const CREDIT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 
 
 const orderWindows = (windows: UsageWindow[]): UsageWindow[] =>
   windows.toSorted((left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id]);
-
-export const sanitizeUsageText = (value: string): string => value.replaceAll(/\p{Cc}/gu, "");
 
 export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()): string => {
   const resetMs = Date.parse(resetsAt);
@@ -94,7 +92,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
   const plan =
     snapshot.planLabel === undefined || snapshot.planLabel.length === 0
       ? ""
-      : ` (${sanitizeUsageText(snapshot.planLabel)})`;
+      : ` (${inlineText(snapshot.planLabel)})`;
 
   lines.push(`${title}${plan}`);
 
@@ -105,7 +103,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
         : `resets in ${formatResetDuration(window.resetsAt, nowMs)}`;
 
     lines.push(
-      `${sanitizeUsageText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`,
+      `${inlineText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`,
     );
   }
 
@@ -117,7 +115,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
 };
 
 export const formatProviderError = (provider: SupportedProvider, message: string): string =>
-  `usage: ${provider}: ${sanitizeUsageText(message)}`;
+  `usage: ${provider}: ${inlineText(message)}`;
 
 export const formatRefreshFailed = (
   provider: SupportedProvider,
@@ -125,4 +123,4 @@ export const formatRefreshFailed = (
   fetchedAt: number,
   nowMs: number = Date.now(),
 ): string =>
-  `usage: ${provider}: refresh failed (${sanitizeUsageText(message)}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;
+  `usage: ${provider}: refresh failed (${inlineText(message)}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;

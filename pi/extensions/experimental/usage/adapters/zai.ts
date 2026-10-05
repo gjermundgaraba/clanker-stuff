@@ -1,12 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveAccessToken } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { isDefined, makeUsageWindow } from "./util.js";
+import { fetchUsage, isDefined, makeUsageWindow } from "./util.js";
 
 const ZAI_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
 
@@ -55,7 +53,7 @@ const windowIdFromLimit = (limit: ZaiLimit): UsageWindowId | undefined => {
   }
 
   if (limit.unit === 6) {
-    return "7d";
+    return "week";
   }
 
   return undefined;
@@ -115,24 +113,10 @@ export const mapZaiQuotaPayload = (
   );
 };
 
-export const fetchZaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
-  const auth = await resolveAccessToken(deps.authClient, "zai");
-
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
-
-  const response = await deps.fetchJson(ZAI_QUOTA_URL, ZaiQuotaPayloadSchema, {
-    headers: {
-      Authorization: `Bearer ${auth.value.accessToken}`,
-    },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
-  if (response.ok) {
-    return mapZaiQuotaPayload(response.json, now());
-  }
-
-  return usageFailure(response.message);
-};
+export const fetchZaiUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
+  fetchUsage(
+    deps,
+    "zai",
+    { url: ZAI_QUOTA_URL, schema: ZaiQuotaPayloadSchema },
+    mapZaiQuotaPayload,
+  );

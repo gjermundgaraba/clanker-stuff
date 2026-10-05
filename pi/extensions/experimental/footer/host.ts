@@ -1,618 +1,409 @@
-import { randomUUID } from "node:crypto";
-
-import {
-  FooterIconPreferenceRequestSchema,
-  FOOTER_ICON_PREFERENCE_EVENT,
-  FOOTER_ICON_PREFERENCE_REQUEST_EVENT,
-  FOOTER_PROTOCOL_VERSION,
-  FOOTER_READY_EVENT,
-  FOOTER_READY_REQUEST_EVENT,
-  FOOTER_WIDGET_EVENT,
-  FooterReadyRequestMessageSchema,
-} from "@clanker-stuff/footer-protocol";
-import { Value } from "typebox/value";
+import { acquireEditorHost, currentEditorHost } from "@clanker-stuff/editor";
+import type { EditorHost } from "@clanker-stuff/editor";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
   ReadonlyFooterDataProvider,
 } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
-import { cloneFooterConfig } from "@clanker-stuff/footer-protocol/config";
-import type { FooterConfigStore } from "./config.js";
-import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
-import type { LoadedFooterConfig } from "./config.js";
-import type { GitStatus } from "./git.js";
-import { sameGitStatus } from "./git.js";
-import type { readGitStatus } from "./git.js";
-import { renderFooterState } from "./layout.js";
-import type { FooterLayoutResult, FooterRenderState } from "./layout.js";
-import { validateFooterWidgetMessage } from "./protocol-validation.js";
-import { summary } from "./summary.js";
-import { buildBuiltinWidgets, collectSessionTotals } from "./widgets.js";
-import type { LiveWidget, SessionTotals } from "./widgets.js";
+import {
+  DEFAULT_CONFIG,
+  formatFooterConfig,
+  parseFooterConfig,
+  placedIds,
+  STATUS_PREFIX,
+  STATUSES_ID,
+} from "./config.js";
+import type { FooterConfig, FooterConfigStore } from "./config.js";
+import type { GitDetails, readGitDetails } from "./git.js";
+import { layoutFooter, renderBorder, renderBuiltin, statusWidgets } from "./layout.js";
+import type { FooterTheme, LiveWidget } from "./layout.js";
+import { buildBuiltinWidgets } from "./widgets.js";
+import type { BuiltinWidget } from "./widgets.js";
 
-const SESSION_TICK_MS = 60_000;
+const TICK_MS = 60_000;
 
-const RETAINED_COLLECTOR_ERRORS = 50;
+const RETAINED_ERRORS = 20;
 
-const MAX_RICH_WIDGETS = 256;
-
-const MAX_PROTOCOL_ERRORS = 50;
-
-export interface ProtocolErrorRecord {
-  class: string;
-  message: string;
-  timestamp: number;
-}
-
-export type FooterLifecycleState = "starting" | "active" | "disabled" | "replaced" | "stopped";
-
-export interface HostRuntime {
-  builtins: Map<string, LiveWidget>;
-  collectorErrors: string[];
+interface Runtime {
+  ctx: ExtensionContext;
   config: FooterConfig;
-  configLoaded: LoadedFooterConfig;
-  context: ExtensionContext;
+  /** Why the file's layout was not used; cleared once a layout is saved. */
+  loadError: string | undefined;
   footerData: ReadonlyFooterDataProvider | undefined;
-  git: GitStatus | null;
+  requestRender: () => void;
+  details: GitDetails | undefined;
   gitGeneration: number;
-  instanceId: string;
-  lastLayout: FooterLayoutResult | undefined;
-  lifecycle: FooterLifecycleState;
-  notifiedProtocolErrors: Set<string>;
-  protocolErrors: ProtocolErrorRecord[];
-  requestRender: (() => void) | undefined;
-  rich: Map<string, LiveWidget>;
-  session: SessionTotals;
+  builtins: { key: string; widgets: Map<string, BuiltinWidget> } | undefined;
+  truncated: string[];
+  errors: string[];
+  border: { host: EditorHost; release: () => void } | undefined;
+  timer: ReturnType<typeof setInterval>;
 }
 
-const sessionCanRender = (config: FooterConfig): boolean =>
-  config.enabled &&
-  config.widgets["footer.session"]?.enabled !== false &&
-  config.rows.some((row) =>
-    [row.left, row.center, row.right].some((group) => group.includes("footer.session")),
-  );
+const describe = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-const gitCanRender = (config: FooterConfig): boolean =>
-  config.enabled &&
-  ["footer.git", "footer.git.details"].some(
-    (id) =>
-      config.widgets[id]?.enabled !== false &&
-      config.rows.some((row) =>
-        [row.left, row.center, row.right].some((group) => group.includes(id)),
-      ),
-  );
+const placement = (config: FooterConfig, id: string): string => {
+  if (config.hidden.includes(id)) return "hidden";
+
+  const row = config.rows.findIndex(({ left, right }) => left.includes(id) || right.includes(id));
+
+  if (row !== -1)
+    return `row ${row + 1} ${config.rows[row]?.left.includes(id) === true ? "left" : "right"}`;
+
+  if (config.border.includes(id)) return "border";
+
+  return id.startsWith(STATUS_PREFIX) && placedIds(config).includes(STATUSES_ID)
+    ? STATUSES_ID
+    : "not placed";
+};
+
+/** The layout as drawn: unless Pi still shows the shared editor, border statuses fall back to `footer.statuses`. */
+const drawn = (active: Runtime): FooterConfig =>
+  active.border !== undefined && currentEditorHost(active.ctx) === active.border.host
+    ? active.config
+    : { ...active.config, border: [] };
 
 export const createFooterHost = (
   pi: ExtensionAPI,
-  configStore: FooterConfigStore,
-  readGit: typeof readGitStatus,
+  store: FooterConfigStore,
+  readGit: typeof readGitDetails,
 ) => {
-  let runtime: HostRuntime | undefined;
-  let preferenceUnsubscribe: (() => void) | undefined;
+  let runtime: Runtime | undefined;
+  let generation = 0;
 
-  const emitIconPreference = () => {
-    if (runtime)
-      pi.events.emit(FOOTER_ICON_PREFERENCE_EVENT, {
-        protocol: FOOTER_PROTOCOL_VERSION,
-        type: "icon-preference",
-        iconFamily: runtime.configLoaded.config.iconFamily,
-      });
+  const addError = (active: Runtime, error: unknown): void => {
+    const text = describe(error);
+
+    if (active.errors.at(-1) === text) return;
+
+    active.errors.push(text);
+    active.errors.splice(0, Math.max(0, active.errors.length - RETAINED_ERRORS));
   };
 
-  let branchUnsubscribe: (() => void) | undefined;
-  let protocolUnsubscribe: (() => void) | undefined;
-  let readyRequestUnsubscribe: (() => void) | undefined;
-  let sessionTimer: ReturnType<typeof setInterval> | undefined;
-  let startGeneration = 0;
+  /** Recomputed only when what they show can have changed, like Pi's own footer. */
+  const builtins = (active: Runtime): Map<string, BuiltinWidget> => {
+    const { ctx } = active;
+    const branch = active.footerData?.getGitBranch() ?? null;
+    const thinkingLevel = ctx.thinkingLevel ?? pi.getThinkingLevel();
+    const now = Date.now();
 
-  let sessionRevision:
-    | { runtime: HostRuntime; sessionId: string; leafId: string | null }
-    | undefined;
+    // Every session append moves the leaf; the minute drives the elapsed-time display.
+    const key = JSON.stringify([
+      ctx.sessionManager.getSessionId(),
+      ctx.sessionManager.getLeafId(),
+      ctx.model?.provider,
+      ctx.model?.id,
+      thinkingLevel,
+      branch,
+      active.details,
+      Math.floor(now / TICK_MS),
+    ]);
 
-  const addCollectorError = (active: HostRuntime, cause: unknown): void => {
-    const message = summary(cause instanceof Error ? cause.message : String(cause));
-
-    if (active.collectorErrors.at(-1) !== message) {
-      active.collectorErrors.push(message);
-      active.collectorErrors.splice(
-        0,
-        Math.max(0, active.collectorErrors.length - RETAINED_COLLECTOR_ERRORS),
-      );
-    }
-  };
-
-  const recordProtocolError = (active: HostRuntime, errorClass: string, message: string): void => {
-    active.protocolErrors.unshift({
-      class: errorClass,
-      message: summary(message),
-      timestamp: Date.now(),
-    });
-    active.protocolErrors.length = Math.min(active.protocolErrors.length, MAX_PROTOCOL_ERRORS);
-
-    if (!active.notifiedProtocolErrors.has(errorClass)) {
-      active.notifiedProtocolErrors.add(errorClass);
-      active.context.ui.notify(
-        `Footer rejected a ${errorClass} protocol message; run /footer doctor`,
-        "warning",
-      );
-    }
-  };
-
-  /** Appends (including idle cache warming) move the leaf without an extension lifecycle event. */
-  const updateSessionTotals = (active: HostRuntime, force = false): boolean => {
-    if (!sessionCanRender(active.config)) return false;
-    const sessionId = active.context.sessionManager.getSessionId();
-    const leafId = active.context.sessionManager.getLeafId();
-
-    if (
-      !force &&
-      sessionRevision?.runtime === active &&
-      sessionRevision.sessionId === sessionId &&
-      sessionRevision.leafId === leafId
-    )
-      return false;
-
-    try {
-      active.session = collectSessionTotals(active.context);
-      sessionRevision = { runtime: active, sessionId, leafId };
-
-      return true;
-    } catch (error) {
-      addCollectorError(active, error);
-
-      return false;
-    }
-  };
-
-  const rebuildBuiltins = (active: HostRuntime, requestRender = true): void => {
-    updateSessionTotals(active);
-
-    try {
-      active.builtins = buildBuiltinWidgets(active.context, {
-        git: active.git,
-        now: Date.now(),
-        session: active.session,
-        thinkingLevel: active.context.thinkingLevel ?? pi.getThinkingLevel(),
-      });
-    } catch (error) {
-      addCollectorError(active, error);
-    }
-
-    if (requestRender) active.requestRender?.();
-  };
-
-  const refreshSessionTotals = (active: HostRuntime): void => {
-    updateSessionTotals(active, true);
-    rebuildBuiltins(active);
-  };
-
-  const refreshGit = (active: HostRuntime): void => {
-    const generation = ++active.gitGeneration;
-
-    if (!gitCanRender(active.config)) {
-      return;
-    }
-
-    const { cwd } = active.context;
-    void readGit(pi, cwd)
-      .then((status) => {
-        if (
-          runtime !== active ||
-          generation !== active.gitGeneration ||
-          active.lifecycle === "stopped"
-        ) {
-          return;
-        }
-
-        if (!sameGitStatus(active.git, status)) {
-          active.git = status;
-          rebuildBuiltins(active);
-        }
-      })
-      .catch((error) => {
-        if (runtime === active && generation === active.gitGeneration) {
-          addCollectorError(active, error);
-        }
-      });
-  };
-
-  const renderState = (active: HostRuntime): FooterRenderState => ({
-    builtins: active.builtins,
-    config: active.config,
-    nativeStatuses: active.footerData?.getExtensionStatuses() ?? new Map<string, string>(),
-    rich: active.rich,
-  });
-
-  const disposeBranchSubscription = (): void => {
-    branchUnsubscribe?.();
-    branchUnsubscribe = undefined;
-  };
-
-  const installFooter = (active: HostRuntime): void => {
-    if (active.lifecycle === "replaced" || active.lifecycle === "stopped") {
-      return;
-    }
-
-    active.lifecycle = "active";
-    active.context.ui.setFooter((tui, theme, footerData) => {
-      disposeBranchSubscription();
-      active.footerData = footerData;
-      active.requestRender = () => {
-        tui.requestRender();
+    if (active.builtins?.key !== key) {
+      active.builtins = {
+        key,
+        widgets: buildBuiltinWidgets(ctx, { branch, details: active.details, now, thinkingLevel }),
       };
+    }
 
-      branchUnsubscribe = footerData.onBranchChange(() => {
+    return active.builtins.widgets;
+  };
+
+  /** Every built-in is always in the map, empty or not, so it names the known IDs. */
+  const configWarnings = (active: Runtime): string[] => {
+    const { config, loadError } = active;
+    const known = builtins(active);
+
+    const unknown = [
+      ...new Set(
+        placedIds(config).filter(
+          (id) => id !== STATUSES_ID && !id.startsWith(STATUS_PREFIX) && !known.has(id),
+        ),
+      ),
+    ];
+
+    return [
+      ...(loadError === undefined ? [] : [`${loadError}; using the default footer layout`]),
+      ...(unknown.length === 0 ? [] : [`Footer ignores unknown widget IDs: ${unknown.join(", ")}`]),
+    ];
+  };
+
+  const statuses = (active: Runtime): Map<string, LiveWidget> =>
+    statusWidgets(active.footerData?.getExtensionStatuses() ?? new Map<string, string>());
+
+  const liveWidgets = (active: Runtime, theme: FooterTheme): Map<string, LiveWidget> => {
+    const live = new Map<string, LiveWidget>();
+
+    for (const widget of builtins(active).values()) {
+      const text = renderBuiltin(widget, active.config.iconFamily, theme);
+      live.set(
+        widget.id,
+        widget.truncate === undefined ? { text } : { text, truncate: widget.truncate },
+      );
+    }
+
+    for (const [id, widget] of statuses(active)) live.set(id, widget);
+
+    return live;
+  };
+
+  const refreshGit = (active: Runtime): void => {
+    const current = ++active.gitGeneration;
+
+    // Pi's footer data names the branch; only the change counts need a repository scan.
+    if (
+      !placedIds(active.config).includes("footer.git.details") ||
+      (active.footerData?.getGitBranch() ?? null) === null
+    ) {
+      active.details = undefined;
+
+      return;
+    }
+
+    void readGit(pi, active.ctx.cwd).then(
+      (details) => {
+        if (runtime !== active || current !== active.gitGeneration) return;
+
+        active.details = details;
+        active.requestRender();
+      },
+      (error: unknown) => {
+        if (runtime !== active || current !== active.gitGeneration) return;
+
+        active.details = undefined;
+        addError(active, error);
+        active.requestRender();
+      },
+    );
+  };
+
+  const install = (active: Runtime): void => {
+    active.ctx.ui.setFooter((tui, theme, footerData) => {
+      active.footerData = footerData;
+      active.requestRender = () => tui.requestRender();
+
+      const unsubscribe = footerData.onBranchChange(() => {
+        if (runtime !== active) return;
+
+        active.requestRender();
         refreshGit(active);
       });
 
       return {
         dispose() {
-          disposeBranchSubscription();
-          active.requestRender = undefined;
-
-          if (runtime === active && active.lifecycle === "active") {
-            active.lifecycle = "replaced";
-            active.context.ui.notify(
-              "Footer was replaced by another extension; run /footer doctor",
-              "warning",
-            );
-          }
-
-          syncTimer(active);
+          unsubscribe();
         },
-        invalidate() {
-          tui.requestRender();
-        },
+        invalidate() {},
         render(width: number): string[] {
+          if (runtime !== active) return [];
+
           try {
-            if (updateSessionTotals(active)) rebuildBuiltins(active, false);
-            active.lastLayout = renderFooterState(renderState(active), width, theme);
+            const layout = layoutFooter(drawn(active), liveWidgets(active, theme), width, theme);
+            active.truncated = layout.truncated;
 
-            for (const error of active.lastLayout.widgetErrors) {
-              addCollectorError(active, `widget ${summary(error.id)}: ${summary(error.message)}`);
-            }
-
-            return active.lastLayout.lines;
+            return layout.lines;
           } catch (error) {
-            active.lastLayout = undefined;
-            addCollectorError(active, `render: ${String(error)}`);
+            addError(active, error);
 
             return [];
           }
         },
       };
     });
-    syncTimer(active);
   };
 
-  const disableFooter = (active: HostRuntime): void => {
-    if (active.lifecycle !== "active") {
+  /** Border widgets render into Pi's editor top border through the shared editor. */
+  const syncBorder = (active: Runtime): void => {
+    if (active.config.border.length === 0) {
+      active.border?.release();
+      active.border = undefined;
+
       return;
     }
 
-    active.lifecycle = "disabled";
-    disposeBranchSubscription();
-    active.context.ui.setFooter(undefined);
-    active.requestRender = undefined;
-    syncTimer(active);
+    if (active.border !== undefined) return;
+    const host = acquireEditorHost(active.ctx);
+
+    if (host === undefined) return;
+
+    const release = host.contribute("border", {
+      render: (line, width, color) => {
+        if (runtime !== active) return line;
+
+        const { theme } = active.ctx.ui;
+        const live = liveWidgets(active, theme);
+        const entries = active.config.border.flatMap((id) => live.get(id)?.text ?? []);
+
+        return renderBorder(line, width, entries, theme, color);
+      },
+    });
+
+    active.border = { host, release };
   };
 
-  const applyConfig = (active: HostRuntime, config: FooterConfig): void => {
-    const gitWasRenderable = gitCanRender(active.config);
-    const sessionWasRenderable = sessionCanRender(active.config);
-    active.config = cloneFooterConfig(config);
+  const apply = (active: Runtime, config: FooterConfig): void => {
+    active.config = config;
+    active.loadError = undefined;
+    syncBorder(active);
+    refreshGit(active);
+    active.requestRender();
+  };
 
-    if (gitWasRenderable !== gitCanRender(active.config)) {
-      refreshGit(active);
-    }
+  const save = async (
+    active: Runtime,
+    ctx: ExtensionCommandContext,
+    config: FooterConfig,
+  ): Promise<void> => {
+    try {
+      await store.save(config);
+    } catch (error) {
+      ctx.ui.notify(`Footer layout was not saved: ${describe(error)}`, "error");
 
-    if (!sessionWasRenderable && sessionCanRender(active.config)) {
-      refreshSessionTotals(active);
-    }
-
-    if (active.lifecycle === "replaced" || active.lifecycle === "stopped") {
       return;
     }
 
-    if (config.enabled) {
-      if (active.lifecycle === "active") {
-        active.requestRender?.();
-      } else {
-        installFooter(active);
+    if (runtime !== active) return;
+
+    apply(active, config);
+    const [warning] = configWarnings(active);
+    ctx.ui.notify(warning ?? `Saved ${store.path}`, warning === undefined ? "info" : "warning");
+  };
+
+  const edit = async (active: Runtime, ctx: ExtensionCommandContext): Promise<void> => {
+    const loaded = await store.load();
+    let text = loaded.text ?? formatFooterConfig(loaded.config);
+
+    for (;;) {
+      const edited = await ctx.ui.editor("footer.json", text);
+
+      if (edited === undefined || runtime !== active) return;
+
+      try {
+        await save(active, ctx, parseFooterConfig(edited));
+
+        return;
+      } catch (error) {
+        ctx.ui.notify(`Invalid footer config: ${describe(error)}`, "error");
+        text = edited;
       }
-    } else {
-      disableFooter(active);
-    }
-
-    syncTimer(active);
-  };
-
-  const stopTimer = (): void => {
-    if (sessionTimer !== undefined) {
-      clearInterval(sessionTimer);
-      sessionTimer = undefined;
     }
   };
 
-  const startTimer = (active: HostRuntime): void => {
-    if (sessionTimer !== undefined) {
-      return;
-    }
+  const inspect = (active: Runtime, ctx: ExtensionContext): string[] => {
+    const live = liveWidgets(active, ctx.ui.theme);
+    const truncated = new Set(active.truncated);
+    const ids = [...new Set([...live.keys(), ...placedIds(active.config)])].toSorted();
 
-    sessionTimer = setInterval(() => {
-      if (runtime === active && active.lifecycle === "active" && sessionCanRender(active.config)) {
-        rebuildBuiltins(active);
-      }
-    }, SESSION_TICK_MS);
+    return [
+      `config: ${store.path}`,
+      ...configWarnings(active),
+      ...ids.map((id) => {
+        const text = live.get(id)?.text;
+
+        const state =
+          text === undefined ? " · not present" : truncated.has(id) ? " · truncated" : "";
+
+        return `${id} · ${placement(drawn(active), id)}${state}${text ? `: ${stripTerminalSequences(text)}` : ""}`;
+      }),
+      ...(active.errors.length === 0
+        ? ["errors: none"]
+        : active.errors.map((error) => `error: ${error}`)),
+    ];
   };
 
-  const syncTimer = (active: HostRuntime): void => {
-    if (
-      runtime === active &&
-      active.context.mode === "tui" &&
-      active.lifecycle === "active" &&
-      sessionCanRender(active.config)
-    ) {
-      startTimer(active);
-    } else {
-      stopTimer();
-    }
-  };
-
-  const stopRuntime = (): void => {
+  const stop = (): void => {
     const active = runtime;
 
-    if (!active) {
-      return;
-    }
+    if (!active) return;
 
-    const ownedFooter = active.lifecycle === "active";
-    active.lifecycle = "stopped";
-    active.gitGeneration += 1;
-    stopTimer();
-    disposeBranchSubscription();
-
-    if (ownedFooter) {
-      active.context.ui.setFooter(undefined);
-    }
-
-    active.requestRender = undefined;
-    active.footerData = undefined;
-    active.rich.clear();
-    active.builtins.clear();
-    sessionRevision = undefined;
+    // Pi removes the custom footer itself after session_shutdown handlers run.
     runtime = undefined;
-  };
-
-  const handleWidgetMessage = (validated: ReturnType<typeof validateFooterWidgetMessage>): void => {
-    const active = runtime;
-
-    if (!active || active.lifecycle === "stopped") {
-      return;
-    }
-
-    if (!validated.ok) {
-      recordProtocolError(active, validated.class, validated.message);
-
-      return;
-    }
-
-    if (validated.value.instanceId !== active.instanceId) {
-      return;
-    }
-
-    if (validated.value.type === "remove") {
-      active.rich.delete(validated.value.id);
-      active.requestRender?.();
-
-      return;
-    }
-
-    const { id } = validated.value.widget;
-
-    if (!active.rich.has(id) && active.rich.size >= MAX_RICH_WIDGETS) {
-      recordProtocolError(active, "capacity", `rich widget limit ${MAX_RICH_WIDGETS} reached`);
-
-      return;
-    }
-
-    active.rich.set(id, {
-      snapshot: validated.value.widget,
-      source: "rich",
-    });
-    active.requestRender?.();
-  };
-
-  const emitReady = (active: HostRuntime): void => {
-    pi.events.emit(FOOTER_READY_EVENT, {
-      instanceId: active.instanceId,
-      protocol: FOOTER_PROTOCOL_VERSION,
-      type: "ready",
-    });
-  };
-
-  const listenForProtocolMessages = (): void => {
-    preferenceUnsubscribe ??= pi.events.on(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, (value) => {
-      if (Value.Check(FooterIconPreferenceRequestSchema, value)) emitIconPreference();
-    });
-    protocolUnsubscribe ??= pi.events.on(FOOTER_WIDGET_EVENT, (value) =>
-      handleWidgetMessage(validateFooterWidgetMessage(value)),
-    );
-    readyRequestUnsubscribe ??= pi.events.on(FOOTER_READY_REQUEST_EVENT, (value) => {
-      if (runtime !== undefined && Value.Check(FooterReadyRequestMessageSchema, value)) {
-        emitReady(runtime);
-      }
-    });
-  };
-
-  const updateContext = (ctx: ExtensionContext): HostRuntime | undefined => {
-    if (runtime) {
-      runtime.context = ctx;
-    }
-
-    return runtime;
+    active.gitGeneration += 1;
+    clearInterval(active.timer);
+    active.border?.release();
   };
 
   return {
-    refresh: (ctx: ExtensionContext): void => {
-      const active = updateContext(ctx);
-
-      if (active) {
-        rebuildBuiltins(active);
-      }
-    },
-    refreshTotals: (ctx: ExtensionContext): void => {
-      const active = updateContext(ctx);
-
-      if (active) {
-        refreshSessionTotals(active);
-      }
-    },
-    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    command: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const active = runtime;
 
-      if (ctx.mode !== "tui") {
-        ctx.ui.notify("/footer requires TUI mode", "info");
+      if (ctx.mode !== "tui" || !active) {
+        ctx.ui.notify("/footer requires an active TUI session", "info");
 
         return;
       }
 
-      if (!active) {
-        ctx.ui.notify("Footer host is not running", "warning");
+      switch (args.trim()) {
+        case "": {
+          await edit(active, ctx);
 
-        return;
+          return;
+        }
+
+        case "reset": {
+          await save(active, ctx, DEFAULT_CONFIG);
+
+          return;
+        }
+
+        case "inspect": {
+          ctx.ui.notify(inspect(active, ctx).join("\n"), "info");
+
+          return;
+        }
+
+        default: {
+          ctx.ui.notify("Usage: /footer [reset|inspect]", "info");
+        }
       }
-
-      active.context = ctx;
-      const command = args.trim();
-
-      if (command !== "" && command !== "inspect" && command !== "doctor") {
-        ctx.ui.notify("usage: /footer [inspect|doctor]", "info");
-
-        return;
-      }
-
-      const [
-        { doctorLines, editorWidgets, inspectLines },
-        { showFooterEditor, showFooterTextView },
-      ] = await Promise.all([import("./diagnostics.js"), import("./ui.js")]);
-
-      if (command === "inspect") {
-        await showFooterTextView(ctx, "Footer inspect", () => inspectLines(active, Date.now()));
-
-        return;
-      }
-
-      if (command === "doctor") {
-        await showFooterTextView(ctx, "Footer doctor", () => doctorLines(active, configStore.path));
-
-        return;
-      }
-
-      const loaded = await configStore.load();
-      active.configLoaded = loaded;
-      applyConfig(active, loaded.config);
-      const widgets = editorWidgets(active);
-      await showFooterEditor(ctx, {
-        loaded,
-        onPreview: (config) => {
-          applyConfig(active, config);
-        },
-        onSave: async (config) => {
-          await configStore.save(config);
-          active.configLoaded = { config };
-          emitIconPreference();
-          applyConfig(active, config);
-        },
-        renderPreview: (config, width) => {
-          try {
-            return renderFooterState({ ...renderState(active), config }, width, ctx.ui.theme).lines;
-          } catch {
-            return [];
-          }
-        },
-        widgets,
-      });
+    },
+    refreshGit: (): void => {
+      if (runtime) refreshGit(runtime);
+    },
+    requestRender: (): void => {
+      runtime?.requestRender();
     },
     shutdown: (): void => {
-      startGeneration += 1;
-      preferenceUnsubscribe?.();
-      preferenceUnsubscribe = undefined;
-      stopRuntime();
-      protocolUnsubscribe?.();
-      protocolUnsubscribe = undefined;
-      readyRequestUnsubscribe?.();
-      readyRequestUnsubscribe = undefined;
+      generation += 1;
+      stop();
     },
     start: async (ctx: ExtensionContext): Promise<void> => {
-      const generation = ++startGeneration;
-      stopRuntime();
+      const current = ++generation;
+      stop();
 
-      if (ctx.mode !== "tui") {
-        return;
-      }
+      if (ctx.mode !== "tui") return;
 
-      const loaded = await configStore.load();
+      const loaded = await store.load();
 
-      if (generation !== startGeneration) {
-        return;
-      }
+      if (current !== generation) return;
 
-      listenForProtocolMessages();
-
-      const active: HostRuntime = {
-        builtins: new Map(),
-        collectorErrors: [],
-        config: cloneFooterConfig(loaded.config),
-        configLoaded: loaded,
-        context: ctx,
+      const active: Runtime = {
+        builtins: undefined,
+        config: loaded.config,
+        ctx,
+        details: undefined,
+        errors: [],
         footerData: undefined,
-        lastLayout: undefined,
-        requestRender: undefined,
-        git: null,
         gitGeneration: 0,
-        instanceId: randomUUID(),
-        lifecycle: "starting",
-        notifiedProtocolErrors: new Set(),
-        protocolErrors: [],
-        rich: new Map(),
-        session: {
-          cacheRead: 0,
-          cacheWrite: 0,
-          cost: 0,
-          input: 0,
-          output: 0,
-        },
+        loadError: loaded.error,
+        border: undefined,
+        requestRender: () => {},
+        timer: setInterval(() => active.requestRender(), TICK_MS),
+        truncated: [],
       };
 
+      active.timer.unref();
       runtime = active;
 
-      if (loaded.error !== undefined && loaded.error.length > 0) {
-        ctx.ui.notify(`${loaded.error}; using Default in memory`, "warning");
-      }
+      for (const warning of configWarnings(active)) ctx.ui.notify(warning, "warning");
 
-      rebuildBuiltins(active);
-
-      if (active.config.enabled) {
-        installFooter(active);
-      } else {
-        active.lifecycle = "disabled";
-      }
-
-      emitReady(active);
-      emitIconPreference();
+      install(active);
+      syncBorder(active);
       refreshGit(active);
-      syncTimer(active);
-    },
-    turnEnd: (ctx: ExtensionContext): void => {
-      const active = updateContext(ctx);
-
-      if (active) {
-        refreshSessionTotals(active);
-        refreshGit(active);
-      }
     },
   };
 };

@@ -12,10 +12,10 @@ import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createCustomUiDriver, createKeybindings } from "../../../tests/harness/tui.js";
 import extension from "../index.js";
 import backgroundTasks from "../../experimental/background-tasks/index.js";
-import { WAKE_TYPE } from "../../experimental/background-tasks/delivery.js";
+import { WAKE_TYPE } from "../../experimental/background-tasks/protocol.js";
 import { Value } from "typebox/value";
 import { AnswerEnvelopeSchema } from "../delivery.js";
-import { JOURNAL_TYPE } from "../journal.js";
+import { STATE_TYPE } from "../journal.js";
 
 const question = {
   title: "Deploy target",
@@ -58,6 +58,8 @@ async function setup(
 
   const select = vi.fn(async (_title: string, choices: string[]) => choices[0]);
 
+  const screen = () => component?.render(80).join("\n");
+
   const uiContext = Object.assign(createExtensionHost(() => {}).createContext().ui, {
     custom: driver.custom,
     select,
@@ -82,7 +84,7 @@ async function setup(
   const checkpoint = () =>
     harness.sessionManager
       .getBranch()
-      .filter((e) => e.type === "custom" && e.customType === JOURNAL_TYPE)
+      .filter((e) => e.type === "custom" && e.customType === STATE_TYPE)
       .at(-1);
 
   return {
@@ -91,6 +93,7 @@ async function setup(
     uiContext,
     press,
     checkpoint,
+    screen,
     get component() {
       return component;
     },
@@ -218,7 +221,16 @@ describe("durable questionnaires in AgentSession", () => {
         },
       });
       expect(env.harness.messages().filter((m) => m.role === "user")).toHaveLength(1);
-      expect(JSON.stringify(env.checkpoint())).toContain('"status":"delivered"');
+      // The answer is recorded as sent before the tool result that delivers it.
+      const branch = env.harness.sessionManager.getBranch();
+      const sent = branch.findIndex((e) => JSON.stringify(e).includes('"sent_at"'));
+
+      const delivered = branch.findIndex(
+        (e) => e.type === "message" && e.message.role === "toolResult",
+      );
+
+      expect(sent).toBeGreaterThan(-1);
+      expect(sent).toBeLessThan(delivered);
     } finally {
       await env.cleanup();
     }
@@ -260,6 +272,7 @@ describe("durable questionnaires in AgentSession", () => {
       await expect.poll(() => env.harness.getPendingResponseCount()).toBe(0);
       await expect.poll(() => env.harness.session.isIdle).toBe(true);
       expect(JSON.stringify(env.harness.messages())).toContain('\\"option_id\\":\\"remote\\"');
+      expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
 
       const answer = env.harness
         .messages()
@@ -294,35 +307,9 @@ describe("durable questionnaires in AgentSession", () => {
     }
   });
   it.each([false, true])(
-    "keeps saved answers explicit across background continuations (prompt open=%s)",
-    async (keepPromptOpen) => {
-      const busy = Promise.withResolvers<void>();
-      const releaseBusy = Promise.withResolvers<void>();
-      const notified = Promise.withResolvers<void>();
-      const releaseNotification = Promise.withResolvers<void>();
-      let requests = 0;
-      let settlements = 0;
-
-      const env = await setup("tui", true, [
-        backgroundTasks,
-        (pi) => {
-          pi.on("before_provider_request", async () => {
-            requests++;
-
-            if (requests === 4) {
-              busy.resolve();
-              await releaseBusy.promise;
-            } else if (requests === 5) {
-              notified.resolve();
-              await releaseNotification.promise;
-            }
-          });
-          pi.on("agent_settled", () => {
-            settlements++;
-          });
-        },
-      ]);
-
+    "keeps saved answers explicit across a background wake (inbox open=%s)",
+    async (inboxOpen) => {
+      const env = await setup("tui", true, [backgroundTasks]);
       const { harness } = env;
 
       const wakeMessages = () =>
@@ -359,107 +346,43 @@ describe("durable questionnaires in AgentSession", () => {
         await env.press("2", "k");
         await answering;
         expect(answerMessages()).toHaveLength(0);
-        expect(JSON.stringify(env.checkpoint())).toContain('"status":"pending"');
 
-        const running = harness.prompt("Do independent background work");
-        await busy.promise;
-        await expect
-          .poll(() =>
-            harness.sessionManager
-              .getBranch()
-              .some(
-                (entry) =>
-                  entry.type === "custom" &&
-                  entry.customType === "background-tasks:lifecycle" &&
-                  JSON.stringify(entry.data).includes('"status":"completed"'),
-              ),
-          )
-          .toBe(true);
+        // The background run and its wake happen while the submitted answer is on screen.
+        const reviewing = inboxOpen ? harness.prompt("/answers") : undefined;
 
-        if (keepPromptOpen) {
-          const reviewing = harness.prompt("/answers");
-          await expect
-            .poll(() => env.component?.render(80).join("\n"))
-            .toContain("Read-only · revision 1");
-          releaseBusy.resolve();
-          await running;
-          expect(settlements).toBe(2);
-          expect(wakeMessages()).toHaveLength(0);
-          expect(answerMessages()).toHaveLength(0);
+        if (reviewing) await expect.poll(env.screen).toContain("Read-only · revision 1");
+        await harness.prompt("Do independent background work");
+
+        if (reviewing) {
           await env.press("\u001b");
           await reviewing;
-        } else {
-          releaseBusy.resolve();
         }
 
-        await notified.promise;
-        expect(settlements).toBe(keepPromptOpen ? 2 : 1);
-        expect(wakeMessages()).toHaveLength(1);
+        await expect.poll(() => wakeMessages().length).toBe(1);
+        await expect.poll(() => harness.session.isIdle).toBe(true);
+        // An automatic continuation is not user approval: the saved answer stays unsent.
         expect(answerMessages()).toHaveLength(0);
-        expect(JSON.stringify(env.checkpoint())).toContain('"status":"pending"');
-        // Neither a successful boundary nor a background wake invents user approval.
+        expect(JSON.stringify(env.checkpoint())).not.toContain('"sent_at"');
+
         const previousView = env.component;
         const sending = harness.prompt("/answers");
         await expect.poll(() => env.component !== previousView).toBe(true);
-        await expect
-          .poll(() => env.component?.render(80).join("\n"))
-          .toContain("Read-only · revision 1");
+        await expect.poll(env.screen).toContain("Read-only · revision 1 · Not sent");
         await env.press("s");
         await sending;
-        expect(harness.session.getSteeringMessages()).toHaveLength(1);
-        expect(JSON.stringify(env.checkpoint())).toContain('"status":"handed_to_pi"');
-        releaseNotification.resolve();
-        await running;
-        await expect.poll(() => settlements).toBe(keepPromptOpen ? 3 : 2);
+        await expect.poll(() => harness.getPendingResponseCount()).toBe(0);
         await expect.poll(() => harness.session.isIdle).toBe(true);
         expect(answerMessages()).toHaveLength(1);
         expect(JSON.stringify(answerMessages())).toContain("remote");
         expect(wakeMessages()).toHaveLength(1);
-        expect(JSON.stringify(env.checkpoint())).toContain('"status":"delivered"');
-        expect(harness.getPendingResponseCount()).toBe(0);
+        expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
       } finally {
-        releaseBusy.resolve();
-        releaseNotification.resolve();
         await harness.session.abort();
         await env.cleanup();
       }
     },
   );
-  it("observes Stop in a later run, retains a pending request, and does not resume on normal input", async () => {
-    const env = await setup();
-
-    try {
-      env.harness.setResponses([
-        fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
-          stopReason: "toolUse",
-        }),
-        fauxAssistantMessage("Done"),
-      ]);
-      await env.harness.prompt("Ask async");
-      env.harness.setResponses([
-        async (_context, options) => {
-          await new Promise<void>((resolve) => {
-            if (options?.signal?.aborted) resolve();
-            else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
-          });
-
-          return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
-        },
-      ]);
-      const running = env.harness.prompt("Later work");
-      await expect.poll(() => env.harness.session.isStreaming).toBe(true);
-      await env.harness.session.abort();
-      await running;
-      await expect.poll(() => JSON.stringify(env.checkpoint())).toContain('"paused":true');
-      env.harness.setResponses([fauxAssistantMessage("Unrelated")]);
-      await env.harness.prompt("Unrelated work");
-      expect(JSON.stringify(env.checkpoint())).toContain('"paused":true');
-      expect(JSON.stringify(env.checkpoint())).toContain('"draft"');
-    } finally {
-      await env.cleanup();
-    }
-  });
-  it("keeps Pi-owned text uncertain after queue clearing/abort and requires explicit resend", async () => {
+  it("hands an explicit Send to Pi's queue and can send again after Stop restores it", async () => {
     const env = await setup();
 
     try {
@@ -478,6 +401,7 @@ describe("durable questionnaires in AgentSession", () => {
 
           return fauxAssistantMessage("Stopped", { stopReason: "aborted" });
         },
+        fauxAssistantMessage("Answer received"),
       ]);
       const running = env.harness.prompt("Independent work");
       await expect.poll(() => env.harness.session.isStreaming).toBe(true);
@@ -487,30 +411,26 @@ describe("durable questionnaires in AgentSession", () => {
       await env.press("1", "\r");
       await answering;
       expect(env.harness.session.getSteeringMessages()).toHaveLength(2);
-      expect(JSON.stringify(env.checkpoint())).toContain('"status":"handed_to_pi"');
-      // The real TUI's abort handler calls these public operations in this order;
-      // editor restoration itself is covered by the Herdr manual drive.
+      expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
+      // The real TUI's abort handler restores Pi's queue to the editor; the answer is Pi's now.
       const restored = env.harness.session.clearQueue();
-      expect(restored.steering).toHaveLength(2);
       expect(restored.steering[0]).toBe("Unrelated queued text");
       expect(restored.steering[1]).toContain('"type":"questionnaire_answer"');
       await env.harness.session.abort();
       await running;
-      await expect.poll(() => JSON.stringify(env.checkpoint())).toContain('"paused":true');
-      await env.harness.session.extensionRunner.emit({
-        type: "session_tree",
-        newLeafId: env.harness.sessionManager.getLeafId(),
-        oldLeafId: null,
-      });
-      const recovering = env.harness.prompt("/answers");
-      await expect
-        .poll(() => env.component?.render(80).join("\n"))
-        .toContain("Read-only · revision 1");
+      const resending = env.harness.prompt("/answers");
+      await expect.poll(env.screen).toContain("Read-only · revision 1 · Sent");
+      expect(env.screen()).toContain("s Send again");
       await env.press("s");
-      await recovering; // Recovery defaults to Keep paused.
-      expect(env.select.mock.calls.at(-1)?.[0]).toContain("Pi may already own this answer");
-      expect(env.harness.session.getSteeringMessages()).toHaveLength(0);
-      expect(env.harness.messages().filter((m) => m.role === "user")).toHaveLength(2);
+      await resending;
+      await expect.poll(() => env.harness.session.isIdle).toBe(true);
+      expect(
+        env.harness
+          .messages()
+          .filter(
+            (m) => m.role === "user" && JSON.stringify(m.content).includes("questionnaire_answer"),
+          ),
+      ).toHaveLength(1);
     } finally {
       await env.cleanup();
     }
@@ -577,7 +497,6 @@ describe("durable questionnaires in AgentSession", () => {
       expect(results.at(-1)).toMatchObject({
         details: {
           revision: 2,
-          parent_revision: 1,
           changed: ["Target"],
           answers: { target: { selections: [{ option_id: "remote" }] } },
         },
@@ -619,40 +538,32 @@ describe("durable questionnaires in AgentSession", () => {
       await env.cleanup();
     }
   });
-  it("cancels navigation rather than discarding editor text that cannot be checkpointed", async () => {
+  it("declares the questionnaire tools in the TUI", async () => {
     const env = await setup();
 
     try {
-      env.harness.setResponses([
-        fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
-          stopReason: "toolUse",
-        }),
-        fauxAssistantMessage("Independent"),
-      ]);
-      await env.harness.prompt("Ask async");
-      const root = env.harness.sessionManager.getBranch()[0];
-      assert(root);
-      const answering = env.harness.prompt("/answers");
-      await expect.poll(() => !!env.component).toBe(true);
-      await env.press("g");
-      env.component?.handleInput?.("x".repeat(1001));
-      const navigation = await env.harness.session.navigateTree(root.id, { summarize: false });
-      expect(navigation.cancelled).toBe(true);
-      expect(env.component?.render(80).join("\n")).toContain("1001/1000");
-      await env.harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
-      await answering;
+      expect(env.harness.session.getActiveToolNames()).toEqual(
+        expect.arrayContaining([
+          "request_user_input",
+          "request_user_input_async",
+          "revise_user_input",
+        ]),
+      );
     } finally {
       await env.cleanup();
     }
   });
   it.each(["rpc", "json", "print"] as const)(
-    "proactively disables questionnaires in %s",
+    "withdraws questionnaires in %s so nothing can activate them",
     async (mode) => {
       const env = await setup(mode);
+      const tools = ["request_user_input", "request_user_input_async", "revise_user_input"];
 
       try {
-        expect(env.harness.session.getActiveToolNames()).not.toContain("request_user_input");
-        expect(env.harness.session.getActiveToolNames()).not.toContain("request_user_input_async");
+        const active = env.harness.session.getActiveToolNames();
+        expect(active.filter((name) => tools.includes(name))).toEqual([]);
+        env.harness.session.setActiveToolsByName([...active, ...tools]);
+        expect(env.harness.session.getActiveToolNames()).toEqual(active);
         await env.harness.prompt("/answers");
         expect(env.component).toBeUndefined();
         expect(env.select).not.toHaveBeenCalled();
@@ -661,7 +572,7 @@ describe("durable questionnaires in AgentSession", () => {
       }
     },
   );
-  it("rejects --no-session without displaying a dialog", async () => {
+  it("answers questionnaires in a session without a file", async () => {
     const env = await setup("tui", false);
 
     try {
@@ -669,13 +580,18 @@ describe("durable questionnaires in AgentSession", () => {
         fauxAssistantMessage(fauxToolCall("request_user_input", question), {
           stopReason: "toolUse",
         }),
-        fauxAssistantMessage("Cannot ask"),
+        fauxAssistantMessage("Done"),
       ]);
-      await env.harness.prompt("Ask");
-      expect(env.component).toBeUndefined();
+      const running = env.harness.prompt("Ask");
+      await expect.poll(() => !!env.component).toBe(true);
+      await env.press("1", "\r");
+      await running;
+      expect(env.harness.sessionManager.getSessionFile()).toBeUndefined();
       expect(env.harness.messages().find((m) => m.role === "toolResult")).toMatchObject({
-        isError: true,
+        isError: false,
+        details: { type: "questionnaire_answer", revision: 1 },
       });
+      expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
     } finally {
       await env.cleanup();
     }

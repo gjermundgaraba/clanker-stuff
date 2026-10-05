@@ -8,7 +8,7 @@ const snapshot = (overrides: Partial<UsageSnapshot> = {}): UsageSnapshot => ({
   provider: "anthropic",
   quotaWindows: [
     { id: "5h", label: "5h", remainingPercent: 68 },
-    { id: "7d", label: "7d", remainingPercent: 66 },
+    { id: "week", label: "week", remainingPercent: 66 },
   ],
   ...overrides,
 });

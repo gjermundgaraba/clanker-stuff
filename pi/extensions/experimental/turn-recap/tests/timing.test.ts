@@ -4,20 +4,15 @@ import { createTiming, formatElapsed } from "../timing.js";
 
 afterEach(() => vi.useRealTimers());
 
-describe("active timing", () => {
-  it("uses monotonic time even if the wall clock jumps and coalesces duplicate pauses/resumes", () => {
+describe("run timing", () => {
+  it("uses monotonic time even if the wall clock jumps", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
-    const clock = createTiming(false);
+    const clock = createTiming();
     vi.advanceTimersByTime(1000);
-    clock.pause();
-    clock.pause();
     vi.setSystemTime(1);
-    vi.advanceTimersByTime(2000);
-    clock.resume();
-    clock.resume();
-    vi.advanceTimersByTime(500);
-    expect(clock.read()).toEqual({ startedAt: 1000, activeMs: 1500, wallMs: 3500 });
+    vi.advanceTimersByTime(2500);
+    expect(clock.read()).toEqual({ startedAt: 1000, wallMs: 3500 });
   });
 
   it.each([

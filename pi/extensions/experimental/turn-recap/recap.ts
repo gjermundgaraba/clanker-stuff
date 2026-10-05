@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { clampThinkingLevel, contentText, isContextOverflow } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, contentText } from "@earendil-works/pi-ai";
 import type { UserMessage } from "@earendil-works/pi-ai";
-// Package imports avoid Pi's Jiti root alias swallowing pi-ai subpaths.
-import { raceWithAbortSignal } from "#pi-abort";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { RecapConfig } from "./config.js";
@@ -20,11 +18,13 @@ export const generateRecap = async (
   prompt: string,
   parentSignal: AbortSignal,
 ): Promise<Recap> => {
-  const controller = new AbortController();
-  const signal = AbortSignal.any([parentSignal, controller.signal]);
+  const deadline = new AbortController();
+  const signal = AbortSignal.any([parentSignal, deadline.signal]);
+  // Removes the abort listener below once the request settles either way.
+  const settled = new AbortController();
 
   const timeout = setTimeout(() => {
-    controller.abort(new Error("Recap request timed out"));
+    deadline.abort(new Error("Recap request timed out"));
   }, RECAP_REQUEST_TIMEOUT_MS);
 
   let usage: ReportedUsage | undefined;
@@ -44,7 +44,18 @@ export const generateRecap = async (
 
     const level = clampThinkingLevel(model, config.thinking);
 
-    const response = await raceWithAbortSignal(
+    // Stop waiting once aborted, even for a provider that ignores cancellation. This listener
+    // runs before the provider's, so an abort always reports its own cause. Promise.race handles
+    // this rejection, so an abort after the response is not an unhandled rejection.
+    const aborted = new Promise<never>((_resolve, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason), {
+        once: true,
+        signal: settled.signal,
+      });
+    });
+
+    const response = await Promise.race([
       ctx.modelRegistry
         .streamSimple(
           model,
@@ -53,20 +64,15 @@ export const generateRecap = async (
             cacheRetention: "none",
             sessionId: randomUUID(),
             signal,
-            timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
             ...(level === "off" ? {} : { reasoning: level }),
           },
         )
         .result(),
-      signal,
-    );
+      aborted,
+    ]);
 
     usage = emptyUsage();
     addUsage(usage, response.usage);
-
-    if (isContextOverflow(response, model.contextWindow)) {
-      throw new Error("Recap input exceeds the model's context window");
-    }
 
     if (response.stopReason !== "stop") {
       throw new Error(response.errorMessage ?? `Recap model stopped with ${response.stopReason}`);
@@ -85,5 +91,6 @@ export const generateRecap = async (
     };
   } finally {
     clearTimeout(timeout);
+    settled.abort();
   }
 };

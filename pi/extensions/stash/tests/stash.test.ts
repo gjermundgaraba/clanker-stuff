@@ -10,17 +10,7 @@ import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 
-const { copyToClipboard } = vi.hoisted(() => ({
-  copyToClipboard: vi.fn<(text: string) => Promise<void>>(),
-}));
-
-// oxlint-disable-next-line anti-slop/no-module-mocking -- Pi exposes no seam for its clipboard; the real one touches the OS.
-vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => ({
-  ...(await importOriginal()),
-  copyToClipboard,
-}));
-
-const { default: extension } = await import("../index.js");
+import extension from "../index.js";
 
 const getStorePath = (agentDir: string, cwd: string) =>
   path.join(
@@ -98,20 +88,33 @@ describe("stash", () => {
     }
 
     vi.restoreAllMocks();
-    copyToClipboard.mockReset();
   });
 
-  it("stashing clears the editor, defers copying, and emits a notification", async () => {
+  it("stashing clears the editor and confirms", async () => {
     const harness = await createHarness();
 
     await harness.stash("draft message");
 
     expect(harness.editorText()).toBe("");
-    expect(copyToClipboard).not.toHaveBeenCalled();
-    expect(harness.notifications()).toContainEqual({
-      message: "Stashed (1). Press c to copy to clipboard.",
-      type: "info",
-    });
+    expect(harness.notifications()).toEqual([{ message: "Stashed (1).", type: "info" }]);
+  });
+
+  it("restores the newest stash after an interactive prompt exactly once", async () => {
+    const cwd = await createTempDir("stash-cwd-");
+    const harness = await createHarness({ cwd });
+
+    await harness.stash("first");
+    await harness.stash("second");
+    await harness.input("send message", "interactive");
+    expect(harness.editorText()).toBe("second");
+    expect((await readStore(agentDir, cwd)).entries).toStrictEqual(["first"]);
+
+    harness.ctx.ui.setEditorText("");
+    await harness.input("next message", "interactive");
+    expect(harness.editorText()).toBe("first");
+    harness.ctx.ui.setEditorText("");
+    await harness.input("last message", "interactive");
+    expect(harness.editorText()).toBe("");
   });
 
   it("caps persisted and in-memory stashes to the ten newest entries", async () => {
@@ -123,7 +126,7 @@ describe("stash", () => {
     }
 
     expect(harness.notifications()).toContainEqual({
-      message: "Stashed (10). Press c to copy to clipboard.",
+      message: "Stashed (10).",
       type: "info",
     });
     const store = await readStore(agentDir, cwd);
@@ -178,99 +181,6 @@ describe("stash", () => {
       message: "Failed to persist stash.",
       type: "warning",
     });
-  });
-
-  it("copies the stashed text and consumes input when c is pressed", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("draft message");
-    const result = harness.host.terminalInput("c");
-
-    expect(result.consumed).toBeTruthy();
-    expect(copyToClipboard).toHaveBeenCalledWith("draft message");
-    await vi.waitFor(() => {
-      expect(harness.notifications()).toContainEqual({
-        message: "Copied stash to clipboard.",
-        type: "info",
-      });
-    });
-  });
-
-  it("cancels the pending copy and passes through other input", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("draft message");
-    const cancelResult = harness.host.terminalInput("x");
-    const lateCopyResult = harness.host.terminalInput("c");
-
-    expect(cancelResult.consumed).toBeFalsy();
-    expect(lateCopyResult.consumed).toBeFalsy();
-    expect(copyToClipboard).not.toHaveBeenCalled();
-  });
-
-  it("empty Ctrl+S cancels the pending copy while popping", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("draft message");
-    await harness.host.runShortcut("ctrl+s", harness.ctx);
-    const result = harness.host.terminalInput("c");
-
-    expect(harness.editorText()).toBe("draft message");
-    expect(result.consumed).toBeFalsy();
-    expect(copyToClipboard).not.toHaveBeenCalled();
-  });
-
-  it("does not cancel the pending copy on key repeat or release events", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("draft message");
-    harness.host.terminalInput("\u001B[120;5:2u");
-    harness.host.terminalInput("\u001B[120;5:3u");
-    const copyResult = harness.host.terminalInput("c");
-
-    expect(copyResult.consumed).toBeTruthy();
-    expect(copyToClipboard).toHaveBeenCalledWith("draft message");
-  });
-
-  it("notifies when copying the stashed text fails", async () => {
-    const harness = await createHarness();
-    copyToClipboard.mockRejectedValueOnce(new Error("clipboard failed"));
-
-    await harness.stash("draft message");
-    const result = harness.host.terminalInput("c");
-
-    expect(result.consumed).toBeTruthy();
-    await vi.waitFor(() => {
-      expect(harness.notifications()).toContainEqual({
-        message: "Failed to copy stash to clipboard.",
-        type: "warning",
-      });
-    });
-
-    await harness.input("send message", "interactive");
-    expect(harness.editorText()).toBe("draft message");
-  });
-
-  it("copies the most recent pending stash", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("first");
-    await harness.stash("second");
-    const result = harness.host.terminalInput("c");
-
-    expect(result.consumed).toBeTruthy();
-    expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith("second");
-  });
-
-  it("clears the pending copy on shutdown", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("draft");
-    await harness.host.emitSessionShutdown(harness.ctx);
-    const result = harness.host.terminalInput("c");
-
-    expect(result.consumed).toBeFalsy();
-    expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
   it("does not restore on non-interactive input", async () => {
@@ -371,58 +281,5 @@ describe("stash", () => {
     await expect(harness.host.runCommand("pop-stash", "", ctx)).rejects.toThrow(
       "pop-stash requires interactive UI",
     );
-  });
-
-  it("does not consume another stash entry after a manual pop clears a pending restore", async () => {
-    const harness = await createHarness();
-    const { ctx } = harness;
-
-    await harness.stash("first");
-    await harness.stash("second");
-    await harness.input("send message", "interactive");
-    expect(harness.editorText()).toBe("second");
-
-    harness.ctx.ui.setEditorText("");
-    await harness.popStash();
-    expect(harness.editorText()).toBe("second");
-
-    await harness.host.emit("turn_start", { turnIndex: 0, type: "turn_start" }, ctx);
-
-    harness.ctx.ui.setEditorText("");
-    await harness.popStash();
-    expect(harness.editorText()).toBe("first");
-  });
-
-  it("preserves the stash when input is handled and turn_start never fires", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("saved draft");
-
-    await harness.input("handled message", "interactive");
-
-    expect(harness.editorText()).toBe("saved draft");
-
-    harness.ctx.ui.setEditorText("");
-    await harness.input("next attempt", "interactive");
-    expect(harness.editorText()).toBe("saved draft");
-  });
-
-  it("only consumes the stash once even across multiple turn_start events", async () => {
-    const harness = await createHarness();
-    const { ctx } = harness;
-
-    await harness.stash("single draft");
-    await harness.input("go", "interactive");
-
-    await harness.host.emit("turn_start", { turnIndex: 0, type: "turn_start" }, ctx);
-
-    await harness.host.emit("turn_start", { turnIndex: 1, type: "turn_start" }, ctx);
-
-    harness.ctx.ui.setEditorText("");
-    await harness.popStash();
-    expect(harness.notifications()).toContainEqual({
-      message: "Nothing stashed.",
-      type: "info",
-    });
   });
 });

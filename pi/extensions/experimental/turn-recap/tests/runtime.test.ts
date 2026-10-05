@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { AgentBeforeSettleEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
@@ -27,19 +27,7 @@ import type { ResponseStep } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
 
-const boundary = (outcome: AgentBeforeSettleEvent["outcome"]): AgentBeforeSettleEvent => ({
-  type: "agent_before_settle",
-  outcome,
-  entries: [],
-  continue: false,
-  context: {
-    canContinue: false,
-    contextEntries: [],
-    contextMessages: [],
-    llmMessages: [],
-    pendingMessages: [],
-  },
-});
+const boundary = (outcome: TurnEndEvent["outcome"]) => ({ outcome });
 
 const setup = async (...responses: ResponseStep[]) => {
   const { configPath, directory } = await createRecapConfigFile();
@@ -164,13 +152,13 @@ describe("turn recap runtime", () => {
     for (let run = 0; run < 2; run++) {
       await env.runtime.start(env.ctx);
       env.runtime.begin(env.ctx);
-      expect(env.render()).toContain("0s active");
+      expect(env.render()).toContain("0s elapsed");
       vi.advanceTimersByTime(1000);
       env.render();
       vi.advanceTimersByTime(130);
-      expect(env.render()).toContain(`${glyph}s active`);
+      expect(env.render()).toContain(`${glyph}s elapsed`);
       vi.advanceTimersByTime(370);
-      expect(env.render()).toContain("1s active");
+      expect(env.render()).toContain("1s elapsed");
     }
 
     expect(env.host.getNotifications()).toEqual([]);
@@ -188,15 +176,15 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(1000);
     env.render();
     vi.advanceTimersByTime(500);
-    expect(env.render()).toContain("1s active");
+    expect(env.render()).toContain("1s elapsed");
     appendTurn(env.session, 1);
     await env.runtime.settled(env.ctx);
 
     // Same digit width, so carried-over history would roll 1s back down to 0s.
     env.runtime.begin(env.ctx);
-    expect(env.render()).toContain("0s active");
+    expect(env.render()).toContain("0s elapsed");
     vi.advanceTimersByTime(130);
-    expect(env.render()).toContain("0s active");
+    expect(env.render()).toContain("0s elapsed");
   });
 
   it.each(["missing", "invalid"])("keeps recaps working with a %s font manifest", async (kind) => {
@@ -207,7 +195,7 @@ describe("turn recap runtime", () => {
     await env.runtime.start(env.ctx);
     env.runtime.begin(env.ctx);
     vi.advanceTimersByTime(1000);
-    expect(env.render()).toContain("1s active");
+    expect(env.render()).toContain("1s elapsed");
 
     const notifications = env.host.getNotifications();
 
@@ -234,7 +222,7 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(1000);
     env.render();
     vi.advanceTimersByTime(130);
-    expect(env.render()).toContain(`${glyph}s active`);
+    expect(env.render()).toContain(`${glyph}s elapsed`);
     appendTurn(env.session, 1);
     await env.runtime.settled(env.ctx);
     expect(env.snapshots()).toHaveLength(1);
@@ -250,7 +238,7 @@ describe("turn recap runtime", () => {
     const env = await setup(() => response.promise);
     expect(env.render()).toBe("");
     env.runtime.begin(env.ctx);
-    expect(env.render()).toContain("0s active");
+    expect(env.render()).toContain("0s elapsed");
     vi.advanceTimersByTime(1200);
     appendTurn(env.session, 1);
     env.session.appendMessage({ ...fauxAssistantMessage("finished"), usage: sampleUsage() });
@@ -260,7 +248,7 @@ describe("turn recap runtime", () => {
     expect(env.render()).toBe("");
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]).toMatchObject({
-      activeMs: 1200,
+      wallMs: 1200,
       metrics: { usage: { input: 100 } },
     });
     expect(env.card()).toContain("Generating recap…");
@@ -285,29 +273,18 @@ describe("turn recap runtime", () => {
     expect(env.card()).toContain("Restored recap");
   });
 
-  it("keeps timing across retries, pauses blocking prompts, and ignores async prompts", async () => {
+  it("keeps timing across retries", async () => {
     vi.useFakeTimers();
     const env = await setup();
     await rm(env.configPath);
     await env.runtime.start(env.ctx);
-    env.runtime.pause();
     env.runtime.begin(env.ctx);
-    vi.advanceTimersByTime(1000);
-    expect(env.render()).toContain("0s active");
-    env.runtime.resume();
-    vi.advanceTimersByTime(2000);
-    env.runtime.begin(env.ctx);
-    env.runtime.setAsyncPrompt({ active: true });
-    env.runtime.pause();
-    vi.advanceTimersByTime(1000);
-    env.runtime.resume();
-    env.runtime.setAsyncPrompt({ active: false });
-    env.runtime.pause();
     vi.advanceTimersByTime(3000);
+    env.runtime.begin(env.ctx);
+    vi.advanceTimersByTime(4000);
     await env.runtime.settled(env.ctx);
-    env.runtime.resume();
     expect(env.snapshots()).toHaveLength(1);
-    expect(env.snapshots()[0]).toMatchObject({ activeMs: 3000, wallMs: 7000 });
+    expect(env.snapshots()[0]).toMatchObject({ wallMs: 7000 });
     expect(env.recaps()).toEqual([]);
     expect(env.host.getNotifications()).toEqual([]);
     expect(env.stream).not.toHaveBeenCalled();
@@ -343,7 +320,7 @@ describe("turn recap runtime", () => {
     expect(env.card()).toContain("+4.9k context");
   });
 
-  it("recognizes aborts after the before-settle notification", async () => {
+  it("recognizes aborts after the last turn", async () => {
     const env = await setup();
     env.runtime.begin(env.ctx);
     env.runtime.boundary(boundary("completed"), env.ctx);
@@ -524,7 +501,7 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(1000);
     await env.runtime.settled(ctx);
     expect(env.render()).toBe("");
-    expect(env.snapshots()[0]?.activeMs).toBe(1000);
+    expect(env.snapshots()[0]?.wallMs).toBe(1000);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

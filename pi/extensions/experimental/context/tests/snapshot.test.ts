@@ -1,9 +1,5 @@
 import { fauxAssistantMessage, Type } from "@earendil-works/pi-ai";
-import {
-  createSyntheticSourceInfo,
-  estimateTokens,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+import { estimateTokens, SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { fixtureSnapshot } from "./fixtures/snapshot.js";
@@ -85,30 +81,72 @@ describe("snapshot", () => {
     expect(fixtureSnapshot({ branch: session.getBranch() }).messages).toHaveLength(1);
   });
 
-  it("includes only active definitions and counts the assembled prompt once, even with zero reported usage", () => {
-    const tools = ["read", "bash"].map((name) => ({
-      name,
-      description: name,
-      parameters: Type.Object({}),
-      exposure: "direct" as const,
-      sourceInfo: createSyntheticSourceInfo(`builtin:${name}`, { source: "builtin" }),
-    }));
-
-    const prompt =
-      "You are pi.\n# /repo/AGENTS.md\nUNIQUE PROJECT INSTRUCTIONS\n<available_skills>skill description</available_skills>";
-
-    const snapshot = fixtureSnapshot({
-      prompt,
-      tools,
-      activeTools: ["read"],
-      usage: { tokens: 0, contextWindow: 200_000, percent: 0 },
+  it("shows the prompt and tool declarations the latest request recorded, not live state", () => {
+    const session = SessionManager.inMemory();
+    const read = { name: "read", description: "REQUEST DESCRIPTION", parameters: Type.Object({}) };
+    const bash = { name: "bash", description: "bash", parameters: Type.Object({}) };
+    session.appendMessage({
+      role: "system",
+      content: "",
+      sections: { preamble: "You are pi.", tools: "<tools>read</tools>" },
+      toolsAdded: [read, bash],
+      timestamp: 0,
+    });
+    session.appendMessage(user("first message"));
+    session.appendMessage({
+      role: "system",
+      content: "",
+      sections: { skills: "<skills>alpha</skills>", tools: null },
+      toolsRemoved: [{ name: "bash" }],
+      timestamp: 0,
     });
 
+    const snapshot = fixtureSnapshot({ pendingPrompt: "LIVE PROMPT", branch: session.getBranch() });
+    const sections = { preamble: "You are pi.", skills: "<skills>alpha</skills>" };
+
+    expect(snapshot).toMatchObject({
+      recorded: true,
+      system: {
+        label: "System prompt",
+        body: "You are pi.\n\n<skills>alpha</skills>",
+        estimatedTokens: estimateTokens({ role: "system", content: "", sections, timestamp: 0 }),
+      },
+    });
     expect(snapshot.tools.map((part) => part.label)).toEqual(["read"]);
-    expect(snapshot.tools[0]?.estimatedTokens).toBeGreaterThan(0);
-    expect(snapshot.system.body).toBe(prompt);
-    expect(snapshot.system.estimatedTokens).toBe(Math.ceil(prompt.length / 4));
-    expect(snapshot.usage?.tokens).toBe(0);
+    expect(JSON.parse(snapshot.tools[0]?.body ?? "")).toEqual(JSON.parse(JSON.stringify(read)));
+    expect(snapshot.tools[0]?.estimatedTokens).toBe(
+      estimateTokens({ role: "system", content: "", toolsAdded: [read], timestamp: 0 }),
+    );
+    expect(snapshot.messages.map((part) => part.label)).toEqual(["1. user"]);
+
+    // Compaction checkpoints the declarations; retained system messages are not replayed again.
+    const kept = session.appendMessage(user("retained message"));
+    session.appendCompaction("COMPACTED SUMMARY", kept, 1000);
+    session.appendMessage(user("latest message"));
+
+    const compacted = fixtureSnapshot({
+      pendingPrompt: "LIVE PROMPT",
+      branch: session.getBranch(),
+    });
+
+    expect(compacted.system.body).toBe(snapshot.system.body);
+    expect(compacted.tools.map((part) => part.label)).toEqual(["read"]);
+    expect(compacted.messages.map((part) => part.body)).toEqual([
+      expect.stringContaining("COMPACTED SUMMARY"),
+      expect.stringContaining("Effective content:\nretained message"),
+      expect.stringContaining("Effective content:\nlatest message"),
+    ]);
+  });
+
+  it("shows the pending prompt until the first request records declarations", () => {
+    const snapshot = fixtureSnapshot({ pendingPrompt: "LIVE PROMPT", branch: [] });
+
+    expect(snapshot).toMatchObject({
+      recorded: false,
+      tools: [],
+      system: { label: "System prompt · not yet sent", body: "LIVE PROMPT" },
+    });
+    expect(buildTree(snapshot)[1]?.body).toContain("No request has recorded tool declarations yet");
   });
 
   it("reconstructs the active branch and compaction", () => {
@@ -141,42 +179,6 @@ describe("snapshot", () => {
         .messages.map((part) => part.body)
         .join("\n"),
     ).toContain("BRANCH SUMMARY");
-  });
-
-  it("keeps persisted system messages out of the conversation", () => {
-    const session = SessionManager.inMemory();
-    const read = { name: "read", description: "read", parameters: Type.Object({}) };
-    session.appendMessage({
-      role: "system",
-      content: "",
-      sections: { preamble: "You are pi.", tools: "<tools>read</tools>" },
-      toolsAdded: [read],
-      timestamp: 0,
-    });
-    session.appendMessage(user("first message"));
-    session.appendMessage({
-      role: "system",
-      content: "",
-      sections: { skills: "<skills>alpha</skills>", tools: null },
-      toolsRemoved: [{ name: "read" }],
-      timestamp: 0,
-    });
-    const kept = session.appendMessage(user("retained message"));
-    session.appendCompaction("COMPACTED SUMMARY", kept, 1000);
-    session.appendMessage(user("latest message"));
-
-    const snapshot = fixtureSnapshot({ prompt: "EFFECTIVE PROMPT", branch: session.getBranch() });
-
-    expect(snapshot.system.body).toBe("EFFECTIVE PROMPT");
-    expect(snapshot.messages.map((part) => part.label.replace(/^\d+\. /, ""))).toEqual([
-      "user",
-      "user",
-      "user",
-    ]);
-    expect(snapshot.messages.map((part) => part.body).slice(1)).toEqual([
-      expect.stringContaining("Effective content:\nretained message"),
-      expect.stringContaining("Effective content:\nlatest message"),
-    ]);
   });
 
   it("uses Pi's conversion for custom messages and excludes !! executions", () => {

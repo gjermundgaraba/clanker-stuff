@@ -1,59 +1,48 @@
 # Footer configuration
 
-Run `/footer` in TUI mode to edit the footer. The editor previews changes immediately but writes them only when you choose **Save**.
+Run `/footer` in TUI mode to edit the layout. Pi's editor opens `footer.json`; saving validates the text, writes the file, and applies it immediately. An invalid edit reopens with your text after an error names the problem. `/footer reset` writes the default layout. `/footer inspect` lists every widget with its placement, current text, whether the last render truncated it, and recent errors.
 
-## Editor controls
-
-- Arrow keys or `hjkl` select widgets and each cell's **+ Add** target; `Enter` grabs a widget or opens that cell's picker.
-- The picker lists every widget not already placed and marks unavailable contributors as waiting.
-- `Delete` or `Backspace` removes a widget from its cell; add it again through any cell's picker.
-- `I` cycles icon families, `E` enables or disables the custom footer, and `W` cycles preview width.
-- `R` restores the complete default layout; `S` saves, and `Q` or `Escape` closes without saving.
-- `/footer inspect` shows values and layout decisions; `/footer doctor` shows ownership, config, collector, and protocol errors.
-
-Pi exposes one custom-footer slot. If another extension replaces this host, it stays inactive instead of fighting for ownership. Disable the competing footer or change extension load order, then reload.
-
-## Built-in values
-
-The model and thinking widgets show the selected values. When the current branch's last successful assistant response used a different model or thinking level, they label **selected** and **last** separately. This includes physical routes behind virtual models and is historical information, not a prediction of the next route. Error and aborted responses do not replace the last executed values.
-
-Session totals include assistant usage, compaction, branch summaries, and standalone usage entries such as cache warming. Idle usage appends refresh on the next footer render or periodic rebuild.
+The file is `footer.json` under pi's agent directory, normally `~/.pi/agent/footer.json`. A missing file uses the default without creating one, and a symlinked file is written through to its target. An invalid file stays untouched: the default renders and a warning names the problem. The host reads the file at session start and whenever `/footer` opens.
 
 ## File format
 
-The global file is `footer.json` under pi's effective agent directory, normally `~/.pi/agent/footer.json`. A missing file uses Default without creating one. The host reloads it at session start and whenever `/footer` opens.
+The default layout:
 
 ```json
 {
-  "version": 1,
-  "enabled": true,
   "iconFamily": "unicode",
-  "separator": "·",
   "rows": [
-    {
-      "left": ["footer.cwd", "footer.git"],
-      "center": [],
-      "right": ["footer.model", "footer.thinking"]
-    },
-    {
-      "left": ["footer.context"],
-      "center": [],
-      "right": ["clanker.usage.active"]
-    },
-    {
-      "left": ["footer.widgets", "footer.statuses"],
-      "center": [],
-      "right": []
-    }
+    { "left": ["footer.cwd", "footer.git"], "right": ["footer.model", "footer.thinking"] },
+    { "left": ["footer.context"], "right": ["status:usage"] },
+    { "left": ["footer.statuses"], "right": [] }
   ],
-  "widgets": {
-    "footer.git": { "enabled": false }
-  }
+  "border": [
+    "status:ask-question",
+    "status:vim",
+    "status:background-tasks.pending",
+    "status:background-tasks.active"
+  ],
+  "hidden": []
 }
 ```
 
-`rows` accepts one to three rows. Each widget ID may appear once across `left`, `center`, and `right`; the first duplicate wins and `/footer doctor` reports the rest. Use `status:<setStatus key>` for an individual native status. Widget IDs and native status keys containing terminal controls are rejected. Unknown IDs remain saved so optional contributors can appear later.
+- `rows` holds the footer lines, one per entry. `left` anchors to the left edge and `right` to the right edge. At narrow widths widgets share the space and truncate toward the middle of the line; the working directory keeps its end.
+- `border` lists widgets drawn at the right end of the editor's top border, in order: native statuses or built-ins, but not `footer.statuses`. A widget that does not fit is skipped and shown nowhere, and a later one may still fit. The border uses the shared editor; while another custom editor is installed, including one installed later, border statuses appear in `footer.statuses` instead and border built-ins are hidden.
+- `hidden` lists native statuses (`status:<key>`) to leave out of `footer.statuses`.
+- `iconFamily` is `ascii`, `unicode`, or `nerd` for built-in widget icons. Nerd icons need a Nerd Font in your terminal.
 
-`iconFamily` is `ascii`, `unicode`, or `nerd`. Row arrays control placement and order; `widgets` records explicit enabled or omitted state. At narrow widths, widgets stay in their configured groups and truncate toward the center unless a rich widget provides another truncation hint.
+All four fields are required. Unknown fields, an ID listed twice across rows, border, and hidden, a non-status entry in hidden, or `footer.statuses` in the border reject the whole file. Unknown widget IDs are kept but ignored; the session-start warning and `/footer inspect` name them.
 
-The format is strict: unknown or invalid fields reject the whole file. The invalid file remains untouched, Default renders in memory, and the editor asks for a second explicit Save before replacing it.
+## Widgets
+
+| ID                   | Shows                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `footer.cwd`         | Working directory.                                                                                                                                                        |
+| `footer.git`         | Git branch, as Pi reports it.                                                                                                                                             |
+| `footer.git.details` | Staged `+`, unstaged `~`, untracked `?`, ahead `↑`, and behind `↓` counts. Runs `git status` at session start, after each turn, and on branch changes, only while placed. |
+| `footer.model`       | Selected model. When the branch's last successful response used another model, `selected: … · last: …`, including physical routes behind virtual models.                  |
+| `footer.thinking`    | Thinking level, split the same way.                                                                                                                                       |
+| `footer.context`     | Context use against the window. Shows `?` while unknown, such as after compaction until the next response.                                                                |
+| `footer.session`     | Session name, elapsed time, tokens, cache, and cost across every entry, including compaction, branch summaries, and standalone usage such as cache warming.               |
+| `status:<key>`       | One native status set with `ctx.ui.setStatus(key, text)`.                                                                                                                 |
+| `footer.statuses`    | Every native status not placed elsewhere or hidden, sorted by key.                                                                                                        |

@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CliProcess, CliStarter } from "./cli.js";
-import { processFailure, startCli } from "./cli.js";
+import { startCli } from "./cli.js";
 
 const SHUTDOWN_TIMEOUT_MS = 2500;
 
@@ -94,7 +94,7 @@ export const tokenizeArguments = (input: string): string[] => {
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-export const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
+const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
   ctx.ui.notify(`${label}: ${errorMessage(cause)}`, "error");
 };
 
@@ -114,7 +114,6 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
 
   const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
     let pendingStderr = "";
-    let streamedStderr = "";
 
     const streamStderrLines = (chunk: string, flush = false): void => {
       pendingStderr += chunk;
@@ -132,8 +131,6 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
         if (message !== "") {
           ctx.ui.notify(message, "info");
         }
-
-        streamedStderr += `${line}\n`;
       }
     };
 
@@ -159,8 +156,6 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
     activeRuns.add(run);
 
     const settleRun = async (): Promise<void> => {
-      let flushPendingStderrOnError = true;
-
       try {
         const completion = await cliProcess.completion;
 
@@ -173,23 +168,15 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
         }
 
         if (completion.code !== 0) {
-          flushPendingStderrOnError = false;
-          throw processFailure({
-            ...completion,
-            stderr: completion.stderr.startsWith(streamedStderr)
-              ? completion.stderr.slice(streamedStderr.length)
-              : completion.stderr,
-          });
+          throw new Error(`exited with code ${completion.code}`);
         }
 
         streamStderrLines("", true);
         options.onOutput(completion.stdout);
       } catch (error) {
         if (!cliProcess.signal.aborted) {
-          if (flushPendingStderrOnError) {
-            streamStderrLines("", true);
-          }
-
+          // Stderr was shown as it arrived, so a failure only adds how the CLI ended.
+          streamStderrLines("", true);
           notifyError(ctx, options.failureLabel, error);
         }
       } finally {

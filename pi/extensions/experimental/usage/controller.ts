@@ -1,18 +1,4 @@
-import { Value } from "typebox/value";
-import {
-  FOOTER_PROTOCOL_VERSION,
-  FOOTER_READY_EVENT,
-  FOOTER_READY_REQUEST_EVENT,
-  FOOTER_WIDGET_EVENT,
-  FooterReadyMessageSchema,
-} from "@clanker-stuff/footer-protocol";
-import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-  MessageEndEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { fetchClaudeUsage } from "./adapters/claude.js";
 import { fetchCopilotUsage } from "./adapters/copilot.js";
@@ -23,8 +9,8 @@ import { fetchRadiusUsage } from "./adapters/radius.js";
 import type { AdapterDeps } from "./adapters/util.js";
 import { fetchXaiUsage } from "./adapters/xai.js";
 import { fetchZaiUsage } from "./adapters/zai.js";
-import { providerAuthClientFromContext } from "./auth.js";
-import type { ProviderAuthClient } from "./auth.js";
+import { contextAuth } from "./auth.js";
+import type { GetAuth } from "./auth.js";
 import { UsageCache } from "./cache.js";
 import { formatDetail, formatProviderError, formatRefreshFailed } from "./format.js";
 import { defaultFetchJson } from "./http.js";
@@ -36,14 +22,8 @@ import {
 } from "./providers.js";
 import type { SupportedProvider, UsageFetchResult } from "./providers.js";
 import { usageFailure } from "./providers.js";
-import {
-  activeSnapshot,
-  detailsSnapshot,
-  fallbackText,
-  presentationProvider,
-  STATUS_KEY,
-} from "./widgets.js";
-import type { UsagePresentation } from "./widgets.js";
+import { presentationProvider, STATUS_KEY, statusText } from "./status.js";
+import type { UsagePresentation } from "./status.js";
 
 const REFRESH_INTERVAL_MS = 5 * 60_000;
 
@@ -53,7 +33,7 @@ const NO_AVAILABLE_PROVIDERS_MESSAGE =
 export interface UsageControllerDependencies {
   fetchJson: typeof defaultFetchJson;
   now: () => number;
-  providerAuthClient: (ctx: ExtensionContext) => ProviderAuthClient;
+  getAuth: (ctx: ExtensionContext) => GetAuth;
   radiusBillingUrl?: (ctx: ExtensionContext) => string | undefined;
 }
 
@@ -99,7 +79,7 @@ const radiusBillingUrlFromContext = (ctx: ExtensionContext): string | undefined 
 const defaultDependencies: UsageControllerDependencies = {
   fetchJson: defaultFetchJson,
   now: Date.now,
-  providerAuthClient: providerAuthClientFromContext,
+  getAuth: contextAuth,
 };
 
 const parseUsageArgs = (
@@ -117,10 +97,9 @@ const parseUsageArgs = (
 };
 
 export const createUsageController = (
-  pi: ExtensionAPI,
   dependencies: UsageControllerDependencies = defaultDependencies,
 ) => {
-  const { fetchJson, now, providerAuthClient } = dependencies;
+  const { fetchJson, now, getAuth } = dependencies;
   const radiusBillingUrl = dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
   const cache = new UsageCache({ now });
 
@@ -147,74 +126,23 @@ export const createUsageController = (
   let generation = 0;
   let disposed = false;
   let current: { context: ExtensionContext; presentation: UsagePresentation } | undefined;
-  const getCurrent = () => current;
-  let instanceId: string | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
-  let readyUnsubscribe: (() => void) | undefined;
-  const published = new Map<string, FooterWidgetSnapshot>();
-
-  const emit = (type: "upsert" | "remove", value: FooterWidgetSnapshot | string): void => {
-    if (instanceId === undefined) {
-      return;
-    }
-
-    pi.events.emit(
-      FOOTER_WIDGET_EVENT,
-      type === "upsert"
-        ? {
-            instanceId,
-            protocol: FOOTER_PROTOCOL_VERSION,
-            type,
-            widget: value,
-          }
-        : { id: value, instanceId, protocol: FOOTER_PROTOCOL_VERSION, type },
-    );
-  };
-
-  const publishSnapshot = (snapshot: FooterWidgetSnapshot): void => {
-    published.set(snapshot.id, snapshot);
-    emit("upsert", snapshot);
-  };
 
   const publish = (): void => {
-    if (!current) {
-      return;
-    }
-
-    publishSnapshot(activeSnapshot(current.presentation, now()));
-    publishSnapshot(detailsSnapshot(current.presentation, now()));
-
-    if (current.context.mode === "tui") {
-      current.context.ui.setStatus(STATUS_KEY, fallbackText(current.presentation));
+    if (current?.context.mode === "tui") {
+      current.context.ui.setStatus(
+        STATUS_KEY,
+        statusText(current.presentation, now(), current.context.ui.theme),
+      );
     }
   };
 
-  const listenForReady = (): void => {
-    if (readyUnsubscribe !== undefined) {
-      return;
+  const clear = (ctx: ExtensionContext | undefined): void => {
+    if (ctx?.mode === "tui") {
+      ctx.ui.setStatus(STATUS_KEY, undefined);
     }
 
-    readyUnsubscribe = pi.events.on(FOOTER_READY_EVENT, (value) => {
-      if (!Value.Check(FooterReadyMessageSchema, value)) {
-        return;
-      }
-
-      const { instanceId: readyInstanceId } = value;
-
-      if (instanceId === readyInstanceId) {
-        return;
-      }
-
-      instanceId = readyInstanceId;
-
-      for (const snapshot of published.values()) {
-        emit("upsert", snapshot);
-      }
-    });
-    pi.events.emit(FOOTER_READY_REQUEST_EVENT, {
-      protocol: FOOTER_PROTOCOL_VERSION,
-      type: "ready-request",
-    });
+    current = undefined;
   };
 
   const getOrFetch = (
@@ -223,25 +151,15 @@ export const createUsageController = (
     force: boolean,
   ): Promise<UsageFetchResult> =>
     cache.getOrFetch(provider, force, () =>
-      usageFetchers[provider](
-        {
-          authClient: providerAuthClient(ctx),
-          fetchJson,
-          now,
-        },
-        ctx,
-      ),
+      usageFetchers[provider]({ getAuth: getAuth(ctx), fetchJson, now }, ctx),
     );
 
   const refresh = (ctx: ExtensionContext, provider: string | undefined, force = false): void => {
     generation += 1;
 
+    // `/usage` explains a target without quota reporting; the status line stays empty.
     if (!isSupportedProvider(provider)) {
-      current = {
-        context: ctx,
-        presentation: { kind: "unsupported", message: quotaUnavailableMessage(provider) },
-      };
-      publish();
+      clear(ctx);
 
       return;
     }
@@ -255,28 +173,17 @@ export const createUsageController = (
     const refreshGeneration = generation;
     void (async () => {
       const result = await getOrFetch(provider, ctx, force);
-      const active = getCurrent();
 
-      if (
-        refreshGeneration !== generation ||
-        active === undefined ||
-        presentationProvider(active.presentation) !== provider
-      ) {
-        return;
-      }
+      // Every target change and dispose starts a new generation.
+      if (refreshGeneration !== generation) return;
 
       if (result.ok) {
-        current = {
-          context: ctx,
-          presentation: { kind: "ready", snapshot: result.snapshot },
-        };
+        current = { context: ctx, presentation: { kind: "ready", snapshot: result.snapshot } };
       } else {
         const snapshot = cache.getLastSuccess(provider);
         current = {
           context: ctx,
-          presentation: snapshot
-            ? { kind: "stale", message: result.error.message, snapshot }
-            : { kind: "error", message: result.error.message, provider },
+          presentation: snapshot ? { kind: "stale", snapshot } : { kind: "error", provider },
         };
       }
 
@@ -291,27 +198,12 @@ export const createUsageController = (
     }
   };
 
-  listenForReady();
-
   return {
     dispose: (): void => {
       disposed = true;
       generation += 1;
       stopTimer();
-
-      for (const id of published.keys()) {
-        emit("remove", id);
-      }
-
-      if (current?.context.mode === "tui") {
-        current.context.ui.setStatus(STATUS_KEY, undefined);
-      }
-
-      published.clear();
-      readyUnsubscribe?.();
-      readyUnsubscribe = undefined;
-      instanceId = undefined;
-      current = undefined;
+      clear(current?.context);
     },
     runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const parsed = parseUsageArgs(args);
@@ -341,15 +233,22 @@ export const createUsageController = (
         ({ result }) => result.ok || result.error.kind === "failure",
       );
 
-      const unsupported = isSupportedProvider(target) ? undefined : quotaUnavailableMessage(target);
+      const targetResult = results.find(({ provider }) => provider === target)?.result;
+
+      // The status line only says the target's usage is unavailable; name the reason here.
+      const note = !isSupportedProvider(target)
+        ? quotaUnavailableMessage(target)
+        : targetResult?.ok === false && targetResult.error.kind === "unavailable"
+          ? formatProviderError(target, targetResult.error.message)
+          : undefined;
 
       if (available.length === 0) {
-        ctx.ui.notify(unsupported ?? NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
+        ctx.ui.notify(note ?? NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
 
         return;
       }
 
-      const lines: string[] = unsupported === undefined ? [] : [unsupported];
+      const lines: string[] = note === undefined ? [] : [note];
 
       for (const { provider, result } of available) {
         const snapshot = result.ok ? result.snapshot : cache.getLastSuccess(provider);
@@ -375,21 +274,16 @@ export const createUsageController = (
         return;
       }
 
-      listenForReady();
       refresh(ctx, resolveQuotaProvider(ctx));
       stopTimer();
       refreshTimer = setInterval(() => {
         if (current) {
-          const provider = presentationProvider(current.presentation);
-
-          if (provider) {
-            refresh(current.context, provider);
-          }
+          refresh(current.context, presentationProvider(current.presentation));
         }
       }, REFRESH_INTERVAL_MS);
     },
-    refresh: (ctx: ExtensionContext, newest?: MessageEndEvent["message"]): void => {
-      if (ctx.mode === "tui") refresh(ctx, resolveQuotaProvider(ctx, newest));
+    refresh: (ctx: ExtensionContext): void => {
+      if (ctx.mode === "tui") refresh(ctx, resolveQuotaProvider(ctx));
     },
   };
 };

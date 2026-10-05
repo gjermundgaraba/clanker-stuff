@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
-import { answerMessage, answerResult, isDelivered } from "../delivery.js";
+import { answerEnvelope, answerMessage, answerResult } from "../delivery.js";
 import {
-  createAnswerMarkdownTransformer,
   renderCall,
   renderResult,
   renderReviseCall,
+  transformAnswerMarkdown,
 } from "../transcript.js";
 
 const request = {
@@ -42,54 +42,52 @@ const context = {
 };
 
 describe("compact questionnaire transcript", () => {
-  it("projects only exact known user answers, preserving notes, revisions and canonical delivery", () => {
+  it("renders exact answer messages from their own envelope, leaving any other text verbatim", () => {
     let item = createInteraction("q_display", request, "call", "async");
-    item = transition(item, item.version, { type: "select", question: "q", option: "a" });
-    item = transition(item, item.version, {
+    item = transition(item, { type: "select", question: "q", option: "a" });
+    item = transition(item, {
       type: "note",
       question: "q",
       option: "a",
       text: "Option note",
     });
-    item = transition(item, item.version, { type: "submit" });
-    item = transition(item, item.version, {
+    item = transition(item, { type: "submit" });
+    item = transition(item, {
       type: "reopen",
       base: 1,
       initiated_by: "user",
       mode: "async",
     });
-    item = transition(item, item.version, {
+    item = transition(item, {
       type: "custom",
       question: "q",
       text: "A written alternative\n```\n# literal text\n```",
     });
-    item = transition(item, item.version, {
+    item = transition(item, {
       type: "note",
       question: "q",
       text: "Written-answer note",
     });
-    item = transition(item, item.version, { type: "note", text: "x".repeat(900) + "END_NOTE" });
-    item = transition(item, item.version, { type: "submit" });
-    const read = vi.fn(() => [item]);
-    const transform = createAnswerMarkdownTransformer(read);
+    item = transition(item, { type: "note", text: "x".repeat(900) + "END_NOTE" });
+    item = transition(item, { type: "submit" });
     const ctx = { messageType: "user" as const, isStreaming: false, availableWidth: 80 };
-    const submission = item.submissions[1];
-    assert(submission);
-    const wire = answerMessage(item, submission);
-    const before = JSON.stringify(item);
-    const projected = transform(wire, ctx);
+    const [first, submission] = item.submissions;
+    assert(first && submission);
+    const wire = answerMessage(answerEnvelope(item, submission));
+    const projected = transformAnswerMarkdown(wire, ctx);
     expect(projected).not.toContain('"type":"questionnaire_answer"');
     expect(projected).not.toContain(item.id);
     expect(projected).not.toContain("Option note"); // Deselected option notes stay private.
-    const first = item.submissions[0];
-    assert(first);
-    expect(transform(answerMessage(item, first), ctx)).toContain("Option note");
+    expect(transformAnswerMarkdown(answerMessage(answerEnvelope(item, first)), ctx)).toContain(
+      "Option note",
+    );
     initTheme("dark");
 
     const render = (markdown: string) =>
       new Markdown(markdown, 0, 0, getMarkdownTheme()).render(80).join("\n");
 
     const rendered = render(projected);
+    expect(rendered).toContain("Synthetic request");
     expect(rendered).toContain("supersedes revision 1");
     expect(rendered).toContain("Written-answer note");
     expect(rendered).toContain("END_NOTE");
@@ -102,33 +100,17 @@ describe("compact questionnaire transcript", () => {
       rendered.indexOf("# literal text"),
     );
     expect(rendered.split("\n").some((line) => line.trimEnd().endsWith("\\"))).toBe(false);
-    expect(JSON.stringify(item)).toBe(before);
-    expect(answerMessage(item, submission)).toBe(wire);
-    expect(
-      isDelivered(item, submission, [
-        {
-          type: "message",
-          id: "message",
-          parentId: null,
-          timestamp: submission.timestamp,
-          message: { role: "user", content: wire, timestamp: 0 },
-        },
-      ]),
-    ).toBe(true);
 
     for (const untouched of [
       wire + "\nUnrelated queued text",
       "Quoted answer:\n" + wire,
-      wire.replace("END_NOTE", "EDITED_NOTE"),
-      wire.replace("q_display", "q_unknown"),
+      wire.replace("Synthetic request ·", "Edited summary ·"),
+      wire.replace('"revision":2', '"revision":"2"'),
     ])
-      expect(transform(untouched, ctx)).toBe(untouched);
-    expect(createAnswerMarkdownTransformer(() => [])(wire, ctx)).toBe(wire);
-    read.mockClear();
-    expect(transform(wire, { ...ctx, messageType: "assistant" })).toBe(wire);
-    expect(transform(wire, { ...ctx, messageType: "assistant-thinking" })).toBe(wire);
-    expect(transform("Ordinary user prose", ctx)).toBe("Ordinary user prose");
-    expect(read).not.toHaveBeenCalled();
+      expect(transformAnswerMarkdown(untouched, ctx)).toBe(untouched);
+    expect(transformAnswerMarkdown(wire, { ...ctx, messageType: "assistant" })).toBe(wire);
+    expect(transformAnswerMarkdown(wire, { ...ctx, messageType: "assistant-thinking" })).toBe(wire);
+    expect(transformAnswerMarkdown("Ordinary user prose", ctx)).toBe("Ordinary user prose");
   });
   it("keeps collapsed calls concise and exposes the complete authored request when expanded", () => {
     const collapsed = renderCall(request, theme, context, "async").render(100).join("\n");
@@ -152,7 +134,7 @@ describe("compact questionnaire transcript", () => {
 
     for (const [status, label] of [
       ["cancelled", "Cancelled by the user"],
-      ["delivery_paused", "draft kept"],
+      ["closed", "draft kept"],
     ])
       expect(
         renderResult(
@@ -180,12 +162,12 @@ describe("compact questionnaire transcript", () => {
   });
   it("renders a short answer summary without truncating the submitted notes", () => {
     let item = createInteraction("q_test", request, "call", "blocking");
-    item = transition(item, item.version, { type: "select", question: "q", option: "a" });
-    item = transition(item, item.version, { type: "note", text: "x".repeat(900) + "END_NOTE" });
-    item = transition(item, item.version, { type: "submit" });
+    item = transition(item, { type: "select", question: "q", option: "a" });
+    item = transition(item, { type: "note", text: "x".repeat(900) + "END_NOTE" });
+    item = transition(item, { type: "submit" });
     const submission = item.submissions[0];
     assert(submission);
-    const result = answerResult(item, submission);
+    const result = answerResult(answerEnvelope(item, submission));
     const before = JSON.stringify(result);
 
     const collapsed = renderResult(result, { expanded: false, isPartial: false }, theme, context)

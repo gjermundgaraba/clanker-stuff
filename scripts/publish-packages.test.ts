@@ -24,12 +24,7 @@ describe("package publication", () => {
 
     const result = spawnSync(
       process.execPath,
-      [
-        PUBLISH_PACKAGES_PATH,
-        "@clanker-stuff/footer-protocol",
-        "@clanker-stuff/footer-protocol",
-        "--dry-run",
-      ],
+      [PUBLISH_PACKAGES_PATH, "@clanker-stuff/pi-tones", "@clanker-stuff/pi-tones", "--dry-run"],
       {
         cwd: path.join(import.meta.dirname, ".."),
         encoding: "utf-8",
@@ -41,9 +36,7 @@ describe("package publication", () => {
     );
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain(
-      "Duplicate package in publish list: @clanker-stuff/footer-protocol",
-    );
+    expect(result.stderr).toContain("Duplicate package in publish list: @clanker-stuff/pi-tones");
     await expect(readFile(marker, "utf-8")).rejects.toMatchObject({
       code: "ENOENT",
     });

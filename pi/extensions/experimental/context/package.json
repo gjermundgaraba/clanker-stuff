@@ -21,7 +21,6 @@
     "overlay.ts",
     "observation.ts",
     "views.ts",
-    "mouse.ts",
     "render.ts",
     "runtime.ts",
     "snapshot.ts",

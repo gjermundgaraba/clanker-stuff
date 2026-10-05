@@ -1,33 +1,27 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { isFocusable } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { Type } from "@earendil-works/pi-ai";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import {
-  createCustomUiDriver,
-  createKeybindings,
-  createMockTui,
-} from "../../../../tests/harness/tui.js";
+import { createCustomUiDriver, createKeybindings } from "../../../../tests/harness/tui.js";
 import extension from "../index.js";
 
 describe("context command", () => {
   it("opens from current session state and refreshes on each invocation", async () => {
-    const host = createExtensionHost(extension, {
-      allTools: ["read", "bash"],
-      activeTools: ["read"],
-    });
-
+    const host = createExtensionHost(extension);
     const session = SessionManager.inMemory();
     session.appendMessage({ role: "user", content: "RESTORED MESSAGE", timestamp: 0 });
 
-    for (const prompt of ["FIRST PROMPT", "UPDATED PROMPT"]) {
+    const inspect = async (prompt: string) => {
+      let opened = "";
+
       const ui = createCustomUiDriver({
         captureRender: "before",
         keys: ["\u001B"],
         width: 120,
         keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
         onComponent(component) {
-          expect(component.render(120).join("\n")).toContain(prompt);
+          opened = component.render(120).join("\n");
 
           for (const key of ["j", "j", "j", "j"]) component.handleInput?.(key);
         },
@@ -43,14 +37,29 @@ describe("context command", () => {
           ui: { custom: ui.custom },
         }),
       );
-      expect(ui.getLastRender()).toContain("RESTORED MESSAGE");
-      expect(ui.getLastRender()).toContain("Active tools (1)");
-    }
 
+      return `${opened}\n${ui.getLastRender()}`;
+    };
+
+    const pending = await inspect("PENDING PROMPT");
+    expect(pending).toContain("RESTORED MESSAGE");
+    expect(pending).toContain("PENDING PROMPT");
+    expect(pending).not.toContain("Tool declarations (");
+
+    session.appendMessage({
+      role: "system",
+      content: "RECORDED PROMPT",
+      toolsAdded: [{ name: "read", description: "read", parameters: Type.Object({}) }],
+      timestamp: 0,
+    });
+    const recorded = await inspect("PENDING PROMPT");
+    expect(recorded).toContain("RECORDED PROMPT");
+    expect(recorded).not.toContain("PENDING PROMPT");
+    expect(recorded).toContain("Tool declarations (1)");
     expect([...host.getRegisteredCommands().keys()]).toEqual(["context"]);
   });
 
-  it("captures from startup, retains across overlay closes, and clears on navigation/reload/shutdown", async () => {
+  it("captures from startup, retains across overlay closes, and clears on navigation/session start", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext({ getSystemPrompt: () => "STATE ONLY" });
     await host.emitSessionStart(ctx);
@@ -72,7 +81,7 @@ describe("context command", () => {
           expect(observed.includes("REQUEST ONLY")).toBe(present);
           expect(observed).not.toContain("LATER MUTATION");
 
-          if (!present) expect(observed).toContain("No request observed on this branch");
+          if (!present) expect(observed).toContain("No request observed yet");
         },
       });
 
@@ -82,7 +91,7 @@ describe("context command", () => {
     await inspect(true);
     await inspect(true);
 
-    for (const reset of ["session_tree", "session_start", "session_shutdown"]) {
+    for (const reset of ["session_tree", "session_start"]) {
       await host.emit(
         "before_provider_request",
         { type: "before_provider_request", payload: { input: "REQUEST ONLY" } },
@@ -91,32 +100,6 @@ describe("context command", () => {
       await host.emit(reset, { type: reset }, ctx);
       await inspect(false);
     }
-  });
-
-  it("restores terminal mouse modes on shutdown even while the overlay is open", async () => {
-    const host = createExtensionHost(extension);
-    const tui = Object.assign(createMockTui(), { mode: "regular" });
-    const write = vi.fn();
-    Object.assign(tui.terminal, { write });
-
-    const ui = createCustomUiDriver({
-      tui,
-      keys: ["\u001B"],
-      keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
-      async onComponent(component) {
-        if (isFocusable(component)) component.focused = true;
-        expect(write).toHaveBeenLastCalledWith("\u001B[?1000h\u001B[?1006h");
-        await host.emitSessionShutdown();
-        expect(write).toHaveBeenLastCalledWith("\u001B[?1006l\u001B[?1000l");
-      },
-    });
-
-    await host.runCommand(
-      "context",
-      "",
-      host.createContext({ getSystemPrompt: () => "System prompt", ui: { custom: ui.custom } }),
-    );
-    expect(write).toHaveBeenCalledTimes(2);
   });
 
   it("refuses to open outside TUI mode", async () => {

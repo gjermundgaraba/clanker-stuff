@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchRadiusUsage, mapRadiusBillingPayload } from "../../adapters/radius.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
+import { NOW, okFetch, tokenAuth } from "./helpers.js";
 
 const BILLING_URL = "https://radius.pi.dev/v1/billing";
 
@@ -23,7 +23,7 @@ const payload = {
 const fetchPayload = async (value: unknown) =>
   await fetchRadiusUsage(
     {
-      authClient: tokenAuthClient("token"),
+      getAuth: tokenAuth("token"),
       fetchJson: okFetch(value),
       now: () => NOW,
     },
@@ -90,7 +90,7 @@ describe("radius usage", () => {
 
     const result = await fetchRadiusUsage(
       {
-        authClient: tokenAuthClient("token"),
+        getAuth: tokenAuth("token"),
         fetchJson: client.fetchJson,
         now: () => NOW,
       },

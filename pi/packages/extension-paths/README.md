@@ -1,6 +1,6 @@
 # extension-paths
 
-Resolves consistent config, data, cache, and project config paths for Pi extensions.
+Resolves consistent config and data paths for Pi extensions.
 
 ## Install
 
@@ -16,5 +16,4 @@ import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 const paths = getExtensionStoragePaths("my-extension");
 paths.configFile;
 paths.dataDir;
-paths.project(cwd).configFile;
 ```

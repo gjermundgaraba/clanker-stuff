@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  AgentBeforeSettleEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
 import type { LiveState, RecapView } from "./card.js";
@@ -46,8 +42,6 @@ class TurnRecapRuntime {
   /** Recap requests in flight; several can overlap later runs. */
   #pending = new Set<AbortController>();
   #requestRender: (() => void) | undefined;
-  #promptActive = false;
-  #asyncPrompt = false;
 
   constructor(pi: ExtensionAPI, configPath: string) {
     this.#pi = pi;
@@ -96,8 +90,7 @@ class TurnRecapRuntime {
   view(): LiveState | undefined {
     return (
       this.#active && {
-        activeMs: this.#active.timing.read().activeMs,
-        paused: this.#promptActive,
+        elapsedMs: this.#active.timing.read().wallMs,
         metrics: this.#active.metrics,
       }
     );
@@ -117,7 +110,7 @@ class TurnRecapRuntime {
 
     this.#active = {
       baseline: ctx.sessionManager.getLeafId(),
-      timing: createTiming(this.#promptActive),
+      timing: createTiming(),
       signal: ctx.signal,
       outcome: "completed",
       metrics: collectMetrics([]),
@@ -147,7 +140,8 @@ class TurnRecapRuntime {
     this.#requestRender?.();
   }
 
-  boundary(event: Pick<AgentBeforeSettleEvent, "outcome">, ctx: ExtensionContext): void {
+  /** Pi reports each turn's outcome; the last one before settling is the run's. */
+  boundary(event: Pick<TurnEndEvent, "outcome">, ctx: ExtensionContext): void {
     if (!this.#active) return;
     this.#active.outcome = event.outcome;
     this.#active.signal = ctx.signal ?? this.#active.signal;
@@ -167,6 +161,7 @@ class TurnRecapRuntime {
       runId: randomUUID(),
       ...active.timing.read(),
       finishedAt: Date.now(),
+      // An abort during tool execution leaves the last turn "completed".
       outcome: active.signal?.aborted ? "aborted" : active.outcome,
       metrics: active.metrics,
     };
@@ -204,25 +199,6 @@ class TurnRecapRuntime {
     }
   }
 
-  setAsyncPrompt(event: unknown): void {
-    this.#asyncPrompt =
-      typeof event === "object" && event !== null && "active" in event && event.active === true;
-  }
-
-  pause(): void {
-    if (this.#asyncPrompt) return;
-    this.#promptActive = true;
-    this.#active?.timing.pause();
-    this.#requestRender?.();
-  }
-
-  resume(): void {
-    if (!this.#promptActive) return;
-    this.#promptActive = false;
-    this.#active?.timing.resume();
-    this.#requestRender?.();
-  }
-
   shutdown(ctx: ExtensionContext): void {
     this.#reset(ctx);
   }
@@ -233,8 +209,6 @@ class TurnRecapRuntime {
     this.#recaps.clear();
     this.#active = undefined;
     this.#session = undefined;
-    this.#promptActive = false;
-    this.#asyncPrompt = false;
     this.#unmount(ctx);
   }
 

@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 
-import { resolveAccessToken } from "../auth.js";
-import type { ProviderAuthClient } from "../auth.js";
+import { accessToken } from "../auth.js";
+import type { GetAuth } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { FetchJson } from "../http.js";
 import { usageFailure } from "../providers.js";
@@ -13,33 +13,41 @@ import type {
 } from "../providers.js";
 
 export interface AdapterDeps {
-  authClient: ProviderAuthClient;
+  getAuth: GetAuth;
   fetchJson: FetchJson;
   now?: () => number;
 }
 
+export interface UsageRequest<S extends TSchema> {
+  url: string;
+  schema: S;
+  /** Subscription usage: API-key credentials are unavailable without a request. */
+  oauth?: boolean;
+  /** Authorization scheme; GitHub's Copilot endpoint uses `token`. */
+  scheme?: "Bearer" | "token";
+  headers?: Record<string, string>;
+}
+
 /**
- * GET a bearer-authenticated usage endpoint and map its checked payload. A 403
+ * GET an authenticated usage endpoint and map its checked payload. A 403
  * means the credential lacks this entitlement, so the provider is unavailable
  * rather than broken.
  */
-export const fetchBearerUsage = async <S extends TSchema>(
+export const fetchUsage = async <S extends TSchema>(
   deps: AdapterDeps,
   provider: SupportedProvider,
-  url: string,
-  schema: S,
+  request: UsageRequest<S>,
   map: (payload: Static<S>, nowMs: number) => UsageFetchResult,
 ): Promise<UsageFetchResult> => {
-  const auth = await resolveAccessToken(deps.authClient, provider);
+  const auth = await accessToken(deps.getAuth, provider, { oauth: request.oauth ?? false });
 
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
+  if (!auth.ok) return auth;
 
-  const response = await deps.fetchJson(url, schema, {
+  const response = await deps.fetchJson(request.url, request.schema, {
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${auth.value.accessToken}`,
+      Authorization: `${request.scheme ?? "Bearer"} ${auth.token}`,
+      ...request.headers,
     },
     timeoutMs: USAGE_HTTP_TIMEOUT_MS,
   });
@@ -90,7 +98,7 @@ export const parseIso = (value: string | undefined): string | undefined => {
 
 /**
  * Map a window length in seconds to a coarse bucket. 5h class accepts up to
- * 12h rolling windows; 7d class accepts multi-day through ~2 weeks.
+ * 12h rolling windows; week class accepts multi-day through ~2 weeks.
  */
 export const windowIdFromLimitSeconds = (seconds: number): UsageWindowId | undefined => {
   if (!Number.isFinite(seconds) || seconds <= 0) {
@@ -102,7 +110,7 @@ export const windowIdFromLimitSeconds = (seconds: number): UsageWindowId | undef
   }
 
   if (seconds <= 14 * 86_400) {
-    return "7d";
+    return "week";
   }
 
   return "month";

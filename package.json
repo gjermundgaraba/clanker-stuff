@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:plannotator-review": "node ./scripts/build-plannotator-review.ts",
     "eval:frontier": "uv run --project pi/evals python -m pi_evals.frontier",
     "eval:scaling": "uv run --project pi/evals python -m pi_evals.scaling",
     "prepare": "vp config --no-agent",

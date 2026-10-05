@@ -1,6 +1,6 @@
 {
   "name": "plannotator",
-  "version": "0.2.0+codex.20260807154209",
+  "version": "0.3.0+codex.20261002201420",
   "description": "Adds lightweight Plannotator review and annotation workflows to Codex.",
   "author": {
     "name": "Gjermund Garaba"

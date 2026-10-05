@@ -4,9 +4,8 @@ import {
   createIdentityTheme,
   createKeybindings,
   createMockTui,
-  createStatusIndicator,
 } from "../../../tests/harness/tui.js";
-import { acquireEditorHost, EditorHost } from "../index.js";
+import { acquireEditorHost, currentEditorHost, EditorHost } from "../index.js";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 function setup() {
@@ -31,7 +30,7 @@ function setup() {
   return { ctx, host, editor };
 }
 
-describe("shared editor ownership and snapshots", () => {
+describe("shared editor ownership and document", () => {
   it("reuses one factory and one native editor", () => {
     const { ctx, host, editor } = setup();
     const factory = ctx.ui.getEditorComponent();
@@ -39,18 +38,16 @@ describe("shared editor ownership and snapshots", () => {
     expect(ctx.ui.getEditorComponent()).toBe(factory);
     expect(host.editor).toBe(editor);
   });
-  it("restores hidden paste payloads, cursor and native undo", () => {
-    const { editor } = setup();
-    const payload = "line\n".repeat(50);
-    editor.handleInput("\x1b[200~" + payload + "\x1b[201~");
-    expect(editor.document.text()).toContain("[paste #");
-    expect(editor.getText()).toBe(payload);
-    const before = editor.document.capture();
-    editor.setText("replacement");
-    editor.restore(before);
-    expect(editor.getExpandedText()).toBe(payload);
-    expect(editor.document.capture()).toEqual(before);
+  it("reports the shared host only while it is Pi's current editor", () => {
+    const { ctx, host } = setup();
+    expect(currentEditorHost(ctx)).toBe(host);
+
+    ctx.ui.setEditorComponent(vi.fn());
+
+    expect(currentEditorHost(ctx)).toBeUndefined();
+    expect(acquireEditorHost(ctx)).toBeUndefined();
   });
+
   it("observes callbacks Pi assigns after factory construction", () => {
     const { editor } = setup();
     const changed = vi.fn();
@@ -67,7 +64,6 @@ describe("shared editor ownership and snapshots", () => {
       input,
       changed,
       submitted() {},
-      suspend: () => () => {},
       selection: () => [],
     });
 
@@ -77,7 +73,7 @@ describe("shared editor ownership and snapshots", () => {
     expect(changed).toHaveBeenCalledExactlyOnceWith("insert", expect.anything());
     // The modal engine's own edits and restores are not reported back to it.
     editor.edit(0, 0, "x", 1);
-    editor.restoreView(editor.document.view());
+    editor.restoreView(editor.document!.view());
     expect(changed).toHaveBeenCalledOnce();
     release();
     editor.handleInput("y");
@@ -100,55 +96,16 @@ describe("shared editor ownership and snapshots", () => {
     editor.setText("x");
     expect(stripTerminalSequences(editor.render(20)[0]!)).toBe("─".repeat(20));
   });
-  it("styles Pi's border spinners through the status slot and restores defaults", () => {
-    const { host, editor } = setup();
-    const retry = createStatusIndicator("retry");
-    const compaction = createStatusIndicator("compaction");
-    const working = createStatusIndicator("working");
-
-    const spies = [retry, compaction, working].map((indicator) =>
-      vi.spyOn(indicator, "setIndicator"),
-    );
-
-    const style = vi.fn((kind: "retry" | "compaction" | "branchSummary") =>
-      kind === "retry" ? { frames: ["r"], intervalMs: 50 } : undefined,
-    );
-
-    const release = host.contribute("status", style);
-    editor.setWorkingStatusIndicator(retry);
-    editor.setWorkingStatusIndicator(compaction);
-    editor.setWorkingStatusIndicator(working);
-    expect(spies.map((spy) => spy.mock.calls)).toStrictEqual([
-      [[{ frames: ["r"], intervalMs: 50 }]],
-      [],
-      [],
-    ]);
-    // Pi already styles the working spinner through ctx.ui.setWorkingIndicator().
-    expect(style).not.toHaveBeenCalledWith("working");
-
-    editor.setWorkingStatusIndicator(retry);
-    host.contribute("status", () => ({ frames: ["x"] }));
-    expect(spies[0]?.mock.lastCall).toStrictEqual([{ frames: ["x"] }]);
-    // The earlier owner's release leaves the later contribution in place.
-    release();
-    expect(spies[0]).toHaveBeenCalledTimes(3);
-
-    host.contribute("status", () => undefined)();
-    expect(spies[0]?.mock.lastCall).toStrictEqual([undefined]);
-    expect(spies[0]).toHaveBeenCalledTimes(4);
-
-    for (const indicator of [retry, compaction, working]) indicator.dispose();
-  });
   it("treats Pi's getText/setText round trip as no replacement", () => {
     const { editor } = setup();
     editor.handleInput("\x1b[200~" + "line\n".repeat(50) + "\x1b[201~");
     editor.handleInput("\x01"); // cursor to line start
-    const before = editor.document.capture();
+    const before = editor.document!.view();
     const changed = vi.fn();
     editor.onChange = changed;
     // InteractiveMode.showExtensionCustom restores exactly this string when a view closes.
     editor.setText(editor.getText());
-    expect(editor.document.capture()).toEqual(before);
+    expect(editor.document!.view()).toEqual(before);
     expect(changed).not.toHaveBeenCalled();
   });
 });
@@ -161,13 +118,13 @@ it("exports payloads across Pi's string-only editor handoff", () => {
   const next = setup().editor;
   next.setText(editor.getText());
   expect(next.getExpandedText()).toBe(payload);
-  expect(next.document.text()).not.toContain("[paste #");
+  expect(next.document!.text()).not.toContain("[paste #");
 });
 
 it("does not recursively expand marker-looking register payloads", () => {
   const { editor } = setup();
-  const first = editor.document.encode("secret\tvalue");
-  const literal = editor.document.encode(first);
+  const first = editor.document!.encode("secret\tvalue");
+  const literal = editor.document!.encode(first);
   editor.edit(0, 0, literal, 0);
   expect(editor.getExpandedText()).toBe(first);
 });
@@ -184,25 +141,12 @@ it("native kill/yank owns paste payloads across replacements and ID reuse", () =
   expect(editor.getExpandedText()).toBe(payload);
 });
 
-it("accepting history clears native preview undo even without Vim", () => {
-  const { editor, host } = setup();
-  editor.setText("draft");
-  const preview = host.preview();
-  preview.show("accepted");
-  preview.close(false);
-  editor.handleInput("\x1f");
-  expect(editor.getText()).toBe("accepted");
-});
-
 it("submits the same single-pass payload content that retrieval exposes", () => {
   const { editor } = setup();
   const first = "literal [paste #2] " + "A".repeat(1100);
   const second = "B".repeat(1100);
 
   for (const text of [first, second]) editor.handleInput("\x1b[200~" + text + "\x1b[201~");
-  const draft = editor.document.capture();
-  editor.setText("other");
-  editor.restore(draft);
   const submit = vi.fn();
   editor.onSubmit = submit;
   expect(editor.getExpandedText()).toBe(first + second);
@@ -215,11 +159,11 @@ it("restores a document checkpoint after native payload IDs are reused", () => {
   const { editor } = setup();
   const payload = "literal [paste #2] " + "A".repeat(1100);
   editor.handleInput("\x1b[200~" + payload + "\x1b[201~");
-  const checkpoint = editor.document.view();
+  const checkpoint = editor.document!.view();
   editor.setText("");
   editor.handleInput("\x1b[200~" + "B".repeat(1100) + "\x1b[201~");
   editor.restoreView(checkpoint);
-  expect(editor.document.view()).toEqual(checkpoint);
+  expect(editor.document!.view()).toEqual(checkpoint);
   expect(editor.getText()).toBe(payload);
   editor.handleInput("\x1b[200~" + "C".repeat(1100) + "\x1b[201~");
   expect(editor.getText()).toBe(payload + "C".repeat(1100));

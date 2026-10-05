@@ -4,11 +4,11 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { exited, setup, waitForMessages } from "../helpers.js";
 
 describe("plannotator-annotate", () => {
-  it("normalizes annotate flags, supports flags before the target, and wraps feedback", async () => {
+  it("forwards quoted arguments for Plannotator to validate and wraps feedback", async () => {
     const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-annotate", `--gate "docs/my file.md" --json --json`, ctx);
+    await host.runCommand("plannotator-annotate", ` "docs/my file.md" --gate `, ctx);
     expect(pending[0]).toMatchObject({
-      args: ["annotate", "--gate", "docs/my file.md", "--json"],
+      args: ["annotate", "docs/my file.md", "--gate", "--json"],
       options: { cwd: "/work/project" },
     });
 
@@ -17,34 +17,20 @@ describe("plannotator-annotate", () => {
     child.resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Fix this." })));
     await waitForMessages(host, 1);
     expect(host.getSentUserMessages()[0]?.content).toBe(
-      "# Markdown Annotations\n\nFile: docs/my file.md\n\nFix this.\n\nPlease address the annotation feedback above.",
+      `# Markdown Annotations\n\nFile: "docs/my file.md" --gate\n\nFix this.\n\nPlease address the annotation feedback above.`,
     );
   });
 
-  it("shows annotate usage when no target is present", async () => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-annotate", "--gate --json", ctx);
-    expect(pending).toHaveLength(0);
-    expect(host.getNotifications().at(-1)).toMatchObject({ type: "error" });
-  });
-
-  it("finds targets after supported value and boolean flags", async () => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand(
-      "plannotator-annotate",
-      "--result-file /tmp/result.json --require-approval docs/plan.md",
-      ctx,
-    );
-
-    expect(pending[0]?.args).toStrictEqual([
-      "annotate",
-      "--result-file",
-      "/tmp/result.json",
-      "--require-approval",
-      "docs/plan.md",
-      "--json",
-    ]);
-  });
+  it.each(["  ", `""`, `''`, "--gate"])(
+    "shows annotate usage without a target: %s",
+    async (args) => {
+      const { ctx, host, pending } = setup();
+      await host.runCommand("plannotator-annotate", args, ctx);
+      expect(pending).toHaveLength(0);
+      expect(host.getNotifications().at(-1)).toMatchObject({ type: "error" });
+      expect(host.getNotifications().at(-1)?.message).toMatch(/^Usage: \/plannotator-annotate /u);
+    },
+  );
 
   it.each([
     { decision: "approved" },

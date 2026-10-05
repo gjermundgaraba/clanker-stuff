@@ -53,13 +53,9 @@ export const setup = (entries: SessionEntry[] = [], leafId: string | null = null
   return { ctx, host, pending, starter };
 };
 
-export const exited = (
-  stdout: string,
-  options: { code?: number; stderr?: string } = {},
-): CliCompletion => ({
+export const exited = (stdout: string, options: { code?: number } = {}): CliCompletion => ({
   code: options.code ?? 0,
   kind: "exited",
-  stderr: options.stderr ?? "",
   stdout,
 });
 

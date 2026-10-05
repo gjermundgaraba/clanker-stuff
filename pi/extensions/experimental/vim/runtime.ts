@@ -32,14 +32,17 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
   let dispose: (() => void) | undefined;
 
   const unmount = host.onMount((editor) => {
+    const document = editor.document;
+
+    // The modal engine edits through the document adapter; without it Pi's editor stays native.
+    if (!document) return;
     const parser = new Parser();
     const history = new Transactions();
-    const view = editor.document.view;
-    let state: State = { mode: "insert", anchor: 0, register: { text: "", linewise: false } };
+    const view = document.view;
+    const state: State = { mode: "insert", anchor: 0, register: { text: "", linewise: false } };
     let edits: Edits = { observed: view(), pending: undefined, repeat: undefined };
-    let suspended = false;
     let historyNavigation = false;
-    let observedHistory = editor.document.historyIndex();
+    let observedHistory = document.historyIndex();
 
     const mode = (next: Mode) => {
       state.mode = next;
@@ -51,13 +54,13 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     const reset = () => {
       history.clear();
       edits = { observed: view(), pending: undefined, repeat: undefined };
-      observedHistory = editor.document.historyIndex();
+      observedHistory = document.historyIndex();
       mode("insert");
     };
 
     const insertDelta = (delta: Delta) => {
       const edit = applyDelta(view(), delta);
-      const encoded = editor.document.encode(edit.text);
+      const encoded = document.encode(edit.text);
       editor.edit(edit.start, edit.end, encoded, edit.start + encoded.length);
     };
 
@@ -85,7 +88,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
           command = { ...command, count: 1 };
         }
 
-        if (delta.remove || delta.text || pending.before.text !== editor.document.text())
+        if (delta.remove || delta.text || pending.before.text !== document.text())
           edits.repeat = {
             command,
             delta,
@@ -95,7 +98,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       }
 
       edits.pending = undefined;
-      editor.document.clearNativeUndo();
+      document.clearNativeUndo();
       edits.observed = view();
     };
 
@@ -112,9 +115,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       if (!result) return;
 
       if (result.yank) {
-        let text = editor.document.expand(
-          editor.document.text().slice(result.yank.start, result.yank.end),
-        );
+        let text = document.expand(document.text().slice(result.yank.start, result.yank.end));
 
         if (result.yank.linewise && !text.endsWith("\n")) text += "\n";
         state.register = { text, linewise: result.yank.linewise };
@@ -122,9 +123,9 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
 
       if (result.edit) {
         const { start, end, text, foreign } = result.edit;
-        const encoded = foreign ? editor.document.encode(text) : text;
+        const encoded = foreign ? document.encode(text) : text;
         editor.edit(start, end, encoded, encoded === text ? result.cursor : start);
-      } else editor.document.move(result.cursor);
+      } else document.move(result.cursor);
 
       if (result.anchor !== undefined) state.anchor = result.anchor;
 
@@ -146,8 +147,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         edits.repeat = { command, ...(extent !== undefined ? { selection: extent } : {}) };
       }
 
-      if (state.mode !== "insert")
-        editor.document.move(normalCursor(view(), editor.document.cursor()));
+      if (state.mode !== "insert") document.move(normalCursor(view(), document.cursor()));
       edits.observed = view();
       editor.refresh();
     };
@@ -171,16 +171,16 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
 
       for (let n = 0; n < (insert ? count : 1); n++) {
         if (saved.selection) {
-          state.anchor = editor.document.cursor();
+          state.anchor = document.cursor();
           state.mode = saved.selection.linewise ? "visual-line" : "visual";
-          editor.document.move(selectionEnd(view(), saved.selection));
+          document.move(selectionEnd(view(), saved.selection));
         }
 
         run(command, true);
 
         if (saved.delta) insertDelta(saved.delta);
 
-        if (state.mode === "insert") editor.document.move(exitInsert(view()));
+        if (state.mode === "insert") document.move(exitInsert(view()));
         mode("normal");
       }
 
@@ -192,10 +192,9 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     // The host reports only changes made outside this engine.
     const changed = (kind: Change, before = edits.observed) => {
       const recalled =
-        kind === "input" && historyNavigation && editor.document.historyIndex() !== observedHistory;
+        kind === "input" && historyNavigation && document.historyIndex() !== observedHistory;
 
-      if (recalled || kind === "replace" || suspended) {
-        suspended = false;
+      if (recalled || kind === "replace") {
         reset();
 
         return;
@@ -212,7 +211,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         history.commit(before, view());
         edits.repeat = undefined;
         parser.reset();
-        editor.document.move(normalCursor(view(), editor.document.cursor()));
+        document.move(normalCursor(view(), document.cursor()));
       }
 
       edits.observed = view();
@@ -223,14 +222,12 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     const input = (data: string): boolean => {
       if (isKeyRelease(data)) return true;
       const bindings = editor.keys;
-      observedHistory = editor.document.historyIndex();
+      observedHistory = document.historyIndex();
       historyNavigation =
         bindings.matches(data, "tui.editor.historyPrevious") ||
         bindings.matches(data, "tui.editor.historyNext") ||
         bindings.matches(data, "tui.editor.cursorUp") ||
         bindings.matches(data, "tui.editor.cursorDown");
-
-      if (suspended) return false;
 
       if (bindings.matches(data, "tui.editor.undo")) {
         // A key Pi users already know keeps typing; only Vim's own `u` implies Normal.
@@ -256,7 +253,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
 
         if (state.mode === "insert") {
           finish();
-          editor.document.move(exitInsert(view()));
+          document.move(exitInsert(view()));
           mode("normal");
 
           // On blank drafts, Pi owns Escape: cancel running work or count it
@@ -279,6 +276,11 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         return false;
       }
 
+      // Native moves (arrows, Ctrl/Alt bindings, mouse clicks) can leave the cursor past the end
+      // of a line, where no Normal or Visual command may start.
+      document.move(normalCursor(view(), document.cursor()));
+      edits.observed = view();
+
       if (
         bindings.matches(data, "tui.input.submit") ||
         bindings.matches(data, "tui.input.newLine") ||
@@ -286,7 +288,6 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         [...editor.actionHandlers.keys()].some((action) => editor.keys.matches(data, action))
       ) {
         parser.reset();
-        edits.observed = view();
 
         return false;
       }
@@ -300,7 +301,6 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
           ["enter", "shift+enter", "tab", "up", "down", "left", "right"].includes(key))
       ) {
         parser.reset();
-        edits.observed = view();
 
         return false;
       }
@@ -347,25 +347,6 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       input,
       changed,
       submitted: reset,
-      suspend: () => {
-        const saved = { state: { ...state }, edits: { ...edits } };
-        suspended = true;
-        parser.reset();
-
-        return (restore: boolean) => {
-          suspended = false;
-
-          if (!restore) {
-            reset();
-
-            return;
-          }
-
-          state = saved.state;
-          edits = saved.edits;
-          mode(state.mode);
-        };
-      },
       selection: () => {
         if (!state.mode.startsWith("visual")) return [];
         const range = selection(view(), state);
@@ -375,7 +356,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     });
     dispose = () => {
       parser.reset();
-      editor.document.cancelCompletion();
+      document.cancelCompletion();
     };
 
     publish("insert");

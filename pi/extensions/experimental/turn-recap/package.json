@@ -34,9 +34,6 @@
     "docs"
   ],
   "type": "module",
-  "imports": {
-    "#pi-abort": "@earendil-works/pi-ai/utils/abort"
-  },
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"

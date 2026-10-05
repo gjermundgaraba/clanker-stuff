@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveOAuthAccess } from "../auth.js";
+import { accessToken } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
@@ -115,15 +115,13 @@ export const mapXaiUsagePayloads = (
 
 export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
-  const auth = await resolveOAuthAccess(deps.authClient, "xai");
+  const auth = await accessToken(deps.getAuth, "xai", { oauth: true });
 
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
+  if (!auth.ok) return auth;
 
   const headers = {
     Accept: "application/json",
-    Authorization: `Bearer ${auth.value.accessToken}`,
+    Authorization: `Bearer ${auth.token}`,
     "x-xai-token-auth": "xai-grok-cli",
   };
 

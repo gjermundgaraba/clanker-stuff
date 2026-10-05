@@ -11,6 +11,8 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 - Keep tool `parameters` closed and current. Pi renders stored tool calls but never re-executes them, so do not add `prepareArguments(args)` migrations or deprecated compatibility fields for retired argument shapes; renderers must tolerate stored calls that no longer match the schema.
 - A tool that sets `constrainedSampling` publishes a structural schema: build it with `structuralSchema()` from `@clanker-stuff/pi-tool-schema` and check value limits against the constrained schema inside `execute`. Provider strict subsets reject some value constraints, and `strict: "prefer"` otherwise falls back silently.
 - For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.
+- Session state is Pi-owned. `pi.appendEntry()` records the entry before it returns and throws on failure, so do not queue, re-read, or verify it. `pi.sendMessage()` and `pi.sendUserMessage()` only hand a message to Pi: Pi may record it later, while the agent runs or a turn starts, and reports failures itself. Do not treat the call as proof the message landed; when state must follow delivery, read the transcript at a turn boundary.
+- Sanitize text from sessions, providers, or history with the helpers in `@clanker-stuff/pi-tool-rendering/text` where it is rendered, not only where it is collected.
 - Never suggest "upstreaming a change to pi itself". If we can't do something in an extension today, we can't do it today.
 
 ## Test value

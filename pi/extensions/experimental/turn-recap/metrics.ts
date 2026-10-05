@@ -124,12 +124,11 @@ const contextGrowth = (branch: readonly SessionEntry[], runStart: number): numbe
   return growth + output;
 };
 
-/** Historical retired-provider checkpoints remain countable in persisted transcripts. */
-const INLINE_COMPACTION = "codex-provider.checkpoint";
-
 /**
  * Counts the run from `runStart` in raw branch entries, not projected context: edits/compaction
  * cannot erase spent usage. Earlier entries only supply the context the run started from.
+ * Tool counts include calls a tool made itself, such as Code Mode's: Pi records them at every
+ * depth on the model-issued call's result. Pi keeps at most 256 per result, so more is a floor.
  */
 export const collectMetrics = (branch: readonly SessionEntry[], runStart = 0): Metrics => {
   const entries = branch.slice(runStart);
@@ -151,6 +150,9 @@ export const collectMetrics = (branch: readonly SessionEntry[], runStart = 0): M
         toolCalls += message.content.filter((block) => block.type === "toolCall").length;
       } else if (message.role === "toolResult") {
         if (message.isError) toolErrors += 1;
+        const nested = message.nestedCalls?.calls ?? [];
+        toolCalls += nested.length;
+        toolErrors += nested.filter((call) => call.status === "error").length;
 
         if (message.usage) addUsage(usage, message.usage);
       }
@@ -161,8 +163,6 @@ export const collectMetrics = (branch: readonly SessionEntry[], runStart = 0): M
       if (entry.type === "compaction") compactions += 1;
 
       if (entry.usage) addUsage(usage, entry.usage);
-    } else if (entry.type === "custom" && entry.customType === INLINE_COMPACTION) {
-      compactions += 1;
     }
   }
 

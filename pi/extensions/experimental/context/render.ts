@@ -75,99 +75,30 @@ export const layoutOverlay = (width: number, height: number, detail: boolean) =>
 
 export type Layout = ReturnType<typeof layoutOverlay>;
 
-export interface UsageSegment {
-  readonly label: string;
-  readonly tokens: number;
-  readonly color: ThemeColor;
-}
+/** Measured context usage as a share of the window, or undefined when Pi does not know it. */
+const usedPercent = (usage: ContextUsage | undefined): number | undefined =>
+  usage?.tokens == null || usage.contextWindow <= 0
+    ? undefined
+    : (usage.tokens / usage.contextWindow) * 100;
 
-export const usageSegments = (snapshot: ContextSnapshot): UsageSegment[] => {
-  const sum = (parts: readonly { estimatedTokens: number }[]) =>
-    parts.reduce((total, part) => total + part.estimatedTokens, 0);
-
-  return [
-    { label: "system", tokens: snapshot.system.estimatedTokens, color: "accent" },
-    { label: "tools", tokens: sum(snapshot.tools), color: "warning" },
-    { label: "messages", tokens: sum(snapshot.messages), color: "success" },
-  ];
-};
-
-/**
- * Splits exactly `cells` across weights by largest remainder. When the budget allows, every
- * non-zero weight keeps at least one cell, taken from the largest allocation.
- */
-export const distributeCells = (weights: readonly number[], cells: number): number[] => {
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-
-  if (cells <= 0 || total <= 0) return weights.map(() => 0);
-
-  const allocations = weights.map((weight) => {
-    const exact = (weight / total) * cells;
-
-    return { weight, cells: Math.floor(exact), remainder: exact - Math.floor(exact) };
-  });
-
-  const byRemainder = allocations.toSorted((a, b) => b.remainder - a.remainder);
-  let remaining = cells - allocations.reduce((sum, allocation) => sum + allocation.cells, 0);
-
-  for (const allocation of byRemainder) {
-    if (remaining <= 0) break;
-    allocation.cells += 1;
-    remaining -= 1;
-  }
-
-  const nonEmpty = weights.filter((weight) => weight > 0).length;
-
-  if (cells >= nonEmpty) {
-    for (const allocation of allocations) {
-      if (allocation.weight === 0 || allocation.cells > 0) continue;
-
-      // Positive total above guarantees a nonempty allocation list; ties keep the first donor.
-      const donor = allocations.reduce((largest, next) =>
-        next.cells > largest.cells ? next : largest,
-      );
-
-      donor.cells -= 1;
-      allocation.cells += 1;
-    }
-  }
-
-  return allocations.map((allocation) => allocation.cells);
-};
-
-export const renderUsageBar = (
-  theme: Theme,
-  usage: ContextUsage | undefined,
-  segments: readonly UsageSegment[],
-  width: number,
-): string => {
+/** Pi's measured usage only; estimates belong to the legend, not the bar. */
+export const renderUsageBar = (theme: Theme, usage: ContextUsage | undefined, width: number) => {
   if (width <= 0) return "";
-
-  const used =
-    usage?.tokens == null || usage.contextWindow <= 0
-      ? 0
-      : Math.max(0, Math.min(width, Math.round((usage.tokens / usage.contextWindow) * width)));
-
-  const cells = distributeCells(
-    segments.map((segment) => segment.tokens),
-    used,
-  );
-
-  const filled = cells.reduce((sum, value) => sum + value, 0);
+  const percent = usedPercent(usage) ?? 0;
+  const filled = Math.max(0, Math.min(width, Math.round((percent / 100) * width)));
 
   return (
-    // distributeCells preserves the input cardinality and order.
-    segments.map((segment, index) => theme.fg(segment.color, "█".repeat(cells[index]!))).join("") +
-    theme.fg("scrollbarTrack", "░".repeat(Math.max(0, width - filled)))
+    theme.fg(percentTone(percent), "█".repeat(filled)) +
+    theme.fg("scrollbarTrack", "░".repeat(width - filled))
   );
 };
 
 export const renderUsageLine = (theme: Theme, usage: ContextUsage | undefined): string => {
-  if (usage?.tokens == null || usage.contextWindow <= 0) {
+  const percent = usedPercent(usage);
+
+  if (usage?.tokens == null || percent === undefined) {
     return theme.fg("muted", "Pi context usage: unknown");
   }
-
-  const percent = (usage.tokens / usage.contextWindow) * 100;
 
   return [
     theme.bold(count(usage.tokens)),
@@ -179,32 +110,28 @@ export const renderUsageLine = (theme: Theme, usage: ContextUsage | undefined): 
   ].join("");
 };
 
-export const renderLegend = (
-  theme: Theme,
-  usage: ContextUsage | undefined,
-  segments: readonly UsageSegment[],
-): string => {
-  const total = segments.reduce((sum, segment) => sum + segment.tokens, 0);
+export const renderLegend = (theme: Theme, snapshot: ContextSnapshot): string => {
+  const sum = (parts: readonly { estimatedTokens: number }[]) =>
+    parts.reduce((total, part) => total + part.estimatedTokens, 0);
 
-  const items = segments.map(
-    (segment) =>
-      theme.fg(segment.color, "■ ") +
-      segment.label +
-      theme.fg(
-        "muted",
-        ` ${estimate(segment.tokens)}${total > 0 ? ` · ${Math.round((segment.tokens / total) * 100)}%` : ""}`,
-      ),
-  );
+  const estimates = [
+    ["system", snapshot.system.estimatedTokens],
+    ["tools", sum(snapshot.tools)],
+    ["messages", sum(snapshot.messages)],
+  ] as const;
 
-  if (usage?.tokens != null && usage.contextWindow > 0) {
-    items.push(
-      theme.fg("scrollbarTrack", "░ ") +
-        "free" +
-        theme.fg("muted", ` ${count(Math.max(0, usage.contextWindow - usage.tokens))}`),
-    );
-  }
+  const total = estimates.reduce((sum, [, tokens]) => sum + tokens, 0);
 
-  return items.join("   ");
+  return estimates
+    .map(
+      ([label, tokens]) =>
+        label +
+        theme.fg(
+          "muted",
+          ` ${estimate(tokens)}${total > 0 ? ` · ${Math.round((tokens / total) * 100)}%` : ""}`,
+        ),
+    )
+    .join(theme.fg("dim", "   "));
 };
 
 const toneColor = (tone: NodeTone): ThemeColor => (tone === "code" ? "mdCode" : tone);
@@ -339,7 +266,6 @@ export const renderOverlay = (
     "…",
   );
 
-  const segments = snapshot.kind === "state" ? usageSegments(snapshot) : [];
   const blank = line("");
   // Keep the pane divider continuous through the spacing row above the body.
   const bodyPad = previewWidth > 0 ? line(`${" ".repeat(treeWidth)}${divider("│")}`) : blank;
@@ -356,14 +282,17 @@ export const renderOverlay = (
           ? renderUsageLine(theme, snapshot.usage)
           : snapshot.request
             ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
-            : "No request observed on this branch"
+            : "No request observed yet"
       }`,
     ),
     line(
       `${PAD}${
         snapshot.kind === "state"
-          ? renderUsageBar(theme, snapshot.usage, segments, innerWidth - 2 * PAD.length)
-          : "Observed payload, not guaranteed final wire request"
+          ? renderUsageBar(theme, snapshot.usage, innerWidth - 2 * PAD.length)
+          : theme.fg(
+              "muted",
+              "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay",
+            )
       }`,
     ),
     ...(layout.showLegend
@@ -371,8 +300,11 @@ export const renderOverlay = (
           line(
             `${PAD}${
               snapshot.kind === "state"
-                ? renderLegend(theme, snapshot.usage, segments)
-                : `Memory-only · common credential values/media omitted${snapshot.request?.truncated ? " · truncated" : ""}`
+                ? renderLegend(theme, snapshot)
+                : theme.fg(
+                    "muted",
+                    `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated ? " · truncated to 1 MiB" : ""}`,
+                  )
             }`,
           ),
         ]

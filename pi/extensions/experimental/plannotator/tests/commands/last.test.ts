@@ -6,10 +6,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { assistantEntry, exited, setup, userEntry, waitForMessages } from "../helpers.js";
 
 describe("plannotator-last", () => {
-  it("passes the last assistant message through controlled stdin flags", async () => {
+  it("passes the last assistant message through stdin with the given flags", async () => {
     const entry = assistantEntry("assistant", null, "Original answer");
     const { ctx, host, pending } = setup([entry], entry.id);
-    await host.runCommand("plannotator-last", "--gate --stdin --json --stdin", ctx);
+    await host.runCommand("plannotator-last", "--gate", ctx);
     expect(pending[0]).toMatchObject({
       args: ["annotate-last", "--stdin", "--json", "--gate"],
       options: { cwd: "/work/project", stdin: "Original answer" },
@@ -27,7 +27,7 @@ describe("plannotator-last", () => {
     });
   });
 
-  it("anchors last-message feedback after the active branch moves", async () => {
+  it("anchors feedback to the annotated response, which later turns may follow", async () => {
     const assistant = assistantEntry("assistant", null, "Original answer");
     const user = userEntry("later-user", assistant.id, "Another request");
     const { ctx, host, pending } = setup([assistant, user], assistant.id);

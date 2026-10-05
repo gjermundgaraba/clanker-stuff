@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/usage",
   "version": "0.1.0",
   "private": true,
-  "description": "Shows account usage for supported providers and contributes usage widgets to cooperative footers.",
+  "description": "Shows account usage for supported providers in a status line and on demand.",
   "keywords": [
     "pi-package"
   ],
@@ -26,7 +26,7 @@
     "index.ts",
     "providers.ts",
     "runtime.ts",
-    "widgets.ts",
+    "status.ts",
     "README.md",
     "LICENSE",
     "docs"
@@ -37,10 +37,10 @@
     "access": "public"
   },
   "dependencies": {
-    "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/model-history": "workspace:^",
-    "@clanker-stuff/pi-tones": "workspace:^"
+    "@clanker-stuff/pi-tones": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

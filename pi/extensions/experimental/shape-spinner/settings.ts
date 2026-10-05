@@ -1,36 +1,34 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import { Container, SettingsList, Spacer, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
 import type { Component, SettingItem, TuiMouseEvent } from "@earendil-works/pi-tui";
 
-/** One spinner's preview loop, or no frames when its look is off. */
+/** The spinner's preview loop. */
 export interface Preview {
   readonly label: string;
   readonly meta: string;
-  readonly frames: readonly string[] | undefined;
+  readonly frames: readonly string[];
 }
 
 export interface SettingsView {
-  /** Frame interval shared by every preview row. */
   readonly intervalMs: number;
   readonly footer: readonly string[];
   readonly items: SettingItem[];
   readonly onChange: (id: string, value: string) => void;
-  readonly previews: () => readonly Preview[];
+  readonly preview: () => Preview;
 }
 
 const MAX_VISIBLE = 10;
 
-/** Animates every configured spinner at its real frame rate, sharing one tick. */
+/** Animates the configured spinner at its real frame rate. */
 class SpinnerPreview implements Component {
   private tick = 0;
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(
-    public previews: readonly Preview[],
+    public preview: Preview,
     intervalMs: number,
     private readonly accent: (text: string) => string,
-    private readonly dim: (text: string) => string,
     requestRender: () => void,
   ) {
     this.timer = setInterval(() => {
@@ -48,14 +46,9 @@ class SpinnerPreview implements Component {
   }
 
   render(): string[] {
-    const labelWidth = Math.max(...this.previews.map((row) => visibleWidth(row.label)));
+    const { label, frames, meta } = this.preview;
 
-    return this.previews.map((row) => {
-      const label = this.accent(row.label.padEnd(labelWidth + 2));
-      const frame = row.frames?.[this.tick % row.frames.length];
-
-      return frame === undefined ? ` ${label}${this.dim("off")}` : ` ${label}${frame} ${row.meta}`;
-    });
+    return [` ${this.accent(`${label}  `)}${frames[this.tick % frames.length] ?? ""} ${meta}`];
   }
 }
 
@@ -68,10 +61,9 @@ export const openSettings = async (ctx: ExtensionContext, view: SettingsView): P
     (tui, theme, _keybindings, done) => {
       // The preview timer re-renders every frame, so edits need no render request of their own.
       const preview = new SpinnerPreview(
-        view.previews(),
+        view.preview(),
         view.intervalMs,
         (text) => theme.fg("accent", text),
-        (text) => theme.fg("dim", text),
         () => tui.requestRender(),
       );
 
@@ -81,7 +73,7 @@ export const openSettings = async (ctx: ExtensionContext, view: SettingsView): P
         getSettingsListTheme(),
         (id, value) => {
           view.onChange(id, value);
-          preview.previews = view.previews();
+          preview.preview = view.preview();
         },
         () => done(null),
       );

@@ -2,6 +2,8 @@
 
 The shell hook creates a private inbox for each interactive shell instance. Pi writes its resume command there on exit, and the same shell imports it before displaying the next prompt.
 
+The command is `pi --session <session file>`. Pi opens a session file in the session's own project directory, so the command resumes it from any shell directory.
+
 ## Fish
 
 Copy `shell/fish.fish` to Fish's startup directory:

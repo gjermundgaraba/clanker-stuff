@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchZaiUsage, mapZaiQuotaPayload } from "../../adapters/zai.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
+import { NOW, okFetch, tokenAuth } from "./helpers.js";
 
 // Live shape observed on a GLM Coding Pro (credit-based) account.
 const creditPayload = {
@@ -93,8 +93,8 @@ describe("zai usage", () => {
             resetsAt: new Date(NOW + 2 * 3_600_000).toISOString(),
           },
           {
-            id: "7d",
-            label: "7d",
+            id: "week",
+            label: "week",
             remainingPercent: (49_341 / 60_000) * 100,
             resetsAt: new Date(NOW + 6 * 86_400_000).toISOString(),
           },
@@ -119,8 +119,8 @@ describe("zai usage", () => {
             resetsAt: new Date(NOW + 3_600_000).toISOString(),
           },
           {
-            id: "7d",
-            label: "7d",
+            id: "week",
+            label: "week",
             remainingPercent: (5_000_000_000 / 6_000_000_000) * 100,
             resetsAt: new Date(NOW + 5 * 86_400_000).toISOString(),
           },
@@ -185,7 +185,7 @@ describe("zai usage", () => {
     const invalidCode = { code: "200" };
 
     const result = await fetchZaiUsage({
-      authClient: tokenAuthClient("token"),
+      getAuth: tokenAuth("token"),
       fetchJson: okFetch(invalidCode),
       now: () => NOW,
     });
@@ -209,7 +209,7 @@ describe("zai usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchZaiUsage({
-      authClient: tokenAuthClient("k"),
+      getAuth: tokenAuth("k"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

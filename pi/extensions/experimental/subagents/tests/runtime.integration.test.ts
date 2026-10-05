@@ -1,28 +1,23 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxText,
+  fauxToolCall,
+  getCurrentTools,
+} from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
-import { createChildRuntime, SUBAGENT_IDENTITY_ENTRY_TYPE } from "../runtime.js";
-import { TranscriptCursor } from "../transcript.js";
-
-const CommunicationDetailsSchema = Type.Object(
-  { communicationId: Type.String() },
-  { additionalProperties: true },
-);
-
-const lastProviderPayloadText = (
-  harness: Awaited<ReturnType<typeof createAgentSessionHarness>>,
-): string =>
-  JSON.stringify(harness.lastProviderPayload(Type.Object({}, { additionalProperties: true })));
+import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
+import type { Mail } from "../protocol.js";
+import { createChildRuntime } from "../runtime.js";
+import type { ChildRuntime, ChildRuntimeRequest } from "../runtime.js";
 
 const usage = (totalTokens: number) => ({
   cacheRead: 0,
@@ -33,39 +28,39 @@ const usage = (totalTokens: number) => ({
   totalTokens,
 });
 
-const runtimeRequest = (
-  harness: Awaited<ReturnType<typeof createAgentSessionHarness>>,
-  identity = "/root/child",
-) => ({
+const runtimeRequest = (harness: AgentSessionHarness): ChildRuntimeRequest => ({
   bridge: () => Promise.resolve(),
   cwd: path.dirname(harness.agentDir),
   dataDir: path.join(harness.agentDir, "data", "subagents"),
   history: [],
-  identity,
   model: harness.faux.getModel(),
   modelRegistry: harness.session.extensionRunner.getModelRegistry(),
+  onDelivered: () => {},
+  onError: (cause) => {
+    throw cause;
+  },
   prompt: "You are a child.",
+  promptOptions: undefined,
+  sessionFile: undefined,
+  thinkingLevel: undefined,
   tools: [],
   trusted: false,
 });
 
-const blockNextTranscriptVerification = () => {
-  const started = Promise.withResolvers<undefined>();
-  const release = Promise.withResolvers<undefined>();
+const branchOf = (sessionFile: string, harness: AgentSessionHarness) =>
+  SessionManager.open(
+    sessionFile,
+    path.dirname(sessionFile),
+    path.dirname(harness.agentDir),
+  ).getBranch();
 
-  const spy = vi.spyOn(TranscriptCursor.prototype, "verify").mockImplementation(async function (
-    this: TranscriptCursor,
-    expectedId,
-  ) {
-    spy.mockRestore();
-    started.resolve(undefined);
-    await release.promise;
-
-    return this.verify(expectedId);
-  });
-
-  return { release, spy, started };
-};
+const hasUserTask = (sessionFile: string, harness: AgentSessionHarness, text: string) =>
+  branchOf(sessionFile, harness).some(
+    (entry) =>
+      entry.type === "message" &&
+      entry.message.role === "user" &&
+      JSON.stringify(entry.message.content).includes(text),
+  );
 
 describe("child runtime", () => {
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -119,12 +114,10 @@ describe("child runtime", () => {
         },
       });
 
-      runtime.commit();
-
       try {
-        await expect(
-          runtime.startTurn({ text: "Read the probe using Code Mode" }).settled,
-        ).resolves.toMatchObject({ status: "completed" });
+        await expect(runtime.startTurn("Read the probe using Code Mode")).resolves.toMatchObject({
+          status: "completed",
+        });
         expect(declared.length).toBeGreaterThan(0);
         expect(declared.every((names) => names.length === 1 && names[0] === "codemode")).toBe(true);
         const branch = SessionManager.open(runtime.sessionFile).getBranch();
@@ -229,18 +222,17 @@ describe("child runtime", () => {
         },
       });
 
-      runtime.commit();
       let pid: number | undefined;
 
       try {
         expect(active).toContain("tool_search");
-        await runtime.startTurn({ text: "Discover and call MCP" }).settled;
+        await runtime.startTurn("Discover and call MCP");
         expect(results[0]).toContain("native-mcp-marker");
 
         if (exposure === "deferred") expect(searches[0]).toContain("mcp__probe__ping");
         pid = Number(await readFile(pidFile, "utf8"));
         blocked = true;
-        await runtime.startTurn({ text: "Check permission denial" }).settled;
+        await runtime.startTurn("Check permission denial");
         expect(results[1]).toContain("MCP child denied");
         expect(results[1]).not.toContain("native-mcp-marker");
       } finally {
@@ -325,10 +317,8 @@ describe("child runtime", () => {
         tools: ["read", "codemode"],
       });
 
-      runtime.commit();
-
       try {
-        await runtime.startTurn({ text: "Check configured policy" }).settled;
+        await runtime.startTurn("Check configured policy");
 
         const results = SessionManager.open(runtime.sessionFile)
           .getBranch()
@@ -362,11 +352,10 @@ describe("child runtime", () => {
     await parent.session.modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
     other.setResponses([fauxAssistantMessage("foreign child answer")]);
     const runtime = await createChildRuntime({ ...runtimeRequest(parent), model });
-    runtime.commit();
 
     try {
-      expect(runtime.model?.provider).toBe(model.provider);
-      await expect(runtime.startTurn({ text: "Fresh work" }).settled).resolves.toMatchObject({
+      expect(runtime.model).toBe(`${model.provider}/${model.id}`);
+      await expect(runtime.startTurn("Fresh work")).resolves.toMatchObject({
         status: "completed",
         text: "foreign child answer",
       });
@@ -407,10 +396,8 @@ describe("child runtime", () => {
       },
     });
 
-    runtime.commit();
-
     try {
-      await runtime.startTurn({ text: "work" }).settled;
+      await runtime.startTurn("work");
       expect(active).toContain("request_user_input");
       expect(active).not.toContain("request_user_input_async");
       expect(active).not.toContain("send_message_to_user_async");
@@ -422,15 +409,24 @@ describe("child runtime", () => {
 
   it("exposes effective model and thinking after child initialization", async () => {
     const harness = await createAgentSessionHarness({
-      models: [{ id: "child", reasoning: true }],
+      models: [
+        { id: "child", reasoning: true },
+        { id: "selected", reasoning: true },
+      ],
     });
 
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const selected = harness.faux.getModel("selected");
+
+    if (selected === undefined) {
+      throw new Error("The harness did not register the selected model");
+    }
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
-        pi.on("session_start", () => {
+        pi.on("session_start", async () => {
+          await pi.setModel(selected);
           pi.setThinkingLevel("off");
         });
       },
@@ -438,8 +434,7 @@ describe("child runtime", () => {
     });
 
     try {
-      expect(runtime.model?.id).toBe(harness.faux.getModel().id);
-      expect(runtime.model?.provider).toBe(harness.faux.getModel().provider);
+      expect(runtime.model).toBe(`${selected.provider}/selected`);
       expect(runtime.thinkingLevel).toBe("off");
     } finally {
       await runtime.dispose();
@@ -447,45 +442,190 @@ describe("child runtime", () => {
     }
   });
 
-  it("materializes an identity-bound transcript before publication", async () => {
+  it("returns the final answer of a persisted user turn", async () => {
     const harness = await createAgentSessionHarness();
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    harness.setResponses([fauxAssistantMessage("child answer")]);
     const runtime = await createChildRuntime(runtimeRequest(harness));
 
     try {
-      expect(existsSync(runtime.sessionFile)).toBeTruthy();
-      await expect(readFile(runtime.sessionFile, "utf-8")).resolves.toContain(
-        `"customType":"${SUBAGENT_IDENTITY_ENTRY_TYPE}"`,
-      );
-      runtime.commit();
+      await expect(runtime.startTurn("task")).resolves.toStrictEqual({
+        status: "completed",
+        text: "child answer",
+      });
+      expect(hasUserTask(runtime.sessionFile, harness, "task")).toBeTruthy();
     } finally {
       await runtime.dispose();
       harness.cleanup();
     }
   });
 
-  it("accepts only a persisted user turn and returns its final assistant result", async () => {
+  it("resumes a child from its session file", async () => {
     const harness = await createAgentSessionHarness();
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    harness.setResponses([fauxAssistantMessage("child answer")]);
-    const runtime = await createChildRuntime(runtimeRequest(harness));
-    runtime.commit();
+    harness.setResponses([
+      fauxAssistantMessage("first answer"),
+      (context) => {
+        expect(JSON.stringify(context.messages)).toContain("first answer");
+
+        return fauxAssistantMessage("second answer");
+      },
+    ]);
+    const first = await createChildRuntime(runtimeRequest(harness));
+    await first.startTurn("first task");
+    await first.dispose();
+
+    const resumed = await createChildRuntime({
+      ...runtimeRequest(harness),
+      sessionFile: first.sessionFile,
+    });
 
     try {
-      const turn = runtime.startTurn({ text: "task" });
-      await expect(turn.accepted).resolves.toBeUndefined();
-      await expect(turn.settled).resolves.toStrictEqual({
-        status: "completed",
-        text: "child answer",
+      await expect(resumed.startTurn("second task")).resolves.toMatchObject({
+        text: "second answer",
       });
+    } finally {
+      await resumed.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("fails before starting when the child model is not in the cloned runtime", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const model = { ...harness.faux.getModel(), id: "unregistered" };
+
+    try {
+      await expect(createChildRuntime({ ...runtimeRequest(harness), model })).rejects.toThrow(
+        `Model ${model.provider}/unregistered is not available to child sessions`,
+      );
+      expect(existsSync(path.join(harness.agentDir, "data", "subagents", "sessions"))).toBeFalsy();
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it.each([
+    [[], true],
+    [["-builtin:mcp"], false],
+  ] as const)("follows the user's built-in extension settings %j", async (extensions, loaded) => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    await writeFile(path.join(harness.agentDir, "settings.json"), JSON.stringify({ extensions }));
+    let commands: string[] = [];
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("session_start", () => {
+          commands = pi.getCommands().map((command) => command.name);
+        });
+      },
+    });
+
+    try {
+      expect(commands.includes("mcp")).toBe(loaded);
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("lets a user extension replace a built-in tool", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    await mkdir(path.join(harness.agentDir, "extensions"));
+    await writeFile(
+      path.join(harness.agentDir, "extensions", "my-codemode.ts"),
+      `export default (pi) => pi.registerTool({ name: "codemode", label: "mine", description: "third-party codemode", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: undefined }) });`,
+    );
+    let descriptions: string[] = [];
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("session_start", () => {
+          descriptions = pi
+            .getAllTools()
+            .filter((tool) => tool.name === "codemode")
+            .map((tool) => tool.description);
+        });
+      },
+    });
+
+    try {
+      expect(descriptions).toStrictEqual(["third-party codemode"]);
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+});
+
+describe("child mail", () => {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+  afterEach(() => {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+  });
+
+  const mail: Mail = {
+    content: "parent context",
+    from: "/root",
+    id: "mail-1",
+    kind: "MESSAGE",
+    to: "/root/child",
+  };
+
+  /** A child tool that blocks until released, so the turn is streaming while mail arrives. */
+  const blockingTool = () => {
+    const started = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+
+    const bridge: ChildRuntimeRequest["bridge"] = (pi) => {
+      pi.registerTool({
+        description: "Blocks",
+        execute: async () => {
+          started.resolve(undefined);
+          await release.promise;
+
+          return { content: [{ text: "unblocked", type: "text" }], details: {} };
+        },
+        label: "Block",
+        name: "block",
+        parameters: Type.Object({}),
+      });
+    };
+
+    return { bridge, release, started };
+  };
+
+  it("acknowledges mail an idle child transcribes at once", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const delivered: string[] = [];
+    harness.setResponses([fauxAssistantMessage("answer")]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      onDelivered: (id) => delivered.push(id),
+    });
+
+    try {
+      await runtime.startTurn("first");
+      runtime.deliver(mail);
+
+      expect(delivered).toStrictEqual(["mail-1"]);
       expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .some((entry) => entry.type === "message" && entry.message.role === "user"),
+        branchOf(runtime.sessionFile, harness).some(
+          (entry) =>
+            entry.type === "custom_message" &&
+            JSON.stringify(entry.content).includes("parent context"),
+        ),
       ).toBeTruthy();
     } finally {
       await runtime.dispose();
@@ -493,33 +633,386 @@ describe("child runtime", () => {
     }
   });
 
-  it("accepts a second turn after the first result is persisted", async () => {
+  it("holds mail for a running turn until its boundary and includes it in the next request", async () => {
     const harness = await createAgentSessionHarness();
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const delivered: string[] = [];
+    const block = blockingTool();
+    let nextRequest = "";
+
     harness.setResponses([
-      fauxAssistantMessage("first answer"),
-      fauxAssistantMessage("second answer"),
+      fauxAssistantMessage(fauxToolCall("block", {}), { stopReason: "toolUse" }),
+      (context) => {
+        nextRequest = JSON.stringify(context.messages);
+
+        return fauxAssistantMessage("done");
+      },
     ]);
-    const runtime = await createChildRuntime(runtimeRequest(harness));
-    runtime.commit();
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: block.bridge,
+      onDelivered: (id) => delivered.push(id),
+      tools: ["block"],
+    });
 
     try {
-      const first = runtime.startTurn({ text: "first task" });
-      await expect(first.accepted).resolves.toBeUndefined();
-      await expect(first.settled).resolves.toMatchObject({
-        text: "first answer",
+      const turn = runtime.startTurn("work");
+      await block.started.promise;
+      runtime.deliver(mail);
+      expect(delivered).toStrictEqual([]);
+
+      block.release.resolve(undefined);
+      await expect(turn).resolves.toMatchObject({ text: "done" });
+      expect(delivered).toStrictEqual(["mail-1"]);
+      expect(nextRequest).toContain(
+        "Message Type: MESSAGE\\nTask name: /root/child\\nSender: /root",
+      );
+    } finally {
+      block.release.resolve(undefined);
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("steers a follow-up task into the running turn", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const block = blockingTool();
+    let nextRequest = "";
+
+    harness.setResponses([
+      fauxAssistantMessage(fauxToolCall("block", {}), { stopReason: "toolUse" }),
+      (context) => {
+        nextRequest = JSON.stringify(context.messages);
+
+        return fauxAssistantMessage("both done");
+      },
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: block.bridge,
+      tools: ["block"],
+    });
+
+    try {
+      const turn = runtime.startTurn("work");
+      await block.started.promise;
+
+      const read = runtime.steer({
+        content: "also this",
+        from: "/root",
+        kind: "NEW_TASK",
+        to: "/root/child",
       });
 
-      const second = runtime.startTurn({ text: "second task" });
-      await expect(second.accepted).resolves.toBeUndefined();
-      await expect(second.settled).resolves.toMatchObject({
-        text: "second answer",
+      block.release.resolve(undefined);
+
+      await expect(turn).resolves.toMatchObject({ text: "both done" });
+      await expect(read).resolves.toBe(true);
+      expect(nextRequest).toContain("Message Type: NEW_TASK");
+      expect(nextRequest).toContain("also this");
+    } finally {
+      block.release.resolve(undefined);
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("steers a follow-up task into a turn still starting, after its prompt", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const preflightStarted = Promise.withResolvers<undefined>();
+    const releasePreflight = Promise.withResolvers<undefined>();
+    const requests: string[] = [];
+
+    const task = {
+      content: "also this",
+      from: "/root",
+      kind: "NEW_TASK" as const,
+      to: "/root/child",
+    };
+
+    harness.setResponses([
+      (context) => {
+        requests.push(JSON.stringify(context.messages));
+
+        return fauxAssistantMessage("both done");
+      },
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("before_agent_start", async () => {
+          preflightStarted.resolve(undefined);
+          await releasePreflight.promise;
+        });
+      },
+      trusted: true,
+    });
+
+    try {
+      const turn = runtime.startTurn("initial task");
+      await preflightStarted.promise;
+      const read = runtime.steer(task);
+      releasePreflight.resolve(undefined);
+
+      await expect(turn).resolves.toMatchObject({ text: "both done" });
+      await expect(read).resolves.toBe(true);
+      const [request = ""] = requests;
+      expect(requests).toHaveLength(1);
+      expect(request.indexOf("also this")).toBeGreaterThan(request.indexOf("initial task"));
+      expect(request.indexOf("initial task")).toBeGreaterThan(-1);
+
+      // Once the turn has settled, there is nothing to queue a task for.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(runtime.steer(task)).toBeUndefined();
+    } finally {
+      releasePreflight.resolve(undefined);
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("reports a turn a child extension aborts as failed", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    harness.setResponses([fauxAssistantMessage("unreached")]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("before_provider_request", (_event, ctx) => {
+          ctx.abort();
+        });
+      },
+      trusted: true,
+    });
+
+    try {
+      await expect(runtime.startTurn("work")).resolves.toMatchObject({ status: "errored" });
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("reports a turn a child tool aborts as failed, not as its preliminary text", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+
+    harness.setResponses([
+      fauxAssistantMessage([fauxText("About to do the work"), fauxToolCall("stop", {})], {
+        stopReason: "toolUse",
+      }),
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.registerTool({
+          description: "Stops the run",
+          execute: async (_id, _params, _signal, _update, ctx) => {
+            ctx.abort();
+
+            // Ending the run here leaves the tool-use response as the last assistant message.
+            return { content: [{ text: "stopped", type: "text" }], details: {}, terminate: true };
+          },
+          label: "Stop",
+          name: "stop",
+          parameters: Type.Object({}),
+        });
+      },
+      tools: ["stop"],
+    });
+
+    try {
+      await expect(runtime.startTurn("work")).resolves.toStrictEqual({
+        error: "Turn was aborted",
+        status: "errored",
       });
     } finally {
       await runtime.dispose();
       harness.cleanup();
     }
   });
+
+  it("reports a task steered after an aborted run's last read as unread", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    let steer: ChildRuntime["steer"] | undefined;
+    let read: Promise<boolean> | undefined;
+
+    harness.setResponses([
+      fauxAssistantMessage(fauxToolCall("stop", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage("unreached"),
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.registerTool({
+          description: "Stops the run",
+          execute: async (_id, _params, _signal, _update, ctx) => {
+            ctx.abort();
+
+            return { content: [{ text: "stopped", type: "text" }], details: {}, terminate: true };
+          },
+          label: "Stop",
+          name: "stop",
+          parameters: Type.Object({}),
+        });
+
+        // An aborted run skips the settle hook; its settled handlers still run inside the turn.
+        pi.on("agent_settled", () => {
+          read = steer?.({ content: "late", from: "/root", kind: "NEW_TASK", to: "/root/child" });
+        });
+      },
+      tools: ["stop"],
+    });
+
+    steer = runtime.steer;
+
+    try {
+      await expect(runtime.startTurn("work")).resolves.toMatchObject({ status: "errored" });
+      expect(read).toBeDefined();
+      await expect(read).resolves.toBe(false);
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("steers a task into a run that a settle hook continues", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const requests: string[] = [];
+    let continued = false;
+    let steer: ChildRuntime["steer"] | undefined;
+    let read: Promise<boolean> | undefined;
+
+    harness.setResponses([
+      fauxAssistantMessage("first"),
+      (context) => {
+        requests.push(JSON.stringify(context.messages));
+        read = steer?.({
+          content: "also this",
+          from: "/root",
+          kind: "NEW_TASK",
+          to: "/root/child",
+        });
+
+        return fauxAssistantMessage("continued");
+      },
+      (context) => {
+        requests.push(JSON.stringify(context.messages));
+
+        return fauxAssistantMessage("both done");
+      },
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("agent_before_settle", (event) => {
+          if (continued) {
+            return undefined;
+          }
+
+          continued = true;
+
+          return {
+            continue: true,
+            entries: [
+              ...event.entries,
+              {
+                content: "Check once more",
+                customType: "test-continuation",
+                display: false,
+                type: "custom_message",
+              },
+            ],
+          };
+        });
+      },
+      trusted: true,
+    });
+
+    steer = runtime.steer;
+
+    try {
+      await expect(runtime.startTurn("work")).resolves.toMatchObject({ text: "both done" });
+      await expect(read).resolves.toBe(true);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toContain("also this");
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+});
+
+describe("child cancellation", () => {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+  afterEach(() => {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+  });
+
+  const tick = () =>
+    new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+
+  const compactingHarness = async (
+    compaction: Record<string, number | boolean>,
+    contextWindow = 100,
+  ) => {
+    const harness = await createAgentSessionHarness({
+      models: [{ contextWindow, id: "faux-1", maxTokens: 100 }],
+    });
+
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    await writeFile(path.join(harness.agentDir, "settings.json"), JSON.stringify({ compaction }));
+
+    return harness;
+  };
+
+  /** History whose last response overflowed, so the next prompt compacts first. */
+  const overflowedHistory = (harness: AgentSessionHarness): ChildRuntimeRequest["history"] => {
+    const model = harness.faux.getModel();
+    const now = Date.now();
+
+    const previousAssistant: AssistantMessage = {
+      ...fauxAssistantMessage("previous response", { stopReason: "length", timestamp: now - 500 }),
+      api: model.api,
+      model: model.id,
+      provider: model.provider,
+      usage: usage(100),
+    };
+
+    return [
+      { content: [{ text: "previous prompt", type: "text" }], role: "user", timestamp: now - 1000 },
+      previousAssistant,
+    ];
+  };
+
+  const compactionResult =
+    (summary: string) =>
+    (event: { preparation: { firstKeptEntryId: string; tokensBefore: number } }) => ({
+      compaction: {
+        details: {},
+        firstKeptEntryId: event.preparation.firstKeptEntryId,
+        summary,
+        tokensBefore: event.preparation.tokensBefore,
+      },
+    });
 
   it.each([
     ["abort", "input"],
@@ -531,23 +1024,14 @@ describe("child runtime", () => {
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     const preflightStarted = Promise.withResolvers<undefined>();
     const releasePreflight = Promise.withResolvers<undefined>();
-    const preflightFinished = Promise.withResolvers<undefined>();
-    let providerStarted = false;
-    harness.setResponses([
-      async () => {
-        providerStarted = true;
-
-        return fauxAssistantMessage("detached answer");
-      },
-    ]);
+    harness.setResponses([fauxAssistantMessage("detached answer")]);
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
-      bridge: async (pi) => {
+      bridge: (pi) => {
         const suspend = async () => {
           preflightStarted.resolve(undefined);
           await releasePreflight.promise;
-          preflightFinished.resolve(undefined);
         };
 
         if (preflightEvent === "input") {
@@ -559,52 +1043,32 @@ describe("child runtime", () => {
       trusted: true,
     });
 
-    runtime.commit();
-
     try {
-      const turn = runtime.startTurn({ text: "initial task" });
+      const turn = runtime.startTurn("initial task");
       await preflightStarted.promise;
 
-      let stop: Promise<void>;
-
       if (operation === "abort") {
-        stop = runtime.abort();
-        await stop;
+        runtime.abort();
+        // The turn settles without waiting for the suspended handler.
+        await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
+        releasePreflight.resolve(undefined);
       } else {
-        let stopped = false;
-        stop = runtime.dispose().then(() => {
-          stopped = true;
+        let disposed = false;
+
+        const disposal = runtime.dispose().then(() => {
+          disposed = true;
         });
-        await new Promise<void>((resolve) => {
-          setImmediate(resolve);
-        });
-        expect(stopped).toBeFalsy();
+
+        await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
+        await tick();
+        expect(disposed).toBeFalsy();
+        releasePreflight.resolve(undefined);
+        await disposal;
       }
 
-      releasePreflight.resolve(undefined);
-      await preflightFinished.promise;
-      await stop;
-
-      await expect(turn.accepted).rejects.toThrow(
-        operation === "abort" ? "Child turn was aborted" : "Child runtime was disposed",
-      );
-      await expect(turn.settled).rejects.toThrow(
-        operation === "abort" ? "Child turn was aborted" : "Child runtime was disposed",
-      );
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(providerStarted).toBeFalsy();
+      await runtime.dispose();
       expect(harness.getPendingResponseCount()).toBe(1);
-      expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .some((entry) => entry.type === "message" && entry.message.role === "user"),
-      ).toBeFalsy();
+      expect(hasUserTask(runtime.sessionFile, harness, "initial task")).toBeFalsy();
     } finally {
       releasePreflight.resolve(undefined);
       await runtime.dispose();
@@ -613,23 +1077,22 @@ describe("child runtime", () => {
   });
 
   it.each(["input", "before_agent_start"] as const)(
-    "dispose emits shutdown while fencing a turn suspended in %s",
+    "dispose emits shutdown once while fencing a turn suspended in %s",
     async (preflightEvent) => {
       const harness = await createAgentSessionHarness();
       process.env.PI_CODING_AGENT_DIR = harness.agentDir;
       const preflightStarted = Promise.withResolvers<undefined>();
       const shutdownStarted = Promise.withResolvers<undefined>();
-      const cleanup = Promise.withResolvers<undefined>();
       const releasePreflight = Promise.withResolvers<undefined>();
       let preflightFinished = false;
       let shutdownCount = 0;
 
       const runtime = await createChildRuntime({
         ...runtimeRequest(harness),
-        bridge: async (pi) => {
+        bridge: (pi) => {
           const suspend = async () => {
             preflightStarted.resolve(undefined);
-            await cleanup.promise;
+            await shutdownStarted.promise;
             await releasePreflight.promise;
             preflightFinished = true;
           };
@@ -642,84 +1105,53 @@ describe("child runtime", () => {
 
           pi.on("session_shutdown", () => {
             shutdownCount += 1;
-            cleanup.resolve(undefined);
             shutdownStarted.resolve(undefined);
           });
         },
         trusted: true,
       });
 
-      runtime.commit();
-      let disposal: Promise<void> | undefined;
-
       try {
-        const turn = runtime.startTurn({ text: "initial task" });
+        const turn = runtime.startTurn("initial task");
         await preflightStarted.promise;
-
         let disposed = false;
-        disposal = runtime.dispose().then(() => {
+
+        const disposals = Promise.all([runtime.dispose(), runtime.dispose()]).then(() => {
           disposed = true;
         });
+
+        // Shutdown reaches handlers while the suspended preflight still runs.
         await shutdownStarted.promise;
-        let concurrentDisposed = false;
-
-        const concurrentDisposal = runtime.dispose().then(() => {
-          concurrentDisposed = true;
+        await tick();
+        expect({ disposed, preflightFinished }).toStrictEqual({
+          disposed: false,
+          preflightFinished: false,
         });
-
-        await new Promise<void>((resolve) => {
-          setImmediate(resolve);
-        });
-        expect(disposed).toBeFalsy();
-        expect(concurrentDisposed).toBeFalsy();
-        expect(preflightFinished).toBeFalsy();
 
         releasePreflight.resolve(undefined);
-        await Promise.all([disposal, concurrentDisposal]);
+        await disposals;
         expect(preflightFinished).toBeTruthy();
-        await expect(turn.accepted).rejects.toThrow("Child runtime was disposed");
-        await expect(turn.settled).rejects.toThrow("Child runtime was disposed");
-
+        await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
         await runtime.dispose();
         expect(shutdownCount).toBe(1);
       } finally {
-        cleanup.resolve(undefined);
         releasePreflight.resolve(undefined);
-        await disposal;
         await runtime.dispose();
         harness.cleanup();
       }
     },
   );
 
-  it("fences interrupted preflight before stale auto-compaction", async () => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
+  it("keeps a turn cancelled during input preflight from compacting", async () => {
+    const harness = await compactingHarness({
+      enabled: true,
+      keepRecentTokens: 1,
+      reserveTokens: 0,
     });
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      }),
-    );
     const inputStarted = Promise.withResolvers<undefined>();
     const releaseInput = Promise.withResolvers<undefined>();
     let compactionStarted = false;
-    const model = harness.faux.getModel();
-    const now = Date.now();
-
-    const previousAssistant: AssistantMessage = {
-      ...fauxAssistantMessage("previous response", {
-        stopReason: "length",
-        timestamp: now - 500,
-      }),
-      api: model.api,
-      model: model.id,
-      provider: model.provider,
-      usage: usage(100),
-    };
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
@@ -728,69 +1160,31 @@ describe("child runtime", () => {
           inputStarted.resolve(undefined);
           await releaseInput.promise;
         });
-        pi.on("session_before_compact", async (event) => {
+        pi.on("session_before_compact", (event) => {
           compactionStarted = true;
 
-          return {
-            compaction: {
-              details: {},
-              firstKeptEntryId: event.preparation.firstKeptEntryId,
-              summary: "preflight compaction",
-              tokensBefore: event.preparation.tokensBefore,
-            },
-          };
+          return compactionResult("preflight compaction")(event);
         });
       },
-      history: [
-        {
-          content: [{ text: "previous prompt", type: "text" }],
-          role: "user",
-          timestamp: now - 1000,
-        },
-        previousAssistant,
-      ],
+      history: overflowedHistory(harness),
       trusted: true,
     });
 
-    runtime.commit();
-
     try {
-      const turn = runtime.startTurn({ text: "cancelled task" });
+      const turn = runtime.startTurn("cancelled task");
       await inputStarted.promise;
+      runtime.abort();
+      await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
 
-      await runtime.abort();
-      let disposed = false;
-
-      const disposal = runtime.dispose().then(() => {
-        disposed = true;
-      });
-
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(disposed).toBeFalsy();
-
+      const disposal = runtime.dispose();
       releaseInput.resolve(undefined);
       await disposal;
-      await expect(turn.accepted).rejects.toThrow("Child turn was aborted");
-      await expect(turn.settled).rejects.toThrow("Child turn was aborted");
-
-      const branch = SessionManager.open(
-        runtime.sessionFile,
-        path.dirname(runtime.sessionFile),
-        path.dirname(harness.agentDir),
-      ).getBranch();
 
       expect(compactionStarted).toBeFalsy();
-      expect(branch.filter((entry) => entry.type === "compaction")).toHaveLength(0);
       expect(
-        branch.some(
-          (entry) =>
-            entry.type === "message" &&
-            entry.message.role === "user" &&
-            JSON.stringify(entry.message.content).includes("cancelled task"),
-        ),
-      ).toBeFalsy();
+        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+      ).toHaveLength(0);
+      expect(hasUserTask(runtime.sessionFile, harness, "cancelled task")).toBeFalsy();
       expect(harness.getPendingResponseCount()).toBe(0);
     } finally {
       releaseInput.resolve(undefined);
@@ -799,41 +1193,29 @@ describe("child runtime", () => {
     }
   });
 
-  it("guards canceled preflight before compaction begins after delayed auth availability", async () => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
+  it("keeps a turn cancelled during delayed auth from compacting", async () => {
+    const harness = await compactingHarness({
+      enabled: true,
+      keepRecentTokens: 1,
+      reserveTokens: 0,
     });
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      }),
-    );
     const authStarted = Promise.withResolvers<undefined>();
     const releaseAuth = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
 
-    const provider = harness.session.extensionRunner
+    const apiKeyAuth = harness.session.extensionRunner
       .getModelRegistry()
-      .getRegisteredNativeProvider(model.provider);
+      .getRegisteredNativeProvider(model.provider)?.auth.apiKey;
 
-    const apiKeyAuth = provider?.auth.apiKey;
-
-    if (apiKeyAuth === undefined) {
-      throw new Error("Faux API key auth is unavailable");
-    }
-
-    if (apiKeyAuth.check === undefined) {
+    if (apiKeyAuth?.check === undefined) {
       throw new Error("Faux auth availability check is unavailable");
     }
 
     const checkAuth = apiKeyAuth.check.bind(apiKeyAuth);
     let blockAuth = false;
 
-    // Pi checks configured auth during preflight; credential resolution now runs
-    // only for a request that needs it, after extension compaction interception.
+    // Pi checks configured auth during preflight, before pre-prompt compaction.
     const authSpy = vi.spyOn(apiKeyAuth, "check").mockImplementation(async (input) => {
       if (!blockAuth) return undefined;
       authStarted.resolve(undefined);
@@ -842,78 +1224,36 @@ describe("child runtime", () => {
       return checkAuth(input);
     });
 
-    const now = Date.now();
-
-    const previousAssistant: AssistantMessage = {
-      ...fauxAssistantMessage("previous response", {
-        stopReason: "length",
-        timestamp: now - 500,
-      }),
-      api: model.api,
-      model: model.id,
-      provider: model.provider,
-      usage: usage(100),
-    };
-
-    let projectCompactionStarted = false;
+    let compactionStarted = false;
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
         pi.on("session_before_compact", (event) => {
-          projectCompactionStarted = true;
+          compactionStarted = true;
 
-          return {
-            compaction: {
-              details: {},
-              firstKeptEntryId: event.preparation.firstKeptEntryId,
-              summary: "late preflight compaction",
-              tokensBefore: event.preparation.tokensBefore,
-            },
-          };
+          return compactionResult("late preflight compaction")(event);
         });
       },
-      history: [
-        {
-          content: [{ text: "previous prompt", type: "text" }],
-          role: "user",
-          timestamp: now - 1000,
-        },
-        previousAssistant,
-      ],
+      history: overflowedHistory(harness),
       trusted: true,
     });
 
-    runtime.commit();
     blockAuth = true;
 
     try {
-      const turn = runtime.startTurn({ text: "cancelled task" });
+      const turn = runtime.startTurn("cancelled task");
       await authStarted.promise;
-
-      await runtime.abort();
+      runtime.abort();
       releaseAuth.resolve(undefined);
       await runtime.dispose();
-      await expect(turn.accepted).rejects.toThrow("Child turn was aborted");
-      await expect(turn.settled).rejects.toThrow("Child turn was aborted");
+      await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
 
-      expect(projectCompactionStarted).toBeFalsy();
-
-      const branch = SessionManager.open(
-        runtime.sessionFile,
-        path.dirname(runtime.sessionFile),
-        path.dirname(harness.agentDir),
-      ).getBranch();
-
-      expect(branch.filter((entry) => entry.type === "compaction")).toHaveLength(0);
+      expect(compactionStarted).toBeFalsy();
       expect(
-        branch.some(
-          (entry) =>
-            entry.type === "message" &&
-            entry.message.role === "user" &&
-            JSON.stringify(entry.message.content).includes("cancelled task"),
-        ),
-      ).toBeFalsy();
+        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+      ).toHaveLength(0);
+      expect(hasUserTask(runtime.sessionFile, harness, "cancelled task")).toBeFalsy();
     } finally {
       authSpy.mockRestore();
       releaseAuth.resolve(undefined);
@@ -922,33 +1262,14 @@ describe("child runtime", () => {
     }
   });
 
-  it("aborts signal-aware pre-prompt auto-compaction at the stop boundary", async () => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
+  it("aborts signal-aware pre-prompt compaction", async () => {
+    const harness = await compactingHarness({
+      enabled: true,
+      keepRecentTokens: 1,
+      reserveTokens: 0,
     });
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      }),
-    );
     const compactionStarted = Promise.withResolvers<undefined>();
-    const compactionAborted = Promise.withResolvers<undefined>();
-    const model = harness.faux.getModel();
-    const now = Date.now();
-
-    const previousAssistant: AssistantMessage = {
-      ...fauxAssistantMessage("previous response", {
-        stopReason: "length",
-        timestamp: now - 500,
-      }),
-      api: model.api,
-      model: model.id,
-      provider: model.provider,
-      usage: usage(100),
-    };
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
@@ -962,49 +1283,24 @@ describe("child runtime", () => {
             });
           }
 
-          compactionAborted.resolve(undefined);
-
           return { cancel: true };
         });
       },
-      history: [
-        {
-          content: [{ text: "previous prompt", type: "text" }],
-          role: "user",
-          timestamp: now - 1000,
-        },
-        previousAssistant,
-      ],
+      history: overflowedHistory(harness),
       trusted: true,
     });
 
-    runtime.commit();
-
     try {
-      const turn = runtime.startTurn({ text: "cancelled task" });
+      const turn = runtime.startTurn("cancelled task");
       await compactionStarted.promise;
-
-      await runtime.abort();
-      await compactionAborted.promise;
+      runtime.abort();
       await runtime.dispose();
-      await expect(turn.accepted).rejects.toThrow("Child turn was aborted");
-      await expect(turn.settled).rejects.toThrow("Child turn was aborted");
+      await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
 
-      const branch = SessionManager.open(
-        runtime.sessionFile,
-        path.dirname(runtime.sessionFile),
-        path.dirname(harness.agentDir),
-      ).getBranch();
-
-      expect(branch.filter((entry) => entry.type === "compaction")).toHaveLength(0);
       expect(
-        branch.some(
-          (entry) =>
-            entry.type === "message" &&
-            entry.message.role === "user" &&
-            JSON.stringify(entry.message.content).includes("cancelled task"),
-        ),
-      ).toBeFalsy();
+        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+      ).toHaveLength(0);
+      expect(hasUserTask(runtime.sessionFile, harness, "cancelled task")).toBeFalsy();
       expect(harness.getPendingResponseCount()).toBe(0);
     } finally {
       await runtime.dispose();
@@ -1012,27 +1308,20 @@ describe("child runtime", () => {
     }
   });
 
-  it("cancels post-run auto-compaction during blocked summary auth", async () => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
+  it("cancels post-run compaction blocked in summary auth", async () => {
+    const harness = await compactingHarness({
+      enabled: true,
+      keepRecentTokens: 1,
+      reserveTokens: 10,
     });
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 10 },
-      }),
-    );
     const authStarted = Promise.withResolvers<undefined>();
     const releaseAuth = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
 
-    const provider = harness.session.extensionRunner
+    const apiKeyAuth = harness.session.extensionRunner
       .getModelRegistry()
-      .getRegisteredNativeProvider(model.provider);
-
-    const apiKeyAuth = provider?.auth.apiKey;
+      .getRegisteredNativeProvider(model.provider)?.auth.apiKey;
 
     if (apiKeyAuth === undefined) {
       throw new Error("Faux API key auth is unavailable");
@@ -1064,82 +1353,39 @@ describe("child runtime", () => {
       },
       fauxAssistantMessage("unexpected summary"),
     ]);
-    let projectCompactionStarted = false;
 
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: (pi) => {
-        pi.on("session_before_compact", () => {
-          projectCompactionStarted = true;
-        });
-      },
-      trusted: true,
-    });
-
-    runtime.commit();
-    let abort: Promise<void> | undefined;
+    const runtime = await createChildRuntime({ ...runtimeRequest(harness), trusted: true });
 
     try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
+      const turn = runtime.startTurn("initial task");
       await authStarted.promise;
-      // Extension interception now precedes auth for Pi's default summary.
-      expect(projectCompactionStarted).toBeTruthy();
-
-      let stopped = false;
-      abort = runtime.abort().then(() => {
-        stopped = true;
-      });
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBeTruthy();
-      await abort;
-
+      runtime.abort();
       releaseAuth.resolve(undefined);
-      await expect(turn.settled).resolves.toStrictEqual({
-        status: "completed",
-        text: "child answer",
-      });
 
-      expect(projectCompactionStarted).toBeTruthy();
+      await expect(turn).resolves.toStrictEqual({ status: "completed", text: "child answer" });
       expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .filter((entry) => entry.type === "compaction"),
+        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
       ).toHaveLength(0);
-      expect(
-        harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
-      ).toHaveLength(1);
       expect(harness.getPendingResponseCount()).toBe(1);
     } finally {
       authSpy.mockRestore();
       releaseAuth.resolve(undefined);
-      await abort;
       await runtime.dispose();
       harness.cleanup();
     }
   });
 
-  it("aborts before a completed overflow compaction can retry", async () => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow: 1000, id: "faux-1", maxTokens: 100 }],
-    });
-
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      }),
+  it("does not retry after an overflow compaction once cancelled", async () => {
+    const harness = await compactingHarness(
+      { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
+      1000,
     );
-    const compactionStarted = Promise.withResolvers<undefined>();
+
+    const compacted = Promise.withResolvers<undefined>();
     const releaseCompaction = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
+    let willRetry = false;
+
     harness.setResponses([
       {
         ...fauxAssistantMessage("partial answer", { stopReason: "length" }),
@@ -1150,62 +1396,28 @@ describe("child runtime", () => {
       },
       fauxAssistantMessage("unexpected retry"),
     ]);
-    let willRetry = false;
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
-        pi.on("session_before_compact", (event) => ({
-          compaction: {
-            details: {},
-            firstKeptEntryId: event.preparation.firstKeptEntryId,
-            summary: "overflow compaction",
-            tokensBefore: event.preparation.tokensBefore,
-          },
-        }));
+        pi.on("session_before_compact", compactionResult("overflow compaction"));
         pi.on("session_compact", async (event) => {
           willRetry = event.willRetry;
-          compactionStarted.resolve(undefined);
+          compacted.resolve(undefined);
           await releaseCompaction.promise;
         });
       },
       trusted: true,
     });
 
-    runtime.commit();
-
     try {
-      const turn = runtime.startTurn({ text: "x".repeat(5000) });
-      await turn.accepted;
-      await compactionStarted.promise;
+      const turn = runtime.startTurn("x".repeat(5000));
+      await compacted.promise;
       expect(willRetry).toBeTruthy();
-      expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .filter((entry) => entry.type === "compaction"),
-      ).toHaveLength(1);
-
-      let stopped = false;
-
-      const abort = runtime.abort().then(() => {
-        stopped = true;
-      });
-
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBeTruthy();
-      await abort;
-
+      runtime.abort();
       releaseCompaction.resolve(undefined);
-      await expect(turn.settled).resolves.toStrictEqual({ status: "interrupted" });
-      expect(
-        harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
-      ).toHaveLength(1);
+
+      await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
       expect(harness.getPendingResponseCount()).toBe(1);
     } finally {
       releaseCompaction.resolve(undefined);
@@ -1214,23 +1426,18 @@ describe("child runtime", () => {
     }
   });
 
-  it("does not start an overflow retry after cancellation during context conversion", async () => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow: 1000, id: "faux-1", maxTokens: 100 }],
-    });
+  it("does not send an overflow retry cancelled during context conversion", async () => {
+    const harness = await compactingHarness(
+      { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
+      1000,
+    );
 
     const streamSpy = vi.spyOn(ModelRuntime.prototype, "streamSimple");
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      }),
-    );
     const retryContextStarted = Promise.withResolvers<undefined>();
     const releaseRetryContext = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
     let blockRetryContext = false;
+
     harness.setResponses([
       {
         ...fauxAssistantMessage("partial answer", { stopReason: "length" }),
@@ -1253,1086 +1460,32 @@ describe("child runtime", () => {
 
           return { messages: event.messages };
         });
-        pi.on("session_before_compact", (event) => ({
-          compaction: {
-            details: {},
-            firstKeptEntryId: event.preparation.firstKeptEntryId,
-            summary: "overflow compaction",
-            tokensBefore: event.preparation.tokensBefore,
-          },
-        }));
-        pi.on("session_compact", (event) => {
-          expect(event.willRetry).toBeTruthy();
+        pi.on("session_before_compact", compactionResult("overflow compaction"));
+        pi.on("session_compact", () => {
           blockRetryContext = true;
         });
       },
       trusted: true,
     });
 
-    runtime.commit();
-    let abort: Promise<void> | undefined;
-
     try {
-      const turn = runtime.startTurn({ text: "x".repeat(5000) });
-      await turn.accepted;
+      const turn = runtime.startTurn("x".repeat(5000));
       await retryContextStarted.promise;
       expect(streamSpy).toHaveBeenCalledTimes(1);
-      expect(
-        harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
-      ).toHaveLength(1);
-
-      abort = runtime.abort();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
+      runtime.abort();
+      await tick();
       releaseRetryContext.resolve(undefined);
-      await abort;
 
-      await expect(turn.settled).resolves.toStrictEqual({ status: "interrupted" });
+      await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
+      // The retry reaches the provider only with an aborted signal, so no request is built.
       expect(
         harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
       ).toHaveLength(1);
-      expect(streamSpy).toHaveBeenCalledTimes(1);
       expect(harness.getPendingResponseCount()).toBe(1);
     } finally {
       streamSpy.mockRestore();
       releaseRetryContext.resolve(undefined);
-      await abort;
       await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("defers active queue-only mail after a final answer", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const agentEnd = Promise.withResolvers<undefined>();
-    const releaseAgentEnd = Promise.withResolvers<undefined>();
-    harness.setResponses([
-      fauxAssistantMessage("first answer"),
-      fauxAssistantMessage("answer after steering"),
-    ]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.on("agent_end", async () => {
-          agentEnd.resolve(undefined);
-          await releaseAgentEnd.promise;
-        });
-      },
-    });
-
-    runtime.commit();
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await agentEnd.promise;
-      expect(runtime.isStreaming()).toBeTruthy();
-
-      const delivery = runtime.sendMessage({
-        content: "new steering context",
-        customType: "subagent-message",
-        details: { communicationId: "message-1" },
-      });
-
-      releaseAgentEnd.resolve(undefined);
-
-      await delivery.accepted;
-      await expect(turn.settled).resolves.toMatchObject({
-        text: "first answer",
-      });
-      expect(harness.getPendingResponseCount()).toBe(1);
-
-      const persisted = SessionManager.open(
-        runtime.sessionFile,
-        path.dirname(runtime.sessionFile),
-        path.dirname(harness.agentDir),
-      ).getBranch();
-
-      const assistantIndex = persisted.findIndex(
-        (entry) => entry.type === "message" && entry.message.role === "assistant",
-      );
-
-      const customIndex = persisted.findIndex(
-        (entry) =>
-          entry.type === "custom_message" &&
-          Value.Check(CommunicationDetailsSchema, entry.details) &&
-          entry.details.communicationId === "message-1",
-      );
-
-      expect(assistantIndex).toBeGreaterThanOrEqual(0);
-      expect(customIndex).toBeGreaterThan(assistantIndex);
-
-      const next = runtime.startTurn({ text: "next task" });
-      await next.accepted;
-      await expect(next.settled).resolves.toMatchObject({
-        text: "answer after steering",
-      });
-      expect(lastProviderPayloadText(harness)).toContain("new steering context");
-    } finally {
-      releaseAgentEnd.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it.each([undefined, false])(
-    "steers mail into one tool continuation with endTurn=%s",
-    async (endTurn) => {
-      const harness = await createAgentSessionHarness({
-        api: "openai-codex-responses",
-        provider: "openai-codex",
-      });
-
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-      const toolStarted = Promise.withResolvers<undefined>();
-      const releaseTool = Promise.withResolvers<undefined>();
-      harness.setResponses([
-        {
-          ...fauxAssistantMessage(fauxToolCall("continue", {}, { id: "continue-1" }), {
-            stopReason: "toolUse",
-          }),
-          ...(endTurn !== undefined ? { endTurn } : {}),
-        },
-        fauxAssistantMessage("answer with mail"),
-        fauxAssistantMessage("unused"),
-      ]);
-
-      const runtime = await createChildRuntime({
-        ...runtimeRequest(harness),
-        bridge: async (pi) => {
-          pi.registerTool({
-            description: "Continue after a barrier",
-            async execute() {
-              toolStarted.resolve(undefined);
-              await releaseTool.promise;
-
-              return {
-                content: [{ text: "continued", type: "text" }],
-                details: {},
-              };
-            },
-            label: "Continue",
-            name: "continue",
-            parameters: Type.Object({}),
-          });
-        },
-        tools: ["continue"],
-      });
-
-      runtime.commit();
-
-      try {
-        const turn = runtime.startTurn({ text: "initial task" });
-        await turn.accepted;
-        await toolStarted.promise;
-
-        const delivery = runtime.sendMessage({
-          content: "mail visible to continuation",
-          customType: "subagent-message",
-          details: { communicationId: "message-tool" },
-        });
-
-        releaseTool.resolve(undefined);
-
-        await delivery.accepted;
-        await expect(turn.settled).resolves.toMatchObject({
-          text: "answer with mail",
-        });
-        expect(lastProviderPayloadText(harness)).toContain("mail visible to continuation");
-        expect(harness.getPendingResponseCount()).toBe(1);
-      } finally {
-        await runtime.dispose();
-        harness.cleanup();
-      }
-    },
-  );
-
-  it("clears queued triggering mail before aborting the active turn", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const toolStarted = Promise.withResolvers<undefined>();
-    harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("wait", {}, { id: "wait-active-mail" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("detached continuation"),
-    ]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.registerTool({
-          description: "Wait until aborted",
-          async execute(_toolCallId, _params, signal) {
-            toolStarted.resolve(undefined);
-
-            if (signal === undefined) {
-              throw new Error("Tool signal is unavailable");
-            }
-
-            await new Promise<void>((resolve) => {
-              signal.addEventListener("abort", () => resolve(), { once: true });
-            });
-
-            return {
-              content: [{ text: "aborted", type: "text" }],
-              details: {},
-            };
-          },
-          label: "Wait",
-          name: "wait",
-          parameters: Type.Object({}),
-        });
-      },
-      tools: ["wait"],
-    });
-
-    runtime.commit();
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await toolStarted.promise;
-
-      const delivery = runtime.sendMessage(
-        {
-          content: "Message Type: NEW_TASK\nPayload: detached work",
-          customType: "subagent-message",
-          details: { communicationId: "active-new-task" },
-        },
-        undefined,
-        true,
-      );
-
-      await runtime.abort();
-
-      await expect(delivery.accepted).rejects.toThrow("Child turn was aborted");
-      await turn.settled;
-      expect(
-        harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
-      ).toHaveLength(1);
-      expect(harness.getPendingResponseCount()).toBe(1);
-
-      const deliveries = SessionManager.open(
-        runtime.sessionFile,
-        path.dirname(runtime.sessionFile),
-        path.dirname(harness.agentDir),
-      )
-        .getBranch()
-        .filter(
-          (entry) =>
-            entry.type === "custom_message" &&
-            Value.Check(CommunicationDetailsSchema, entry.details) &&
-            entry.details.communicationId === "active-new-task",
-        );
-
-      expect(deliveries).toHaveLength(0);
-    } finally {
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it.each(["abort", "dispose"] as const)(
-    "%s waits for passive mail to be durably accepted exactly once",
-    async (operation) => {
-      const harness = await createAgentSessionHarness();
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-      const toolStarted = Promise.withResolvers<undefined>();
-      const order: string[] = [];
-      harness.setResponses([
-        fauxAssistantMessage(fauxToolCall("wait", {}, { id: `wait-passive-${operation}` }), {
-          stopReason: "toolUse",
-        }),
-      ]);
-
-      const runtime = await createChildRuntime({
-        ...runtimeRequest(harness),
-        bridge: async (pi) => {
-          pi.registerTool({
-            description: "Wait until aborted",
-            async execute(_toolCallId, _params, signal) {
-              toolStarted.resolve(undefined);
-
-              if (signal === undefined) {
-                throw new Error("Tool signal is unavailable");
-              }
-
-              await new Promise<void>((resolve) => {
-                signal.addEventListener("abort", () => resolve(), { once: true });
-              });
-
-              return {
-                content: [{ text: "aborted", type: "text" }],
-                details: {},
-              };
-            },
-            label: "Wait",
-            name: "wait",
-            parameters: Type.Object({}),
-          });
-          pi.on("session_shutdown", () => {
-            order.push("shutdown");
-          });
-        },
-        tools: ["wait"],
-      });
-
-      runtime.commit();
-
-      try {
-        const turn = runtime.startTurn({ text: "initial task" });
-        await turn.accepted;
-        await toolStarted.promise;
-        const deliveryId = `passive-${operation}`;
-
-        const delivery = runtime.sendMessage({
-          content: `mail persisted during ${operation}`,
-          customType: "subagent-message",
-          details: { communicationId: deliveryId },
-        });
-
-        void delivery.accepted.then(() => {
-          order.push("accepted");
-        });
-
-        if (operation === "abort") {
-          await runtime.abort();
-        } else {
-          await runtime.dispose();
-        }
-
-        order.push("stopped");
-
-        await expect(delivery.accepted).resolves.toBeUndefined();
-        await turn.settled;
-        expect(order).toStrictEqual(
-          operation === "abort" ? ["accepted", "stopped"] : ["accepted", "shutdown", "stopped"],
-        );
-
-        const deliveries = SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .filter(
-            (entry) =>
-              entry.type === "custom_message" &&
-              Value.Check(CommunicationDetailsSchema, entry.details) &&
-              entry.details.communicationId === deliveryId,
-          );
-
-        expect(deliveries).toHaveLength(1);
-      } finally {
-        await runtime.dispose();
-        harness.cleanup();
-      }
-    },
-  );
-
-  it("waits for agent-settled passive verification before abort returns", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const agentEnd = Promise.withResolvers<undefined>();
-    const releaseAgentEnd = Promise.withResolvers<undefined>();
-    const agentSettled = Promise.withResolvers<undefined>();
-    const releaseAgentSettled = Promise.withResolvers<undefined>();
-    harness.setResponses([fauxAssistantMessage("finished")]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.on("agent_end", async () => {
-          agentEnd.resolve(undefined);
-          await releaseAgentEnd.promise;
-        });
-        pi.on("agent_settled", async () => {
-          agentSettled.resolve(undefined);
-          await releaseAgentSettled.promise;
-        });
-      },
-    });
-
-    runtime.commit();
-    let verification: ReturnType<typeof blockNextTranscriptVerification> | undefined;
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await agentEnd.promise;
-      const deliveryId = "passive-settlement-verification";
-
-      const delivery = runtime.sendMessage({
-        content: "mail flushed at settlement",
-        customType: "subagent-message",
-        details: { communicationId: deliveryId },
-      });
-
-      releaseAgentEnd.resolve(undefined);
-      await agentSettled.promise;
-      verification = blockNextTranscriptVerification();
-      releaseAgentSettled.resolve(undefined);
-      await verification.started.promise;
-
-      let stopped = false;
-
-      const abort = runtime.abort().then(() => {
-        stopped = true;
-      });
-
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBeFalsy();
-
-      verification.release.resolve(undefined);
-      await expect(delivery.accepted).resolves.toBeUndefined();
-      await abort;
-      await turn.settled;
-      expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .filter(
-            (entry) =>
-              entry.type === "custom_message" &&
-              Value.Check(CommunicationDetailsSchema, entry.details) &&
-              entry.details.communicationId === deliveryId,
-          ),
-      ).toHaveLength(1);
-    } finally {
-      verification?.spy.mockRestore();
-      verification?.release.resolve(undefined);
-      releaseAgentEnd.resolve(undefined);
-      releaseAgentSettled.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("waits for direct-appended message verification before abort returns", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const runtime = await createChildRuntime(runtimeRequest(harness));
-    runtime.commit();
-    const verification = blockNextTranscriptVerification();
-
-    try {
-      const deliveryId = "direct-append-verification";
-
-      const delivery = runtime.sendMessage({
-        content: "mail appended while idle",
-        customType: "subagent-message",
-        details: { communicationId: deliveryId },
-      });
-
-      await verification.started.promise;
-
-      let stopped = false;
-
-      const abort = runtime.abort().then(() => {
-        stopped = true;
-      });
-
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBeFalsy();
-
-      verification.release.resolve(undefined);
-      await expect(delivery.accepted).resolves.toBeUndefined();
-      await abort;
-      expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .filter(
-            (entry) =>
-              entry.type === "custom_message" &&
-              Value.Check(CommunicationDetailsSchema, entry.details) &&
-              entry.details.communicationId === deliveryId,
-          ),
-      ).toHaveLength(1);
-    } finally {
-      verification.spy.mockRestore();
-      verification.release.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("waits for consumed steering verification before abort returns", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const releaseFirstResponse = Promise.withResolvers<undefined>();
-    const firstTurnEnd = Promise.withResolvers<undefined>();
-    const releaseFirstTurnEnd = Promise.withResolvers<undefined>();
-    let heldTurnEnd = false;
-    harness.setResponses([
-      async () => {
-        await releaseFirstResponse.promise;
-
-        return fauxAssistantMessage("first answer");
-      },
-      fauxAssistantMessage("answer after steering"),
-    ]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.on("turn_end", async () => {
-          if (heldTurnEnd) {
-            return;
-          }
-
-          heldTurnEnd = true;
-          firstTurnEnd.resolve(undefined);
-          await releaseFirstTurnEnd.promise;
-        });
-      },
-    });
-
-    runtime.commit();
-    let verification: ReturnType<typeof blockNextTranscriptVerification> | undefined;
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      const deliveryId = "consumed-steering-verification";
-
-      const delivery = runtime.sendMessage(
-        {
-          content: "steering consumed before interrupt",
-          customType: "subagent-message",
-          details: { communicationId: deliveryId },
-        },
-        undefined,
-        true,
-      );
-
-      releaseFirstResponse.resolve(undefined);
-      await firstTurnEnd.promise;
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      verification = blockNextTranscriptVerification();
-      releaseFirstTurnEnd.resolve(undefined);
-      await verification.started.promise;
-
-      let stopped = false;
-
-      const abort = runtime.abort().then(() => {
-        stopped = true;
-      });
-
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(stopped).toBeFalsy();
-
-      verification.release.resolve(undefined);
-      await expect(delivery.accepted).resolves.toBeUndefined();
-      await abort;
-      await turn.settled;
-      expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .filter(
-            (entry) =>
-              entry.type === "custom_message" &&
-              Value.Check(CommunicationDetailsSchema, entry.details) &&
-              entry.details.communicationId === deliveryId,
-          ),
-      ).toHaveLength(1);
-    } finally {
-      verification?.spy.mockRestore();
-      verification?.release.resolve(undefined);
-      releaseFirstResponse.resolve(undefined);
-      releaseFirstTurnEnd.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("holds passive mail through a tool abort until the next explicit turn", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const toolStarted = Promise.withResolvers<undefined>();
-    const agentSettled = Promise.withResolvers<undefined>();
-    const releaseAgentSettled = Promise.withResolvers<undefined>();
-    harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("wait", {}, { id: "wait-1" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("next explicit answer"),
-    ]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.on("agent_settled", async () => {
-          agentSettled.resolve(undefined);
-          await releaseAgentSettled.promise;
-        });
-        pi.registerTool({
-          description: "Wait until aborted",
-          async execute(_toolCallId, _params, signal) {
-            toolStarted.resolve(undefined);
-
-            if (signal === undefined) {
-              throw new Error("Tool signal is unavailable");
-            }
-
-            await new Promise<void>((resolve) => {
-              signal.addEventListener("abort", () => resolve(), { once: true });
-            });
-
-            return {
-              content: [{ text: "aborted", type: "text" }],
-              details: {},
-            };
-          },
-          label: "Wait",
-          name: "wait",
-          parameters: Type.Object({}),
-        });
-      },
-      tools: ["wait"],
-    });
-
-    runtime.commit();
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await toolStarted.promise;
-      let delivered = false;
-
-      const delivery = runtime.sendMessage({
-        content: "mail held through abort",
-        customType: "subagent-message",
-        details: { communicationId: "message-abort" },
-      });
-
-      void delivery.accepted.then(() => {
-        delivered = true;
-      });
-
-      const abort = runtime.abort();
-      await agentSettled.promise;
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(delivered).toBeFalsy();
-      expect(harness.getPendingResponseCount()).toBe(1);
-
-      releaseAgentSettled.resolve(undefined);
-      await abort;
-      await expect(turn.settled).resolves.toMatchObject({ status: "interrupted" });
-      await delivery.accepted;
-      expect(harness.getPendingResponseCount()).toBe(1);
-      expect(
-        SessionManager.open(
-          runtime.sessionFile,
-          path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir),
-        )
-          .getBranch()
-          .some(
-            (entry) =>
-              entry.type === "custom_message" &&
-              Value.Check(CommunicationDetailsSchema, entry.details) &&
-              entry.details.communicationId === "message-abort",
-          ),
-      ).toBeTruthy();
-
-      const next = runtime.startTurn({ text: "next task" });
-      await next.accepted;
-      await expect(next.settled).resolves.toMatchObject({ text: "next explicit answer" });
-      expect(lastProviderPayloadText(harness)).toContain("mail held through abort");
-    } finally {
-      releaseAgentSettled.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("defers passive mail until a retry has safely completed", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    await writeFile(
-      path.join(harness.agentDir, "settings.json"),
-      JSON.stringify({
-        retry: {
-          baseDelayMs: 1,
-          enabled: true,
-          maxRetries: 1,
-          provider: { maxRetries: 0 },
-        },
-      }),
-    );
-    const errorStarted = Promise.withResolvers<undefined>();
-    const releaseError = Promise.withResolvers<undefined>();
-    harness.setResponses([
-      async () => {
-        errorStarted.resolve(undefined);
-        await releaseError.promise;
-
-        return fauxAssistantMessage("", {
-          errorMessage: "server overloaded",
-          stopReason: "error",
-        });
-      },
-      fauxAssistantMessage("answer after retry"),
-    ]);
-    const runtime = await createChildRuntime(runtimeRequest(harness));
-    runtime.commit();
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await errorStarted.promise;
-
-      const delivery = runtime.sendMessage({
-        content: "mail held across retry",
-        customType: "subagent-message",
-        details: { communicationId: "message-retry" },
-      });
-
-      releaseError.resolve(undefined);
-
-      await expect(turn.settled).resolves.toMatchObject({
-        text: "answer after retry",
-      });
-      await delivery.accepted;
-
-      const payloads = harness.providerPayloads(
-        Type.Object(
-          { messages: Type.Optional(Type.Array(Type.Unknown())) },
-          { additionalProperties: true },
-        ),
-      );
-
-      expect(payloads).toHaveLength(2);
-      expect(JSON.stringify(payloads[1]?.messages)).not.toContain("server overloaded");
-      expect(JSON.stringify(payloads[1]?.messages)).not.toContain("mail held across retry");
-
-      const persisted = SessionManager.open(
-        runtime.sessionFile,
-        path.dirname(runtime.sessionFile),
-        path.dirname(harness.agentDir),
-      ).getBranch();
-
-      const successfulAssistantIndex = persisted.findLastIndex(
-        (entry) =>
-          entry.type === "message" &&
-          entry.message.role === "assistant" &&
-          entry.message.stopReason !== "error",
-      );
-
-      const customIndex = persisted.findIndex(
-        (entry) =>
-          entry.type === "custom_message" &&
-          Value.Check(CommunicationDetailsSchema, entry.details) &&
-          entry.details.communicationId === "message-retry",
-      );
-
-      expect(successfulAssistantIndex).toBeGreaterThanOrEqual(0);
-      expect(customIndex).toBeGreaterThan(successfulAssistantIndex);
-    } finally {
-      releaseError.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it.each(["user", "custom"])(
-    "does not steer passive mail behind existing %s steering",
-    async (kind) => {
-      const harness = await createAgentSessionHarness();
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-      const toolStarted = Promise.withResolvers<undefined>();
-      const releaseTool = Promise.withResolvers<undefined>();
-      const inputSeen = Promise.withResolvers<undefined>();
-      let steerExisting: (() => void) | undefined;
-      harness.setResponses([
-        fauxAssistantMessage(fauxToolCall("continue", {}, { id: "continue-steer-1" }), {
-          stopReason: "toolUse",
-        }),
-        fauxAssistantMessage("answer to existing steering"),
-        fauxAssistantMessage("next explicit answer"),
-      ]);
-
-      const runtime = await createChildRuntime({
-        ...runtimeRequest(harness),
-        bridge: async (pi) => {
-          steerExisting = () => {
-            if (kind === "user") {
-              pi.sendUserMessage("existing user steering", { deliverAs: "steer" });
-            } else {
-              pi.sendMessage(
-                {
-                  customType: "external-steering",
-                  content: "existing user steering",
-                  display: false,
-                },
-                { deliverAs: "steer", triggerTurn: true },
-              );
-              inputSeen.resolve(undefined);
-            }
-          };
-
-          pi.on("input", () => {
-            inputSeen.resolve(undefined);
-
-            return { action: "continue" };
-          });
-          pi.registerTool({
-            description: "Continue after a barrier",
-            async execute() {
-              toolStarted.resolve(undefined);
-              await releaseTool.promise;
-
-              return {
-                content: [{ text: "continued", type: "text" }],
-                details: {},
-              };
-            },
-            label: "Continue",
-            name: "continue",
-            parameters: Type.Object({}),
-          });
-        },
-        tools: ["continue"],
-      });
-
-      runtime.commit();
-
-      try {
-        const turn = runtime.startTurn({ text: "initial task" });
-        await turn.accepted;
-        await toolStarted.promise;
-
-        const delivery = runtime.sendMessage({
-          content: "mail held behind existing steering",
-          customType: "subagent-message",
-          details: { communicationId: "message-existing-steer" },
-        });
-
-        steerExisting?.();
-        await inputSeen.promise;
-        await new Promise<void>((resolve) => {
-          setImmediate(resolve);
-        });
-        releaseTool.resolve(undefined);
-
-        await expect(turn.settled).resolves.toMatchObject({
-          text: "answer to existing steering",
-        });
-        await delivery.accepted;
-        expect(harness.getPendingResponseCount()).toBe(1);
-
-        const payloads = harness.providerPayloads(
-          Type.Object(
-            { messages: Type.Optional(Type.Array(Type.Unknown())) },
-            { additionalProperties: true },
-          ),
-        );
-
-        expect(payloads).toHaveLength(2);
-        expect(JSON.stringify(payloads[1]?.messages)).toContain("existing user steering");
-        expect(JSON.stringify(payloads[1]?.messages)).not.toContain(
-          "mail held behind existing steering",
-        );
-
-        const next = runtime.startTurn({ text: "next task" });
-        await next.accepted;
-        await expect(next.settled).resolves.toMatchObject({ text: "next explicit answer" });
-        expect(lastProviderPayloadText(harness)).toContain("mail held behind existing steering");
-      } finally {
-        releaseTool.resolve(undefined);
-        await runtime.dispose();
-        harness.cleanup();
-      }
-    },
-  );
-
-  it.each([undefined, false])(
-    "does not continue after an all-terminating batch with endTurn=%s",
-    async (endTurn) => {
-      const harness = await createAgentSessionHarness({
-        api: "openai-codex-responses",
-        provider: "openai-codex",
-      });
-
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-      const toolStarted = Promise.withResolvers<undefined>();
-      const releaseTool = Promise.withResolvers<undefined>();
-      harness.setResponses([
-        {
-          ...fauxAssistantMessage(fauxToolCall("terminate", {}, { id: "terminate-1" }), {
-            stopReason: "toolUse",
-          }),
-          ...(endTurn !== undefined ? { endTurn } : {}),
-        },
-        fauxAssistantMessage("next explicit turn"),
-      ]);
-
-      const runtime = await createChildRuntime({
-        ...runtimeRequest(harness),
-        bridge: async (pi) => {
-          pi.registerTool({
-            description: "Terminate after a barrier",
-            async execute() {
-              toolStarted.resolve(undefined);
-              await releaseTool.promise;
-
-              return {
-                content: [{ text: "terminated", type: "text" }],
-                details: {},
-                terminate: true,
-              };
-            },
-            label: "Terminate",
-            name: "terminate",
-            parameters: Type.Object({}),
-          });
-        },
-        tools: ["terminate"],
-      });
-
-      runtime.commit();
-
-      try {
-        const turn = runtime.startTurn({ text: "initial task" });
-        await turn.accepted;
-        await toolStarted.promise;
-
-        const delivery = runtime.sendMessage({
-          content: "mail after terminating tool",
-          customType: "subagent-message",
-          details: { communicationId: "message-terminal-tool" },
-        });
-
-        releaseTool.resolve(undefined);
-
-        await delivery.accepted;
-        await expect(turn.settled).resolves.toMatchObject({ status: "completed" });
-        expect(harness.getPendingResponseCount()).toBe(1);
-
-        const next = runtime.startTurn({ text: "next task" });
-        await next.accepted;
-        await expect(next.settled).resolves.toMatchObject({ text: "next explicit turn" });
-        expect(lastProviderPayloadText(harness)).toContain("mail after terminating tool");
-      } finally {
-        await runtime.dispose();
-        harness.cleanup();
-      }
-    },
-  );
-
-  it("keeps triggering messages active and idle", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const firstResponse = Promise.withResolvers<null>();
-    harness.setResponses([
-      async () => {
-        await firstResponse.promise;
-
-        return fauxAssistantMessage("first answer");
-      },
-      fauxAssistantMessage("active follow-up"),
-      fauxAssistantMessage("idle follow-up"),
-    ]);
-    const runtime = await createChildRuntime(runtimeRequest(harness));
-    runtime.commit();
-
-    try {
-      const active = runtime.startTurn({ text: "initial task" });
-      await active.accepted;
-
-      const steered = runtime.sendMessage(
-        {
-          content: "active task",
-          customType: "subagent-message",
-          details: { communicationId: "active-task" },
-        },
-        undefined,
-        true,
-      );
-
-      firstResponse.resolve(null);
-      await steered.accepted;
-      await expect(active.settled).resolves.toMatchObject({ text: "active follow-up" });
-
-      const idle = runtime.sendMessage(
-        {
-          content: "idle task",
-          customType: "subagent-message",
-          details: { communicationId: "idle-task" },
-        },
-        undefined,
-        true,
-      );
-
-      await idle.accepted;
-      await expect(idle.settled).resolves.toMatchObject({ text: "idle follow-up" });
-      expect(harness.getPendingResponseCount()).toBe(0);
-    } finally {
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("rejects restoring a transcript for another child", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const runtime = await createChildRuntime(runtimeRequest(harness));
-    runtime.commit();
-    const { sessionFile } = runtime;
-    await runtime.dispose();
-
-    try {
-      await expect(
-        createChildRuntime({
-          ...runtimeRequest(harness, "/root/sibling"),
-          sessionFile,
-        }),
-      ).rejects.toThrow("belongs to a different agent");
-    } finally {
-      harness.cleanup();
-    }
-  });
-
-  it("rejects a symlinked child-session directory", async () => {
-    const harness = await createAgentSessionHarness();
-    const target = await mkdtemp(path.join(os.tmpdir(), "subagents-sessions-"));
-    const dataDir = path.join(harness.agentDir, "data", "subagents");
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-
-    try {
-      await mkdir(dataDir, { recursive: true });
-      await symlink(target, path.join(dataDir, "sessions"));
-
-      await expect(createChildRuntime({ ...runtimeRequest(harness), dataDir })).rejects.toThrow(
-        "must be a regular directory",
-      );
-    } finally {
-      await rm(target, { force: true, recursive: true });
       harness.cleanup();
     }
   });

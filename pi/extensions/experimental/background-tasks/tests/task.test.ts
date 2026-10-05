@@ -1,19 +1,49 @@
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import { describe, it, expect } from "vite-plus/test";
 import { Value } from "typebox/value";
-import { inspectOutputSchema } from "../output.js";
+import { DEFAULT_TAIL_BYTES, LOG_BYTES } from "../logs.js";
+import { inspectOutputSchema, type InspectOutput } from "../output.js";
+import { TaskNotices } from "../notices.js";
+import { MAX_RECORD_BYTES } from "../protocol.js";
 import {
   startSchema,
   inspectSchema,
   idSchema,
   listSchema,
   toolResult,
-  taskRow,
   MAX_TEXT_BYTES,
 } from "../task.js";
 
+/** Fields in task_inspect's order; overrides keep their place. */
+const inspection = ({ result, ...overrides }: Partial<InspectOutput> = {}): InspectOutput => ({
+  task: {
+    id: "t_test",
+    name: "failed",
+    status: "process_error",
+    cleanup: "failed",
+    startedAt: 1000,
+    endedAt: 2500,
+  },
+  diagnostic: "process failed",
+  ...(result === undefined ? {} : { result }),
+  events: [],
+  omittedEvents: 0,
+  logs: { stdout: "", stderr: "", stdoutOmittedBytes: 0, stderrOmittedBytes: 0 },
+  ...overrides,
+});
+
+// The largest result a watcher can deliver: its escapes fill the record limit as rendered.
+const maxResult = "\u202e".repeat(Math.floor((MAX_RECORD_BYTES - 2) / 6));
+
+// A quote or backslash renders as two bytes. Invalid UTF-8, sanitized to U+FFFD, can render as three.
+const escapedLogs = (bytes: number) => ({
+  ...inspection().logs,
+  stdout: '"'.repeat(bytes),
+  stderr: '"'.repeat(bytes),
+});
+
 describe("task contracts", () => {
-  it("keeps schemas closed and bounded, without retired pagination arguments", () => {
+  it("keeps schemas closed and bounded", () => {
     const start = { name: "test", command: "node" };
     expect(Value.Check(startSchema, start)).toBe(true);
     expect(Value.Check(startSchema, { ...start, args: [] })).toBe(true);
@@ -22,152 +52,85 @@ describe("task contracts", () => {
       { args: null },
       { args: Array(129).fill("") },
       { args: ["x".repeat(32769)] },
-      { detach: true },
+      { unknown: true },
       { protocol: "events" },
       { timeoutMs: 86400001 },
       { timeoutMs: 0 },
     ])
       expect(Value.Check(startSchema, { ...start, ...extra })).toBe(false);
-    expect(Value.Check(inspectSchema, { id: "a" })).toBe(false);
+    expect(Value.Check(inspectSchema, { id: "a", tailBytes: 131072 })).toBe(true);
 
     for (const invalid of [
       null,
-      [],
-      { id: "a", view: null },
-      { id: "a", view: "summary", offset: 0 },
-      { id: "a", view: "event", eventId: "e", offset: 0 },
-      { id: "a", view: "result", offset: 0 },
-      { id: "a", view: "summary", other: 1 },
-      { id: "a", view: "summary", tailBytes: 12001 },
+      {},
+      { id: "a", unknown: true },
+      { id: "a", tailBytes: 0 },
+      { id: "a", tailBytes: 131073 },
     ])
       expect(Value.Check(inspectSchema, invalid)).toBe(false);
     expect(Value.Check(idSchema, { id: "a", other: 1 })).toBe(false);
     expect(Value.Check(listSchema, { other: 1 })).toBe(false);
   });
   it.each([null, false, 0, "", Array(1000).fill(0), { controls: "\x1b[31m\u009b\u202e" }])(
-    "keeps small values complete and semantically identical in all output channels (%j)",
-    (data) => {
-      const details = { taskId: "t", view: "result" as const, untrusted: true as const, data };
-      const result = toolResult(details);
-      expect(Value.Check(inspectOutputSchema, result.structuredContent)).toBe(true);
-      expect(result.details).toStrictEqual(details);
-      expect(result.structuredContent).toStrictEqual(details);
-      expect(JSON.parse(result.content[0].text)).toStrictEqual(details);
+    "keeps small values complete and identical in all output channels (%j)",
+    (result) => {
+      const details = inspection({ result });
+      const output = toolResult(details);
+      expect(Value.Check(inspectOutputSchema, output.structuredContent)).toBe(true);
+      expect(output.details).toStrictEqual(details);
+      expect(output.structuredContent).toStrictEqual(details);
+      expect(JSON.parse(output.content[0].text)).toStrictEqual(details);
 
       for (const control of ["\x1b", "\u009b", "\u202e"])
-        expect(result.content[0].text).not.toContain(control);
+        expect(output.content[0].text).not.toContain(control);
     },
   );
-  it.each([
-    { data: Array.from({ length: 2500 }, () => 1e20) },
-    {
-      data: [
-        ...Array.from({ length: 400 }, () => 1e20),
-        "😀".repeat(2000),
-        ...Array.from({ length: 1000 }, () => 1e20),
-      ],
-    },
-    { data: "\u202e".repeat(6500) + "😀" },
-  ])("returns large values intact but bounds and labels text previews", ({ data }) => {
-    const result = toolResult({ taskId: "t_test", view: "result", untrusted: true, data });
-    const text = result.content[0].text;
+  // Valid inputs only: logs up to the maximum tail, and the largest result ahead of them.
+  it.each<Partial<InspectOutput>>([
+    { logs: { ...inspection().logs, stdout: "😀".repeat(LOG_BYTES / 4) } },
+    { result: maxResult, logs: escapedLogs(LOG_BYTES) },
+  ])("cuts large text previews from the end, keeping identity and diagnostics", (overrides) => {
+    const details = inspection(overrides);
+    const output = toolResult(details);
+    const text = output.content[0].text;
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_TEXT_BYTES);
-    expect(text).toContain("Incomplete text preview");
-    expect(text).toContain("not complete JSON");
-    expect(text).toContain("Code Mode");
-    expect(text).not.toContain("\ufffd");
+    expect(text).toMatch(/^\{"task":\{"id":"t_test".*"diagnostic":"process failed"/u);
+    expect(text).toContain("Incomplete preview");
+    expect(text).toContain("tailBytes");
+    expect(text).not.toContain("�");
     expect(text).not.toContain("\u202e");
-    expect(JSON.parse(text.split("\n")[0]!)).toEqual({
-      taskId: "t_test",
-      view: "result",
-      untrusted: true,
-    });
-    expect(result.structuredContent).toStrictEqual({
-      taskId: "t_test",
-      view: "result",
-      untrusted: true,
-      data,
-    });
-    expect(result.details).toStrictEqual(result.structuredContent);
-    expect(Value.Check(inspectOutputSchema, result.structuredContent)).toBe(true);
-    expect(Buffer.byteLength(jsonText(result.structuredContent))).toBeGreaterThan(MAX_TEXT_BYTES);
+    expect(output.structuredContent).toStrictEqual(details);
+    expect(Buffer.byteLength(jsonText(output.structuredContent))).toBeGreaterThan(MAX_TEXT_BYTES);
   });
-  it("preserves full log tails and summary diagnostics when text needs a preview", () => {
-    const task = {
-      id: "t_test",
-      name: "failed",
-      status: "process_error" as const,
-      cleanup: "failed" as const,
-      startedAt: 1000,
-      endedAt: 2500,
-      abandoned: false,
-    };
+  it("cuts only log tails with every other part at its cap, so a smaller tailBytes fits", () => {
+    expect(Buffer.byteLength(jsonText(maxResult))).toBeLessThanOrEqual(MAX_RECORD_BYTES);
 
-    const logs = {
-      stdout: "\ufffd".repeat(12000),
-      stderr: "\ufffd".repeat(12000),
-      stdoutOmittedBytes: 10,
-      stderrOmittedBytes: 20,
-      directory: "/tmp/logs",
-      storageError: "disk full",
-    };
+    // U+2028 survives sanitizing and renders as a 6-byte escape. Retention keeps the newest
+    // event, a maximal record with the longest key, alone past its byte cap.
+    const notices = new TaskNotices();
+    notices.record("earlier");
+    notices.record(maxResult, "\u2028".repeat(128));
 
-    const result = toolResult({
-      task,
-      diagnostic: "process failed",
-      resultAvailable: false,
-      events: [{ id: "e_test", seq: 1, reason: "process_error" }],
-      logs,
-      trust: "untrusted output",
+    const atCaps = (logs: InspectOutput["logs"]) =>
+      inspection({
+        task: { ...inspection().task, name: "\u2028".repeat(80) },
+        diagnostic: "\u2028".repeat(500),
+        result: maxResult,
+        events: notices.events,
+        omittedEvents: notices.omitted,
+        logs,
+      });
+
+    const largest = atCaps(escapedLogs(LOG_BYTES));
+    const cut = toolResult(largest).content[0].text;
+    expect(cut).toContain("Incomplete preview");
+    // Everything ahead of the logs parses whole; toEqual skips the absent logs.
+    expect(JSON.parse(`${cut.slice(0, cut.indexOf(',"logs":'))}}`)).toEqual({
+      ...largest,
+      logs: undefined,
     });
 
-    const text = result.content[0].text;
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_TEXT_BYTES);
-    expect(text).toContain("Incomplete text preview");
-    expect(JSON.parse(text.split("\n")[0]!)).toEqual({
-      task,
-      diagnostic: "process failed",
-      resultAvailable: false,
-      storageError: "disk full",
-      trust: "untrusted output",
-    });
-    expect(result.structuredContent.logs).toStrictEqual(logs);
-    expect(result.structuredContent.events).toEqual([
-      { id: "e_test", seq: 1, reason: "process_error" },
-    ]);
-    expect(Value.Check(inspectOutputSchema, result.structuredContent)).toBe(true);
-  });
-  it("fits the retained inventory and pending count, bounding only display names", () => {
-    const tasks = Array.from({ length: 72 }, (_, i) =>
-      taskRow({
-        id: "t_" + String(i).padStart(36, "0"),
-        name: "😀".repeat(80),
-        pid: 12345,
-        status: "protocol_error",
-        cleanup: "failed",
-        startedAt: Date.now(),
-        endedAt: Date.now(),
-        exitCode: 137,
-        signal: "SIGKILL",
-        abandoned: false,
-      }),
-    );
-
-    const result = toolResult({
-      pending: 32,
-      tasks,
-      omittedProgress: 100,
-      evictedEvents: 100,
-      evictedTasks: 100,
-      lifetime: "",
-    });
-
-    const parsed: unknown = JSON.parse(result.content[0].text);
-    expect(parsed).toMatchObject({ pending: 32, tasks });
-    expect(parsed).toHaveProperty("tasks.length", 72);
-    expect(parsed).toHaveProperty("tasks.71.id", tasks.at(-1)?.id);
-    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(MAX_TEXT_BYTES);
-
-    for (const task of tasks) expect(Array.from(task.name)).toHaveLength(33);
+    const details = atCaps(escapedLogs(DEFAULT_TAIL_BYTES / 2));
+    expect(JSON.parse(toolResult(details).content[0].text)).toStrictEqual(details);
   });
 });

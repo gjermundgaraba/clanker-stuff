@@ -4,106 +4,40 @@ All scenarios use synthetic jobs and payloads. No service credentials or private
 
 ## Automated
 
-The Pi 1.0.0 structured-output revision covers one-call retrieval of a 55,001-byte captured value through native Code Mode, bounded and labeled direct-text previews, full structured log tails, falsy/null versus absent data, PID-less terminal duration, and text fallback for historical detail shapes. The historical pagination checks below describe the previous contract, not a retained execution path.
+Unit tests cover:
 
-Retrieval-consumption coverage includes:
+- Strict watcher framing.
+- Per-task notices: keyed replacement, record and byte caps, unread outcome and events, and clearing.
+- Bounded in-memory log tails.
+- Closed input schemas, structured output for every tool, and the cut text preview.
+- Notice clearing by agent reads and stops but not by human, list or failed reads.
+- Native TUI statuses and idle-only delivery: held while busy or while a dialog is open, delivered at settlement or dialog end.
+- Renderers, including stored results whose details no longer match the schema.
 
-- Exact event selection, failed reads, observational discovery/human commands, future completions after running inspection, and terminal-only result/stop retrieval.
-- In-flight consumption without changing receipt/admission gates, and the 32-task protection budget across uncaptured outcomes and unread notices.
-- Readable payloads after a 65-ID summary and in one call for an older large event with full newer history; chronological capture-time eviction and the aggregate retention bound.
-- Real-session retrieval of ready events before settlement and of terminal outcomes before cleanup emits their notices, with retained history and no stale wake or extra provider request.
-- Consumption through the Code Mode adapter when the caller discards its result. This is adapter coverage, not a V8-cell test or proof of model visibility.
+Real-subprocess tests cover every outcome, failed and cancelled starts leaving no task, admission and unread-retention limits, discarding orphaned tasks, TERM-resistant process groups, and the inherited-pipe drain.
 
-The Pi 0.87.0 boundary-delivery revision adds real-session regressions for ready notices before successful settlement, the one-batch-per-activity bound, no boundary continuation after error/abort, and idle delivery of remaining batches. Cross-extension questionnaire tests keep saved answers pending through a background continuation, gate notifications while its UI is open, and require an explicit Send action producing one real user message. Receipt regressions cover cancellation during a later boundary handler (both public/RPC abort and TUI queue-clear plus abort), committed notices without a model response or extension `message_end`, preservation of preceding drafts, and dropped or invalid proposals retried only after settlement. Unit tests distinguish admission allowance from outstanding receipts and do not infer a lost idle handoff from settlement or elapsed time.
+Real `AgentSession` tests verify:
 
-The earlier automatic-notification/manual-compaction revision passed 72 package tests and repository static/policy checks. Manual Herdr validation below is historical; it has not been repeated for the boundary-delivery revision.
-
-The package has unit tests for strict framing, inbox reservations/coalescing/eviction, automatic delivery and retry, bounded logs, schemas and tool output. Real subprocess tests cover spawn/exit failures, missing results, record floods, cancellation, deadlines, concurrency, inherited-pipe drain, TERM-resistant descendants, and history pruning.
-
-Real AgentSession coverage, originally added on Pi 0.87.0 and now exercised on the pinned Pi version, verifies:
-
-- Spawn handoff before completion, idle triggered notices, metadata-only delivery and pull inspection.
-- Busy buffering, one ready batch before successful settlement, and ordinary synchronous idle handoff through Pi's public API. Synthetic replacement of `sendMessage` to start a competing run inside the handoff is no longer a supported contract or test fixture.
-- Automatic delivery of tasks completed during manual compaction, after success, failure, or cancellation. All three regression cases reproduced the stalled notification before the readiness fix.
-- Both TUI and RPC deliver notifications without confirmation. Aborted responses do not hold later notifications.
-- Task listing and inspection through `/tasks`, and agent-callable cancellation through `task_stop`.
-- Complete structured payload retrieval survives numeric serialization expansion; summary log reads preserve requested tails after invalid-byte expansion while direct text remains bounded.
-- Recorded notification receipts or targeted agent retrieval release eligible reservations; retained payloads remain inspectable.
-- Ancestral ownership and no resurrection after tree navigation.
-- Agent stop during terminal cleanup waits for completion without overwriting the accepted result.
-- A stale queued notice is removed before provider context on a new branch.
-- Reload cleans processes and rebuilds empty live state.
-- Actual SDK runtime clone/fork/new/resume replaces ownership without PID reconnection.
+- Native Code Mode calls and Pi permission blocking.
+- Literal working directories.
+- A completion during a busy run arrives as one new run after settlement.
+- Metadata-only notices in TUI and RPC, with payloads and logs pulled by inspection.
+- Complete structured values through Code Mode.
+- Notices held while an extension dialog is open, and delivered after manual compaction succeeds, fails or is aborted.
+- An outcome read before cleanup finishes produces no later notice.
+- A failed start reports its cause with no task or notice.
+- `/tasks` output, `task_stop`, tree-navigation ownership, and reload.
+- SDK runtime clone, fork, new and resume stop every task without reconnection.
 
 A smoke test discovers the package through Pi's package loader. These tests do not assert model obedience, crash-proof containment or crash-safe delivery.
 
 Run from the repository:
 
 ```sh
-vp test pi/extensions/experimental/background-tasks
+vp test --project unit pi/extensions/experimental/background-tasks
+vp test --project integration pi/extensions/experimental/background-tasks
+vp test --project smoke pi/extensions/experimental/background-tasks
 vp check pi/extensions/experimental/background-tasks
-vp run ready
 ```
 
-## Historical validation (before automatic notifications)
-
-The following runs tested earlier approval/budget behavior, which has been removed. They are historical evidence only, not the current notification contract. The automatic-notification revision has not been manually exercised in Herdr.
-
-The targeted cleanup revision passed `vp run ready`: **174 test files and 1,610 tests**, including **70 package tests**. All repository static, packaging, README, and test-boundary checks passed. New regressions cover deduplicated pause checkpoints with failed-write retry, provider abortion without an aborted signal, literal relative/absolute working directories, omitted arguments, and failed-cleanup reconciliation. Process tests use real children with narrowly simulated process-group probe/signal failures to verify absent, live, permission-denied, and still-running-child cases, plus a gated log close to verify cleanup completion ordering.
-
-Before the event-discovery follow-up, the explicit-authorization and retrieval revision passed `vp run ready`: 174 test files and 1,599 tests repository-wide, including 59 tests in this package. Formatting, lint, types, package readiness, README policy, test boundaries, and the bundled-review asset check also passed.
-
-The event-discovery follow-up passed all 61 package tests and scoped formatting, lint, and type checks. Added coverage verifies discovery across all 137 retained events at per-task capacity, metadata fitting within the response budget, and a real session retrieving the oldest of ten held observations without previously knowing its ID. The repository-wide suite and manual Herdr exercise were not repeated for this follow-up.
-
-### Targeted cleanup manual Herdr exercise
-
-On macOS with Pi **0.85.1**, a fresh isolated Herdr tab loaded the local extension and a disposable faux-provider driver via `pi -e`, without installation or external model/API calls.
-
-- A real `task_start` omitted `args` and ran `/bin/pwd` with `cwd: "@foo"`, alongside a distinct `foo` directory. Inspection returned the literal `@foo` path and clean completion.
-- TUI confirmation granted eight credits; the pending completion consumed one. A provider-returned aborted message held notifications. Two subsequent `/tasks pause` commands produced no duplicate checkpoint: native session records contained exactly `(8, false)`, `(7, false)`, `(7, true)`.
-- Quit returned the pane to its shell. The synthetic child PID was absent, task logs were removed, and the owned tab and temporary fixtures were deleted.
-
-Herdr again missed some short-turn/dialog lifecycle transitions; terminal UI and native session records supplied the verification. Failed-cleanup OS errors and checkpoint-write failures were tested automatically, not induced manually. Earlier lifecycle and payload manual scenarios below were not repeated for this targeted revision.
-
-### Revision manual Herdr exercise
-
-The revised code was exercised on macOS with Pi **0.85.1**, in a dedicated background Herdr tab, using explicit local `pi -e` paths and no installation. A disposable driver extension used Pi's built-in faux provider to script actual tool calls; there were no external model/API calls.
-
-Verified against terminal UI, the synthetic session's native records, and process probes:
-
-- Starting and inspecting a completed watcher left one held notice and zero wake credits. Declining `/tasks resume` left authorization unchanged.
-- A valid watcher record containing 2,500 numbers expanded to 55,001 bytes when serialized. `task_inspect` retrieved it in four JSON-text pages; concatenation reconstructed all values. Every tool response stayed below 32,000 bytes (the largest observed was 19,177 bytes).
-- `task_dismiss` cleared the pending notice without granting credits or removing the retained task.
-- A second completed watcher stayed held until the TUI confirmation was accepted. Exactly one metadata-only custom notice was appended; version-2 checkpoints recorded eight credits at confirmation and seven after dispatch. Subsequent ordinary prompts did not replenish credits.
-- Reload stopped a live synthetic server and exposed an empty task list with seven credits. Quitting stopped another live server. All four synthetic task PIDs were absent afterward, and the owned Herdr tab was closed.
-
-Herdr did not consistently classify the confirmation dialog or short post-reload turns as working/blocked. Actual dialog rendering, native session entries, and PID checks were used instead of treating `agent_prompt_stalled` as execution failure.
-
-### Original manual Herdr exercise (before explicit-only authorization)
-
-The original implementation was manually driven on macOS through a dedicated Herdr tab, using Pi **0.85.1** and explicit local `-e` paths, without installation. A disposable second extension registered Pi's built-in faux provider with scripted tool calls and slow streaming. This kept model output deterministic while exercising the real TUI, tool execution, queue, session files, and process lifecycle; no external model/API calls were made.
-
-Launch shape (replace paths):
-
-```sh
-pi --offline --no-extensions \
-  -e /absolute/path/to/background-tasks/index.ts \
-  -e /temporary/path/to/synthetic-driver.ts \
-  --no-skills --no-context-files --no-prompt-templates \
-  --provider bg-manual --model scripted \
-  --session-dir /temporary/path/to/sessions
-```
-
-Observed:
-
-- A delayed watcher returned a running task ID before its result; the settled session then displayed a metadata-only result notice and consumed one wake credit.
-- Invalid JSON on stdout produced a distinct `protocol_error`; inspection showed the diagnostic and original stdout.
-- Reload killed a running synthetic server; `kill(pid, 0)` reported it absent.
-- Escape during a slowly streamed automatic wake held the later terminal result: the footer showed one held event with seven credits. Confirming `/tasks resume` delivered it once and cleared the held count.
-- `/new` and `/clone` stopped owned servers and presented empty live task state, rather than restoring historical PIDs.
-- A synthetic command drove the public `ctx.navigateTree()` API back to a marked entry: the ancestral server survived, the later server stopped, and no abandoned-task notice was delivered.
-- `task_stop` returned `cancelled` with clean process-group cleanup. Quitting a subsequent server session also removed its process. All nine synthetic task PIDs were absent after shutdown.
-
-Herdr sometimes reported `agent_prompt_stalled` for short turns and slash commands whose lifecycle transitions were too fast to observe. Terminal output, synthetic session records, and PID checks—not that wait status—were used as evidence.
-
-Manual tests complement the automated suite; they do not establish Linux/Windows behavior or external-service integration.
+The current design has not been manually exercised in a live TUI.

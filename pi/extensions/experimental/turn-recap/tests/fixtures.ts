@@ -27,12 +27,20 @@ export type ResponseStep = (
 /**
  * Mocks registry streaming with queued responses, one per request. Recap only
  * awaits `.result()`, so each step settles the stream's result directly.
- * Preserves reported usage and converts thrown errors to error results.
+ * Preserves reported usage, converts thrown errors to error results, and ends
+ * with an aborted result when the request's signal aborts, as Pi's providers do.
  */
 export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
   vi.fn<StreamModel>((_model, context, options) => {
     const stream = createAssistantMessageEventStream();
     const step = responses.shift();
+    const aborted = Promise.withResolvers<AssistantMessage>();
+
+    options?.signal?.addEventListener(
+      "abort",
+      () => aborted.resolve(fauxAssistantMessage("", { stopReason: "aborted" })),
+      { once: true },
+    );
 
     void (async () => {
       try {
@@ -40,7 +48,7 @@ export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
           throw new Error("No more test responses queued");
         }
 
-        stream.end(await step(context, options));
+        stream.end(await Promise.race([step(context, options), aborted.promise]));
       } catch (error) {
         stream.end(
           fauxAssistantMessage("", {
@@ -53,6 +61,10 @@ export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
 
     return stream;
   });
+
+/** A provider that ignores cancellation: its stream never ends, even after the signal aborts. */
+export const unresponsiveStream = (): Mock<StreamModel> =>
+  vi.fn<StreamModel>(() => createAssistantMessageEventStream());
 
 export const userMessage = (content: string): Message => ({
   content,
@@ -136,8 +148,7 @@ export const snapshot = (): import("../entry.js").Snapshot => ({
   runId: "run-1",
   startedAt: 1000,
   finishedAt: 3000,
-  activeMs: 1500,
-  wallMs: 2000,
+  wallMs: 1500,
   outcome: "completed",
   metrics: {
     usage: {

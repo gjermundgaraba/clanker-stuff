@@ -76,27 +76,44 @@ describe("native modal editing", () => {
     keys("u");
     expect(editor.getText()).toBe("one");
   });
-  it("restores preview cancellation including mode, cursor, payloads and undo", () => {
-    const { editor, host, keys, normal, mode } = setup("one two");
-    normal();
-    keys("cw", "new", "\x1b");
-    const before = editor.document.capture();
-    const preview = host.preview();
-    preview.show("other");
-    preview.close(true);
-    expect(editor.document.capture()).toEqual(before);
-    expect(mode()).toBe("normal");
-    keys("u");
-    expect(editor.getText()).toBe("one two");
-  });
-  it("does not overwrite intervening edits when a preview closes", () => {
-    const { editor, host } = setup("draft");
-    const preview = host.preview();
-    preview.show("history");
-    editor.setText("external");
-    preview.show("stale");
-    preview.close(true);
-    expect(editor.getText()).toBe("external");
+  it.each([
+    [
+      "a mouse click",
+      (editor: ReturnType<typeof setup>["editor"]) => {
+        editor.handleMouse({
+          type: "click",
+          button: "left",
+          x: 40,
+          y: 1,
+          screenX: 40,
+          screenY: 1,
+          width: 80,
+          height: 10,
+          shift: false,
+          alt: false,
+          ctrl: false,
+        });
+      },
+    ],
+    [
+      "the right arrow",
+      (editor: ReturnType<typeof setup>["editor"]) => {
+        editor.handleInput("$");
+        editor.handleInput("\x1b[C");
+      },
+    ],
+  ])("starts commands on a character after %s moves past the line end", (_name, move) => {
+    for (const [command, expected] of [
+      ["x", "ab\ndef"],
+      ["vd", "ab\ndef"],
+    ] as const) {
+      const { editor, keys, normal } = setup("abc\ndef");
+      normal();
+      editor.render(80);
+      move(editor);
+      keys(command);
+      expect(editor.getText()).toBe(expected);
+    }
   });
   it("submits fast input exactly once and does not record submission in dot", () => {
     const { editor, keys } = setup();
@@ -164,13 +181,11 @@ it("Ctrl+R reaches extension shortcuts only in Insert", () => {
   expect(historyCalls).toBe(1);
 });
 
-it("accepted history starts a new undo/repeat boundary", () => {
-  const { editor, host, keys, normal, mode } = setup("old");
+it("an external replacement starts a new undo/repeat boundary", () => {
+  const { editor, keys, normal, mode } = setup("old");
   normal();
   keys("x");
-  const preview = host.preview();
-  preview.show("accepted");
-  preview.close(false);
+  editor.setText("accepted");
   expect(mode()).toBe("insert");
   keys("\x1b", "u", ".");
   expect(editor.getText()).toBe("accepted");

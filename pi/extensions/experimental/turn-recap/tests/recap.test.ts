@@ -5,17 +5,15 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { generateRecap, RECAP_REQUEST_TIMEOUT_MS } from "../recap.js";
-import { queuedStream, sampleUsage } from "./fixtures.js";
+import { queuedStream, sampleUsage, unresponsiveStream } from "./fixtures.js";
 import type { ResponseStep } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 
-const setup = (...responses: ResponseStep[]) => {
+const setupStream = <Stream extends ReturnType<typeof queuedStream>>(stream: Stream) => {
   const model = fauxProvider({
     models: [{ id: "small", reasoning: true }],
     provider: "cheap",
   }).getModel();
-
-  const stream = queuedStream(...responses);
 
   const ctx = createExtensionHost(() => {}).createContext({
     modelRegistry: {
@@ -26,6 +24,8 @@ const setup = (...responses: ResponseStep[]) => {
 
   return { model, stream, ctx, signal: new AbortController().signal };
 };
+
+const setup = (...responses: ResponseStep[]) => setupStream(queuedStream(...responses));
 
 afterEach(() => vi.useRealTimers());
 
@@ -56,10 +56,7 @@ describe("isolated recap requests", () => {
       expect(request?.[0]).toBe(env.model);
       expect(request?.[1]).not.toHaveProperty("tools");
       expect(request?.[1]).not.toHaveProperty("systemPrompt");
-      expect(request?.[2]).toMatchObject({
-        cacheRetention: "none",
-        timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
-      });
+      expect(request?.[2]).toMatchObject({ cacheRetention: "none" });
       expect(request?.[2]?.sessionId).not.toBe(env.ctx.sessionManager.getSessionId());
       expect(request?.[2]?.reasoning).toBe(thinking === "off" ? undefined : thinking);
       expect(getEventListeners(env.signal, "abort")).toHaveLength(0);
@@ -96,33 +93,27 @@ describe("isolated recap requests", () => {
     });
   });
 
-  it.each(["error", "silent", "length"] as const)(
-    "recognizes %s overflow and retains reported usage",
-    async (kind) => {
-      const response = fauxAssistantMessage("Overflow", {
-        stopReason: kind === "silent" ? "stop" : kind,
-        ...(kind === "error"
-          ? { errorMessage: "Your input exceeds the context window of this model" }
-          : {}),
-      });
+  it("reports the provider's error and keeps its reported usage", async () => {
+    const response = fauxAssistantMessage("", {
+      stopReason: "error",
+      errorMessage: "Your input exceeds the context window of this model",
+    });
 
-      response.usage = { ...response.usage, input: 1001, output: 0, cacheRead: 0 };
-      const env = setup(() => response);
-      env.model.contextWindow = 1000;
-      expect(
-        await generateRecap(
-          env.ctx,
-          { model: { provider: "cheap", id: "small" }, thinking: "off" },
-          "Prompt",
-          env.signal,
-        ),
-      ).toMatchObject({
-        status: "failed",
-        error: "Recap input exceeds the model's context window",
-        usage: { input: 1001 },
-      });
-    },
-  );
+    response.usage = { ...response.usage, input: 1001 };
+    const env = setup(() => response);
+    expect(
+      await generateRecap(
+        env.ctx,
+        { model: { provider: "cheap", id: "small" }, thinking: "off" },
+        "Prompt",
+        env.signal,
+      ),
+    ).toMatchObject({
+      status: "failed",
+      error: "Your input exceeds the context window of this model",
+      usage: { input: 1001 },
+    });
+  });
 
   it.each(["length", "toolUse", "deferred", "error", "aborted"] as const)(
     "rejects textual %s responses",
@@ -151,7 +142,10 @@ describe("isolated recap requests", () => {
     ).toMatchObject({ status: "failed", error: "Recap model returned no text" });
   });
 
-  it.each(["cancel", "timeout"])("releases an uncooperative provider after %s", async (action) => {
+  it.each([
+    ["cancel", "Stopped"],
+    ["timeout", "Recap request timed out"],
+  ])("aborts the request on %s and names the cause", async (action, error) => {
     vi.useFakeTimers();
     const response = Promise.withResolvers<AssistantMessage>();
     const env = setup(() => response.promise);
@@ -164,12 +158,46 @@ describe("isolated recap requests", () => {
       controller.signal,
     );
 
-    if (action === "cancel") controller.abort();
+    if (action === "cancel") controller.abort(new Error("Stopped"));
     else await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
-    expect(await request).toMatchObject({ status: "failed" });
+    expect(await request).toMatchObject({ status: "failed", error });
     expect(env.stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
-    response.reject(new Error("Late rejection"));
-    await Promise.resolve();
+  });
+
+  it.each([
+    ["cancel", "Stopped"],
+    ["timeout", "Recap request timed out"],
+  ])("stops waiting on %s when the provider ignores cancellation", async (action, error) => {
+    vi.useFakeTimers();
+    const env = setupStream(unresponsiveStream());
+    const controller = new AbortController();
+
+    const request = generateRecap(
+      env.ctx,
+      { model: { provider: "cheap", id: "small" }, thinking: "off" },
+      "Prompt",
+      controller.signal,
+    );
+
+    if (action === "cancel") controller.abort(new Error("Stopped"));
+    else await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
+    expect(await request).toStrictEqual({ status: "failed", error });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ends at once when the recap was already aborted", async () => {
+    const env = setupStream(unresponsiveStream());
+    const controller = new AbortController();
+    controller.abort(new Error("Stopped"));
+
+    expect(
+      await generateRecap(
+        env.ctx,
+        { model: { provider: "cheap", id: "small" }, thinking: "off" },
+        "Prompt",
+        controller.signal,
+      ),
+    ).toStrictEqual({ status: "failed", error: "Stopped" });
   });
 });

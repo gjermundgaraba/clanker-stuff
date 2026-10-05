@@ -1,12 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveOAuthAccess } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
-import { usageFailure, usageResult } from "../providers.js";
+import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { isDefined, makeUsageWindow, parseIso } from "./util.js";
+import { fetchUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
 
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 
@@ -43,25 +41,15 @@ export const mapClaudeUsagePayload = (
   return usageResult({ fetchedAt: nowMs, provider: "anthropic", quotaWindows: windows });
 };
 
-export const fetchClaudeUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
-  const auth = await resolveOAuthAccess(deps.authClient, "anthropic");
-
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
-
-  const response = await deps.fetchJson(CLAUDE_USAGE_URL, ClaudeUsagePayloadSchema, {
-    headers: {
-      Authorization: `Bearer ${auth.value.accessToken}`,
-      "anthropic-beta": "oauth-2025-04-20",
+export const fetchClaudeUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
+  fetchUsage(
+    deps,
+    "anthropic",
+    {
+      url: CLAUDE_USAGE_URL,
+      schema: ClaudeUsagePayloadSchema,
+      oauth: true,
+      headers: { "anthropic-beta": "oauth-2025-04-20" },
     },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
-  if (response.ok) {
-    return mapClaudeUsagePayload(response.json, now());
-  }
-
-  return usageFailure(response.message);
-};
+    mapClaudeUsagePayload,
+  );

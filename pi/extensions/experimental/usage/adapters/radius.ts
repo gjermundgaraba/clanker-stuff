@@ -4,7 +4,7 @@ import type { Static } from "typebox";
 import type { UsageFetchResult } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { fetchBearerUsage, parseIso } from "./util.js";
+import { fetchUsage, parseIso } from "./util.js";
 
 const RadiusBillingPayloadSchema = Type.Object({
   balance: Type.Object({
@@ -51,4 +51,9 @@ export const fetchRadiusUsage = (
   deps: AdapterDeps,
   billingUrl: string,
 ): Promise<UsageFetchResult> =>
-  fetchBearerUsage(deps, "radius", billingUrl, RadiusBillingPayloadSchema, mapRadiusBillingPayload);
+  fetchUsage(
+    deps,
+    "radius",
+    { url: billingUrl, schema: RadiusBillingPayloadSchema },
+    mapRadiusBillingPayload,
+  );

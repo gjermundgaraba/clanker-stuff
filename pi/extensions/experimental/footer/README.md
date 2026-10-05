@@ -1,6 +1,6 @@
 # footer
 
-Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.
+Lays out built-in widgets and native extension statuses in the footer and editor border.
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 
@@ -10,10 +10,10 @@ Load `pi/extensions/experimental/footer/index.ts` as a local extension; npm inst
 
 ## Usage
 
-- Run `/footer` to arrange widgets and save the layout.
-- Run `/footer inspect` or `/footer doctor` for state and diagnostics.
-- Disable other custom-footer extensions because pi supports one footer owner.
+- Run `/footer` to edit the layout as JSON, or `/footer reset` to restore the default.
+- Run `/footer inspect` to see each widget's value, placement, and recent errors.
+- Extensions publish values with `ctx.ui.setStatus()`; place them as `status:<key>`.
 
 ## Configuration
 
-See [footer configuration](docs/configuration.md) and [contributor integration](docs/contributors.md).
+See [footer configuration](docs/configuration.md) and [status producers](docs/statuses.md).

@@ -4,7 +4,6 @@ export type CliCompletion =
   | {
       code: number;
       kind: "exited";
-      stderr: string;
       stdout: string;
     }
   | { kind: "cancelled" }
@@ -25,13 +24,6 @@ export interface CliStartOptions {
 
 export type CliStarter = (args: string[], options: CliStartOptions) => CliProcess;
 
-export const processFailure = (completion: Extract<CliCompletion, { kind: "exited" }>): Error => {
-  const detail =
-    completion.stderr.trim() || completion.stdout.trim() || `exited with code ${completion.code}`;
-
-  return new Error(detail);
-};
-
 export const startCli = (
   executable: string,
   args: string[],
@@ -49,7 +41,6 @@ export const startCli = (
 
   const controller = new AbortController();
   let stdout = "";
-  let stderr = "";
   let killTimer: ReturnType<typeof setTimeout> | undefined;
 
   const terminate = (): void => {
@@ -82,7 +73,6 @@ export const startCli = (
     stdout += chunk;
   });
   child.stderr.on("data", (chunk: string) => {
-    stderr += chunk;
     options.onStderr?.(chunk);
   });
   child.once("error", reject);
@@ -105,7 +95,7 @@ export const startCli = (
     }
 
     if (code !== null) {
-      resolve({ code, kind: "exited", stderr, stdout });
+      resolve({ code, kind: "exited", stdout });
 
       return;
     }

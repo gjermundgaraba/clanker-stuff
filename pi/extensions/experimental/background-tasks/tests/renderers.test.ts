@@ -7,12 +7,12 @@ import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { renderedRows, toolRenderContext } from "../../../../tests/harness/tool-rendering.js";
 import extension from "../index.js";
 import { taskRenderers } from "../renderers.js";
-import { type ToolOutput as Details, type TaskSummary as TaskDetails } from "../output.js";
+import type { InspectOutput, TaskSummary, ToolOutput } from "../output.js";
 import { taskRow } from "../task.js";
 
 const theme = createIdentityTheme();
 
-const task: TaskDetails = {
+const task: TaskSummary = {
   id: "t_123",
   name: "Build",
   pid: 42,
@@ -22,31 +22,19 @@ const task: TaskDetails = {
   endedAt: 1500,
   exitCode: 0,
   signal: null,
-  abandoned: false,
 };
 
-const list = (tasks: TaskDetails[], counts = { pending: 0, evictedEvents: 0 }): Details => ({
-  ...counts,
-  tasks: tasks.map(taskRow),
-  omittedProgress: 0,
-  evictedTasks: 0,
-  lifetime: "",
+const list = (tasks: TaskSummary[], unread = 0): ToolOutput => ({
+  tasks: tasks.map((item, index) => taskRow(item, index < unread)),
 });
 
-const logs = {
-  stdout: "",
-  stderr: "",
-  stdoutOmittedBytes: 0,
-  stderrOmittedBytes: 0,
-  directory: "",
-};
+const logs = { stdout: "", stderr: "", stdoutOmittedBytes: 0, stderrOmittedBytes: 0 };
 
-const summary = (overrides: Partial<Extract<Details, { trust: string }>> = {}): Details => ({
+const summary = (overrides: Partial<InspectOutput> = {}): InspectOutput => ({
   task,
-  resultAvailable: false,
-  events: [],
   logs,
-  trust: "",
+  events: [],
+  omittedEvents: 0,
   ...overrides,
 });
 
@@ -71,7 +59,7 @@ describe("task presentation", () => {
     }
 
     const result = await host.runTool("task_list", {});
-    expect(result.details).toMatchObject({ tasks: [], pending: 0 });
+    expect(result.details).toStrictEqual({ tasks: [] });
 
     const [content] = result.content;
     assert.ok(content?.type === "text");
@@ -86,24 +74,20 @@ describe("task presentation", () => {
       ),
     ).join("\n");
 
-    expect(text).toContain("0 tasks · 0 pending notifications");
-    expect(text).not.toMatch(/held|wakes|unknown/);
+    expect(text).toContain("0 tasks · 0 unread");
+    expect(text).not.toContain("unknown");
   });
-  it("summarizes pending notifications, task status and cleanup failures", () => {
-    const value = list([task, { ...task, id: "t_failed", cleanup: "failed" }], {
-      pending: 2,
-      evictedEvents: 3,
-    });
+  it("summarizes unread notifications, task status and cleanup failures", () => {
+    const value = list([task, { ...task, id: "t_failed", cleanup: "failed" }], 1);
 
     const text = renderedRows(render(value, false, "task_list")).join("\n");
-    expect(text).toContain("2 tasks · 2 pending notifications");
-    expect(text).toContain("✓ completed · Build · t_123");
+    expect(text).toContain("2 tasks · 1 unread");
+    expect(text).toContain("✓ completed · Build · t_123 · unread");
     expect(text).toContain("cleanup failed");
-    expect(text).toContain("evictedEvents: 3");
     expect(text).not.toContain('"tasks"');
   });
   it("keeps cleanup warnings visible before long identities and bounded failure groups", () => {
-    const failed: TaskDetails = {
+    const failed: TaskSummary = {
       ...task,
       id: "t_12345678-1234-1234-1234-123456789abc",
       name: "x".repeat(32),
@@ -113,7 +97,7 @@ describe("task presentation", () => {
     for (const count of [1, 12]) {
       const value = list(
         Array.from({ length: count }, () => failed),
-        { pending: count, evictedEvents: 0 },
+        count,
       );
 
       const component = render(value, false, "task_list");
@@ -128,18 +112,17 @@ describe("task presentation", () => {
       expect(renderedRows(render(value, false, name), 20)[0]).toBe("Cleanup failed");
     }
   });
-  it("shows readable log tails, truncation warnings and expanded events", () => {
+  it("shows results, events, readable log tails and truncation warnings", () => {
     const value = summary({
       diagnostic: "check this",
-      resultAvailable: true,
-      events: [{ id: "e_one", seq: 1, reason: "observation" }],
+      result: { id: "9007199254740993" },
+      events: [{ seq: 1, key: "ci", data: { status: "running" } }],
+      omittedEvents: 2,
       logs: {
         ...logs,
         stdout: Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"),
         stderr: "error detail",
         stdoutOmittedBytes: 200,
-        directory: "/tmp/logs",
-        storageError: "disk full",
       },
     });
 
@@ -148,27 +131,15 @@ describe("task presentation", () => {
     expect(collapsed).not.toContain("line 0\n");
     expect(collapsed).toContain("earlier lines");
     expect(collapsed).toContain("200 earlier bytes omitted");
-    expect(collapsed).toContain("disk full");
     expect(collapsed).toContain("check this");
-    expect(collapsed).toContain("result available");
+    expect(collapsed).toContain("Result · untrusted output");
+    expect(collapsed).toContain('{"id":"9007199254740993"}');
+    expect(collapsed).toContain("1 retained events · 2 earlier omitted");
+    expect(collapsed).not.toContain("#1");
     const expanded = renderedRows(render(value, true)).join("\n");
     expect(expanded).toContain("line 0\n");
-    expect(expanded).toContain("e_one · observation");
+    expect(expanded).toContain('#1 ci {"status":"running"}');
     expect(expanded).toContain("PID 42 · 1.5s");
-  });
-  it("displays captured JSON values without pagination metadata", () => {
-    const text = renderedRows(
-      render({
-        taskId: "t_123",
-        view: "result",
-        untrusted: true,
-        data: { id: "9007199254740993" },
-      }),
-    ).join("\n");
-
-    expect(text).toContain('{"id":"9007199254740993"}');
-    expect(text).not.toContain("offset");
-    expect(text).toContain("untrusted output");
   });
   it("bounds wrapped calls, sanitizes controls, and expands all argv", () => {
     const args = {
@@ -256,14 +227,13 @@ describe("task presentation", () => {
   it.each([false, true])(
     "renders PID-less duration in live and persisted failures (persisted=%s)",
     (persisted) => {
-      const failure: TaskDetails = {
+      const failure: TaskSummary = {
         id: "t_spawn",
         name: "Missing command",
         status: "spawn_error",
         cleanup: "clean",
         startedAt: 1000,
         endedAt: 2500,
-        abandoned: false,
         signal: "SIGTERM",
       };
 
@@ -276,26 +246,14 @@ describe("task presentation", () => {
     },
   );
   it.each([
-    { data: null, expected: "null" },
-    { data: false, expected: "false" },
-    { data: 0, expected: "0" },
-    { data: "", expected: '""' },
-    { expected: "No payload" },
-  ])("distinguishes absent payloads from JSON values (%j)", ({ data, expected }) => {
-    const text = renderedRows(
-      render({
-        taskId: "t",
-        view: "event",
-        eventId: "e",
-        reason: "observation",
-        untrusted: true,
-        ...(data === undefined ? {} : { data }),
-      }),
-    ).join("\n");
-
-    expect(text).toContain(expected);
-
-    if (data !== undefined) expect(text).not.toContain("No payload");
+    { result: null, expected: "null" },
+    { result: false, expected: "false" },
+    { result: 0, expected: "0" },
+    { result: "", expected: '""' },
+  ])("distinguishes falsy results from absent ones (%j)", ({ result, expected }) => {
+    const text = renderedRows(render(summary({ result }))).join("\n");
+    expect(text).toContain(`Result · untrusted output\n${expected}`);
+    expect(renderedRows(render(summary())).join("\n")).not.toContain("Result");
   });
   it("omits nullable process exit metadata", () => {
     const text = renderedRows(render({ ...task, exitCode: null }, true, "task_stop")).join("\n");
@@ -335,6 +293,7 @@ describe("task presentation", () => {
           untrusted: true,
           payload: { encoding: "json", text: "old", offset: 0, nextOffset: null, totalBytes: 3 },
         },
+        { task: { ...task, abandoned: false }, resultAvailable: false, events: [], trust: "" },
         { id: "unsupported", status: "completed" },
       ]) {
         const result = { content: [{ type: "text" as const, text }], details };

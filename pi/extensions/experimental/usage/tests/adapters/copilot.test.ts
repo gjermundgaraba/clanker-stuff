@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchCopilotUsage, mapCopilotUsagePayload } from "../../adapters/copilot.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuthClient } from "./helpers.js";
+import { NOW, tokenAuth } from "./helpers.js";
 
 describe("copilot usage", () => {
   const payload = {
@@ -42,7 +42,7 @@ describe("copilot usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchCopilotUsage({
-      authClient: tokenAuthClient("copilot-token"),
+      getAuth: tokenAuth("copilot-token"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

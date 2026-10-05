@@ -17,11 +17,7 @@ const card = ({ data, recap }: CardInput = { data: snapshot() }, expanded = fals
 
 const withRecap = (recap: RecapView): CardInput => ({ data: snapshot(), recap });
 
-const running = (paused = false): LiveState => ({
-  activeMs: 1500,
-  paused,
-  metrics: snapshot().metrics,
-});
+const running = (): LiveState => ({ elapsedMs: 1500, metrics: snapshot().metrics });
 
 describe("transcript card", () => {
   it.each([
@@ -94,7 +90,7 @@ describe("transcript card", () => {
     expect(detailed).toContain("Recap only: 370 tokens · $0.3300 reported (excluded above)");
     expect(detailed).toContain("Input 100 · Output 50 · Cache read 200 · Cache write 20");
     expect(detailed).toContain("2 responses · 1 tool errors\n");
-    expect(detailed).toMatch(/2\.0s wall · 0\.5s waiting · Started /u);
+    expect(detailed).toMatch(/\n {2}Started \d/u);
     expect(detailed).toContain("Models: provider/model");
     expect(detailed.match(/context/giu)).toHaveLength(1);
     expect(card(data).join("\n")).not.toContain("Reported cost");
@@ -187,16 +183,18 @@ describe("transcript card", () => {
   it("sanitizes persisted recap text and model names", () => {
     const data = withRecap({
       status: "ready",
-      text: "\u001B[31mDone\u001B[0m\u0007‮",
+      text: "\u001B[31mDone\u001B[0m\u0007\u202E",
       usage: snapshot().metrics.usage,
     });
 
-    data.data.metrics.models = ["provider/\u001B[31mmodel‮"];
+    data.data.metrics.models = ["provider/\u001B[31mmodel\u202E"];
     const rendered = renderCard(data.data, data.recap, 100, createIdentityTheme(), true).join("\n");
 
     expect(rendered).toContain("Done");
+    expect(rendered).toContain("Models: provider/model");
     expect(stripTerminalSequences(rendered)).not.toContain("\u001B");
-    expect(rendered).not.toContain("‮");
+    expect(rendered).not.toContain("\u0007");
+    expect(rendered).not.toContain("\u202E");
   });
 
   it.each([0, 1, 2, 10, 40, 80, 140])("fits width %i in both modes", (width) => {
@@ -220,13 +218,12 @@ describe("transcript card", () => {
 });
 
 describe("live row", () => {
-  it("shows running statistics on one row in whole seconds, even while paused", () => {
+  it("shows running statistics on one row in whole seconds", () => {
     const theme = createIdentityTheme();
 
     expect(renderLive(running(), 100, theme)).toEqual([
-      "  1s active · 3 tools · 370 processed · +400 context · 1 compaction",
+      "  1s elapsed · 3 tools · 370 processed · +400 context · 1 compaction",
     ]);
-    expect(renderLive(running(true), 100, theme)[0]).toContain("1s active");
 
     const narrow = renderLive(running(), 20, theme);
 
@@ -241,12 +238,12 @@ describe("live row", () => {
     const numeric = vi.fn((_id: string, text: string) => text.replace(/\d/gu, "X"));
 
     expect(renderLive(running(), 100, theme, numeric)).toEqual([
-      "  Xs active · X tools · XXX processed · +XXX context · X compaction",
+      "  Xs elapsed · X tools · XXX processed · +XXX context · X compaction",
     ]);
     expect(numeric.mock.calls.map(([id]) => id).sort()).toEqual([
-      "active",
       "compactions",
       "context",
+      "elapsed",
       "processed",
       "tools",
     ]);

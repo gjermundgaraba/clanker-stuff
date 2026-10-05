@@ -25,9 +25,9 @@ describe("extension lifecycle", () => {
     await fixture.emitSessionStart(ctx);
     const host = acquireEditorHost(ctx)!;
     const editor = host.create(createMockTui(), theme, createKeybindings());
-    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("vim", "VIM INSERT");
+    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("vim", "INSERT");
     editor.handleInput("\x1b");
-    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("vim", "VIM NORMAL");
+    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("vim", "NORMAL");
     await fixture.emitSessionShutdown(ctx);
     editor.handleInput("i");
     expect(editor.getText()).toBe("i");

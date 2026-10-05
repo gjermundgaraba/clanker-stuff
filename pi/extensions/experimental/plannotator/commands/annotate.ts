@@ -1,35 +1,21 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import {
-  findAnnotationTarget,
-  normalizeAnnotationArguments,
-  parseAnnotationOutcome,
-} from "../annotations.js";
+import { parseAnnotationOutcome } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
-import { notifyError } from "../command-runtime.js";
 
 export const createAnnotateHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-    const parsed = runtime.parseArguments(args, ctx);
+    const tokens = runtime.parseArguments(args, ctx);
 
-    if (parsed === undefined) {
+    if (tokens === undefined) {
       return;
     }
 
-    let target: string | undefined;
-    let tokens: string[];
+    // Plannotator validates its own options; the header shows the arguments as typed.
+    const target = args.trim();
 
-    try {
-      tokens = normalizeAnnotationArguments(parsed, new Set(["--json"]));
-      target = findAnnotationTarget(tokens);
-    } catch (error) {
-      notifyError(ctx, "Invalid Plannotator arguments", error);
-
-      return;
-    }
-
-    if (target === undefined) {
+    if (!tokens.some((token) => token !== "" && !token.startsWith("-"))) {
       ctx.ui.notify(
         "Usage: /plannotator-annotate <file | folder | URL> [--markdown] [--no-jina] [--gate]",
         "error",

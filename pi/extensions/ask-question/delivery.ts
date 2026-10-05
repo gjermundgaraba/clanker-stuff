@@ -1,32 +1,51 @@
 import { Type } from "typebox";
-import { SubmissionSchema } from "./interaction.js";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+import { submittedFields } from "./interaction.js";
 import type { Interaction, Submission } from "./interaction.js";
-import { submissionChanges } from "./interaction.js";
+import { changedHeaders } from "./summary.js";
 
 export const AnswerEnvelopeSchema = Type.Object(
   {
     type: Type.Literal("questionnaire_answer"),
     interaction_id: Type.String(),
-    ...SubmissionSchema.properties,
+    title: Type.Optional(Type.String()),
+    ...submittedFields,
     changed: Type.Array(Type.String()),
   },
   { additionalProperties: false },
 );
 
-export function answerEnvelope(item: Interaction, submission: Submission) {
-  return {
+export type AnswerEnvelope = Static<typeof AnswerEnvelopeSchema>;
+
+/** The model-facing answer: the immutable submission, never its delivery bookkeeping. */
+export function answerEnvelope(item: Interaction, submission: Submission): AnswerEnvelope {
+  const previous = item.submissions.find((s) => s.revision === submission.revision - 1);
+
+  const envelope: AnswerEnvelope = {
     type: "questionnaire_answer",
     interaction_id: item.id,
-    ...submission,
-    changed: submissionChanges(item, submission),
+    ...(item.request.title === undefined ? {} : { title: item.request.title }),
+    revision: submission.revision,
+    timestamp: submission.timestamp,
+    initiated_by: submission.initiated_by,
+    ...(submission.reason === undefined ? {} : { reason: submission.reason }),
+    ...(submission.tool_call_id === undefined ? {} : { tool_call_id: submission.tool_call_id }),
+    mode: submission.mode,
+    answers: submission.answers,
+    note: submission.note,
+    changed: previous
+      ? changedHeaders(item.request.questions, previous, submission.answers, submission.note)
+      : [],
   };
+
+  return envelope;
 }
 
-export function answerSummary(item: Interaction, submission: Submission): string {
+export function answerSummary(envelope: AnswerEnvelope): string {
   const summary = [
-    `${item.request.title ?? "Questionnaire"} · ${item.id} · revision ${submission.revision}${submission.parent_revision ? ` · supersedes revision ${submission.parent_revision}` : ""}`,
-    ...Object.values(submission.answers).map(
+    `${envelope.title ?? "Questionnaire"} · ${envelope.interaction_id} · revision ${envelope.revision}${envelope.revision > 1 ? ` · supersedes revision ${envelope.revision - 1}` : ""}`,
+    ...Object.values(envelope.answers).map(
       (a) =>
         `${a.header}: ${[...a.selections.map((s) => s.label), ...(a.custom ? [a.custom.text] : [])].join(", ")}`,
     ),
@@ -37,48 +56,32 @@ export function answerSummary(item: Interaction, submission: Submission): string
     : summary;
 }
 
-export function answerMessage(item: Interaction, submission: Submission): string {
-  return `${answerSummary(item, submission)}\n\n${JSON.stringify(answerEnvelope(item, submission))}`;
+/** The user message that sends an answer: a readable summary, then the complete envelope. */
+export function answerMessage(envelope: AnswerEnvelope): string {
+  return `${answerSummary(envelope)}\n\n${JSON.stringify(envelope)}`;
 }
 
-export function answerResult(item: Interaction, submission: Submission) {
-  const details = answerEnvelope(item, submission);
+/** The envelope of an exact answer message; edited, quoted or combined text is not one. */
+export function parseAnswerMessage(text: string): AnswerEnvelope | undefined {
+  const line = text.slice(text.lastIndexOf("\n") + 1);
 
-  return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+  if (!line.startsWith('{"type":"questionnaire_answer"')) return;
+  let value: unknown;
+
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return;
+  }
+
+  return Value.Check(AnswerEnvelopeSchema, value) && answerMessage(value) === text
+    ? value
+    : undefined;
 }
 
-/** Correlation requires exact authored answer content, never a receipt or an ID substring. */
-export function isDelivered(
-  item: Interaction,
-  submission: Submission,
-  branch: SessionEntry[],
-): boolean {
-  const resultText = JSON.stringify(answerEnvelope(item, submission));
-
-  return branch.some((entry) => {
-    if (entry.type !== "message") return false;
-    const message = entry.message;
-
-    if (message.role === "user") {
-      const text = Array.isArray(message.content)
-        ? message.content
-            .filter((c) => c.type === "text")
-            .map((c) => c.text)
-            .join("\n")
-        : message.content;
-
-      // TUI Stop can restore this answer alongside unrelated queued text.
-      // Require the complete immutable envelope, not a coincidental ID substring.
-      return text.split("\n").some((line) => line.trim() === resultText);
-    }
-
-    return (
-      message.role === "toolResult" &&
-      !message.isError &&
-      submission.mode === "blocking" &&
-      message.toolName === "request_user_input" &&
-      message.toolCallId === submission.tool_call_id &&
-      message.content.some((c) => c.type === "text" && c.text === resultText)
-    );
-  });
+export function answerResult(envelope: AnswerEnvelope) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
+    details: envelope,
+  };
 }

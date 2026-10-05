@@ -1,4 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -37,6 +37,30 @@ const EntryWireSchema = Type.Object({
 
 type EntryWire = Static<typeof EntryWireSchema>;
 
+/** Drops the further skill blocks earlier dollah-skills versions prepended, one per `$name` mention. */
+const afterSkillBlocks = (text: string): string => {
+  const skill = parseSkillBlock(text);
+
+  if (!skill) return text;
+
+  return skill.userMessage === undefined ? "" : afterSkillBlocks(skill.userMessage);
+};
+
+/**
+ * Sessions store skill invocations expanded. Recover a re-runnable prompt: Pi's
+ * `/skill:name args`. A message from earlier dollah-skills versions keeps its first skill as
+ * `/skill:name`; the rest stay as the `$name` mentions in its text.
+ */
+const typedPrompt = (text: string): string => {
+  const skill = parseSkillBlock(text);
+
+  if (!skill) return text;
+
+  const args = skill.userMessage === undefined ? "" : afterSkillBlocks(skill.userMessage);
+
+  return args === "" ? `/skill:${skill.name}` : `/skill:${skill.name} ${args}`;
+};
+
 const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
   const { message } = entry;
 
@@ -47,13 +71,13 @@ const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
   let text: string;
 
   if (message.role === "user") {
-    if (!Array.isArray(message.content)) {
-      text = message.content;
-    } else {
-      text = message.content
-        .flatMap((block) => (block.text !== undefined ? [block.text] : []))
-        .join("");
-    }
+    text = typedPrompt(
+      Array.isArray(message.content)
+        ? message.content
+            .flatMap((block) => (block.text !== undefined ? [block.text] : []))
+            .join("")
+        : message.content,
+    );
   } else {
     text = `${message.excludeFromContext === true ? "!!" : "!"}${message.command}`;
   }
@@ -81,29 +105,6 @@ const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
     text: trimmed,
     timestamp,
   };
-};
-
-export const historyFromEntries = (entries: readonly SessionEntry[]): HistoryItem[] =>
-  entries.flatMap((entry) => {
-    const item = historyItemFromEntry(entry);
-
-    return item ? [item] : [];
-  });
-
-export const normalizeHistory = (items: HistoryItem[]): HistoryItem[] => {
-  const seen = new Set<string>();
-
-  return items
-    .toSorted((left, right) => right.timestamp - left.timestamp)
-    .filter(({ text }) => {
-      if (seen.has(text)) {
-        return false;
-      }
-
-      seen.add(text);
-
-      return true;
-    });
 };
 
 export const historyItemFromEntry = (entry: unknown): HistoryItem | undefined =>

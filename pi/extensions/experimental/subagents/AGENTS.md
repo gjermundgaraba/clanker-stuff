@@ -1,14 +1,7 @@
-# Codex compatibility
+# Subagents
 
-This extension minimizes model-facing distribution shift from the native Codex CLI collaboration harness and uses Pi's native providers and Code Mode. Match the pinned Codex collaboration contract as closely as Pi can truthfully execute it, including tool families, schemas, descriptions, ordering, results, prompts, messages, history, errors, persistence, and lifecycle behavior. Do not introduce a Pi-specific difference merely for convenience.
+The collaboration tools, prompts, and mailbox text are adapted from the OpenAI Codex revision pinned in `UPSTREAM`. Keep tool names, argument names, and result shapes aligned with it where Pi can execute them truthfully, and record each deliberate difference in `docs/protocols.md`.
 
-A difference is acceptable only when the backend reserves the native contract, Pi cannot execute it truthfully, matching would reduce safety or correctness, or Pi lacks the required host representation. Record every difference in `docs/codex-parity.md` and cover it at the smallest practical test layer.
+Prefer Pi's native mechanisms over extension-owned machinery: deliver mail through Pi's custom-message queues, acknowledge it from the transcript, and let Pi own continuation, retries, and compaction. Add a guard around a native mechanism only with an integration test that fails without it and a one-line comment naming the failure mode.
 
-Before changing a collaboration surface, read its normative section in `docs/protocols.md`, the applicable rows in `docs/codex-parity.md`, and the matching pinned Codex sources. Use this topic map for the longer references:
-
-- tool placement, schemas, results, or errors: `docs/codex-model-facing-contract.md` §§2, 4, 5, and 11;
-- prompts, roles, or delegation policy: §§3, 6, and 7;
-- child instructions, history, or messages: §§8–10;
-- lifecycle, persistence, or application ownership: the relevant sections of `docs/codex-reference.md`.
-
-Provider transport and Code Mode are owned by Pi; do not recreate them here. After changing the pinned commit, extractor, catalog declarations, namespace ordering, tool families, or stock V2 spawn contract, run `pnpm --filter @clanker-stuff/subagents exec node scripts/extract-codex-contracts.ts --check`.
+Before changing behavior, read `docs/protocols.md`. Keep `package.json` `files` in step with the runtime modules; `tests/package.smoke.test.ts` loads the packed extension and checks the files it does not import.

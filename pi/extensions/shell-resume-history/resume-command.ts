@@ -3,11 +3,7 @@ import { existsSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  getAgentDir,
-  type ExtensionContext,
-  type SessionShutdownEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 
 export const INBOX_ENV = "PI_SHELL_RESUME_HISTORY_DIR";
 
@@ -19,45 +15,18 @@ const quoteShellArgument = (value: string): string => {
   return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 };
 
-const getDefaultSessionDirectory = (cwd: string): string => {
-  const safePath = `--${path
-    .resolve(cwd)
-    .replace(/^[/\\]/u, "")
-    .replaceAll(/[/\\:]/gu, "-")}--`;
-
-  return path.join(path.resolve(getAgentDir()), "sessions", safePath);
-};
-
-const canResumeById = (sessionId: string): boolean =>
-  /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(sessionId) && !sessionId.endsWith(".jsonl");
-
+/** Pi opens a session file in the session's own working directory, from any shell directory. */
 export const formatResumeCommand = (
   sessionManager: ExtensionContext["sessionManager"],
 ): string | undefined => {
   const sessionFile = sessionManager.getSessionFile();
 
+  // Pi creates the file with the first user message; until then there is nothing to resume.
   if (sessionFile === undefined || sessionFile.length === 0 || !existsSync(sessionFile)) {
     return undefined;
   }
 
-  const sessionId = sessionManager.getSessionId();
-
-  if (!canResumeById(sessionId)) {
-    return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
-  }
-
-  const args = ["pi"];
-
-  if (
-    path.resolve(sessionManager.getSessionDir()) !==
-    getDefaultSessionDirectory(sessionManager.getCwd())
-  ) {
-    args.push("--session-dir", quoteShellArgument(sessionManager.getSessionDir()));
-  }
-
-  args.push("--session", sessionId);
-
-  return args.join(" ");
+  return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
 };
 
 export const enqueueResumeCommand = async (

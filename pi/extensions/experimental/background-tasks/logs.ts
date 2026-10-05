@@ -1,83 +1,26 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type { LogSummary } from "./output.js";
 
 export const LOG_BYTES = 128 * 1024;
 
-/** Bounded tail in RAM and on disk. At most one snapshot write per stream is pending. */
+export const DEFAULT_TAIL_BYTES = 6000;
+
+/** Bounded in-memory tail of each output stream. */
 export class TaskLogs {
   private stdout = Buffer.alloc(0);
   private stderr = Buffer.alloc(0);
   private received = { stdout: 0, stderr: 0 };
-  private dirty = false;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private writing: Promise<void> | undefined;
-  private closed = false;
-  error: string | undefined;
-  constructor(readonly directory: string) {}
 
   append(stream: "stdout" | "stderr", chunk: Buffer): void {
-    if (this.closed) return;
     this.received[stream] += chunk.length;
     this[stream] = Buffer.concat([this[stream], chunk.subarray(-LOG_BYTES)]).subarray(-LOG_BYTES);
-    this.dirty = true;
-    this.schedule();
   }
-  private schedule(): void {
-    if (this.timer || this.writing || this.closed) return;
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      void this.flush();
-    }, 100);
-    this.timer.unref();
-  }
-  async flush(): Promise<void> {
-    if (this.writing) return this.writing;
-
-    if (!this.dirty) return;
-    this.dirty = false;
-    const snapshots = { stdout: this.stdout, stderr: this.stderr };
-    this.writing = Promise.all(
-      (["stdout", "stderr"] as const).map((stream) => {
-        const file = join(this.directory, `${stream}.log`);
-
-        return withFileMutationQueue(file, () =>
-          writeFile(file, snapshots[stream], { mode: 0o600 }),
-        );
-      }),
-    )
-      .then(() => {
-        this.error = undefined;
-      })
-      .catch((error) => {
-        this.error = safeText(String(error)).slice(0, 500);
-      })
-      .finally(() => {
-        this.writing = undefined;
-
-        if (this.dirty) this.schedule();
-      });
-
-    return this.writing;
-  }
-  read(bytes = 6000): LogSummary {
-    const size = Math.max(1, Math.min(12000, bytes));
-
+  read(bytes = DEFAULT_TAIL_BYTES): LogSummary {
     return {
-      stdout: safeText(this.stdout.subarray(-size).toString("utf8")),
-      stderr: safeText(this.stderr.subarray(-size).toString("utf8")),
-      stdoutOmittedBytes: Math.max(0, this.received.stdout - size),
-      stderrOmittedBytes: Math.max(0, this.received.stderr - size),
-      directory: this.directory,
-      ...(this.error !== undefined ? { storageError: this.error } : {}),
+      stdout: safeText(this.stdout.subarray(-bytes).toString("utf8")),
+      stderr: safeText(this.stderr.subarray(-bytes).toString("utf8")),
+      stdoutOmittedBytes: Math.max(0, this.received.stdout - bytes),
+      stderrOmittedBytes: Math.max(0, this.received.stderr - bytes),
     };
-  }
-  async close(): Promise<void> {
-    this.closed = true;
-    clearTimeout(this.timer);
-    await this.writing;
-    await this.flush();
   }
 }

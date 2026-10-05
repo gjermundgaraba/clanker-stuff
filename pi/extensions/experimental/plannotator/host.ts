@@ -13,9 +13,8 @@ interface PlannotatorRuntime {
 
 export const createPlannotatorHost = (pi: ExtensionAPI, starter?: CliStarter) => {
   const active = createLazySingleton<PlannotatorRuntime>(async (signal) => {
-    const [command, launcher, annotate, last, review] = await Promise.all([
+    const [command, annotate, last, review] = await Promise.all([
       import("./command-runtime.js"),
-      import("./review-launcher.js"),
       import("./commands/annotate.js"),
       import("./commands/last.js"),
       import("./commands/review.js"),
@@ -23,9 +22,7 @@ export const createPlannotatorHost = (pi: ExtensionAPI, starter?: CliStarter) =>
 
     signal.throwIfAborted();
 
-    const runtime = command.createCommandRuntime(
-      launcher.createTargetedReviewStarter(starter ?? command.startPlannotatorCli),
-    );
+    const runtime = command.createCommandRuntime(starter ?? command.startPlannotatorCli);
 
     return {
       annotate: annotate.createAnnotateHandler(pi, runtime),

@@ -36,6 +36,29 @@ describe("WatchDecoder", () => {
     partial.push(Buffer.from('{"v":1,"type":"result","data":0}'), () => true);
     expect(() => partial.finish()).toThrow();
   });
+  it("bounds data as tool text renders it, as well as the line", () => {
+    const record = (data: string) => Buffer.from(`{"v":1,"type":"event","data":${data}}\n`);
+    // The longest plain string the line allows; plain text renders at its own size.
+    const fits = record(JSON.stringify("x".repeat(MAX_RECORD_BYTES - 32)));
+    const numbers = `[${Array(3200).fill("1e20").join(",")}]`;
+    // Under the limit even serialized again, but each bidi control renders as a 6-byte escape.
+    const escapes = JSON.stringify("\u202e".repeat(5400));
+    expect(fits.length).toBe(MAX_RECORD_BYTES + 1);
+    expect(Buffer.byteLength(JSON.stringify(JSON.parse(escapes)))).toBeLessThan(MAX_RECORD_BYTES);
+    const records: unknown[] = [];
+
+    new WatchDecoder().push(fits, (r) => {
+      records.push(r);
+
+      return true;
+    });
+    expect(records).toHaveLength(1);
+
+    for (const data of [numbers, escapes]) {
+      expect(record(data).length).toBeLessThanOrEqual(MAX_RECORD_BYTES + 1);
+      expect(() => new WatchDecoder().push(record(data), () => true)).toThrow(/as rendered JSON/);
+    }
+  });
   it("stops decoding after a terminal decision", () => {
     const decoder = new WatchDecoder();
     const records: unknown[] = [];

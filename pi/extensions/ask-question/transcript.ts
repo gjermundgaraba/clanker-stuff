@@ -1,47 +1,40 @@
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { AnswerEnvelopeSchema, answerMessage } from "./delivery.js";
+import { AnswerEnvelopeSchema, parseAnswerMessage } from "./delivery.js";
+import type { AnswerEnvelope } from "./delivery.js";
 import type { MarkdownTransformer, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Interaction, Submission } from "./interaction.js";
 import { Text } from "@earendil-works/pi-tui";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { QuestionnaireSchema, RevisionSchema } from "./request.js";
-import {
-  escapeMarkdown,
-  interactionRows,
-  markdownText,
-  plainText,
-  submissionRows,
-} from "./summary.js";
+import { escapeMarkdown, markdownText, plainText, submissionRows } from "./summary.js";
 
-function submittedAnswerMarkdown(item: Interaction, submission: Submission): string {
+const supersedes = (revision: number) =>
+  revision > 1 ? ` · supersedes revision ${revision - 1}` : "";
+
+const envelopeRows = (envelope: AnswerEnvelope) =>
+  submissionRows(
+    envelope.answers,
+    envelope.note,
+    envelope.revision > 1 ? envelope.changed : undefined,
+  );
+
+/**
+ * Display only: an exact answer message renders as a readable summary, while its canonical
+ * text stays in model context and history. Edited, quoted or combined text stays verbatim, so
+ * arbitrary user text is never hidden just because it resembles an answer.
+ */
+export const transformAnswerMarkdown: MarkdownTransformer = (markdown, context) => {
+  const envelope = context.messageType === "user" ? parseAnswerMessage(markdown) : undefined;
+
+  if (!envelope) return markdown;
+
   const heading =
-    `**${escapeMarkdown(item.request.title ?? "Questionnaire")}** · answered · revision ${submission.revision}` +
-    `${submission.parent_revision ? ` · supersedes revision ${submission.parent_revision}` : ""}\\\n` +
-    "/answers to inspect or revise";
+    `**${escapeMarkdown(envelope.title ?? "Questionnaire")}** · answered · revision ${envelope.revision}` +
+    `${supersedes(envelope.revision)}\\\n/answers to inspect or revise`;
 
-  return markdownText(heading, interactionRows(item, submission));
-}
-
-/** Display only: canonical messages, model context and delivery matching stay untouched. */
-export function createAnswerMarkdownTransformer(
-  readInteractions: () => Iterable<Interaction>,
-): MarkdownTransformer {
-  return (markdown, context) => {
-    if (context.messageType !== "user" || !markdown.includes('"type":"questionnaire_answer"'))
-      return markdown;
-
-    for (const item of readInteractions())
-      for (const submission of item.submissions)
-        if (markdown === answerMessage(item, submission))
-          return submittedAnswerMarkdown(item, submission);
-
-    // Edited, quoted, combined queue text and unknown-branch messages remain
-    // verbatim: never hide arbitrary user text just because it resembles an answer.
-    return markdown;
-  };
-}
+  return markdownText(heading, envelopeRows(envelope));
+};
 
 type CallRenderer = NonNullable<ToolDefinition<typeof QuestionnaireSchema>["renderCall"]>;
 
@@ -98,7 +91,7 @@ const ReceiptDisplaySchema = Type.Object({
 
 const STATUS_LABELS = new Map([
   ["cancelled", "Cancelled by the user · nothing answered · run stopped"],
-  ["delivery_paused", "Closed without answering · draft kept · run stopped · /answers to resume"],
+  ["closed", "Closed without answering · draft kept · run stopped · /answers to resume"],
   ["pending", "Pending · not answered yet · /answers to answer"],
 ]);
 
@@ -116,13 +109,7 @@ export const renderResult: NonNullable<
     const details: unknown = JSON.parse(text);
 
     if (!context.isError && !options.isPartial && Value.Check(AnswerEnvelopeSchema, details)) {
-      summary = `Answered · revision ${details.revision}${details.parent_revision ? ` · supersedes revision ${details.parent_revision}` : ""}\n${plainText(
-        submissionRows(
-          details.answers,
-          details.note,
-          details.parent_revision ? details.changed : undefined,
-        ),
-      )}`;
+      summary = `Answered · revision ${details.revision}${supersedes(details.revision)}\n${plainText(envelopeRows(details))}`;
     } else if (
       !context.isError &&
       !options.isPartial &&

@@ -7,7 +7,7 @@ import {
   mapXaiUsagePayloads,
   mapXaiWeeklyPayload,
 } from "../../adapters/xai.js";
-import type { ProviderAuthClient } from "../../auth.js";
+import type { GetAuth } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 import { defaultFetchJson } from "../../http.js";
 
@@ -119,18 +119,16 @@ describe("xai combined payloads", () => {
 
 describe("xai fetch", () => {
   it("does not call billing for non-OAuth credentials", async () => {
-    const authClient: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "sk-test" },
-        source: "XAI_API_KEY",
-      }),
-    };
+    const getAuth: GetAuth = async () => ({
+      auth: { apiKey: "sk-test" },
+      source: "XAI_API_KEY",
+    });
 
     const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchXaiUsage({
-      authClient,
+      getAuth,
       fetchJson: client.fetchJson,
       now: () => 1,
     });
@@ -146,12 +144,10 @@ describe("xai fetch", () => {
   });
 
   it("keeps monthly success when weekly request fails", async () => {
-    const authClient: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "oauth-token" },
-        source: "OAuth",
-      }),
-    };
+    const getAuth: GetAuth = async () => ({
+      auth: { apiKey: "oauth-token" },
+      source: "OAuth",
+    });
 
     const client = {
       fetchJson: async (url, schema, options) => {
@@ -169,7 +165,7 @@ describe("xai fetch", () => {
     } satisfies { fetchJson: FetchJson };
 
     const result = await fetchXaiUsage({
-      authClient,
+      getAuth,
       fetchJson: client.fetchJson,
       now: () => 9,
     });
@@ -187,12 +183,10 @@ describe("xai fetch", () => {
   it("starts independent billing requests concurrently", async () => {
     const monthlyGate = Promise.withResolvers<null>();
 
-    const authClient: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "oauth-token" },
-        source: "OAuth",
-      }),
-    };
+    const getAuth: GetAuth = async () => ({
+      auth: { apiKey: "oauth-token" },
+      source: "OAuth",
+    });
 
     const client = {
       fetchJson: async (url, schema, options) => {
@@ -206,7 +200,7 @@ describe("xai fetch", () => {
 
     const fetchJson = vi.spyOn(client, "fetchJson");
 
-    const result = fetchXaiUsage({ authClient, fetchJson: client.fetchJson, now: () => 1 });
+    const result = fetchXaiUsage({ getAuth, fetchJson: client.fetchJson, now: () => 1 });
     await vi.waitFor(() => {
       expect(fetchJson).toHaveBeenCalledTimes(2);
     });
@@ -218,12 +212,10 @@ describe("xai fetch", () => {
   it("returns a monthly failure without waiting for credits", async () => {
     const creditsGate = Promise.withResolvers<never>();
 
-    const authClient: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "oauth-token" },
-        source: "OAuth",
-      }),
-    };
+    const getAuth: GetAuth = async () => ({
+      auth: { apiKey: "oauth-token" },
+      source: "OAuth",
+    });
 
     const client = {
       fetchJson: async (url) => {
@@ -235,7 +227,7 @@ describe("xai fetch", () => {
       },
     } satisfies { fetchJson: FetchJson };
 
-    const result = await fetchXaiUsage({ authClient, fetchJson: client.fetchJson, now: () => 1 });
+    const result = await fetchXaiUsage({ getAuth, fetchJson: client.fetchJson, now: () => 1 });
 
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "HTTP 500" },
@@ -257,9 +249,7 @@ describe("xai optional payload boundaries", () => {
 
       try {
         const result = await fetchXaiUsage({
-          authClient: {
-            getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-          },
+          getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
           fetchJson: defaultFetchJson,
           now: () => 1,
         });
@@ -288,7 +278,7 @@ describe("xai optional payload boundaries", () => {
       okFetch(url.includes("format=credits") ? weekly : monthly)(url, schema, options);
 
     const result = await fetchXaiUsage({
-      authClient: { getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }) },
+      getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
       fetchJson,
       now: () => 1,
     });
@@ -308,9 +298,7 @@ describe("xai optional payload boundaries", () => {
 
     await expect(
       fetchXaiUsage({
-        authClient: {
-          getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-        },
+        getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
         fetchJson,
       }),
     ).rejects.toThrow("monthly failed");
@@ -325,7 +313,7 @@ describe("xai optional payload boundaries", () => {
     };
 
     const result = await fetchXaiUsage({
-      authClient: { getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }) },
+      getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
       fetchJson,
     });
 

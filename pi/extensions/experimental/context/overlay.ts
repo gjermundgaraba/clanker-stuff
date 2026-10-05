@@ -8,7 +8,6 @@ import type {
   KeybindingsManager,
   KeyId,
   MarkdownTheme,
-  OverlayHandle,
   TUI,
   TuiMouseEvent,
   TuiMouseEventResult,
@@ -27,7 +26,6 @@ import {
 } from "./render.js";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Layout } from "./render.js";
-import { parseMouseInput } from "./mouse.js";
 import type { InspectorSnapshot } from "./snapshot.js";
 import { buildTree, filterTree, flattenTree, followSelection, groupIds } from "./tree.js";
 import type { FlatRow, TreeNode } from "./tree.js";
@@ -54,8 +52,6 @@ export class ContextOverlay implements Component, Focusable {
   private previewFocused = false;
   private maxPreviewScroll = 0;
   private layout: Layout | undefined;
-  private mouseHandle: OverlayHandle | undefined;
-  private mouseReporting = false;
 
   constructor(
     private readonly tui: TUI,
@@ -77,26 +73,6 @@ export class ContextOverlay implements Component, Focusable {
   set focused(value: boolean) {
     this.hasFocus = value;
     this.search.focused = value && this.editing;
-    this.setMouseReporting(value && this.mouseHandle !== undefined);
-  }
-
-  attachMouse(handle: OverlayHandle): void {
-    // Fullscreen Pi already routes normalized mouse events. Regular mode needs scoped reporting.
-    if (this.tui.mode !== "regular") return;
-    this.mouseHandle = handle;
-    this.setMouseReporting(this.hasFocus);
-  }
-
-  private setMouseReporting(enabled: boolean): void {
-    if (enabled === this.mouseReporting) return;
-    this.mouseReporting = enabled;
-    // Plain enable/disable, as Pi's own fullscreen mode does; XTSAVE/XTRESTORE is not universal.
-    this.tui.terminal.write(enabled ? "\u001B[?1000h\u001B[?1006h" : "\u001B[?1006l\u001B[?1000l");
-  }
-
-  dispose(): void {
-    this.setMouseReporting(false);
-    this.mouseHandle = undefined;
   }
 
   private scrollPreview(delta: number): void {
@@ -234,14 +210,6 @@ export class ContextOverlay implements Component, Focusable {
   }
 
   handleInput(data: string): void {
-    if (this.mouseHandle && data.startsWith("\u001B[<")) {
-      const event = parseMouseInput(data, this.mouseHandle.getBounds());
-
-      if (event) this.handleMouse(event);
-
-      return;
-    }
-
     if (this.editing) {
       this.handleSearchInput(data);
       this.tui.requestRender();
@@ -353,7 +321,9 @@ export class ContextOverlay implements Component, Focusable {
 
     const body =
       this.rows.length === 0
-        ? [`${PAD}${this.theme.fg("muted", "No matches")}`]
+        ? [
+            `${PAD}${this.theme.fg("muted", this.search.getValue() ? "No matches" : "Run a turn, then reopen /context.")}`,
+          ]
         : renderTreeRows(
             this.theme,
             this.rows.slice(this.scroll, this.scroll + bodyHeight),

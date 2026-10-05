@@ -66,6 +66,38 @@ describe("turn-recap registrations", () => {
     );
   });
 
+  it("refreshes on model-issued tool calls but not on calls a tool makes itself", async () => {
+    const { directory, configPath } = await createRecapConfigFile();
+    await rm(configPath);
+    vi.stubEnv("PI_CODING_AGENT_DIR", directory);
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+    });
+    const host = createExtensionHost(extension);
+    const getContextUsage = vi.fn(() => undefined);
+    const ctx = host.createContext({ getContextUsage });
+    onTestFinished(() => host.emitSessionShutdown(ctx));
+    await host.emitSessionStart(ctx);
+    await host.emit("agent_start", { type: "agent_start" }, ctx);
+    getContextUsage.mockClear();
+
+    const start = {
+      type: "tool_execution_start",
+      toolCallId: "call",
+      toolName: "codemode",
+      args: {},
+    } as const;
+
+    await host.emit(
+      "tool_execution_start",
+      { ...start, toolCallId: "call/1", toolName: "read", parentToolCallId: "call" },
+      ctx,
+    );
+    expect(getContextUsage).not.toHaveBeenCalled();
+    await host.emit("tool_execution_start", start, ctx);
+    expect(getContextUsage).toHaveBeenCalledOnce();
+  });
+
   it("does not hold Pi settlement open while recap generation is pending", async () => {
     const { directory } = await createRecapConfigFile();
     vi.stubEnv("PI_CODING_AGENT_DIR", directory);
@@ -132,14 +164,15 @@ describe("turn-recap registrations", () => {
     expect(render(snapshot())).toContain("Completed in 1.5s");
     expect(render(snapshot())).not.toContain("Reported cost");
     expect(render(snapshot(), true)).toContain("Reported cost");
+    // Cards from before active time was dropped still render, with their wall time.
+    expect(render({ ...snapshot(), activeMs: 900 })).toContain("Completed in 1.5s");
 
     const { runId: _runId, ...withoutRunId } = snapshot();
 
     for (const retired of [
       withoutRunId,
-      { ...snapshot(), recap: { status: "ready", text: "Old", usage: snapshot().metrics.usage } },
-      { ...snapshot(), activeMs: -1 },
-      { ...snapshot(), activeMs: Infinity },
+      { ...snapshot(), wallMs: -1 },
+      { ...snapshot(), wallMs: Infinity },
       { ...snapshot(), metrics: { extra: 1 } },
       { completedTurns: 1, recap: "Old" },
     ]) {
@@ -147,7 +180,7 @@ describe("turn-recap registrations", () => {
     }
   });
 
-  it("wires the live widget, async prompts, settlement, overlapping recaps, and cleanup", async () => {
+  it("wires the live widget, settlement, overlapping recaps, and cleanup", async () => {
     vi.useFakeTimers();
     const response = Promise.withResolvers<AssistantMessage>();
     const { directory } = await createRecapConfigFile();
@@ -181,37 +214,16 @@ describe("turn-recap registrations", () => {
     await host.emitSessionStart(ctx);
     expect(render()).toBeUndefined();
     await host.emit("agent_start", { type: "agent_start" }, ctx);
-    vi.advanceTimersByTime(1000);
-    host.events.emit("clanker:async-prompt", { active: true });
-    await host.emit(
-      "ui_prompt_start",
-      { type: "ui_prompt_start", reason: "ui_prompt", kind: "custom" },
-      ctx,
-    );
-    vi.advanceTimersByTime(1000);
-    expect(render()).toContain("2s active");
-    host.events.emit("clanker:async-prompt", { active: false });
-    await host.emit(
-      "ui_prompt_start",
-      { type: "ui_prompt_start", reason: "ui_prompt", kind: "custom" },
-      ctx,
-    );
-    vi.advanceTimersByTime(1000);
-    // A blocking prompt freezes active time.
-    expect(render()).toContain("2s active");
-    await host.emit(
-      "ui_prompt_end",
-      { type: "ui_prompt_end", reason: "ui_prompt", kind: "custom" },
-      ctx,
-    );
+    vi.advanceTimersByTime(2000);
+    expect(render()).toContain("2s elapsed");
     appendTurn(session, 1);
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
     const [card] = host.getAppendedEntries();
     expect(component).toBeUndefined();
-    expect(card).toMatchObject({ data: { activeMs: 2000, wallMs: 3000 } });
+    expect(card).toMatchObject({ data: { wallMs: 2000 } });
     expect(renderEntry(host, card)).toContain("Generating recap…");
     await host.emit("agent_start", { type: "agent_start" }, ctx);
-    expect(render()).toContain("0s active");
+    expect(render()).toContain("0s elapsed");
     response.resolve(fauxAssistantMessage("Arrived during the next run"));
     await vi.advanceTimersByTimeAsync(0);
     expect(host.getAppendedEntries()).toHaveLength(2);

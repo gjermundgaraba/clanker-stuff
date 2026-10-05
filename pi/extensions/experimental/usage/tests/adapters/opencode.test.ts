@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchOpenCodeGoUsage, mapOpenCodeGoUsagePayload } from "../../adapters/opencode.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuthClient } from "./helpers.js";
+import { NOW, tokenAuth } from "./helpers.js";
 
 describe("opencode go usage", () => {
   const payload = {
@@ -41,8 +41,8 @@ describe("opencode go usage", () => {
             resetsAt: "2026-07-21T17:00:00.000Z",
           },
           {
-            id: "7d",
-            label: "7d",
+            id: "week",
+            label: "week",
             remainingPercent: 66,
             resetsAt: "2026-07-28T00:00:00.000Z",
           },
@@ -90,7 +90,7 @@ describe("opencode go usage", () => {
   it.each([-1, 101])("rejects out-of-range percent %s at ingress", async (percent) => {
     await expect(
       fetchOpenCodeGoUsage({
-        authClient: tokenAuthClient("token"),
+        getAuth: tokenAuth("token"),
         fetchJson: okFetch({ usage: { rolling: { percent } } }),
         now: () => NOW,
       }),
@@ -105,12 +105,10 @@ describe("opencode go usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchOpenCodeGoUsage({
-      authClient: {
-        getProviderAuth: async () => ({
-          auth: { apiKey: "opencode-key" },
-          source: "OPENCODE_API_KEY",
-        }),
-      },
+      getAuth: async () => ({
+        auth: { apiKey: "opencode-key" },
+        source: "OPENCODE_API_KEY",
+      }),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

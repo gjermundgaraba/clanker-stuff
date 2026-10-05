@@ -2,23 +2,10 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
-import {
-  distributeCells,
-  layoutOverlay,
-  renderOverlay,
-  renderUsageBar,
-  usageSegments,
-} from "../render.js";
+import { layoutOverlay, renderOverlay, renderUsageBar } from "../render.js";
 import { fixtureMessage, fixturePart, fixtureSnapshot } from "./fixtures/snapshot.js";
 
 const theme = createIdentityTheme();
-
-const segments = usageSegments(
-  fixtureSnapshot({
-    prompt: "x".repeat(40),
-    usage: { tokens: 40, contextWindow: 64, percent: 62.5 },
-  }),
-);
 
 describe("render", () => {
   it("sanitizes display labels without changing the captured context", () => {
@@ -38,16 +25,14 @@ describe("render", () => {
     (width) => {
       for (const tokens of [0, 2, 48, 64, 1000]) {
         expect(
-          visibleWidth(
-            renderUsageBar(theme, { tokens, contextWindow: 64, percent: 0 }, segments, width),
-          ),
+          visibleWidth(renderUsageBar(theme, { tokens, contextWindow: 64, percent: 0 }, width)),
         ).toBe(width);
       }
 
-      expect(
-        renderUsageBar(theme, { tokens: null, contextWindow: 64, percent: null }, segments, width),
-      ).toBe("░".repeat(width));
-      expect(renderUsageBar(theme, undefined, segments, width)).toBe("░".repeat(width));
+      expect(renderUsageBar(theme, { tokens: null, contextWindow: 64, percent: null }, width)).toBe(
+        "░".repeat(width),
+      );
+      expect(renderUsageBar(theme, undefined, width)).toBe("░".repeat(width));
     },
   );
   it("fills every accepted size exactly and clips sizes below the minimum", () => {
@@ -90,10 +75,9 @@ describe("render", () => {
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
   });
-  it("draws a titled frame with a stacked usage bar, legend and joined pane divider", () => {
+  it("draws a titled frame with a measured usage bar, estimate legend and joined pane divider", () => {
     const snapshot = fixtureSnapshot({
       prompt: "x".repeat(400),
-      tools: [],
       usage: { tokens: 400, contextWindow: 1000, percent: 40 },
     });
 
@@ -109,9 +93,7 @@ describe("render", () => {
     expect(lines[1]).toBe(`│${" ".repeat(118)}│`);
     expect(lines[2]).toContain("400 / 1,000 tokens · 40.0% used · 600 free");
     expect(lines[3]).toBe(`│  ${"█".repeat(46)}${"░".repeat(68)}  │`);
-    expect(lines[4]).toContain(
-      "■ system ~100 · 25%   ■ tools ~200 · 50%   ■ messages ~100 · 25%   ░ free 600",
-    );
+    expect(lines[4]).toContain("system ~100 · 25%   tools ~200 · 50%   messages ~100 · 25%");
     expect(lines[5]).toBe(`│${" ".repeat(118)}│`);
     expect(lines[6]).toBe(`├${"─".repeat(layout.treeWidth)}┬${"─".repeat(layout.previewWidth)}┤`);
     expect(lines[7]).toBe(`│${" ".repeat(layout.treeWidth)}│${" ".repeat(layout.previewWidth)}│`);
@@ -122,20 +104,6 @@ describe("render", () => {
     expect(lines.at(-2)).toBe(`│  help${" ".repeat(112)}│`);
     expect(lines).toHaveLength(24);
     expect(lines.every((line) => visibleWidth(line) === 120)).toBe(true);
-  });
-
-  it.each([
-    [[1, 1, 1], 0, [0, 0, 0]],
-    [[1, 1, 1], 1, [1, 0, 0]],
-    [[1, 1, 1], 2, [1, 1, 0]],
-    [[1, 1, 1], 3, [1, 1, 1]],
-    [[98, 1, 1], 10, [8, 1, 1]],
-    [[98, 1, 1], 100, [98, 1, 1]],
-    [[100000, 1, 4], 10, [8, 1, 1]],
-    [[5, 0, 5], 3, [2, 0, 1]],
-    [[0, 0, 0], 5, [0, 0, 0]],
-  ])("distributes %j tokens over %s cells as %j", (weights, cells, expected) => {
-    expect(distributeCells(weights, cells)).toEqual(expected);
   });
 
   it("splits into tree and preview panes from 80 columns", () => {
@@ -167,7 +135,7 @@ describe("render", () => {
     });
     const short = renderOverlay(theme, fixtureSnapshot(), layoutOverlay(120, 10, false), [], "");
     expect(short).toHaveLength(10);
-    expect(short.join("\n")).not.toContain("■ system");
+    expect(short.join("\n")).not.toContain("system ~");
     expect(short[3]).toMatch(/^├─+┬─+┤$/);
   });
 

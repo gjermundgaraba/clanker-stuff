@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Question } from "../request.js";
 import type { Draft, Interaction, Submission } from "../interaction.js";
@@ -49,29 +49,17 @@ export function inboxLabel(item: Interaction, index: number): string {
   const latest = item.submissions.at(-1);
 
   const status = item.draft
-    ? `${Object.values(item.draft.answers).filter(answered).length}/${item.request.questions.length} answered · Draft${item.paused ? " · Paused" : ""}`
+    ? `${Object.values(item.draft.answers).filter(answered).length}/${item.request.questions.length} answered · Draft`
     : latest
-      ? `Revision ${latest.revision} · ${deliveryLabel(item.deliveries.at(-1)?.status)}`
+      ? `Revision ${latest.revision} · ${deliveryLabel(latest)}`
       : "Cancelled";
 
   // The request decoder requires at least one question, including during journal replay.
   return `${index + 1}. ${oneLine(item.request.title ?? item.request.questions[0]!.header)} · ${status}`;
 }
 
-export function deliveryLabel(
-  status: Interaction["deliveries"][number]["status"] | undefined,
-): string {
-  switch (status) {
-    case "delivered":
-      return "Sent";
-    case "handed_to_pi":
-      return "Queued in Pi";
-    case "uncertain":
-      return "Delivery unconfirmed";
-    default:
-      return "Not sent";
-  }
-}
+export const deliveryLabel = (submission: Submission): string =>
+  submission.sent_at ? "Sent" : "Not sent";
 
 export function reviewText(item: Interaction, submission?: Submission): string {
   return plainText(interactionRows(item, submission));
@@ -106,10 +94,6 @@ export function diffText(item: Interaction): string {
     );
 
   return lines.join("\n").trimEnd() || "No answer changes";
-}
-
-export function markdownLines(text: string, width: number): string[] {
-  return new Markdown(displayText(text), 0, 0, getMarkdownTheme()).render(Math.max(1, width));
 }
 
 /** Wrapped, unpadded lines. */
@@ -362,4 +346,42 @@ export function renderScrollablePage(
       : "");
 
   return finishFrame(options, visible, scroll, viewportRows, hint);
+}
+
+/** Horizontal padding for full-width questionnaire screens. */
+export function padded(availableWidth: number, draw: (width: number) => string[]): string[] {
+  const padding = availableWidth >= 28 ? 2 : 0;
+
+  return draw(availableWidth - padding * 2).map((line) => " ".repeat(padding) + line);
+}
+
+/** Scroll state of the frame's viewport, driven by keys and fullscreen wheel events. */
+export class Viewport {
+  scroll = 0;
+  private page = 1;
+  private area = { top: 0, rows: 0 };
+  /** Adopts a rendered frame's clamped scroll position and viewport bounds. */
+  show(frame: FrameResult): string[] {
+    this.scroll = frame.scroll;
+    this.page = Math.max(1, frame.viewport.rows - 1);
+    this.area = frame.viewport;
+
+    return frame.lines;
+  }
+  by(lines: number): void {
+    this.scroll = Math.max(0, this.scroll + lines);
+  }
+  pages(direction: 1 | -1): void {
+    this.by(direction * this.page);
+  }
+  wheel(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const { top, rows } = this.area;
+
+    if (event.type !== "wheel" || !event.wheelDelta || rows === 0) return;
+
+    if (event.y < top || event.y >= top + rows) return;
+    this.scroll += event.wheelDelta;
+
+    return { handled: true };
+  }
 }

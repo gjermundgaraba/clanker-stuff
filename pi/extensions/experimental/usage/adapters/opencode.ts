@@ -4,7 +4,7 @@ import type { Static } from "typebox";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { fetchBearerUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
+import { fetchUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
 
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
@@ -38,7 +38,7 @@ export const mapOpenCodeGoUsagePayload = (
 ): UsageFetchResult => {
   const windows = [
     parseWindow(payload.usage.rolling, "5h"),
-    parseWindow(payload.usage.weekly, "7d"),
+    parseWindow(payload.usage.weekly, "week"),
     parseWindow(payload.usage.monthly, "month"),
   ].filter(isDefined);
 
@@ -46,10 +46,9 @@ export const mapOpenCodeGoUsagePayload = (
 };
 
 export const fetchOpenCodeGoUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchBearerUsage(
+  fetchUsage(
     deps,
     "opencode-go",
-    OPENCODE_GO_USAGE_URL,
-    OpenCodeGoUsagePayloadSchema,
+    { url: OPENCODE_GO_USAGE_URL, schema: OpenCodeGoUsagePayloadSchema },
     mapOpenCodeGoUsagePayload,
   );

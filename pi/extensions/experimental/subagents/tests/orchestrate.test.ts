@@ -9,7 +9,7 @@ const ORCHESTRATE_SKILL_PATH = fileURLToPath(
 );
 
 describe("orchestrate skill", () => {
-  it("keeps valid metadata and capability-safe V1/V2 guidance for explicit loading", async () => {
+  it("keeps valid metadata and fork_turns guidance for explicit loading", async () => {
     const loaded = loadSkills({
       agentDir: import.meta.dirname,
       cwd: import.meta.dirname,
@@ -31,14 +31,10 @@ describe("orchestrate skill", () => {
     expect({
       conditionalOverride: contents.includes("When `spawn_agent` exposes `reasoning_effort`"),
       omissionFallback: contents.includes("otherwise omit that field"),
-      v1Fork: contents.includes(
-        "when it exposes `fork_context`, omit `fork_context` or set it to `false`",
-      ),
       v2Fork: contents.includes('use `fork_turns: "none"` when `spawn_agent` exposes `fork_turns`'),
     }).toStrictEqual({
       conditionalOverride: true,
       omissionFallback: true,
-      v1Fork: true,
       v2Fork: true,
     });
     await expect(

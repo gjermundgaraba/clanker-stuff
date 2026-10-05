@@ -1,5 +1,5 @@
 import { inspectModelHistory, isVirtualModel } from "@clanker-stuff/model-history";
-import type { ExtensionContext, MessageEndEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const SUPPORTED_PROVIDERS = [
   "anthropic",
@@ -14,7 +14,7 @@ export const SUPPORTED_PROVIDERS = [
 
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
-export type UsageWindowId = "5h" | "day" | "7d" | "week" | "month";
+export type UsageWindowId = "5h" | "week" | "month";
 
 export interface UsageWindow {
   id: UsageWindowId;
@@ -47,14 +47,17 @@ export interface UsageFetchError {
   kind: "unavailable" | "failure";
 }
 
-export type UsageFetchResult =
-  | { ok: true; snapshot: UsageSnapshot }
-  | { ok: false; error: UsageFetchError };
+export interface UsageFetchFailure {
+  ok: false;
+  error: UsageFetchError;
+}
+
+export type UsageFetchResult = { ok: true; snapshot: UsageSnapshot } | UsageFetchFailure;
 
 export const usageFailure = (
   message: string,
   kind: UsageFetchError["kind"] = "failure",
-): UsageFetchResult => ({ error: { kind, message }, ok: false });
+): UsageFetchFailure => ({ error: { kind, message }, ok: false });
 
 export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
   snapshot.quotaWindows.length > 0 || snapshot.accounting !== undefined
@@ -69,22 +72,19 @@ export const isSupportedProvider = (provider: string | undefined): provider is S
 /** Physical selections target their account; virtual selections follow physical attempts. */
 export const resolveQuotaProvider = (
   ctx: Pick<ExtensionContext, "model" | "sessionManager">,
-  newest?: MessageEndEvent["message"],
 ): string | undefined => {
   if (!ctx.model) return undefined;
 
   if (!isVirtualModel(ctx.model)) return ctx.model.provider;
 
-  return inspectModelHistory(ctx.sessionManager.getBranch(), newest).lastPhysicalAttempt?.provider;
+  return inspectModelHistory(ctx.sessionManager.getBranch()).lastPhysicalAttempt?.provider;
 };
 
 /** Unsupported identity is retained until presentation/fetching, rather than mistaken for login failure. */
 export const quotaUnavailableMessage = (provider: string | undefined): string =>
-  provider === "openai"
-    ? "OpenAI subscription quota reporting is unavailable; native authentication has not been verified for a usage endpoint."
-    : provider === undefined
-      ? "usage: no physical provider resolved for the current model"
-      : `usage: quota reporting is unsupported for ${provider}`;
+  provider === undefined
+    ? "usage: no physical provider resolved for the current model"
+    : `usage: quota reporting is unsupported for ${provider}`;
 
 const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Claude",

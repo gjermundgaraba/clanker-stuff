@@ -2,7 +2,7 @@
 
 Extensions color terminal output only through Pi's theme tokens, chosen by meaning. Never emit raw color escapes, hex values, or a color library; the user's theme decides every hue.
 
-The tone vocabulary and the usage ramp live in `@clanker-stuff/pi-tones` (`pi/packages/tones`). Protocol boundaries use its `ToneSchema` and `Tone`; usage meters use its `percentTone`. Code that picks among a few tones annotates exactly those tones, so the type says what that code can produce and a policy change visits every site it lands on.
+The tone vocabulary and the usage ramp live in `@clanker-stuff/pi-tones` (`pi/packages/tones`). Tone values use its `Tone` type; usage meters use its `percentTone`. Code that picks among a few tones annotates exactly those tones, so the type says what that code can produce and a policy change visits every site it lands on.
 
 ## Quiet at rest
 
@@ -39,6 +39,6 @@ Routine states are never `warning`. A dirty working tree, a running task, an ena
 
 `Theme` also offers `bold` and `italic`. Reach for them before spending a hue: bold for a heading or the primary value in a row, applied outside `fg`.
 
-## Fallbacks
+## Native statuses
 
-A producer that falls back to `ctx.ui.setStatus()` when its host extension is absent publishes plain text. Pi renders that row `dim`, and the footer extension passes native statuses through unchanged.
+Extensions publish indicators with `ctx.ui.setStatus(key, text)` and color the text with `ctx.ui.theme.fg(tone, …)` like any other surface. Pi's footer and the footer extension render those colors as given; Pi dims only the truncation ellipsis. Colors stored in a status stay until the producer publishes again, so a producer republishes whenever its tone should change.

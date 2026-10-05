@@ -277,6 +277,6 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
         .subarray(0, expected.col)
         .toString().length;
 
-    expect(editor.document.cursor()).toBe(cursor);
+    expect(editor.document?.cursor()).toBe(cursor);
   });
 });

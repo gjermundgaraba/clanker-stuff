@@ -1,11 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  AsyncMessageParameters,
-  sendAttention,
-  renderAttention,
-  renderCall,
-  renderResult,
-} from "./attention.js";
+import { AsyncMessageParameters, sendAttention, renderCall } from "./attention.js";
 
 export default function userAttention(pi: ExtensionAPI) {
   pi.registerTool({
@@ -17,9 +11,6 @@ export default function userAttention(pi: ExtensionAPI) {
     parameters: AsyncMessageParameters,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     renderCall,
-    renderResult,
-    executionMode: "sequential",
-    execute: async (_id, params, _signal, _update, ctx) => sendAttention(pi, params, ctx),
+    execute: async (_id, params, _signal, _update, ctx) => sendAttention(params, ctx),
   });
-  pi.registerEntryRenderer("async-attention", renderAttention);
 }

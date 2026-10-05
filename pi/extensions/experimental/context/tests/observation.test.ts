@@ -2,27 +2,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { MAX_REQUEST_BYTES, observeRequest } from "../observation.js";
 
 describe(observeRequest, () => {
-  it("snapshots JSON without retaining it, omitting credential values/media but preserving schemas", () => {
-    const schema = {
-      type: "object",
-      properties: {
-        password: { type: "string", description: "Password parameter" },
-        auth: { type: "object", properties: { mode: { type: "string" } } },
-        secret: false,
-      },
-      required: ["password"],
-      $defs: { authentication: { type: "string" } },
-    };
-
+  it("snapshots JSON without retaining it, omitting media but keeping credential-named arguments", () => {
     const payload = {
       model: "model",
-      api_key: "ACTUAL-KEY",
-      token: "BARE-TOKEN",
-      auth: { accessToken: "ACCESS-TOKEN" },
-      headers: { Authorization: "Bearer HEADER-TOKEN" },
-      tools: [{ name: "password", input_schema: schema }],
+      tools: [{ name: "login", input_schema: { properties: { token: { type: "string" } } } }],
       messages: [
         { role: "user", content: "original prompt" },
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", name: "login", input: { token: "TOOL-ARGUMENT" } }],
+        },
         { type: "image", source: { type: "base64", data: "IMAGE-BYTES" } },
         { inlineData: { mimeType: "image/png", data: "GOOGLE-BYTES" } },
         { inlineData: { mimeType: "audio/mp3", data: "AUDIO-BYTES" } },
@@ -33,16 +22,12 @@ describe(observeRequest, () => {
     const before = structuredClone(payload);
     const captured = observeRequest(payload);
     expect(payload).toEqual(before);
-    payload.messages[0]!.content = "later mutation";
+    payload.messages[0] = { role: "user", content: "later mutation" };
 
     const expected = {
       ...before,
-      api_key: "[credential omitted]",
-      token: "[credential omitted]",
-      auth: { accessToken: "[credential omitted]" },
-      headers: { Authorization: "[credential omitted]" },
       messages: [
-        before.messages[0],
+        ...before.messages.slice(0, 2),
         { type: "image", source: { type: "base64", data: "[base64 media omitted]" } },
         { inlineData: { mimeType: "image/png", data: "[base64 media omitted]" } },
         { inlineData: { mimeType: "audio/mp3", data: "[base64 media omitted]" } },
@@ -51,6 +36,7 @@ describe(observeRequest, () => {
     };
 
     expect(captured.body).toBe(JSON.stringify(expected, null, 2));
+    expect(captured.body).toContain("TOOL-ARGUMENT");
     expect(captured.format).toBe("json");
     expect(captured.truncated).toBe(false);
   });

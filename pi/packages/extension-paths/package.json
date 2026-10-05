@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/pi-extension-paths",
   "version": "0.1.0",
   "private": false,
-  "description": "Resolves consistent config, data, cache, and project config paths for Pi extensions.",
+  "description": "Resolves consistent config and data paths for Pi extensions.",
   "keywords": [
     "pi",
     "pi-extension"

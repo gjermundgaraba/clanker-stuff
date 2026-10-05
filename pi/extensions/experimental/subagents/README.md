@@ -4,20 +4,16 @@ Adds durable hierarchical subagents with independent pi sessions, modeled on the
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 
-## Compatibility goal
-
-This package minimizes model-facing distribution shift from the native Codex CLI collaboration harness while using Pi's native providers and tool execution. Its collaboration tools, schemas, descriptions, results, prompts, messages, and lifecycle behavior should match the pinned Codex implementation whenever Pi can execute that contract truthfully; every known difference remains explicit in the [parity ledger](docs/codex-parity.md).
-
 ## Install
 
 Load `pi/extensions/experimental/subagents/index.ts` as a local extension; npm installation is not supported.
 
 ## Usage
 
-- Models get either the UUID-based V1 tools or hierarchical V2 tools; run `/agents` to inspect the active durable tree.
-- Delegation defaults to explicit requests and each child runs an independent Pi session in the same trusted project boundary.
-- Proactive configuration changes the model-facing mode policy; opt into the vendored skill with `pi --skill pi/extensions/experimental/subagents/vendor/orchestrate/SKILL.md`.
+- Ask for delegation explicitly; the model spawns children with `spawn_agent` and each reports its final answer to its parent.
+- Run `/agents` to inspect the tree of the current session.
+- Opt into the vendored skill with `pi --skill pi/extensions/experimental/subagents/vendor/orchestrate/SKILL.md`.
 
 ## Configuration
 
-See the normative [Pi protocol contract](docs/protocols.md). Pinned Codex references and the parity ledger are maintained in the [repository](https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/subagents/docs).
+See the [design and configuration](docs/protocols.md).

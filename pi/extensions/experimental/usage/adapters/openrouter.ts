@@ -4,7 +4,7 @@ import type { Static } from "typebox";
 import type { UsageFetchResult } from "../providers.js";
 import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { fetchBearerUsage } from "./util.js";
+import { fetchUsage } from "./util.js";
 
 const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
 
@@ -30,10 +30,9 @@ export const mapOpenRouterCreditsPayload = (
 };
 
 export const fetchOpenRouterUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchBearerUsage(
+  fetchUsage(
     deps,
     "openrouter",
-    OPENROUTER_CREDITS_URL,
-    OpenRouterCreditsPayloadSchema,
+    { url: OPENROUTER_CREDITS_URL, schema: OpenRouterCreditsPayloadSchema },
     mapOpenRouterCreditsPayload,
   );

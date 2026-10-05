@@ -1,150 +1,120 @@
 import { fauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  DEFAULT_CONFIG,
-  parseConfig,
-  parseModelOverride,
-  resolveChildSettings,
-} from "../config.js";
+import { DEFAULT_CONFIG, parseConfig, resolveChildSettings } from "../config.js";
 
-const model = (provider: string, id: string) =>
-  fauxProvider({ models: [{ id }], provider }).getModel();
+const model = (provider: string, id: string, reasoning = false) =>
+  fauxProvider({ models: [{ id, reasoning }], provider }).getModel();
+
+const registryOf = (...models: ReturnType<typeof model>[]) => ({
+  find: (provider: string, id: string) =>
+    models.find((candidate) => candidate.provider === provider && candidate.id === id),
+  getAvailable: () => models,
+});
+
+const request = { agentType: undefined, model: undefined, thinking: undefined };
 
 describe(parseConfig, () => {
-  it("accepts strict protocol, role, and prompt configuration", () => {
+  it("accepts the strict version 2 shape and fills defaults", () => {
     expect(
       parseConfig({
-        expose_spawn_agent_model_overrides: false,
-        max_concurrent_threads_per_session: 2,
-        prompts: {
-          child: "Shared child identity.",
-          delegation: "proactive",
-          v1: { root: "V1 root guidance." },
-          v2: {
-            child: "V2-capable child guidance.",
-            root: "V2 root guidance.",
-          },
-        },
-        protocols: { "*": "auto", "provider/model": "v2" },
-        roles: {
-          researcher: {
-            description: "Find evidence.",
-            instructions: "Research",
-            model: "parent/model",
-            nicknames: ["Scout"],
-            thinking: "high",
-          },
-        },
-        version: 1,
-      }),
-    ).toMatchObject({
-      expose_spawn_agent_model_overrides: false,
-      max_concurrent_threads_per_session: 2,
-      prompts: {
-        child: "Shared child identity.",
         delegation: "proactive",
-        v1: { root: "V1 root guidance." },
-        v2: {
-          child: "V2-capable child guidance.",
-          root: "V2 root guidance.",
-        },
-      },
-      version: 1,
+        max_concurrent_threads_per_session: 2,
+        roles: { researcher: { description: "Find evidence.", thinking: "high" } },
+        version: 2,
+      }),
+    ).toStrictEqual({
+      delegation: "proactive",
+      maxConcurrent: 2,
+      roles: { researcher: { description: "Find evidence.", thinking: "high" } },
     });
-    expect(() => parseConfig({ unknown: true, version: 1 })).toThrow("strict");
+    expect(parseConfig({ version: 2 })).toStrictEqual(DEFAULT_CONFIG);
+  });
 
-    for (const max of [0, 1.5]) {
+  it.each([
+    { version: 1 },
+    { protocols: { "*": "v2" }, version: 2 },
+    { max_concurrent_threads_per_session: 0, version: 2 },
+    { roles: { "My Role": {} }, version: 2 },
+    { roles: { reviewer: { nicknames: ["Scout"] } }, version: 2 },
+  ])("rejects retired or invalid configuration %j", (value) => {
+    expect(() => parseConfig(value)).toThrow("strict version 2 object");
+  });
+});
+
+describe(resolveChildSettings, () => {
+  const parent = model("parent", "parent-model", true);
+
+  it("inherits the parent model and reasoning when nothing is requested", () => {
+    expect(
+      resolveChildSettings(DEFAULT_CONFIG, request, {
+        model: parent,
+        registry: registryOf(parent),
+        thinking: "low",
+      }),
+    ).toStrictEqual({ instructions: undefined, model: parent, thinking: "low" });
+  });
+
+  it("lets a configured role fix model, reasoning, and instructions over explicit requests", () => {
+    const roleModel = model("other", "role-model", true);
+    const requested = model("other", "requested", true);
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      roles: {
+        reviewer: { instructions: "Review.", model: "other/role-model", thinking: "high" as const },
+      },
+    };
+
+    expect(
+      resolveChildSettings(
+        config,
+        { agentType: "reviewer", model: "other/requested", thinking: "low" },
+        { model: parent, registry: registryOf(parent, roleModel, requested), thinking: "off" },
+      ),
+    ).toStrictEqual({ instructions: "Review.", model: roleModel, thinking: "high" });
+  });
+
+  it("allows another provider with inherited history", () => {
+    const other = model("other", "model");
+
+    expect(
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        { ...request, model: "other/model" },
+        { model: parent, registry: registryOf(parent, other), thinking: undefined },
+      ).model,
+    ).toBe(other);
+  });
+
+  it("names available models for an unknown override and rejects unqualified ids", () => {
+    const parents = { model: parent, registry: registryOf(parent), thinking: undefined };
+
+    expect(() =>
+      resolveChildSettings(DEFAULT_CONFIG, { ...request, model: "other/missing" }, parents),
+    ).toThrow(
+      "Unknown model `other/missing` for spawn_agent. Available models: parent/parent-model",
+    );
+
+    for (const value of ["parent-model", "/parent-model", "parent/"]) {
       expect(() =>
-        parseConfig({
-          max_concurrent_threads_per_session: max,
-          version: 1,
-        }),
-      ).toThrow("strict");
+        resolveChildSettings(DEFAULT_CONFIG, { ...request, model: value }, parents),
+      ).toThrow("provider/model-id");
     }
   });
 
-  it("resolves explicit qualified references across providers without aliases", () => {
-    const models = [
-      model("parent", "shared"),
-      model("other", "shared"),
-      model("other", "unique"),
-      model("parent", "nested/model"),
-    ];
+  it("rejects unknown roles, unsupported reasoning, and a missing model", () => {
+    const plain = model("parent", "plain");
+    const parents = { model: plain, registry: registryOf(plain), thinking: undefined };
 
-    const registry = {
-      getAvailable: () => [],
-      find: (provider: string, id: string) =>
-        models.find((model) => model.provider === provider && model.id === id),
-    };
-
-    expect(parseModelOverride(undefined, registry, models[0])).toBe(models[0]);
-    expect(parseModelOverride("parent/shared", registry, models[0])).toBe(models[0]);
-    expect(parseModelOverride("other/shared", registry, models[0])).toBe(models[1]);
-    expect(parseModelOverride("parent/nested/model", registry)).toBe(models[3]);
-    expect(parseModelOverride("other/unique", registry)).toBe(models[2]);
-
-    for (const value of ["shared", "", "/shared", "parent/"])
-      expect(() => parseModelOverride(value, registry)).toThrow("provider/model-id");
-    expect(() => parseModelOverride("other/missing", registry)).toThrow("Unknown model");
-  });
-
-  it("rejects a second provider-selection field", () => {
     expect(() =>
-      parseConfig({
-        roles: { reviewer: { model: "parent/model", provider: "other" } },
-        version: 1,
-      }),
-    ).toThrow("strict version 1 object");
-  });
-
-  it("rejects role names that do not match the public agent_type grammar", () => {
+      resolveChildSettings(DEFAULT_CONFIG, { ...request, agentType: "constructor" }, parents),
+    ).toThrow("Unknown agent_type: constructor");
     expect(() =>
-      parseConfig({
-        roles: { "My Role": { description: "invalid" } },
-        version: 1,
-      }),
-    ).toThrow("config must be a strict version 1 object");
-  });
-
-  it("resolves qualified roles and rejects cross-provider history forks", () => {
-    const parentRoleModel = model("parent", "role-model");
-    const requestedProviderRoleModel = model("requested", "role-model");
-    const requested = model("requested", "request-model");
-
-    const registry = {
-      getAvailable: () => [],
-      find: (provider: string, id: string) =>
-        [parentRoleModel, requestedProviderRoleModel, requested].find(
-          (model) => model.provider === provider && model.id === id,
-        ),
-    };
-
-    expect(
-      resolveChildSettings(
-        {
-          ...structuredClone(DEFAULT_CONFIG),
-          roles: { reviewer: { model: "requested/role-model" } },
-        },
-        "reviewer",
-        undefined,
-        undefined,
-        registry,
-        model("parent", "parent-model"),
-        "off",
-      ).model,
-    ).toBe(requestedProviderRoleModel);
+      resolveChildSettings(DEFAULT_CONFIG, { ...request, thinking: "high" }, parents),
+    ).toThrow("Reasoning effort `high` is not supported for model `plain`");
     expect(() =>
-      resolveChildSettings(
-        DEFAULT_CONFIG,
-        undefined,
-        "requested/request-model",
-        undefined,
-        registry,
-        parentRoleModel,
-        "off",
-        true,
-      ),
-    ).toThrow("no inherited history");
+      resolveChildSettings(DEFAULT_CONFIG, request, { ...parents, model: undefined }),
+    ).toThrow("No model is selected");
   });
 });

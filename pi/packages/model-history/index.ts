@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { MessageEndEvent, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 /** Pi v1's virtual API marker; failed routing can leave this API on an error message. */
 export const isVirtualModel = (model: { api: string }): boolean => model.api === "pi-virtual";
@@ -9,27 +9,12 @@ export interface ModelHistory {
   lastPhysicalAttempt: AssistantMessage | undefined;
 }
 
-/** The optional newest message covers message_end, before it is appended to the session. */
-export function inspectModelHistory(
-  branch: readonly SessionEntry[],
-  newest?: MessageEndEvent["message"],
-): ModelHistory {
+/** Reads persisted history; `turn_end` and later events see the finished response appended. */
+export function inspectModelHistory(branch: readonly SessionEntry[]): ModelHistory {
   const history: ModelHistory = {
     lastSuccessfulResponse: undefined,
     lastPhysicalAttempt: undefined,
   };
-
-  const consider = (message: MessageEndEvent["message"]): void => {
-    if (message.role !== "assistant" || isVirtualModel(message) || message.stopReason === "pending")
-      return;
-
-    history.lastPhysicalAttempt ??= message;
-
-    if (["stop", "toolUse", "length"].includes(message.stopReason))
-      history.lastSuccessfulResponse ??= message;
-  };
-
-  if (newest) consider(newest);
 
   for (
     let index = branch.length - 1;
@@ -38,7 +23,16 @@ export function inspectModelHistory(
   ) {
     const entry = branch[index];
 
-    if (entry?.type === "message") consider(entry.message);
+    if (entry?.type !== "message") continue;
+    const { message } = entry;
+
+    if (message.role !== "assistant" || isVirtualModel(message) || message.stopReason === "pending")
+      continue;
+
+    history.lastPhysicalAttempt ??= message;
+
+    if (["stop", "toolUse", "length"].includes(message.stopReason))
+      history.lastSuccessfulResponse ??= message;
   }
 
   return history;

@@ -1,4 +1,3 @@
-import { FOOTER_READY_EVENT } from "@clanker-stuff/footer-protocol";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionFactory, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
@@ -6,7 +5,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
-import { cloneFooterConfig, DEFAULT_CONFIG } from "@clanker-stuff/footer-protocol/config";
+import { DEFAULT_CONFIG } from "../config.js";
 import type { FooterConfigStore } from "../config.js";
 import footerExtension from "../index.js";
 import { formatTokenCount } from "../widgets.js";
@@ -49,16 +48,15 @@ const testUiContext = (setFooter: ExtensionUIContext["setFooter"]): ExtensionUIC
   theme: createIdentityTheme(),
 });
 
-const sessionConfig = () => {
-  const config = cloneFooterConfig(DEFAULT_CONFIG);
-  config.rows[2]?.left.push("footer.session");
-
-  return config;
-};
-
 const configStore = (): FooterConfigStore => ({
   load: async () => ({
-    config: sessionConfig(),
+    config: {
+      ...DEFAULT_CONFIG,
+      rows: [
+        { left: ["footer.model"], right: ["footer.thinking"] },
+        { left: ["footer.session"], right: [] },
+      ],
+    },
   }),
   path: "/tmp/footer.json",
   save: async () => {
@@ -66,7 +64,10 @@ const configStore = (): FooterConfigStore => ({
   },
 });
 
-const extension: ExtensionFactory = (pi) => footerExtension(pi, configStore(), async () => null);
+const extension: ExtensionFactory = (pi) =>
+  footerExtension(pi, configStore(), async () => {
+    throw new Error("Git details are not placed in these tests");
+  });
 
 describe("footer AgentSession lifecycle", () => {
   let harness: AgentSessionHarness | undefined;
@@ -74,33 +75,6 @@ describe("footer AgentSession lifecycle", () => {
   afterEach(() => {
     harness?.cleanup();
     harness = undefined;
-  });
-
-  it("removes process-bus listeners before a real session reload", async () => {
-    let generation = 0;
-    const readyGenerations: number[] = [];
-
-    const producer: ExtensionFactory = (pi) => {
-      generation += 1;
-      const current = generation;
-
-      const unsubscribe = pi.events.on(FOOTER_READY_EVENT, () => {
-        readyGenerations.push(current);
-      });
-
-      pi.on("session_shutdown", unsubscribe);
-    };
-
-    harness = await createAgentSessionHarness({
-      extensionFactories: [extension, producer],
-      mode: "tui",
-      uiContext: testUiContext(() => {}),
-    });
-    expect(readyGenerations).toStrictEqual([1]);
-
-    await harness.session.reload();
-
-    expect(readyGenerations).toStrictEqual([1, 2]);
   });
 
   it("renders selected and executed virtual-model status after real routing", async () => {

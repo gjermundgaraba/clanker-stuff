@@ -1,17 +1,12 @@
-import { acquireEditorHost } from "@clanker-stuff/editor";
-import {
-  type EditorTheme,
-  type Terminal,
-  type Component,
-  TuiMainScreen,
-  TuiAltScreen,
-} from "@earendil-works/pi-tui";
-import { vi, onTestFinished } from "vite-plus/test";
+import type { EditorTheme } from "@earendil-works/pi-tui";
 import type { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { createMockTui, createKeybindings } from "../../../tests/harness/tui.js";
+import {
+  createCustomUiDriver,
+  createKeybindings,
+  createMockTui,
+} from "../../../tests/harness/tui.js";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import type { SessionEntry, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export const userEntry = (
   id: string,
@@ -84,78 +79,19 @@ export const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   return editor;
 };
 
-// Exercise real TUI input dispatch and focus while keeping all terminal I/O inert.
-export const createWidgetHarness = (
+/** Runs one Ctrl+R search through Pi's custom UI, typing keys that must end the search. */
+export const search = async (
   host: ReturnType<typeof createExtensionHost>,
-  ctx: ExtensionContext,
-  mode: "regular" | "fullscreen" = "regular",
-  foreign = false,
+  keys: string[],
+  onAfterCapture?: () => Promise<void>,
 ) => {
-  let input: (data: string) => void = () => {};
-
-  const terminal: Terminal = {
-    start: (onInput) => {
-      input = onInput;
-    },
-    stop() {},
-    drainInput: async () => {},
-    write() {},
-    columns: 100,
-    rows: 40,
-    kittyProtocolActive: false,
-    moveBy() {},
-    hideCursor() {},
-    showCursor() {},
-    clearLine() {},
-    clearFromCursor() {},
-    clearScreen() {},
-    setTitle() {},
-    setProgress() {},
-  };
-
-  const tui = mode === "regular" ? new TuiMainScreen(terminal) : new TuiAltScreen(terminal);
-  vi.spyOn(tui, "requestRender").mockImplementation(() => {});
-  const plain = new CustomEditor(tui, editorTheme, createKeybindings());
-
-  if (foreign) ctx.ui.setEditorComponent(() => plain);
-
-  const editor = foreign
-    ? plain
-    : acquireEditorHost(ctx)!.create(tui, editorTheme, createKeybindings());
-
-  editor.setText(ctx.ui.getEditorText());
-  vi.spyOn(ctx.ui, "getEditorText").mockImplementation(() => editor.getExpandedText());
-  vi.spyOn(ctx.ui, "setEditorText").mockImplementation((text) => editor.setText(text));
-  let widget: (Component & { dispose?(): void }) | undefined;
-  vi.spyOn(ctx.ui, "setWidget").mockImplementation((_key, content) => {
-    if (widget) {
-      widget.dispose?.();
-      tui.removeChild(widget);
-    }
-
-    widget = content?.(tui, ctx.ui.theme);
-
-    if (widget) tui.addChild(widget);
-  });
-  tui.addInputListener((data) => {
-    const result = host.terminalInput(data);
-
-    return result.consumed ? { consume: true } : undefined;
-  });
-  tui.start();
-  onTestFinished(() => {
-    widget?.dispose?.();
-    tui.stop();
+  const driver = createCustomUiDriver({
+    captureRender: "after",
+    keys,
+    ...(onAfterCapture === undefined ? {} : { onAfterCapture }),
   });
 
-  return {
-    tui,
-    widget: (width = 80) => widget?.render(width)[0],
-    terminalInput: (data: string) => {
-      const consumed = widget !== undefined && tui.getFocusedComponent() === widget;
-      input(data);
+  await host.runShortcut("ctrl+r", host.createContext({ ui: { custom: driver.custom } }));
 
-      return { consumed, results: [] };
-    },
-  };
+  return driver.getLastRender() ?? "";
 };

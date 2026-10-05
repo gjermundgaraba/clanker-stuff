@@ -7,7 +7,7 @@ export default function plannotatorExtension(pi: ExtensionAPI, starter?: CliStar
   const host = createPlannotatorHost(pi, starter);
 
   pi.registerCommand("plannotator-review", {
-    description: "Review current changes, a base ref, or a pull request URL",
+    description: "Review current changes or a pull request URL",
     handler: host.review,
   });
 

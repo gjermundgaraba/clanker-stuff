@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchKimiUsage, mapKimiUsagePayload } from "../../adapters/kimi.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuthClient } from "./helpers.js";
+import { NOW, tokenAuth } from "./helpers.js";
 
 describe("kimi usage", () => {
   const payload = {
@@ -49,6 +49,23 @@ describe("kimi usage", () => {
     });
   });
 
+  it.each([
+    [{ duration: 60, timeUnit: "TIME_UNIT_MINUTE" }, "5h", "1h"],
+    [{ duration: 24, timeUnit: "TIME_UNIT_HOUR" }, "week", "1d"],
+    [{ duration: 1, timeUnit: "TIME_UNIT_DAY" }, "week", "1d"],
+    [{ duration: 90, timeUnit: "TIME_UNIT_MINUTE" }, "5h", "90m"],
+    [{ duration: 3, timeUnit: "TIME_UNIT_FORTNIGHT" }, "5h", "5h"],
+  ])("labels a %o window with its actual length", (window, id, label) => {
+    const result = mapKimiUsagePayload(
+      { limits: [{ detail: { limit: 10, remaining: 5 }, window }] },
+      NOW,
+    );
+
+    expect(result.ok && result.snapshot.quotaWindows).toStrictEqual([
+      { id, label, remainingPercent: 50 },
+    ]);
+  });
+
   it("fails when nothing has a positive limit", () => {
     expect(mapKimiUsagePayload({ limits: [], usage: { limit: 0 } }, NOW).ok).toBeFalsy();
   });
@@ -58,7 +75,7 @@ describe("kimi usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchKimiUsage({
-      authClient: tokenAuthClient("kimi-token"),
+      getAuth: tokenAuth("kimi-token"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

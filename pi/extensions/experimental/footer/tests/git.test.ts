@@ -1,11 +1,14 @@
+import type { ExecResult } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { parseGitStatus } from "../git.js";
+import { parseGitDetails, readGitDetails } from "../git.js";
 
-describe("git status", () => {
-  it("parses porcelain-v2 Git state", () => {
+const runtime = (result: ExecResult) => ({ exec: async () => await Promise.resolve(result) });
+
+describe("git details", () => {
+  it("counts porcelain-v2 changes and divergence", () => {
     expect(
-      parseGitStatus(
+      parseGitDetails(
         [
           "# branch.head main",
           "# branch.ab +2 -1",
@@ -14,13 +17,18 @@ describe("git status", () => {
           "? untracked",
         ].join("\n"),
       ),
-    ).toStrictEqual({
-      ahead: 2,
-      behind: 1,
-      branch: "main",
-      staged: 1,
-      unstaged: 1,
-      untracked: 1,
-    });
+    ).toStrictEqual({ ahead: 2, behind: 1, staged: 1, unstaged: 1, untracked: 1 });
+  });
+
+  it("treats a timed-out scan as a failure even though Pi reports exit code 0", async () => {
+    await expect(
+      readGitDetails(runtime({ code: 0, killed: true, stderr: "", stdout: "" }), "/repo"),
+    ).rejects.toThrow("timed out");
+  });
+
+  it("treats a failed scan as a failure instead of a clean tree", async () => {
+    await expect(
+      readGitDetails(runtime({ code: 128, killed: false, stderr: "fatal", stdout: "" }), "/repo"),
+    ).rejects.toThrow("code 128");
   });
 });

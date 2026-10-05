@@ -1,12 +1,16 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveAccessToken } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
-import { usageFailure, usageResult } from "../providers.js";
+import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { isDefined, makeUsageWindow, parseIso, windowIdFromLimitSeconds } from "./util.js";
+import {
+  fetchUsage,
+  isDefined,
+  makeUsageWindow,
+  parseIso,
+  windowIdFromLimitSeconds,
+} from "./util.js";
 
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 
@@ -39,6 +43,35 @@ const remainingFromLimit = (limit: number, remaining: number): number | undefine
   return (remaining / limit) * 100;
 };
 
+const UNIT_SECONDS = new Map([
+  ["TIME_UNIT_MINUTE", 60],
+  ["TIME_UNIT_HOUR", 3600],
+  ["TIME_UNIT_DAY", 86_400],
+]);
+
+const windowSeconds = (
+  windowInfo: Static<typeof KimiLimitSchema>["window"],
+): number | undefined => {
+  const unit = UNIT_SECONDS.get(windowInfo?.timeUnit ?? "");
+
+  return unit === undefined || windowInfo?.duration === undefined
+    ? undefined
+    : windowInfo.duration * unit;
+};
+
+/** Labels a window with its actual length, in the largest whole unit. */
+const durationLabel = (seconds: number): string => {
+  if (seconds % 86_400 === 0) {
+    return `${seconds / 86_400}d`;
+  }
+
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600}h`;
+  }
+
+  return `${Math.round(seconds / 60)}m`;
+};
+
 const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindow | undefined => {
   const { detail, window: windowInfo } = limitEntry;
   const limit = detail?.limit ?? 0;
@@ -49,13 +82,16 @@ const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindo
     return undefined;
   }
 
-  const durationMinutes =
-    windowInfo?.timeUnit === "TIME_UNIT_MINUTE" ? windowInfo.duration : undefined;
+  const seconds = windowSeconds(windowInfo);
+  const id = seconds === undefined ? undefined : windowIdFromLimitSeconds(seconds);
+  const resetsAt = parseIso(detail?.resetTime);
 
-  const id =
-    durationMinutes === undefined ? "5h" : (windowIdFromLimitSeconds(durationMinutes * 60) ?? "5h");
+  // Without a usable length, the rolling limit is Kimi's five-hour window.
+  if (seconds === undefined || id === undefined) {
+    return makeUsageWindow("5h", remainingPercent, resetsAt);
+  }
 
-  return makeUsageWindow(id, remainingPercent, parseIso(detail?.resetTime));
+  return makeUsageWindow(id, remainingPercent, resetsAt, durationLabel(seconds));
 };
 
 export const mapKimiUsagePayload = (
@@ -77,25 +113,14 @@ export const mapKimiUsagePayload = (
   return usageResult({ fetchedAt: nowMs, provider: "kimi-coding", quotaWindows: windows });
 };
 
-export const fetchKimiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
-  const auth = await resolveAccessToken(deps.authClient, "kimi-coding");
-
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
-
-  const response = await deps.fetchJson(KIMI_USAGE_URL, KimiUsagePayloadSchema, {
-    headers: {
-      Authorization: `Bearer ${auth.value.accessToken}`,
-      "Content-Type": "application/json",
+export const fetchKimiUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
+  fetchUsage(
+    deps,
+    "kimi-coding",
+    {
+      url: KIMI_USAGE_URL,
+      schema: KimiUsagePayloadSchema,
+      headers: { "Content-Type": "application/json" },
     },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
-  if (response.ok) {
-    return mapKimiUsagePayload(response.json, now());
-  }
-
-  return usageFailure(response.message);
-};
+    mapKimiUsagePayload,
+  );

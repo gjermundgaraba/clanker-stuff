@@ -1,288 +1,121 @@
-import { acquireEditorHost, type Preview } from "@clanker-stuff/editor";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   Input,
   getKeybindings,
-  setKeybindings,
-  KeybindingsManager,
-  type TUI,
-  type TuiMainScreen,
   isKeyRelease,
   matchesKey,
   truncateToWidth,
   visibleWidth,
+  type Component,
+  type Focusable,
 } from "@earendil-works/pi-tui";
 
 import type { HistoryItem } from "./history.js";
-
-export const WIDGET_KEY = "history";
 
 const PASTE_START = "\u001B[200~";
 
 const PASTE_END = "\u001B[201~";
 
-const sanitize = (text: string) => text.replaceAll(/\p{Cc}/gu, "");
+const PREVIEW_LINES = 8;
 
-// Input exposes edits through key handling only. These bindings are used solely
-// for the synchronous whole-query clear, independently of user remappings.
-const clearBindings = new KeybindingsManager({
-  "tui.editor.cursorLineEnd": { defaultKeys: "ctrl+e" },
-  "tui.editor.deleteToLineStart": { defaultKeys: "ctrl+u" },
-});
+/** Columns the query keeps on the search line; the key hint is cut to fit what remains. */
+const MIN_QUERY_WIDTH = 20;
 
-const clearQuery = (input: Input) => {
-  if (!input.getValue()) return;
-  const bindings = getKeybindings();
+/**
+ * Ctrl+R search over a history snapshot, shown in place of the editor until `done` receives the
+ * accepted prompt or undefined. The draft stays untouched while searching.
+ */
+export const createSearch = (
+  history: readonly HistoryItem[],
+  theme: Theme,
+  done: (text: string | undefined) => void,
+): Component & Focusable => {
+  const input = new Input({ prompt: "history: " });
+  let matches: readonly HistoryItem[] = [];
+  let selected = 0;
 
-  try {
-    setKeybindings(clearBindings);
-    input.handleInput("\u0005");
-    input.handleInput("\u0015");
-  } finally {
-    setKeybindings(bindings);
-  }
-};
+  const edit = (data: string) => {
+    const previous = input.getValue();
+    input.handleInput(data);
+    const query = input.getValue();
 
-/** Without the shared editor a preview owns only the text: no cursor, undo or modal restore. */
-const textPreview = (ui: ExtensionContext["ui"]): Preview => {
-  const draft = ui.getEditorText();
-  let shown = draft;
-  let active = true;
-  // Another component's edit relinquishes ownership, as with the shared editor's revisions.
-  const owned = () => (active &&= ui.getEditorText() === shown);
-
-  return {
-    show: (text) => {
-      if (!owned()) return;
-      ui.setEditorText(text);
-      // Compare with what the editor actually stored: Pi normalizes tabs and line endings.
-      shown = ui.getEditorText();
-    },
-    close: (cancel) => {
-      if (owned() && cancel) ui.setEditorText(draft);
-      active = false;
-    },
-  };
-};
-
-interface SearchSession {
-  draft: string;
-  transaction: Preview;
-  filteredQuery: string;
-  matches: HistoryItem[];
-  input: Input;
-  pasteBuffer: string | undefined;
-  selected: number;
-  requestRender?: () => void;
-  ui: ExtensionContext["ui"];
-}
-
-export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
-  let session: SearchSession | undefined;
-
-  const createWidget = (active: SearchSession, tui: TUI) => {
-    const { ui, input } = active;
-    // SAFETY: Pi v0.86.1 supplies one of these two concrete renderers. Both
-    // expose this public getter, omitted from their shared TUI interface.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The pinned Pi renderers expose this focus getter, but their shared TUI declaration omits it; no private renderer state is accessed.
-    const renderer = tui as TUI & Pick<TuiMainScreen, "getFocusedComponent">;
-    const previousFocus = renderer.getFocusedComponent();
-
-    const widget = {
-      get focused() {
-        return input.focused;
-      },
-      set focused(value: boolean) {
-        input.focused = value;
-
-        if (!value) active.pasteBuffer = undefined;
-      },
-      render: (width: number) => {
-        const bindings = getKeybindings();
-        const accept = bindings.getKeys("tui.input.submit").join("/");
-        const cancel = [...new Set([...bindings.getKeys("tui.select.cancel"), "ctrl+c"])].join("/");
-
-        const actions = [accept ? `${accept} accept` : "", `${cancel} cancel`]
-          .filter(Boolean)
-          .join(" · ");
-
-        const suffix =
-          active.matches.length > 0
-            ? ui.theme.fg("dim", `  ${actions}`)
-            : input.getValue()
-              ? ui.theme.fg("error", "  no match")
-              : "";
-
-        const hint = truncateToWidth(suffix, Math.max(0, width - 20), "");
-
-        return [ui.theme.fg("accent", input.render(width - visibleWidth(hint)).join("")) + hint];
-      },
-      handleInput: (data: string) => {
-        if (session === active && input.focused) handleInput(data);
-      },
-      invalidate: () => input.invalidate(),
-      dispose: () => {
-        // Do not steal focus back from a dialog opened during the search.
-        if (input.focused) tui.setFocus(previousFocus);
-      },
-    };
-
-    active.requestRender = () => tui.requestRender();
-    tui.setFocus(widget);
-
-    return widget;
+    if (query === previous) return;
+    const pattern = new RegExp(RegExp.escape(query), "iu");
+    matches = query ? history.filter(({ text }) => pattern.test(text)) : [];
+    selected = 0;
   };
 
-  const showPreview = () => {
-    if (!session) return;
-    session.transaction.show(session.matches[session.selected]?.text ?? session.draft);
-    session.requestRender?.();
+  const move = (direction: 1 | -1) => {
+    selected = Math.max(0, Math.min(matches.length - 1, selected + direction));
   };
 
-  const refresh = () => {
-    if (!session) {
-      return;
-    }
-
-    const query = session.input.getValue().toLowerCase();
-    const canNarrow = session.filteredQuery.length > 0 && query.startsWith(session.filteredQuery);
-    const candidates = canNarrow ? session.matches : getHistory();
-
-    const pattern = session.input.getValue()
-      ? new RegExp(RegExp.escape(session.input.getValue()), "iu")
-      : undefined;
-
-    session.matches = pattern ? candidates.filter(({ text }) => pattern.test(text)) : [];
-    session.filteredQuery = query;
-    session.selected = 0;
-    showPreview();
-  };
-
-  const moveSelection = (direction: 1 | -1) => {
-    if (!session || session.matches.length === 0) {
-      return;
-    }
-
-    session.selected = Math.max(
-      0,
-      Math.min(session.matches.length - 1, session.selected + direction),
-    );
-    showPreview();
-  };
-
-  const close = (restoreDraft: boolean) => {
-    if (!session) {
-      return;
-    }
-
-    session.transaction.close(restoreDraft);
-    session.ui.setWidget(WIDGET_KEY, undefined);
-    session = undefined;
-  };
-
-  const begin = (ui: ExtensionContext["ui"]) => {
-    if (session?.input.focused) {
-      moveSelection(1);
-
-      return;
-    }
-
-    // Discard the old query, but do not promote an unaccepted preview into
-    // the next draft. close() restores only text still owned by that search.
-    close(true);
-
-    const draft = ui.getEditorText();
-    session = {
-      draft,
-      transaction: acquireEditorHost({ ui })?.preview() ?? textPreview(ui),
-      filteredQuery: "",
-      matches: [],
-      input: new Input({ prompt: "history: " }),
-      pasteBuffer: undefined,
-      selected: 0,
-      ui,
-    };
-    const active = session;
-    ui.setWidget(WIDGET_KEY, (tui) => createWidget(active, tui), { placement: "belowEditor" });
-  };
-
-  const editQuery = (data: string) => {
-    if (!session) return;
-    const previous = session.input.getValue();
-    session.input.handleInput(data);
-
-    if (session.input.getValue() !== previous) refresh();
-    else session.requestRender?.();
-  };
-
-  const handleInput = (data: string): void => {
-    if (!session) return;
-
-    // Sanitize before Input records a paste in its value, undo stack or kill ring.
-    // Buffer across chunks so pasted control keys cannot accept/cancel the search.
-    if (session.pasteBuffer !== undefined || data.startsWith(PASTE_START)) {
-      session.pasteBuffer = (session.pasteBuffer ?? "") + data;
-      const end = session.pasteBuffer.indexOf(PASTE_END);
-
-      if (end !== -1) {
-        const text = session.pasteBuffer.slice(PASTE_START.length, end);
-        const remaining = session.pasteBuffer.slice(end + PASTE_END.length);
-        session.pasteBuffer = undefined;
-        editQuery(PASTE_START + sanitize(text) + PASTE_END);
-
-        if (remaining) handleInput(remaining);
-      }
-
-      return;
-    }
-
-    if (isKeyRelease(data)) {
-      return;
-    }
-
+  const hint = () => {
     const bindings = getKeybindings();
+    const accept = bindings.getKeys("tui.input.submit").join("/");
+    const cancel = [...new Set([...bindings.getKeys("tui.select.cancel"), "ctrl+c"])].join("/");
+    const actions = [accept ? `${accept} accept` : "", `${cancel} cancel`].filter(Boolean);
 
-    if (bindings.matches(data, "tui.select.cancel") || matchesKey(data, "ctrl+c")) {
-      close(true);
+    if (matches.length > 0)
+      return theme.fg("dim", `  ${selected + 1}/${matches.length} · ${actions.join(" · ")}`);
 
-      return;
-    }
+    return input.getValue() ? theme.fg("error", "  no match") : "";
+  };
 
-    if (bindings.matches(data, "tui.input.submit") || data === "\n") {
-      if (session.matches.length > 0) {
-        close(false);
-      }
+  const preview = (width: number) => {
+    const lines = matches[selected]?.text.split("\n") ?? [];
+    const hidden = lines.length - PREVIEW_LINES;
 
-      return;
-    }
+    const rows = [
+      ...lines.slice(0, PREVIEW_LINES),
+      ...(hidden > 0 ? [`… ${hidden} more lines`] : []),
+    ];
 
-    if (matchesKey(data, "ctrl+r") || matchesKey(data, "up")) {
-      moveSelection(1);
-
-      return;
-    }
-
-    if (matchesKey(data, "ctrl+s") || matchesKey(data, "down")) {
-      moveSelection(-1);
-
-      return;
-    }
-
-    if (matchesKey(data, "ctrl+u")) {
-      clearQuery(session.input);
-      refresh();
-
-      return;
-    }
-
-    editQuery(data.includes("\u001B") || data.length === 1 ? data : sanitize(data));
+    // Stored and imported history is arbitrary text; terminal controls in it must not reach the screen.
+    return rows.map((row) => theme.fg("dim", truncateToWidth(displayText(row), width)));
   };
 
   return {
-    begin,
-    isActive: () => session?.input.focused ?? false,
-    reset: () => {
-      close(true);
+    get focused() {
+      return input.focused;
     },
+    set focused(value: boolean) {
+      input.focused = value;
+    },
+    render: (width) => {
+      const suffix = truncateToWidth(hint(), Math.max(0, width - MIN_QUERY_WIDTH), "");
+
+      return [
+        theme.fg("accent", input.render(width - visibleWidth(suffix)).join("")) + suffix,
+        ...preview(width),
+      ];
+    },
+    handleInput: (data) => {
+      // Pi delivers each bracketed paste as one packet. Input keeps pasted control characters.
+      if (data.startsWith(PASTE_START)) {
+        const text = data.slice(PASTE_START.length, -PASTE_END.length);
+        edit(PASTE_START + text.replaceAll(/\p{Cc}/gu, "") + PASTE_END);
+
+        return;
+      }
+
+      if (isKeyRelease(data)) return;
+      const bindings = getKeybindings();
+
+      if (bindings.matches(data, "tui.select.cancel") || matchesKey(data, "ctrl+c")) {
+        done(undefined);
+      } else if (bindings.matches(data, "tui.input.submit") || data === "\n") {
+        const match = matches[selected];
+
+        if (match) done(match.text);
+      } else if (matchesKey(data, "ctrl+r") || bindings.matches(data, "tui.select.up")) {
+        move(1);
+      } else if (matchesKey(data, "ctrl+s") || bindings.matches(data, "tui.select.down")) {
+        move(-1);
+      } else {
+        edit(data);
+      }
+    },
+    invalidate: () => input.invalidate(),
   };
 };

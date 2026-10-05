@@ -1,97 +1,69 @@
 import type { AuthResult } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import type { ProviderAuthClient } from "../auth.js";
-import { providerAuthClientFromContext, resolveAccessToken, resolveOAuthAccess } from "../auth.js";
-import { absent } from "./adapters/helpers.js";
+import { accessToken, contextAuth } from "../auth.js";
+import type { GetAuth } from "../auth.js";
 
-describe("provider auth client", () => {
-  it("uses the stored GitHub OAuth token for Copilot usage", async () => {
+const auth =
+  (apiKey: string, source: string): GetAuth =>
+  async () => ({ auth: { apiKey }, source });
+
+describe(contextAuth, () => {
+  it("uses the stored GitHub OAuth token for Copilot and Pi's auth otherwise", async () => {
     const getProviderAuth = vi
       .fn<(provider: string) => Promise<AuthResult | undefined>>()
-      .mockResolvedValue({
-        auth: { apiKey: "copilot-api-token" },
-        source: "OAuth",
-      });
+      .mockResolvedValue({ auth: { apiKey: "registry-token" }, source: "OAuth" });
 
-    const client = providerAuthClientFromContext({ modelRegistry: { getProviderAuth } }, () => ({
+    const getAuth = contextAuth({ modelRegistry: { getProviderAuth } }, () => ({
       access: "copilot-api-token",
       expires: Date.now() + 60_000,
       refresh: "github-oauth-token",
       type: "oauth",
     }));
 
-    await expect(client.getProviderAuth("github-copilot")).resolves.toStrictEqual({
+    await expect(getAuth("github-copilot")).resolves.toStrictEqual({
       auth: { apiKey: "github-oauth-token" },
       source: "OAuth",
     });
     expect(getProviderAuth).not.toHaveBeenCalled();
+    await expect(getAuth("zai")).resolves.toMatchObject({ auth: { apiKey: "registry-token" } });
   });
 });
 
-describe("access token resolution", () => {
+describe(accessToken, () => {
   it("returns the resolved token regardless of credential source", async () => {
-    const client: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "sk-ant-key" },
-        source: "ANTHROPIC_API_KEY",
-      }),
-    };
-
-    await expect(resolveAccessToken(client, "anthropic")).resolves.toStrictEqual({
-      ok: true,
-      value: { accessToken: "sk-ant-key" },
-    });
+    await expect(
+      accessToken(auth("sk-ant-key", "ANTHROPIC_API_KEY"), "anthropic"),
+    ).resolves.toStrictEqual({ ok: true, token: "sk-ant-key" });
   });
 
-  it("reports not logged in when auth is missing", async () => {
-    const client: ProviderAuthClient = { getProviderAuth: absent };
-
-    await expect(resolveAccessToken(client, "kimi-coding")).resolves.toStrictEqual({
-      kind: "unavailable",
-      message: "not logged in",
-      ok: false,
-    });
-  });
-});
-
-describe("OAuth access resolution", () => {
-  it("reports not logged in when auth is missing", async () => {
-    const client: ProviderAuthClient = { getProviderAuth: absent };
-
-    await expect(resolveOAuthAccess(client, "xai")).resolves.toStrictEqual({
-      kind: "unavailable",
-      message: "not logged in",
+  it.each([
+    ["missing", async () => undefined],
+    [
+      "failing",
+      async () => {
+        throw new Error("refresh failed");
+      },
+    ],
+  ] satisfies [string, GetAuth][])("reports %s auth as not logged in", async (_name, getAuth) => {
+    await expect(accessToken(getAuth, "kimi-coding")).resolves.toStrictEqual({
+      error: { kind: "unavailable", message: "not logged in" },
       ok: false,
     });
   });
 
-  it("rejects non-OAuth credentials", async () => {
-    const client: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "sk-test" },
-        source: "XAI_API_KEY",
-      }),
-    };
-
-    await expect(resolveOAuthAccess(client, "xai")).resolves.toStrictEqual({
-      kind: "unavailable",
-      message: "subscription usage requires OAuth login (not API key)",
+  it("requires OAuth for subscription usage", async () => {
+    await expect(
+      accessToken(auth("sk-test", "XAI_API_KEY"), "xai", { oauth: true }),
+    ).resolves.toStrictEqual({
+      error: {
+        kind: "unavailable",
+        message: "subscription usage requires OAuth login (not API key)",
+      },
       ok: false,
     });
-  });
-
-  it("returns an OAuth access token", async () => {
-    const client: ProviderAuthClient = {
-      getProviderAuth: async () => ({
-        auth: { apiKey: "access-token" },
-        source: "OAuth",
-      }),
-    };
-
-    await expect(resolveOAuthAccess(client, "xai")).resolves.toStrictEqual({
-      ok: true,
-      value: { accessToken: "access-token" },
-    });
+    await expect(
+      accessToken(auth("access-token", "OAuth"), "xai", { oauth: true }),
+    ).resolves.toStrictEqual({ ok: true, token: "access-token" });
   });
 });

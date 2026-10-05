@@ -1,488 +1,91 @@
-import { selectGlyph } from "@clanker-stuff/status-icons";
-import type { IconFamily } from "@clanker-stuff/status-icons";
-import type {
-  FooterContent,
-  FooterSpan,
-  FooterTruncation,
-  FooterWidgetIcon,
-} from "@clanker-stuff/footer-protocol";
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  sliceByColumn,
+  stripTerminalSequences,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 
-import { hasTerminalControl } from "@clanker-stuff/footer-protocol/config";
-import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
-import type { LiveWidget } from "./widgets.js";
+import { placedIds, STATUS_PREFIX, STATUSES_ID } from "./config.js";
+import type { FooterConfig, IconFamily } from "./config.js";
+import type { BuiltinWidget } from "./widgets.js";
 
-export interface RenderableWidget {
-  id: string;
-  group: "left" | "center" | "right";
+export type FooterTheme = Pick<Theme, "fg">;
+
+type Truncation = "start" | "end";
+
+/** A widget rendered to one styled line, keyed by its config ID. */
+export interface LiveWidget {
   text: string;
-  truncate?: FooterTruncation;
+  truncate?: Truncation;
 }
 
-export interface FooterLayoutDecision {
-  id: string;
-  outcome: "visible" | "truncated";
-  reason: string;
-}
-
-export interface FooterWidgetRenderError {
-  id: string;
-  message: string;
-}
-
-export interface FooterLayoutResult {
+export interface FooterLayout {
   lines: string[];
-  decisions: FooterLayoutDecision[];
-  consumedStatusIds: string[];
-  duplicates: string[];
-  widgetErrors: FooterWidgetRenderError[];
+  truncated: string[];
 }
 
-export interface FooterRenderState {
-  builtins: ReadonlyMap<string, LiveWidget>;
-  rich: ReadonlyMap<string, LiveWidget>;
-  config: FooterConfig;
-  nativeStatuses: ReadonlyMap<string, string>;
-}
+/** Single-line status text as Pi's own footer shows it, with styling closed before the next widget. */
+export const cleanStatus = (text: string): string => {
+  const clean = text
+    .replace(/[\r\n\t]/gu, " ")
+    .replace(/ +/gu, " ")
+    .trim();
 
-export type FooterTheme = Pick<Theme, "bold" | "fg">;
-
-const GROUPS: RenderableWidget["group"][] = ["left", "center", "right"];
-
-const readSgr = (value: string, offset: number): string | undefined => {
-  if (value.codePointAt(offset) !== 0x1b || value[offset + 1] !== "[") {
-    return undefined;
-  }
-
-  let end = offset + 2;
-
-  while (end < value.length) {
-    const code = value.codePointAt(end) ?? 0;
-
-    if ((code >= 0x30 && code <= 0x39) || code === 0x3b) {
-      end += 1;
-      continue;
-    }
-
-    return code === 0x6d ? value.slice(offset, end + 1) : undefined;
-  }
-
-  return undefined;
+  return clean.includes("\u001B") ? `${clean}\u001B[0m` : clean;
 };
 
-interface FittedWidget extends RenderableWidget {
-  rendered: string;
-}
-
-interface RenderedGroup {
-  text: string;
-  width: number;
-}
-
-export interface PreparedFooter {
-  rows: RenderableWidget[][];
-  consumedStatusIds: string[];
-  duplicates: string[];
-  widgetErrors: FooterWidgetRenderError[];
-}
-
-const widthOf = (value: string): number => visibleWidth(value);
-
-const sanitizePlainText = (value: string): string => {
-  let result = "";
-
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    result += code === 0x0a || code === 0x0d ? " " : hasTerminalControl(char) ? "" : char;
-  }
-
-  return result;
-};
-
-export const sanitizeNativeStatus = (value: string): string => {
-  let result = "";
-  let index = 0;
-  let sawSgr = false;
-
-  while (index < value.length) {
-    const sgr = readSgr(value, index);
-
-    if (sgr !== undefined) {
-      result += sgr;
-      sawSgr = true;
-      index += sgr.length;
-      continue;
-    }
-
-    const code = value.codePointAt(index) ?? 0;
-    const char = String.fromCodePoint(code);
-
-    if (code === 0x1b) {
-      index += 1;
-
-      if (value[index] === "]") {
-        index += 1;
-
-        while (index < value.length) {
-          if (value.codePointAt(index) === 0x07) {
-            index += 1;
-            break;
-          }
-
-          if (value.codePointAt(index) === 0x1b && value[index + 1] === "\\") {
-            index += 2;
-            break;
-          }
-
-          index += 1;
-        }
-      } else if (value[index] === "[") {
-        index += 1;
-
-        while (
-          index < value.length &&
-          (value.codePointAt(index) ?? 0) >= 0x20 &&
-          (value.codePointAt(index) ?? 0) <= 0x3f
-        ) {
-          index += 1;
-        }
-
-        if (index < value.length) {
-          index += 1;
-        }
-      } else if (index < value.length) {
-        index += 1;
-      }
-
-      continue;
-    }
-
-    result += code === 0x0a || code === 0x0d ? " " : hasTerminalControl(char) ? "" : char;
-    index += char.length;
-  }
-
-  const sanitized = result.trim();
-
-  return sawSgr && sanitized.length > 0 && !sanitized.endsWith("\u001B[0m")
-    ? `${sanitized}\u001B[0m`
-    : sanitized;
-};
-
-const renderSpan = (span: FooterSpan, theme: FooterTheme): string => {
-  const text = theme.fg(span.tone ?? "text", sanitizePlainText(span.text));
-
-  return span.bold === true ? theme.bold(text) : text;
-};
-
-const renderContent = (content: FooterContent, theme: FooterTheme): string =>
-  content.map((span) => renderSpan(span, theme)).join("");
-
-const iconGlyph = (icon: FooterWidgetIcon, family: IconFamily): string => {
-  if (typeof icon.glyphs === "string") {
-    return icon.glyphs;
-  }
-
-  return selectGlyph(icon.glyphs, family);
-};
-
-const renderLiveWidget = (widget: LiveWidget, family: IconFamily, theme: FooterTheme): string => {
-  if (widget.source === "native") {
-    return widget.snapshot.content.map((span) => span.text).join("");
-  }
-
-  const widgetIcon = widget.snapshot.icon === false ? undefined : widget.snapshot.icon;
-  const icon = widgetIcon ? sanitizePlainText(iconGlyph(widgetIcon, family)) : "";
-  const renderedIcon = icon.length === 0 ? "" : `${theme.fg(widgetIcon?.tone ?? "dim", icon)} `;
-
-  const health =
-    widget.snapshot.health?.state === "stale"
-      ? ` ${theme.fg("warning", "!")}`
-      : widget.snapshot.health?.state === "error"
-        ? ` ${theme.fg("error", "!")}`
-        : "";
-
-  const body = renderContent(widget.snapshot.content, theme);
-
-  return body.length === 0 ? "" : `${renderedIcon}${body}${health}`;
-};
-
-const isEnabled = (widget: LiveWidget, state: FooterRenderState, aggregateId?: string): boolean => {
-  const aggregate = aggregateId === undefined ? undefined : state.config.widgets[aggregateId];
-
-  return (
-    state.config.widgets[widget.snapshot.id]?.enabled ??
-    aggregate?.enabled ??
-    widget.snapshot.defaults?.enabled ??
-    true
-  );
-};
-
-const nativeWidgets = (statuses: ReadonlyMap<string, string>): Map<string, LiveWidget> => {
-  const widgets = new Map<string, LiveWidget>();
-
-  for (const [key, raw] of statuses) {
-    if (hasTerminalControl(key)) {
-      continue;
-    }
-
-    const text = sanitizeNativeStatus(raw);
-
-    if (widthOf(text) === 0) {
-      continue;
-    }
-
-    const id = `status:${key}`;
-    widgets.set(id, {
-      snapshot: {
-        content: [{ text }],
-        id,
-        label: key,
-      },
-      source: "native",
-    });
-  }
-
-  return widgets;
-};
-
-export const prepareFooter = (state: FooterRenderState, theme: FooterTheme): PreparedFooter => {
-  const native = nativeWidgets(state.nativeStatuses);
-  const live = new Map<string, LiveWidget>([...state.builtins, ...state.rich, ...native]);
-  const explicit = new Set<string>();
-
-  for (const row of state.config.rows) {
-    for (const group of GROUPS) {
-      for (const id of row[group]) {
-        if (id !== "footer.widgets" && id !== "footer.statuses") {
-          explicit.add(id);
-        }
-      }
-    }
-  }
-
-  const richAggregatePlaced = state.config.rows.some((row) =>
-    GROUPS.some((group) => row[group].includes("footer.widgets")),
-  );
-
-  const rendered = new Map<string, string | undefined>();
-  const widgetErrors: FooterWidgetRenderError[] = [];
-
-  const render = (id: string, widget: LiveWidget): string | undefined => {
-    if (rendered.has(id)) {
-      return rendered.get(id);
-    }
-
-    try {
-      const text = renderLiveWidget(widget, state.config.iconFamily, theme);
-      rendered.set(id, text);
-
-      return text;
-    } catch (error) {
-      rendered.set(id, undefined);
-      widgetErrors.push({
-        id,
-        message: error instanceof Error ? error.message : String(error),
-      });
-
-      return undefined;
-    }
-  };
-
-  const consumedStatuses = new Set<string>();
-
-  for (const [id, widget] of state.rich) {
-    const placementEligible = explicit.has(id) || richAggregatePlaced;
-
-    if (
-      placementEligible &&
-      isEnabled(widget, state, explicit.has(id) ? undefined : "footer.widgets") &&
-      (render(id, widget)?.length ?? 0) > 0
-    ) {
-      for (const key of widget.snapshot.consumesStatusKeys ?? []) {
-        if (!explicit.has(`status:${key}`)) {
-          consumedStatuses.add(`status:${key}`);
-        }
-      }
-    }
-  }
-
-  const seen = new Set<string>();
-  const duplicates = new Set<string>();
-  const rows: RenderableWidget[][] = [];
-
-  for (const configuredRow of state.config.rows) {
-    const row: RenderableWidget[] = [];
-
-    for (const group of GROUPS) {
-      for (const configuredId of configuredRow[group]) {
-        const members: [string, LiveWidget, string | undefined][] =
-          configuredId === "footer.widgets"
-            ? [...state.rich]
-                .filter(([id]) => !explicit.has(id))
-                .toSorted(([left], [right]) => left.localeCompare(right))
-                .map(([id, widget]) => [id, widget, "footer.widgets"])
-            : configuredId === "footer.statuses"
-              ? [...native]
-                  .filter(([id]) => !explicit.has(id) && !consumedStatuses.has(id))
-                  .toSorted(([left], [right]) => left.localeCompare(right))
-                  .map(([id, widget]) => [id, widget, "footer.statuses"])
-              : live.has(configuredId)
-                ? [[configuredId, live.get(configuredId)!, undefined]]
-                : [];
-
-        for (const [id, widget, aggregateId] of members) {
-          if (seen.has(id)) {
-            duplicates.add(id);
-            continue;
-          }
-
-          seen.add(id);
-
-          if (!isEnabled(widget, state, aggregateId)) {
-            continue;
-          }
-
-          const text = render(id, widget);
-
-          if (text === undefined || text.length === 0) {
-            continue;
-          }
-
-          row.push(
-            widget.snapshot.truncate === undefined
-              ? { group, id, text }
-              : { group, id, text, truncate: widget.snapshot.truncate },
-          );
-        }
-      }
-    }
-
-    if (row.length > 0) {
-      rows.push(row);
-    }
-  }
-
-  return {
-    consumedStatusIds: [...consumedStatuses].toSorted(),
-    duplicates: [...duplicates],
-    rows,
-    widgetErrors,
-  };
-};
-
-const renderGroup = (
-  widgets: readonly FittedWidget[],
-  group: RenderableWidget["group"],
-  separator: string,
-): RenderedGroup => {
-  const text = widgets
-    .values()
-    .filter((widget) => widget.group === group)
-    .map((widget) => widget.rendered)
-    .toArray()
-    .join(separator);
-
-  return { text, width: widthOf(text) };
-};
-
-const align = (
-  widgets: readonly FittedWidget[],
-  width: number,
-  separator: string,
-  groupGap: number,
+export const renderBuiltin = (
+  widget: BuiltinWidget,
+  family: IconFamily,
+  theme: FooterTheme,
 ): string => {
-  const left = renderGroup(widgets, "left", separator);
-  const center = renderGroup(widgets, "center", separator);
-  const right = renderGroup(widgets, "right", separator);
+  // Session names, paths and model IDs come from saved sessions and providers; keep their controls off the screen.
+  const spans = widget.content.map(({ text, tone }) => ({ text: inlineText(text), tone }));
 
-  const hasLeft = left.width > 0;
-  const hasCenter = center.width > 0;
-  const hasRight = right.width > 0;
+  if (spans.every(({ text }) => text.length === 0)) return "";
 
-  if (!hasCenter) {
-    if (!hasRight) {
-      return left.text;
-    }
+  const icon = widget.icon === undefined ? "" : `${theme.fg("dim", widget.icon[family])} `;
 
-    const gap = hasLeft ? groupGap : 0;
-    const padding = Math.max(gap, width - left.width - right.width);
-
-    return `${left.text}${" ".repeat(padding)}${right.text}`;
-  }
-
-  const leftEnd = left.width;
-  const rightStart = width - right.width;
-  const minimumCenter = leftEnd + (hasLeft ? groupGap : 0);
-  const maximumCenter = rightStart - center.width - (hasRight ? groupGap : 0);
-  const centered = Math.floor((width - center.width) / 2);
-  const centerStart = Math.max(minimumCenter, Math.min(centered, maximumCenter));
-  let line = left.text + " ".repeat(Math.max(0, centerStart - left.width)) + center.text;
-
-  if (hasRight) {
-    line += " ".repeat(Math.max(0, rightStart - (centerStart + center.width))) + right.text;
-  }
-
-  return line;
+  return icon + spans.map(({ text, tone }) => theme.fg(tone, text)).join("");
 };
 
-const truncationFor = (widget: RenderableWidget): FooterTruncation =>
-  widget.truncate ??
-  (widget.group === "left" ? "end" : widget.group === "right" ? "start" : "middle");
+/** Statuses keyed `status:<key>`, ready to place. */
+export const statusWidgets = (statuses: ReadonlyMap<string, string>): Map<string, LiveWidget> =>
+  new Map(
+    [...statuses]
+      .map(([key, text]): [string, LiveWidget] => [
+        `${STATUS_PREFIX}${key}`,
+        { text: cleanStatus(text) },
+      ])
+      .filter(([, widget]) => widget.text.length > 0),
+  );
 
-const truncate = (text: string, width: number, direction: FooterTruncation): string => {
-  const sourceWidth = widthOf(text);
+const truncate = (text: string, width: number, direction: Truncation): string => {
+  const sourceWidth = visibleWidth(text);
 
-  if (sourceWidth <= width) {
-    return text;
-  }
+  if (sourceWidth <= width) return text;
 
-  if (width <= 0) {
-    return "";
-  }
+  if (width <= 0) return "";
 
-  if (width === 1) {
-    return "…";
-  }
-
-  const contentWidth = width - 1;
-
-  if (direction === "end") {
-    return `${sliceByColumn(text, 0, contentWidth, true)}…`;
-  }
-
-  if (direction === "start") {
-    return `…${sliceByColumn(text, Math.max(0, sourceWidth - contentWidth), contentWidth, true)}`;
-  }
-
-  const leftWidth = Math.ceil(contentWidth / 2);
-  const rightWidth = contentWidth - leftWidth;
-
-  return `${sliceByColumn(text, 0, leftWidth, true)}…${sliceByColumn(
-    text,
-    Math.max(0, sourceWidth - rightWidth),
-    rightWidth,
-    true,
-  )}`;
+  return direction === "end"
+    ? truncateToWidth(text, width, "…")
+    : `…${sliceByColumn(text, sourceWidth - (width - 1), width - 1, true)}`;
 };
 
-const allocateTextWidths = (widths: readonly number[], budget: number): number[] => {
-  if (widths.reduce((total, width) => total + width, 0) <= budget) {
-    return [...widths];
-  }
+/** Capped equal allocation: narrow widgets keep their width, wide ones share the rest. */
+const allocateWidths = (widths: readonly number[], budget: number): number[] => {
+  if (widths.reduce((total, width) => total + width, 0) <= budget) return [...widths];
 
   let low = 0;
   let high = Math.max(0, ...widths);
 
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    const used = widths.reduce((total, width) => total + Math.min(width, middle), 0);
 
-    if (used <= budget) {
-      low = middle;
-    } else {
-      high = middle - 1;
-    }
+    if (widths.reduce((total, width) => total + Math.min(width, middle), 0) <= budget) low = middle;
+    else high = middle - 1;
   }
 
   const allocated = widths.map((width) => Math.min(width, low));
@@ -498,111 +101,127 @@ const allocateTextWidths = (widths: readonly number[], budget: number): number[]
   return allocated;
 };
 
-type RowLayout = { decisions: FooterLayoutDecision[]; line: string };
+interface Placed extends LiveWidget {
+  id: string;
+  side: "left" | "right";
+}
 
 const fitRow = (
-  source: readonly RenderableWidget[],
+  items: readonly Placed[],
   width: number,
   separator: string,
-): RowLayout => {
-  const groupCount = new Set(source.map((widget) => widget.group)).size;
-  let internalSeparators = 0;
+): { line: string; truncated: string[] } => {
+  const count = (side: Placed["side"]) => items.filter((item) => item.side === side).length;
+  const left = count("left");
+  const right = count("right");
+  const gap = left > 0 && right > 0 ? 1 : 0;
+  const fixed = (Math.max(0, left - 1) + Math.max(0, right - 1)) * visibleWidth(separator) + gap;
+  const natural = items.map((item) => visibleWidth(item.text));
+  const budgets = allocateWidths(natural, Math.max(0, width - fixed));
 
-  for (const group of GROUPS) {
-    const members = source.filter((widget) => widget.group === group).length;
-    internalSeparators += Math.max(0, members - 1);
-  }
+  const fitted = items.map((item, index) =>
+    truncate(
+      item.text,
+      budgets[index] ?? 0,
+      item.truncate ?? (item.side === "left" ? "end" : "start"),
+    ),
+  );
 
-  const desiredFixedWidth = internalSeparators * widthOf(separator) + Math.max(0, groupCount - 1);
-  const originalWidths = source.map((widget) => widthOf(widget.text));
+  const join = (side: Placed["side"]) =>
+    fitted.filter((text, index) => items[index]?.side === side && text.length > 0).join(separator);
 
-  const preserveSpacing =
-    desiredFixedWidth + originalWidths.filter((originalWidth) => originalWidth > 0).length <= width;
+  const leftText = join("left");
+  const rightText = join("right");
 
-  const fittedSeparator = preserveSpacing ? separator : "";
-  const groupGap = preserveSpacing ? 1 : 0;
-  const fixedWidth = preserveSpacing ? desiredFixedWidth : 0;
-  const budgets = allocateTextWidths(originalWidths, Math.max(0, width - fixedWidth));
-
-  const widgets: FittedWidget[] = source.map((widget, index) => ({
-    ...widget,
-    rendered: truncate(widget.text, budgets[index] ?? 0, truncationFor(widget)),
-  }));
-
-  const line = truncateToWidth(align(widgets, width, fittedSeparator, groupGap), width, "");
+  const padding =
+    rightText.length === 0
+      ? 0
+      : Math.max(gap, width - visibleWidth(leftText) - visibleWidth(rightText));
 
   return {
-    decisions: widgets.map((widget, index) => {
-      const originalWidth = originalWidths[index] ?? 0;
-      const allocated = budgets[index] ?? 0;
-      const truncated = allocated < originalWidth;
-
-      return {
-        id: widget.id,
-        outcome: truncated ? "truncated" : "visible",
-        reason: truncated
-          ? `${truncationFor(widget)} truncation from ${originalWidth} to ${allocated} columns`
-          : "content fit",
-      };
-    }),
-    line,
+    line: truncateToWidth(`${leftText}${" ".repeat(padding)}${rightText}`, width, ""),
+    truncated: items
+      .filter((_item, index) => (budgets[index] ?? 0) < (natural[index] ?? 0))
+      .map(({ id }) => id),
   };
 };
 
-export const layoutFooterRows = (
-  rows: readonly (readonly RenderableWidget[])[],
-  width: number,
-  separator: string,
-): FooterLayoutResult => {
-  const safeWidth = Math.max(0, Math.floor(width));
-
-  if (safeWidth === 0) {
-    return {
-      consumedStatusIds: [],
-      decisions: rows.flatMap((row) =>
-        row.map((widget) => ({
-          id: widget.id,
-          outcome: "truncated" as const,
-          reason: "terminal width is zero",
-        })),
-      ),
-      duplicates: [],
-      lines: [],
-      widgetErrors: [],
-    };
-  }
-
-  const rendered = rows.map((row) => fitRow(row, safeWidth, separator));
-
-  return {
-    consumedStatusIds: [],
-    decisions: rendered.flatMap((row) => row.decisions),
-    duplicates: [],
-    lines: rendered
-      .values()
-      .map((row) => row.line)
-      .filter(Boolean)
-      .toArray(),
-    widgetErrors: [],
-  };
-};
-
-export const renderFooterState = (
-  state: FooterRenderState,
+export const layoutFooter = (
+  config: FooterConfig,
+  live: ReadonlyMap<string, LiveWidget>,
   width: number,
   theme: FooterTheme,
-): FooterLayoutResult => {
-  const prepared = prepareFooter(state, theme);
+): FooterLayout => {
+  const safeWidth = Math.max(0, Math.floor(width));
+  // Hidden statuses can appear only here, so skipping them here hides them everywhere.
+  const claimed = new Set([...placedIds(config), ...config.hidden]);
 
-  const separator =
-    state.config.separator.length === 0
-      ? " "
-      : ` ${theme.fg("dim", sanitizePlainText(state.config.separator))} `;
+  const expand = (id: string): [string, LiveWidget][] => {
+    if (id !== STATUSES_ID) {
+      const widget = live.get(id);
 
-  return {
-    ...layoutFooterRows(prepared.rows, width, separator),
-    consumedStatusIds: prepared.consumedStatusIds,
-    duplicates: prepared.duplicates,
-    widgetErrors: prepared.widgetErrors,
+      return widget === undefined ? [] : [[id, widget]];
+    }
+
+    return [...live]
+      .filter(([member]) => member.startsWith(STATUS_PREFIX) && !claimed.has(member))
+      .toSorted(([a], [b]) => a.localeCompare(b));
   };
+
+  const separator = ` ${theme.fg("dim", "·")} `;
+  const lines: string[] = [];
+  const truncated: string[] = [];
+
+  for (const row of config.rows) {
+    const items = (["left", "right"] as const).flatMap((side) =>
+      row[side]
+        .flatMap(expand)
+        .filter(([_id, widget]) => widget.text.length > 0)
+        .map(([id, widget]): Placed => ({ ...widget, id, side })),
+    );
+
+    if (items.length === 0 || safeWidth === 0) continue;
+
+    const fitted = fitRow(items, safeWidth, separator);
+    lines.push(fitted.line);
+    truncated.push(...fitted.truncated);
+  }
+
+  return { lines, truncated };
+};
+
+/**
+ * Replaces only trailing rule cells of Pi's editor top border, so labels, the working status
+ * and the input width stay intact. Entries keep their order; one that does not fit is skipped.
+ */
+export const renderBorder = (
+  original: string,
+  width: number,
+  entries: readonly string[],
+  theme: FooterTheme,
+  borderColor: (text: string) => string,
+): string => {
+  const plain = stripTerminalSequences(original);
+
+  if (entries.length === 0 || width < 5 || visibleWidth(original) !== width) return original;
+
+  if (!plain.startsWith("─") || !plain.endsWith("─")) return original;
+
+  // Keep two rule cells before the block and one after it, plus the spaces around it.
+  const budget = (/─+$/u.exec(plain)?.[0].length ?? 0) - 5;
+  const selected: string[] = [];
+  let used = 0;
+
+  for (const entry of entries) {
+    const size = visibleWidth(entry) + (selected.length > 0 ? 3 : 0);
+
+    if (size > (selected.length > 0 ? 3 : 0) && used + size <= budget) {
+      used += size;
+      selected.push(entry);
+    }
+  }
+
+  if (selected.length === 0) return original;
+
+  return `${sliceByColumn(original, 0, width - used - 3, true)}\u001B[0m${borderColor(" ")}${selected.join(theme.fg("dim", " · "))}${borderColor(" ─")}`;
 };

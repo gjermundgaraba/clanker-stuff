@@ -117,17 +117,12 @@ describe("observed numeric fields", () => {
     expect(render(2360, "2")).toEqual({ lines: ["2s", "2s", "2"], animated: false });
   });
 
-  it("forgets fields no longer requested, and reset drops all history", () => {
+  it("forgets fields no longer requested", () => {
     const font = parseRollingFont(fontManifest());
     const motion = new RollingNumbers();
     motion.frame(0, font, (number) => [number("tools", "1")]);
     motion.frame(10, font, () => []);
     expect(motion.frame(20, font, (number) => [number("tools", "2")]).animated).toBe(false);
     expect(motion.frame(30, font, (number) => [number("tools", "3")]).animated).toBe(true);
-    motion.reset();
-    expect(motion.frame(40, font, (number) => [number("tools", "4")])).toEqual({
-      lines: ["4"],
-      animated: false,
-    });
   });
 });

@@ -12,22 +12,15 @@ export const RECAP_ENTRY_TYPE = "@clanker-stuff/turn-recap/recap";
 
 const closed = { additionalProperties: false } as const;
 
-export const SnapshotSchema = Type.Object(
-  {
-    runId: Type.String({ minLength: 1 }),
-    startedAt: Type.Number({ minimum: 0 }),
-    finishedAt: Type.Number({ minimum: 0 }),
-    activeMs: Type.Number({ minimum: 0 }),
-    wallMs: Type.Number({ minimum: 0 }),
-    outcome: Type.Union([
-      Type.Literal("completed"),
-      Type.Literal("aborted"),
-      Type.Literal("error"),
-    ]),
-    metrics: MetricsSchema,
-  },
-  closed,
-);
+// Open, so cards written before a field was removed still render.
+export const SnapshotSchema = Type.Object({
+  runId: Type.String({ minLength: 1 }),
+  startedAt: Type.Number({ minimum: 0 }),
+  finishedAt: Type.Number({ minimum: 0 }),
+  wallMs: Type.Number({ minimum: 0 }),
+  outcome: Type.Union([Type.Literal("completed"), Type.Literal("aborted"), Type.Literal("error")]),
+  metrics: MetricsSchema,
+});
 
 export type Snapshot = Static<typeof SnapshotSchema>;
 

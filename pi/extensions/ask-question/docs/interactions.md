@@ -1,10 +1,10 @@
 # Questionnaires
 
-`request_user_input` waits for a reviewed submission. `request_user_input_async` accepts the same questionnaire and returns a durable pending receipt immediately; the agent may continue **independent** work only. A pending receipt is not an answer or approval. Attention notifications belong to the separate experimental `user-attention` extension; this package registers only the two questionnaire tools and `revise_user_input`.
+`request_user_input` waits for a reviewed submission. `request_user_input_async` accepts the same questionnaire and returns a pending receipt immediately; the agent may continue **independent** work only. A pending receipt is not an answer or approval. Attention notifications belong to the separate experimental `user-attention` extension; this package registers only the two questionnaire tools and `revise_user_input`.
 
 ## Requirements
 
-Questionnaires require Pi v0.86.1 APIs, an interactive TUI, and an initialized file-backed session. All three tools are disabled in RPC, print and JSON modes; stale invocations fail explicitly. `--no-session` is unsupported, including for blocking questions: recoverable drafts and revisable submissions require persistence. Attention messaging has no questionnaire persistence requirement.
+Questionnaires require the interactive TUI. In RPC, print and JSON modes the three tools are withdrawn (`exposure: "hidden"`), so neither `--tools` nor another extension can activate them, and `/answers` reports the channel as unavailable. Any session works, including `--no-session`; without a session file, questionnaires last as long as the process.
 
 ## Authoring
 
@@ -50,7 +50,7 @@ These tools are **not native Codex wire-compatible implementations**. Native Pi 
 
 ## Answering
 
-Use `/answers` to browse this branch's questionnaires: those awaiting you come first, then sent and cancelled ones under a separator. Selecting an item opens its draft immediately, or its latest immutable submission if no draft exists—there is no intermediate action menu. A draft opens on its first unanswered question, or on Review when every question is answered, with the current answer highlighted. In a submitted view, `r` reopens the latest revision for editing, `s` sends an undelivered answer (with an explicit resend warning for uncertain delivery), and Left/Right browse older/newer revisions. Merely viewing a submission never reopens or sends it. Cancelled requests without submissions show their original questions read-only. The compact widget counts only questionnaires that still need you: open drafts and answers never handed to Pi.
+Use `/answers` to browse this branch's questionnaires: those awaiting you come first, then sent and cancelled ones under a separator. Selecting an item opens its draft immediately, or its latest immutable submission if no draft exists—there is no intermediate action menu. A draft opens on its first unanswered question, or on Review when every question is answered, with the current answer highlighted. In a submitted view, `r` reopens the latest revision for editing, `s` sends the answer (**Send again** once it was sent), and Left/Right browse older/newer revisions. Merely viewing a submission never reopens or sends it. Cancelled requests without submissions show their original questions read-only. The compact widget counts only questionnaires that still need you: open drafts and answers not yet sent.
 
 The TUI is a full-width single-column surface between two accent rules. It sizes naturally toward approximately 60% of terminal height; auxiliary pages scroll within that cap, while question views may expand only as far as needed to keep compact answer controls visible. The title sits in the top rule; a reopened revision names the revision it supersedes there and shows the requested reason above each question. A tab row is always present, even for one question, showing completion; a background marks keyboard focus while `( )`/`(•)` and `[ ]`/`[x]` markers show actual answers.
 
@@ -84,27 +84,23 @@ Completing the last question opens Review, never automatic submission. `j`/`k` h
 
 Notes stay attached to their option when it is deselected and reselected. Only selected-answer notes and the questionnaire-wide note enter the submitted answer. Unsubmitted drafts never enter model context.
 
-## Delivery and interruption
+## Delivery
 
-Async acceptance includes `accepted: true`, `status: "pending"` and `interaction_id`, after a verified disk checkpoint. Answers contain `type: "questionnaire_answer"`, interaction/revision identity, parent revision, provenance, timestamp, answers keyed by question ID with option IDs and label snapshots, custom text and notes. Revisions list changed questions. A live blocking waiter receives that answer as its tool result, not an extra user message. Async/recovered answers use a correlated textual user message with `deliverAs: "steer"`; sending while idle starts a turn, as the UI states.
+Async acceptance includes `accepted: true`, `status: "pending"` and `interaction_id`, after the request is recorded in the session. Answers contain `type: "questionnaire_answer"`, interaction identity, title, revision, provenance, timestamp, answers keyed by question ID with option IDs and label snapshots, custom text and notes. Revisions list changed questions. A live blocking waiter receives that answer as its tool result, not an extra user message. Other answers are sent as a textual user message with `deliverAs: "steer"`; sending while idle starts a turn, as the UI states.
 
-The transcript displays an exact, known answer message as a readable summary with its revision, selected answers, written text and all submitted notes; user text is escaped so it never becomes Markdown structure. Sending or keeping answers is confirmed with a short notification. This is a display-only Markdown transformation: the complete structured envelope remains unchanged in model context and session history, including after reload. Use `/answers` to inspect submissions. Edited, quoted, combined queue text and messages not found on the current branch stay verbatim rather than hiding potentially unrelated user content. Pi's restored queue editor also retains the original text.
+The transcript displays an exact answer message as a readable summary with its revision, selected answers, written text and all submitted notes; user text is escaped so it never becomes Markdown structure. The summary is rebuilt from the message's own envelope, so it reads the same on any branch and after reload. Sending or keeping answers is confirmed with a short notification. This is a display-only Markdown transformation: the complete structured envelope remains unchanged in model context and session history. Edited, quoted or combined text is not an exact answer message and stays verbatim.
 
-A submission is immutable and separate from delivery. Status can be pending, handed to Pi, delivered, or uncertain. Delivered means present in canonical parent history, not that the model has acted on it. Explicit Send or Submit-and-continue resumes only the selected request. Reopening the UI or ordinary subsequent prompts never resume delivery automatically.
+A submission is immutable; it records when it was sent. Nothing is ever sent automatically: only Submit in a blocking questionnaire, or an explicit Send, delivers an answer. Background work, wakes, reopening the UI and ordinary prompts never do. A blocking answer is recorded as sent before its tool result returns. Closing or cancelling a blocking questionnaire aborts its requesting run; stopping that run keeps the draft. Cancellation is not an answer.
 
-Pi exposes run abortion, not a distinct user-Stop reason. Every observed run abort conservatively pauses coordinator-owned delivery, including pending requests created in earlier runs. Closing async UI does not abort the parent; closing or cancelling a blocking questionnaire aborts its requesting run. Cancellation is not an answer.
+**Once sent, Pi owns the message.** Built-in TUI Stop and `ctx.abort()` clear Pi's queues and restore queued text to the editor, including a queued answer; the inbox still shows it as sent. Check the restored editor text before using **Send again**: a second send is a second user message. If Pi rejects the message instead, for example because no model or credentials are set up, Pi shows the error and the questionnaire still reads as sent; use **Send again** once fixed.
 
-**Once queued, Pi owns the message.** Built-in TUI Stop and `ctx.abort()` clear Pi's queues and restore queued text to its editor; the extension cannot selectively retract its answer or clear unrelated queues. Check history and restored editor text before explicitly resending a handed-off/uncertain submission. No automatic outbox replay or exactly-once guarantee is offered.
+## Persistence
 
-## Persistence and recovery
+Authored requests are recorded once as `questionnaire.request` custom session entries; drafts, submissions and send times follow as `questionnaire.state` entries. Pi writes them synchronously, so a failed write fails the action that caused it. Editor text is recorded when a field is saved and flushed on close, Stop, reload and navigation; text that cannot be saved, such as over-limit text, is reported and dropped. Pi's navigation commands cannot start while a questionnaire has focus. A hard crash can lose the text of an editor that is still open.
 
-Authored requests, draft checkpoints, immutable submissions and delivery bookkeeping live in Pi custom session entries, not another database. Writes participate in Pi's per-file mutation queue and are verified against the session file. Partial/unreadable or inconsistent files fail closed. Durability follows Pi's successful file writes, not an extra fsync/power-loss guarantee.
+Replay reads only the active branch; the last state of each request wins. Unreadable entries are skipped rather than blocking the session. Branch changes close views opened on the previous branch. Forks inherit recorded state.
 
-Editor text is checkpointed when a field is saved and flushed on orderly close, Stop, reload and navigation. A hard crash can lose the text of an editor that is still open. Disk failures are reported rather than converted into acceptance; correct the storage problem and reopen a verified session before continuing.
-
-Replay reads only the active branch and restores interactions paused. Session changes invalidate old views and callbacks. Forks inherit recorded state with independent ownership. Recovery reconciles both matching canonical user messages and successful blocking tool results using tool-call provenance and the exact answer identity. A persisted blocking answer is not redelivered just because its old JavaScript waiter is gone. Ambiguous handoffs require an explicit recovery decision.
-
-Historical transcripts are not rewritten and render as written. Pi never re-executes stored tool calls, so retired names and argument shapes have no argument preparation. Old ephemeral pending maps cannot be recovered.
+Historical transcripts are not rewritten and render as written. Pi never re-executes stored tool calls, so retired names and argument shapes have no argument preparation.
 
 ## Revisions
 
@@ -120,12 +116,10 @@ Users can Reopen the latest submitted revision from `/answers`. `revise_user_inp
 
 It waits for the revised answer or returns a pending receipt the same way the questionnaire was last asked.
 
-The original questions and previews remain unchanged; the new draft starts from the latest submission. Only one draft can exist. Stale base revisions, conflicting edits and repeated Submit are rejected, never overwritten. Bookkeeping-only pause/delivery changes can be rebased without changing the user's draft. The comparison view shows before/after values only for changed answers and notes; submission creates revision 2, explicitly superseding revision 1 without deleting it.
+The original questions and previews remain unchanged; the new draft starts from the latest submission. Only one draft can exist. Stale base revisions and repeated Submit are rejected, never overwritten. The comparison view shows before/after values only for changed answers and notes; submission creates revision 2, explicitly superseding revision 1 without deleting it.
 
 Changing an answer cannot undo actions already performed. The agent must reconsider affected work rather than treating a revision as retroactive permission.
 
 ## Inbox indicator
 
-With the experimental border-status host loaded, the editor's top border shows a mail icon and the number of questionnaires requiring attention. Drafts (including paused drafts) and pending/uncertain deliveries count; sent or cancelled items do not. Opening the inbox does not clear the indicator. The icon follows the host's Unicode, ASCII, or Nerd Font preference. Press Alt+I or use `/answers` to open the inbox.
-
-The above-editor questionnaire widget remains visible while attention is required, independently of the border host. The border count is supplementary: both can appear at once. Narrow terminals, competing border statuses, or replacement editors may hide the border count without hiding the widget.
+While questionnaires need you, a widget above the editor counts them, and the footer status `ask-question` shows a mail icon with the same count. Drafts and unsent answers count; sent or cancelled questionnaires do not. Opening the inbox does not clear the indicator. Press Alt+I or use `/answers` to open the inbox.

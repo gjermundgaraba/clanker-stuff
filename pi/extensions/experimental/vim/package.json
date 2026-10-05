@@ -29,7 +29,6 @@
   "type": "module",
   "exports": "./index.ts",
   "dependencies": {
-    "@clanker-stuff/border-status-protocol": "workspace:^",
     "@clanker-stuff/editor": "workspace:^"
   },
   "devDependencies": {

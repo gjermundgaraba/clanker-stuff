@@ -18,7 +18,7 @@ describe("context request observation", () => {
     harness = undefined;
   });
 
-  it("observes transformed provider input/loadout independently of stored-state provenance", async () => {
+  it("observes transformed provider input/loadout separately from recorded state", async () => {
     const transform: ExtensionFactory = (pi) => {
       pi.on("context", (event) => ({
         messages: event.messages.map((message) =>
@@ -38,7 +38,11 @@ describe("context request observation", () => {
         "tui.select.pageDown": ["pageDown"],
       }),
       onComponent(component) {
-        state.push(component.render(120).join("\n"));
+        for (let row = 0; row < 4; row++) {
+          state.push(component.render(120).join("\n"));
+          component.handleInput?.("j");
+        }
+
         component.handleInput?.("v");
         component.render(120);
         component.handleInput?.("j");
@@ -90,7 +94,10 @@ describe("context request observation", () => {
     const entries = harness.sessionManager.getEntries();
 
     await harness.prompt("/context");
+    // State replays the recorded declarations: loadout descriptions apply; hidden ones stay listed.
     expect(state.join("\n")).toContain("hidden-tool");
+    expect(state.join("\n")).toContain("REQUEST DESCRIPTION");
+    expect(state.join("\n")).not.toContain("STORED DESCRIPTION");
     expect(state.join("\n")).not.toContain("TRANSIENT REQUEST MESSAGE");
     expect(request.join("\n")).toContain("TRANSIENT REQUEST MESSAGE");
     expect(request.join("\n")).toContain("REQUEST DESCRIPTION");

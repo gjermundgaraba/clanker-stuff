@@ -2,74 +2,61 @@ import { mkdtemp, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { fauxProvider } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { cloneModelRuntime, finalFromMessages, isSubagentHostExtensionPath } from "../runtime.js";
 
+/** A complete assistant message with the given content and stop details. */
+const assistant = (
+  content: AssistantMessage["content"],
+  details: Partial<Pick<AssistantMessage, "endTurn" | "errorMessage" | "stopReason">> = {},
+): AssistantMessage => ({ ...fauxAssistantMessage(""), content, ...details });
+
+const text = (value: string) => [{ text: value, type: "text" as const }];
+
 describe("child runtime results", () => {
   it.each([
     { content: [] },
-    { content: [{ thinking: "reasoning only", type: "thinking" }] },
-    { content: [{ text: " \n\t", type: "text" }] },
+    { content: [{ thinking: "reasoning only", type: "thinking" as const }] },
+    { content: text(" \n\t") },
   ])("omits empty assistant text for content %#", ({ content }) => {
-    expect(
-      finalFromMessages([
-        {
-          content,
-          role: "assistant",
-          stopReason: "stop",
-        },
-      ]),
-    ).toStrictEqual({ status: "completed" });
+    expect(finalFromMessages([assistant(content)], false)).toStrictEqual({ status: "completed" });
   });
 
   it("preserves nonempty text from the final assistant message", () => {
-    expect(
-      finalFromMessages([
-        {
-          content: [{ text: "  finished  ", type: "text" }],
-          role: "assistant",
-          stopReason: "stop",
-        },
-      ]),
-    ).toStrictEqual({ status: "completed", text: "  finished  " });
+    expect(finalFromMessages([assistant(text("  finished  "))], false)).toStrictEqual({
+      status: "completed",
+      text: "  finished  ",
+    });
   });
 
   it.each([
     {
-      message: {
-        content: [{ text: "partial", type: "text" }],
-        errorMessage: "provider failed",
-        role: "assistant",
-        stopReason: "error",
-      },
+      message: assistant(text("partial"), { errorMessage: "provider failed", stopReason: "error" }),
       outcome: { error: "provider failed", status: "errored" },
     },
+    // An abort nobody requested, such as a child extension's, fails the turn.
     {
-      message: {
-        content: [{ text: "partial", type: "text" }],
-        role: "assistant",
-        stopReason: "aborted",
-      },
-      outcome: { status: "interrupted" },
+      message: assistant(text("partial"), { stopReason: "aborted" }),
+      outcome: { error: "Turn was aborted", status: "errored" },
     },
-  ])("returns a distinct $outcome.status outcome", ({ message, outcome }) => {
-    expect(finalFromMessages([message])).toStrictEqual(outcome);
+  ])("reports an uncancelled $message.stopReason response as errored", ({ message, outcome }) => {
+    expect({
+      cancelled: finalFromMessages([message], true),
+      running: finalFromMessages([message], false),
+    }).toStrictEqual({ cancelled: { status: "interrupted" }, running: outcome });
   });
 
   it("reports a cancelled overflow response as interrupted", () => {
-    const message = {
-      content: [{ text: "partial", type: "text" }],
-      role: "assistant",
-      stopReason: "length",
-    };
+    const message = assistant(text("partial"), { stopReason: "length" });
 
     expect({
-      cancelled: finalFromMessages([message], { cancelled: true }),
-      cancelledWithoutAssistant: finalFromMessages([], { cancelled: true }),
-      running: finalFromMessages([message]),
-      runningWithoutAssistant: finalFromMessages([]),
+      cancelled: finalFromMessages([message], true),
+      cancelledWithoutAssistant: finalFromMessages([], true),
+      running: finalFromMessages([message], false),
+      runningWithoutAssistant: finalFromMessages([], false),
     }).toStrictEqual({
       cancelled: { status: "interrupted" },
       cancelledWithoutAssistant: { status: "interrupted" },
@@ -79,16 +66,10 @@ describe("child runtime results", () => {
   });
 
   it("reports cancellation of an explicitly unfinished response without discarding a completed answer", () => {
-    const message = {
-      role: "assistant",
-      stopReason: "stop",
-      content: [{ type: "text", text: "answer" }],
-    };
-
-    expect(finalFromMessages([{ ...message, endTurn: false }], { cancelled: true })).toEqual({
+    expect(finalFromMessages([assistant(text("answer"), { endTurn: false })], true)).toEqual({
       status: "interrupted",
     });
-    expect(finalFromMessages([{ ...message, endTurn: true }], { cancelled: true })).toEqual({
+    expect(finalFromMessages([assistant(text("answer"), { endTurn: true })], true)).toEqual({
       status: "completed",
       text: "answer",
     });

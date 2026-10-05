@@ -1,28 +1,10 @@
-/** Monotonic run timing; wall-clock timestamps are only for the displayed clock. */
-export const createTiming = (paused: boolean) => {
+/** Monotonic run timing; the wall-clock start is only for the displayed clock. */
+export const createTiming = () => {
   const startedAt = Date.now();
   const started = performance.now();
-  let segmentStart = paused ? undefined : started;
-  let activeMs = 0;
 
   return {
-    pause() {
-      if (segmentStart === undefined) return;
-      activeMs += performance.now() - segmentStart;
-      segmentStart = undefined;
-    },
-    resume() {
-      segmentStart ??= performance.now();
-    },
-    read() {
-      const now = performance.now();
-
-      return {
-        startedAt,
-        activeMs: activeMs + (segmentStart === undefined ? 0 : now - segmentStart),
-        wallMs: now - started,
-      };
-    },
+    read: () => ({ startedAt, wallMs: performance.now() - started }),
   };
 };
 

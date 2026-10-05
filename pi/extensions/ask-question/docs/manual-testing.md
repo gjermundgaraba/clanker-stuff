@@ -72,7 +72,7 @@ Task prompt:
 
 Use any naturally authored form above. These are operator actions, not instructions to the model.
 
-- Open an option note, type text, then rapidly press editor-submit followed by an option number. The number must select an option, not leak into the saved note. Repeat while persistence is delayed in the unit harness.
+- Open an option note, type text, then rapidly press editor-submit followed by an option number. The number must select an option, not leak into the saved note.
 - Write an answer and press editor-submit: the question completes and the form advances. Reopen the row, edit, then press selection-cancel: the edit is discarded and the saved answer remains.
 - Rapidly open an editor and type or paste: initial characters must not disappear. Numbers and shortcut letters inside a paste stay text.
 - Try multiline input, default and remapped completion bindings, over-limit text, and Stop with an open editor. Over-limit text cannot be saved but can always be discarded with selection-cancel; completing a field never submits the questionnaire. Press `x` once (a hint asks for confirmation), then any other key: nothing is cancelled.
@@ -83,7 +83,7 @@ Use any naturally authored form above. These are operator actions, not instructi
 - In `--tui-mode fullscreen`, verify the mouse wheel scrolls only while the pointer is over the context or auxiliary page viewport and never changes answers. In regular mode, verify PageUp/PageDown scrolls the form while native terminal mouse selection and transcript scrollback remain available.
 - Inspect the screen after each tested transition. Pacing can help operate a form, but must not be used to conceal an ordering failure.
 - For async messages, check selected-option notes, custom-answer notes, long multiline text and revisions. Nothing is silently truncated or interpreted as transcript markup, and no code fences or backslashes appear around the summary. Edited messages and answers restored alongside unrelated queued text remain verbatim.
-- Verify Stop/reload does not auto-resend and that rendering alone never changes delivery status. Existing lifecycle tests cover queue ownership and recovery boundaries; repeat those journeys when changing delivery code.
+- Verify Stop/reload never sends an answer and that rendering alone never marks one sent. After Stop restores a queued answer to the editor, the inbox shows it as sent and offers **Send again**.
 
 ## If the agent gets it wrong
 

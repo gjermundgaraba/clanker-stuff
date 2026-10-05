@@ -35,19 +35,19 @@ const question = {
 function setup(
   multi = false,
   remap = false,
-  beforeMutation?: () => Promise<void>,
   request: Questionnaire = { questions: [{ ...question, multi_select: multi }] },
   prepare?: (item: Interaction) => Interaction,
 ) {
   initTheme("dark");
   let item = createInteraction("q_ui", request, "call", "async");
+  let mutations = 0;
 
   if (prepare) item = prepare(item);
   const abort = new AbortController();
   const done = vi.fn();
   const report = vi.fn();
   const notify = vi.fn();
-  const send = vi.fn(async () => {});
+  const send = vi.fn<(revision: number) => void>();
   const tui = createMockTui({ rows: 30 });
 
   const keys = createKeybindings({
@@ -67,11 +67,11 @@ function setup(
     keys,
     item,
     {
-      current: () => structuredClone(item),
-      mutate: async (version, action) => {
-        await beforeMutation?.();
+      current: () => item,
+      mutate: (action) => {
+        mutations++;
 
-        return (item = transition(item, version, action));
+        return (item = transition(item, action));
       },
       subscribe: () => () => {},
       setFlush: () => {},
@@ -86,11 +86,8 @@ function setup(
 
   view.focused = true;
 
-  const press = async (...keys: string[]) => {
-    for (const key of keys) {
-      view.handleInput(key);
-      await view.settled();
-    }
+  const press = (...keys: string[]) => {
+    for (const key of keys) view.handleInput(key);
   };
 
   return {
@@ -105,15 +102,16 @@ function setup(
     get item() {
       return item;
     },
-    pause: () => {
-      item = transition(item, item.version, { type: "pause" });
+    /** Checkpointed changes: viewing, scrolling and discarded editors make none. */
+    get mutations() {
+      return mutations;
     },
   };
 }
 
 describe("bounded questionnaire TUI", () => {
-  it("shows context with compact detail markers while navigating with h/l", async () => {
-    const e = setup(false, false, undefined, {
+  it("shows context with compact detail markers while navigating with h/l", () => {
+    const e = setup(false, false, {
       questions: [
         { ...question, multi_select: false },
         {
@@ -138,18 +136,18 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).toContain("h/l Questions");
       expect(screen).not.toContain("Help");
       expect(screen).not.toContain("const value");
-      await e.press("p");
+      e.press("p");
       const details = displayText(e.view.render(100).join("\n"));
       expect(details).toContain("Synthetic suggestion");
       expect(details).toContain("const value");
-      await e.press("\u001b", "l");
+      e.press("\u001b", "l");
       screen = displayText(e.view.render(100).join("\n"));
       expect(screen).toContain("> ( ) 1. A");
       expect(screen).not.toContain("Unicode:");
       expect(screen).not.toContain("preview (p)");
-      await e.press("h");
+      e.press("h");
       expect(displayText(e.view.render(100).join("\n"))).toContain("Unicode:");
-      await e.press("1", "1");
+      e.press("1", "1");
       screen = e.view.render(100).join("\n");
       expect(screen).toContain("Send answers");
       expect(screen).toContain("Save without sending");
@@ -158,11 +156,10 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("renders revision, form and current-question Markdown context in order", async () => {
+  it("renders revision, form and current-question Markdown context in order", () => {
     const e = setup(
       false,
       false,
-      undefined,
       {
         context: "**Shared constraints**",
         questions: [
@@ -172,14 +169,14 @@ describe("bounded questionnaire TUI", () => {
       },
       (item) => {
         for (const q of item.request.questions)
-          item = transition(item, item.version, {
+          item = transition(item, {
             type: "select",
             question: q.id,
             option: "first",
           });
-        item = transition(item, item.version, { type: "submit" });
+        item = transition(item, { type: "submit" });
 
-        return transition(item, item.version, {
+        return transition(item, {
           type: "reopen",
           base: 1,
           initiated_by: "agent",
@@ -191,7 +188,7 @@ describe("bounded questionnaire TUI", () => {
 
     try {
       Object.defineProperty(e.tui.terminal, "rows", { value: 80, configurable: true });
-      await e.press("1");
+      e.press("1");
       const screen = displayText(e.view.render(120).join("\n"));
 
       const positions = [
@@ -206,7 +203,7 @@ describe("bounded questionnaire TUI", () => {
       expect(positions).toEqual([...positions].sort((a, b) => a - b));
       expect(screen).not.toContain("**Shared constraints**");
       expect(screen.split(question.question)).toHaveLength(2);
-      await e.press("l");
+      e.press("l");
       const next = displayText(e.view.render(120).join("\n"));
       expect(next).toContain("Shared constraints");
       expect(next).toContain("New constraint");
@@ -215,8 +212,8 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("scrolls long context while keeping options and editors visible without changing answers", async () => {
-    const e = setup(true, false, undefined, {
+  it("scrolls long context while keeping options and editors visible without changing answers", () => {
+    const e = setup(true, false, {
       context: Array.from({ length: 40 }, (_, i) => `Context line ${i} 日本語 👩🏽‍💻`).join("\n\n"),
       questions: [{ ...question, multi_select: true }],
     });
@@ -225,15 +222,15 @@ describe("bounded questionnaire TUI", () => {
       const initial = displayText(e.view.render(80).join("\n"));
       expect(initial).toContain("Context line 0");
       expect(initial).toContain("> [ ] 1. First");
-      await e.press("pageDown");
+      e.press("pageDown");
       let screen = displayText(e.view.render(80).join("\n"));
       expect(screen).not.toContain("Context line 0");
       expect(screen).toContain("> [ ] 1. First");
-      await e.press("pageUp");
+      e.press("pageUp");
       screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain("Context line 0");
       expect(screen).toContain("> [ ] 1. First");
-      await e.press("j");
+      e.press("j");
       expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 2. Second");
 
       for (const [width, rows] of [
@@ -251,18 +248,18 @@ describe("bounded questionnaire TUI", () => {
           expect(displayText(lines.join("\n"))).toContain("> [ ] 2. Second");
       }
 
-      expect(e.item.version).toBe(1);
-      await e.press("n", "Visible note");
+      expect(e.mutations).toBe(0);
+      e.press("n", "Visible note");
       expect(displayText(e.view.render(100).join("\n"))).toContain("Visible note");
-      await e.press("\u001b");
+      e.press("\u001b");
       expect(displayText(e.view.render(100).join("\n"))).toContain("> [ ] 2. Second");
-      expect(e.item.version).toBe(1);
+      expect(e.mutations).toBe(0);
     } finally {
       e.view.dispose();
     }
   });
   it("scrolls context with normalized fullscreen wheel events and leaves pinned answers visible", () => {
-    const e = setup(true, false, undefined, {
+    const e = setup(true, false, {
       context: Array.from({ length: 40 }, (_, i) => `Mouse context ${i}`).join("\n\n"),
       questions: [{ ...question, multi_select: true }],
     });
@@ -297,8 +294,8 @@ describe("bounded questionnaire TUI", () => {
   it.each([
     [20, "Context 1–1 / 33"],
     [30, "Context 1–5 / 33"],
-  ])("pages directly between context endpoints at %i terminal rows", async (rows, firstRange) => {
-    const e = setup(false, false, undefined, {
+  ])("pages directly between context endpoints at %i terminal rows", (rows, firstRange) => {
+    const e = setup(false, false, {
       context: Array.from({ length: 15 }, (_, i) => `Context entry ${i}`).join("\n\n"),
       questions: [question],
     });
@@ -310,30 +307,30 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).toContain("Context entry 0");
       expect(screen).toContain("> ( ) 1. First");
 
-      await e.press(...Array.from({ length: 40 }, () => "pageDown"));
+      e.press(...Array.from({ length: 40 }, () => "pageDown"));
       screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain(rows === 20 ? "Context 33–33 / 33" : "Context 29–33 / 33");
       expect(screen).toContain("Unicode:");
       expect(screen).toContain("> ( ) 1. First");
 
-      await e.press(...Array.from({ length: 40 }, () => "pageUp"));
+      e.press(...Array.from({ length: 40 }, () => "pageUp"));
       screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain(firstRange);
       expect(screen).toContain("Context entry 0");
-      expect(e.item.version).toBe(1);
+      expect(e.mutations).toBe(0);
     } finally {
       e.view.dispose();
     }
   });
-  it("uses the resized context viewport when paging", async () => {
-    const e = setup(false, false, undefined, {
+  it("uses the resized context viewport when paging", () => {
+    const e = setup(false, false, {
       context: Array.from({ length: 15 }, (_, i) => `Context entry ${i}`).join("\n\n"),
       questions: [question],
     });
 
     try {
       e.view.render(80);
-      await e.press("j", ...Array.from({ length: 40 }, () => "pageDown"));
+      e.press("j", ...Array.from({ length: 40 }, () => "pageDown"));
       expect(displayText(e.view.render(80).join("\n"))).toContain("Context 29–33 / 33");
 
       Object.defineProperty(e.tui.terminal, "rows", { value: 18, configurable: true });
@@ -342,19 +339,19 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).toContain("Context entry 14");
       expect(screen).toContain("> ( ) 2. Second");
 
-      await e.press("pageDown", "pageDown", "pageDown", "pageDown");
+      e.press("pageDown", "pageDown", "pageDown", "pageDown");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Context 33–33 / 33");
-      await e.press("pageUp", "pageUp");
+      e.press("pageUp", "pageUp");
       screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain("Context 31–31 / 33");
       expect(screen).toContain("> ( ) 2. Second");
-      expect(e.item.version).toBe(1);
+      expect(e.mutations).toBe(0);
     } finally {
       e.view.dispose();
     }
   });
-  it.each([false, true])("advertises configured scrolling keys (remapped: %s)", async (remap) => {
-    const e = setup(false, remap, undefined, {
+  it.each([false, true])("advertises configured scrolling keys (remapped: %s)", (remap) => {
+    const e = setup(false, remap, {
       context: "Long context\n\n".repeat(40),
       questions: [question],
     });
@@ -368,53 +365,50 @@ describe("bounded questionnaire TUI", () => {
         expect(screen).toContain(`${up}/${down} Context`);
       }
 
-      await e.press(up);
+      e.press(up);
       const top = e.view.render(80);
-      await e.press(down);
+      e.press(down);
       expect(e.view.render(80)).not.toEqual(top);
-      await e.press(up);
+      e.press(up);
       expect(e.view.render(80)).toEqual(top);
-      expect(e.item.version).toBe(1);
+      expect(e.mutations).toBe(0);
     } finally {
       e.view.dispose();
     }
   });
-  it.each(["\u001b", "\r", "h"])(
-    "reveals the answer after closing a preview with %j",
-    async (close) => {
-      const e = setup(true, false, undefined, {
-        context: "Long context\n\n".repeat(40),
-        questions: [{ ...question, multi_select: true }],
-      });
-
-      try {
-        e.view.render(80);
-        await e.press("k");
-        expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 1. First");
-        await e.press("p");
-        expect(displayText(e.view.render(80).join("\n"))).toContain("const value");
-        await e.press(close);
-        expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 1. First");
-        expect(e.item.version).toBe(1);
-        expect(e.done).not.toHaveBeenCalled();
-      } finally {
-        e.view.dispose();
-      }
-    },
-  );
-  it.each(["\u001b", "\r"])("reveals the answer after leaving a note with %j", async (close) => {
-    const e = setup(true, false, undefined, {
+  it.each(["\u001b", "\r", "h"])("reveals the answer after closing a preview with %j", (close) => {
+    const e = setup(true, false, {
       context: "Long context\n\n".repeat(40),
       questions: [{ ...question, multi_select: true }],
     });
 
     try {
       e.view.render(80);
-      await e.press("j");
+      e.press("k");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 1. First");
+      e.press("p");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("const value");
+      e.press(close);
+      expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 1. First");
+      expect(e.mutations).toBe(0);
+      expect(e.done).not.toHaveBeenCalled();
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it.each(["\u001b", "\r"])("reveals the answer after leaving a note with %j", (close) => {
+    const e = setup(true, false, {
+      context: "Long context\n\n".repeat(40),
+      questions: [{ ...question, multi_select: true }],
+    });
+
+    try {
       e.view.render(80);
-      await e.press("n", "Answer note");
+      e.press("j");
+      e.view.render(80);
+      e.press("n", "Answer note");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Answer note");
-      await e.press(close);
+      e.press(close);
       expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 2. Second");
       expect(e.item.draft?.answers.choice?.notes.second).toBe(close === "\r" ? "Answer note" : "");
       expect(e.item.draft?.answers.choice?.selected).toEqual([]);
@@ -423,8 +417,8 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("reveals number-key selections and retains focus across a narrow resize", async () => {
-    const e = setup(true, false, undefined, {
+  it("reveals number-key selections and retains focus across a narrow resize", () => {
+    const e = setup(true, false, {
       questions: [
         {
           ...question,
@@ -442,13 +436,13 @@ describe("bounded questionnaire TUI", () => {
     try {
       Object.defineProperty(e.tui.terminal, "rows", { value: 40, configurable: true });
       e.view.render(80);
-      await e.press("5");
+      e.press("5");
       let screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain("> [x] 5. Choice 4");
       expect(screen).not.toContain("日本語 details");
-      await e.press("p");
+      e.press("p");
       expect(displayText(e.view.render(80).join("\n"))).toContain("日本語 details");
-      await e.press("\u001b");
+      e.press("\u001b");
       Object.defineProperty(e.tui.terminal, "rows", { value: 20, configurable: true });
       const lines = e.view.render(40);
       screen = displayText(lines.join("\n"));
@@ -461,16 +455,16 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("uses j/k to highlight without selecting, but keeps editor text and Review k intact", async () => {
+  it("uses j/k to highlight without selecting, but keeps editor text and Review k intact", () => {
     const e = setup();
 
     try {
-      await e.press("j");
+      e.press("j");
       expect(e.view.render(80).join("\n")).toContain("> ( ) 2. Second");
-      await e.press("k");
+      e.press("k");
       expect(e.view.render(80).join("\n")).toContain("> ( ) 1. First");
-      expect(e.item.version).toBe(1);
-      await e.press("g", "jk", "\r", "j", "\r", "k");
+      expect(e.mutations).toBe(0);
+      e.press("g", "jk", "\r", "j", "\r", "k");
       expect(e.item.submissions[0]?.answers.choice?.selections[0]?.option_id).toBe("second");
       expect(e.item.submissions[0]?.note).toBe("jk");
       expect(e.send).not.toHaveBeenCalled();
@@ -479,97 +473,34 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("keeps input ordered while a note checkpoint is still in flight", async () => {
-    const started = Promise.withResolvers<void>();
-    const checkpoint = Promise.withResolvers<void>();
-
-    const e = setup(false, false, async () => {
-      started.resolve();
-      await checkpoint.promise;
-    });
-
-    try {
-      await e.press("n");
-      e.view.handleInput("Checkpointed note");
-      e.view.handleInput("\r");
-      await started.promise;
-      e.view.handleInput("2");
-      expect(e.item.draft?.answers.choice?.selected).toEqual([]);
-      checkpoint.resolve();
-      await e.view.flush();
-      expect(e.item.draft?.answers.choice?.notes.first).toBe("Checkpointed note");
-      expect(e.item.draft?.answers.choice?.selected).toEqual(["second"]);
-      expect(e.done).not.toHaveBeenCalled();
-    } finally {
-      checkpoint.resolve();
-      e.view.dispose();
-    }
-  });
-  it("routes rapid keys after saving a note to the form, not the outgoing editor", async () => {
+  it("keeps highlight/context/preview view-only and requires Review then explicit submission", () => {
     const e = setup();
 
     try {
-      await e.press("n");
-
-      for (const key of ["Synthetic note", "\r", "2", "r"]) e.view.handleInput(key);
-      await e.view.flush();
-      expect(e.item.draft?.answers.choice?.notes.first).toBe("Synthetic note");
-      expect(e.item.draft?.answers.choice?.selected).toEqual(["second"]);
-      expect(e.view.render(80).join("\n")).toContain("Send answers");
-      expect(e.done).not.toHaveBeenCalled();
-    } finally {
-      e.view.dispose();
-    }
-  });
-  it("routes a rapid editor-open, paste, newline and completion burst in order", async () => {
-    const e = setup(false, true);
-
-    try {
-      for (const key of [
-        "g",
-        "\u001b[200~123rs\u001b[201~",
-        "\u001bj",
-        "next line",
-        "\u001bd",
-        "2",
-      ])
-        e.view.handleInput(key);
-      await e.view.flush();
-      expect(e.item.draft?.note).toBe("123rs\nnext line");
-      expect(e.item.draft?.answers.choice?.selected).toEqual(["second"]);
-      expect(e.done).not.toHaveBeenCalled();
-    } finally {
-      e.view.dispose();
-    }
-  });
-  it("keeps highlight/context/preview view-only and requires Review then explicit submission", async () => {
-    const e = setup();
-
-    try {
-      await e.press("p");
-      expect(e.item.version).toBe(1);
+      e.press("p");
+      expect(e.mutations).toBe(0);
       expect(displayText(e.view.render(80).join("\n"))).toContain("const value");
-      await e.press("\u001b", "\u001b[B", "p"); // No preview on this option: nothing opens.
+      e.press("\u001b", "\u001b[B", "p"); // No preview on this option: nothing opens.
       expect(displayText(e.view.render(80).join("\n"))).toContain("> ( ) 2. Second");
       const before = e.view.render(80);
-      await e.press("c");
+      e.press("c");
       expect(e.view.render(80)).toEqual(before);
-      expect(e.item.version).toBe(1);
-      await e.press("1");
+      expect(e.mutations).toBe(0);
+      e.press("1");
       expect(e.done).not.toHaveBeenCalled();
       expect(e.view.render(80).join("\n")).toContain("Review");
-      await e.press("\r", "\r");
+      e.press("\r", "\r");
       expect(e.item.submissions).toHaveLength(1);
       expect(e.send).toHaveBeenCalledOnce();
     } finally {
       e.view.dispose();
     }
   });
-  it("preserves distinct option notes across deselection and adds an overall note", async () => {
+  it("preserves distinct option notes across deselection and adds an overall note", () => {
     const e = setup(true);
 
     try {
-      await e.press(
+      e.press(
         "n",
         "first note",
         "\r",
@@ -596,11 +527,11 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("uses remapped multiline completion, treats digits/paste as editor text, and never submits from an editor", async () => {
+  it("uses remapped multiline completion, treats digits/paste as editor text, and never submits from an editor", () => {
     const e = setup(false, true);
 
     try {
-      await e.press(
+      e.press(
         "\u001b[B",
         "\u001b[B",
         "\u001by",
@@ -611,17 +542,17 @@ describe("bounded questionnaire TUI", () => {
       );
       expect(e.item.draft?.answers.choice?.custom).toBe("123\nr1s");
       expect(e.done).not.toHaveBeenCalled();
-      await e.press("r", "k");
+      e.press("r", "k");
       expect(e.item.submissions[0]?.answers.choice?.custom?.text).toBe("123\nr1s");
     } finally {
       e.view.dispose();
     }
   });
-  it("reselects a saved custom answer without requiring a text change", async () => {
+  it("reselects a saved custom answer without requiring a text change", () => {
     const e = setup();
 
     try {
-      await e.press(
+      e.press(
         "\u001b[B",
         "\u001b[B",
         "\r",
@@ -644,27 +575,11 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("flushes uncheckpointed typing on Stop, rebasing only unchanged drafts", async () => {
+  it("retains over-limit text and bounds Unicode/Markdown across resize", () => {
     const e = setup();
 
     try {
-      await e.press("g");
-      e.view.handleInput("last keystrokes");
-      e.pause();
-      e.abort.abort();
-      await expect.poll(() => e.done.mock.calls.length).toBe(1);
-      expect(e.item.draft?.note).toBe("last keystrokes");
-      expect(e.item.paused).toBe(true);
-      expect(e.report).not.toHaveBeenCalled();
-    } finally {
-      e.view.dispose();
-    }
-  });
-  it("retains over-limit text and bounds Unicode/Markdown across resize", async () => {
-    const e = setup();
-
-    try {
-      await e.press("p");
+      e.press("p");
 
       for (const [width, rows] of [
         [80, 30],
@@ -678,76 +593,76 @@ describe("bounded questionnaire TUI", () => {
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
       }
 
-      await e.press("\u001b", "g");
+      e.press("\u001b", "g");
       e.view.handleInput("日".repeat(1001));
-      await expect(e.view.flush()).rejects.toThrow("limit");
+      expect(() => e.view.flush()).toThrow("limit");
       expect(e.item.draft?.note).toBe("");
       Object.defineProperty(e.tui.terminal, "rows", { value: 40, configurable: true });
       expect(e.view.render(80).join("\n")).toContain("1001/1000");
-      await e.press("\r"); // Over-limit text cannot be saved, so the editor stays open.
+      e.press("\r"); // Over-limit text cannot be saved, so the editor stays open.
       expect(e.view.render(80).join("\n")).toContain("1001/1000");
       expect(e.view.render(80).join("\n")).toContain("limit");
-      await e.press("\u001b"); // Discarding is always possible.
+      e.press("\u001b"); // Discarding is always possible.
       expect(e.view.render(80).join("\n")).not.toContain("1001/1000");
       expect(e.item.draft?.note).toBe("");
     } finally {
       e.view.dispose();
     }
   });
-  it("saves a written answer with Enter and advances, discards it with Escape", async () => {
+  it("saves a written answer with Enter and advances, discards it with Escape", () => {
     const e = setup();
 
     try {
-      await e.press("\u001b[B", "\u001b[B", "\r", "typed then dropped", "\u001b");
+      e.press("\u001b[B", "\u001b[B", "\r", "typed then dropped", "\u001b");
       expect(e.item.draft?.answers.choice?.custom).toBe("");
       expect(e.item.draft?.answers.choice?.custom_selected).toBe(false);
       expect(e.view.render(80).join("\n")).toContain("Write answer");
-      await e.press("\r", "kept", "\r");
+      e.press("\r", "kept", "\r");
       expect(e.item.draft?.answers.choice).toMatchObject({ custom: "kept", custom_selected: true });
       expect(e.view.render(80).join("\n")).toContain("Send answers");
-      await e.press("1");
+      e.press("1");
       expect(e.view.render(80).join("\n")).toContain("> (•) Write another answer");
       expect(e.view.render(80).join("\n")).toContain("Edit answer · → Next");
-      await e.press("\r", "\u001b");
+      e.press("\r", "\u001b");
       expect(e.item.draft?.answers.choice?.custom).toBe("kept");
       expect(e.view.render(80).join("\n")).not.toContain("Send answers");
     } finally {
       e.view.dispose();
     }
   });
-  it("edits notes and written answers in a focused editor view", async () => {
+  it("edits notes and written answers in a focused editor view", () => {
     const e = setup();
 
     try {
-      await e.press("j", "n", "inline note");
+      e.press("j", "n", "inline note");
       const editor = displayText(e.view.render(80).join("\n"));
       expect(editor).toContain("Note · Second");
       expect(editor).toContain("inline note");
       expect(editor).not.toContain("( ) 1. First");
       expect(editor).toContain("11/1000");
       expect(editor).toContain("Save");
-      await e.press("\r");
+      e.press("\r");
       expect(e.item.draft?.answers.choice?.notes.second).toBe("inline note");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Note: inline note");
-      await e.press("g", "overall");
+      e.press("g", "overall");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Questionnaire note");
-      await e.press("\r");
-      await e.press("pageDown");
+      e.press("\r");
+      e.press("pageDown");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Questionnaire note: overall");
     } finally {
       e.view.dispose();
     }
   });
-  it("cancels only on a repeated x and notifies when answers are kept unsent", async () => {
+  it("cancels only on a repeated x and notifies when answers are kept unsent", () => {
     const e = setup();
 
     try {
-      await e.press("x");
+      e.press("x");
       expect(e.view.render(80).join("\n")).toContain("Press x again");
-      await e.press("1");
+      e.press("1");
       expect(e.item.cancelled).toBe(false);
       expect(e.view.render(80).join("\n")).not.toContain("Press x again");
-      await e.press("k");
+      e.press("k");
       expect(e.notify).toHaveBeenCalledWith(expect.stringContaining("not sent"));
       expect(e.send).not.toHaveBeenCalled();
       expect(e.done).toHaveBeenCalledWith("submitted");
@@ -755,8 +670,8 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("opens on the first unanswered question with the current answer highlighted", async () => {
-    const e = setup(false, false, undefined, {
+  it("opens on the first unanswered question with the current answer highlighted", () => {
+    const e = setup(false, false, {
       questions: [
         { ...question, id: "first_q", multi_select: false },
         { ...question, id: "second_q", header: "Second question" },
@@ -764,20 +679,22 @@ describe("bounded questionnaire TUI", () => {
     });
 
     try {
-      await e.press("2", "\u001b[D");
+      e.press("2", "\u001b[D");
       expect(e.view.render(80).join("\n")).toContain("> (•) 2. Second");
-      await e.press("x", "x");
+      e.press("x", "x");
       expect(e.item.cancelled).toBe(true);
     } finally {
       e.view.dispose();
     }
   });
-  it("closes after failed delivery while retaining the submitted revision in the inbox", async () => {
+  it("closes after failed delivery while retaining the submitted revision in the inbox", () => {
     const e = setup();
 
     try {
-      e.send.mockRejectedValue(new Error("handoff failed"));
-      await e.press("1", "\r");
+      e.send.mockImplementation(() => {
+        throw new Error("handoff failed");
+      });
+      e.press("1", "\r");
       expect(e.item.submissions).toHaveLength(1);
       expect(e.done).toHaveBeenCalledWith("submitted");
       expect(e.report).toHaveBeenCalled();

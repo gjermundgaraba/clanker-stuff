@@ -22,16 +22,18 @@
     "delivery.ts",
     "interaction.ts",
     "journal.ts",
+    "prompts.ts",
     "request.ts",
+    "status.ts",
     "summary.ts",
+    "tools.ts",
     "transcript.ts",
     "tui",
     "docs/interactions.md",
     "README.md",
     "LICENSE",
     "NOTICE",
-    "LICENSE-APACHE",
-    "status.ts"
+    "LICENSE-APACHE"
   ],
   "type": "module",
   "exports": "./index.ts",
@@ -39,10 +41,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@clanker-stuff/border-status-protocol": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
-    "@clanker-stuff/pi-tool-schema": "workspace:^",
-    "@clanker-stuff/pi-user-input": "workspace:^"
+    "@clanker-stuff/pi-tool-schema": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

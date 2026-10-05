@@ -50,7 +50,7 @@ const main = async (): Promise<void> => {
         percent: 9.9 - (tick % 90) / 100,
       };
 
-      return { activeMs: initialElapsedMs + elapsed, paused: false, metrics };
+      return { elapsedMs: initialElapsedMs + elapsed, metrics };
     },
     font,
   );

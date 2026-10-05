@@ -22,7 +22,6 @@
     "history.ts",
     "storage.ts",
     "import.ts",
-    "editor.ts",
     "search.ts",
     "docs",
     "README.md",
@@ -35,7 +34,8 @@
   },
   "dependencies": {
     "@clanker-stuff/editor": "workspace:^",
-    "@clanker-stuff/pi-extension-paths": "workspace:^"
+    "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "catalog:",

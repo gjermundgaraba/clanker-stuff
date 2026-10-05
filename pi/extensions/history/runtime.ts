@@ -1,122 +1,115 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import type {
-  ExtensionContext,
-  InputEvent,
-  UserBashEvent,
-  SessionStartEvent,
-} from "@earendil-works/pi-coding-agent";
+import { acquireEditorHost } from "@clanker-stuff/editor";
+import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
 
-import { installHistoryEditor } from "./editor.js";
-import { historyFromEntries, normalizeHistory, type HistoryItem } from "./history.js";
+import type { HistoryItem } from "./history.js";
 import { importPersistentHistory } from "./import.js";
 import {
   getDataVersion,
   loadHistory,
   openHistoryDatabase,
-  saveHistoryBatch,
+  openMemoryDatabase,
   saveHistoryItem,
 } from "./storage.js";
-import { createSearch, WIDGET_KEY } from "./search.js";
+import { createSearch } from "./search.js";
+
+const STATUS_KEY = "history";
+
+/** Native ↑/↓ recall holds this many of the most recent prompts. */
+const RECALL_LIMIT = 100;
 
 export const createHistoryRuntime = () => {
   let database: DatabaseSync | undefined;
-  let databaseVersion: number | undefined;
+  let persistent = false;
+  // Search snapshot; own writes are mirrored, other processes' writes reload it.
   let history: HistoryItem[] = [];
-  const unsaved = new Map<string, HistoryItem>();
+  let databaseVersion: number | undefined;
+  let closeSearch: (() => void) | undefined;
   let importAbort: AbortController | undefined;
   let importPromise: Promise<number> | undefined;
   let persistenceWarningShown = false;
 
-  const search = createSearch(() => history);
-
   const warnPersistence = (ui: ExtensionContext["ui"], cause: unknown): void => {
-    if (persistenceWarningShown) {
-      return;
-    }
-
+    if (persistenceWarningShown) return;
     persistenceWarningShown = true;
     const message = cause instanceof Error ? `: ${cause.message}` : "";
     ui.notify(`Prompt history persistence is unavailable${message}`, "warning");
   };
 
-  const replaceHistoryFromDatabase = (activeDatabase: DatabaseSync) => {
-    const nextVersion = getDataVersion(activeDatabase);
-    const nextHistory = loadHistory(activeDatabase);
+  const start = (ctx: ExtensionContext) => {
+    if (ctx.mode !== "tui") return;
 
-    for (const item of nextHistory) {
-      const pending = unsaved.get(item.text);
-
-      if (pending && item.timestamp >= pending.timestamp) unsaved.delete(item.text);
+    if (ctx.sessionManager.getSessionDir() !== "") {
+      try {
+        database = openHistoryDatabase();
+        persistent = true;
+      } catch (error) {
+        warnPersistence(ctx.ui, error);
+      }
     }
 
-    history =
-      unsaved.size > 0 ? normalizeHistory([...nextHistory, ...unsaved.values()]) : nextHistory;
-    databaseVersion = nextVersion;
-  };
-
-  const refreshHistory = (ui: ExtensionContext["ui"]) => {
-    if (!database) {
-      return;
-    }
+    // --no-session, or an unavailable store, keeps this session's history in memory only.
+    database ??= openMemoryDatabase();
+    let recent: HistoryItem[] = [];
 
     try {
-      const nextVersion = getDataVersion(database);
+      recent = loadHistory(database, RECALL_LIMIT);
+    } catch (error) {
+      warnPersistence(ctx.ui, error);
+    }
 
-      if (nextVersion !== databaseVersion) {
-        replaceHistoryFromDatabase(database);
-      }
+    acquireEditorHost(ctx)?.seedHistory(recent.map(({ text }) => text).toReversed());
+  };
+
+  const record = (text: string, ui: ExtensionContext["ui"]) => {
+    const trimmed = text.trim();
+
+    if (!database || !trimmed) return;
+    const item = { text: trimmed, timestamp: Date.now() };
+    history = [item, ...history.filter((entry) => entry.text !== trimmed)];
+
+    try {
+      saveHistoryItem(database, item);
     } catch (error) {
       warnPersistence(ui, error);
     }
   };
 
-  const addHistory = (text: string, ui: ExtensionContext["ui"]) => {
-    const trimmed = text.trim();
+  const snapshot = (activeDatabase: DatabaseSync, ui: ExtensionContext["ui"]) => {
+    try {
+      const version = getDataVersion(activeDatabase);
 
-    if (!trimmed) {
-      return;
-    }
-
-    const item = {
-      text: trimmed,
-      timestamp: Date.now(),
-    };
-
-    history = [item, ...history.filter((entry) => entry.text !== trimmed)];
-
-    if (database) {
-      try {
-        saveHistoryItem(database, item);
-        const pending = unsaved.get(item.text);
-
-        if (pending && item.timestamp >= pending.timestamp) unsaved.delete(item.text);
-      } catch (error) {
-        const pending = unsaved.get(item.text);
-
-        if (!pending || item.timestamp >= pending.timestamp) unsaved.set(item.text, item);
-        warnPersistence(ui, error);
+      if (version !== databaseVersion) {
+        history = loadHistory(activeDatabase);
+        databaseVersion = version;
       }
+    } catch (error) {
+      warnPersistence(ui, error);
     }
+
+    return history;
   };
 
-  const open = (ctx: ExtensionContext) => {
-    if (ctx.mode !== "tui") {
-      return;
-    }
+  const open = async (ctx: ExtensionContext) => {
+    if (!database) return;
+    const items = snapshot(database, ctx.ui);
 
-    if (!search.isActive()) {
-      refreshHistory(ctx.ui);
-    }
+    const accepted = await ctx.ui.custom<string | undefined>((_tui, theme, _keybindings, done) => {
+      closeSearch = () => done(undefined);
 
-    search.begin(ctx.ui);
+      return createSearch(items, theme, done);
+    });
+
+    closeSearch = undefined;
+
+    if (accepted !== undefined) ctx.ui.setEditorText(accepted);
   };
 
   const importHistory = async (ctx: ExtensionContext) => {
-    if (ctx.mode !== "tui") return;
-    const activeDatabase = database;
+    if (!database) return;
 
-    if (!activeDatabase) {
+    if (!persistent) {
       ctx.ui.notify("Prompt history persistence is unavailable", "warning");
 
       return;
@@ -129,119 +122,56 @@ export const createHistoryRuntime = () => {
     }
 
     const abort = new AbortController();
-
-    const pendingImport = importPersistentHistory(
-      activeDatabase,
+    importAbort = abort;
+    importPromise = importPersistentHistory(
+      database,
       ctx.sessionManager.getSessionDir(),
-      (status) => {
-        ctx.ui.setStatus(WIDGET_KEY, status);
-      },
+      (status) => ctx.ui.setStatus(STATUS_KEY, status),
       abort.signal,
     );
 
-    importAbort = abort;
-    importPromise = pendingImport;
-
     try {
-      const files = await pendingImport;
-      replaceHistoryFromDatabase(activeDatabase);
-      ctx.ui.notify(
-        `Imported ${history.length} history entries from ${files} session files.`,
-        "info",
-      );
+      const files = await importPromise;
+      ctx.ui.notify(`Imported prompt history from ${files} session files.`, "info");
     } catch (error) {
       if (!abort.signal.aborted) {
-        try {
-          replaceHistoryFromDatabase(activeDatabase);
-        } catch (reconciliationError) {
-          warnPersistence(ctx.ui, reconciliationError);
-        }
-
         const message = error instanceof Error ? `: ${error.message}` : "";
         ctx.ui.notify(`Session history import failed${message}`, "error");
       }
     } finally {
-      ctx.ui.setStatus(WIDGET_KEY, undefined);
+      // Writes on this connection do not change its data version.
+      databaseVersion = undefined;
+      ctx.ui.setStatus(STATUS_KEY, undefined);
       importAbort = undefined;
       importPromise = undefined;
     }
   };
 
-  const start = (event: SessionStartEvent, ctx: ExtensionContext) => {
-    if (ctx.mode !== "tui") {
-      return;
-    }
-
-    history = normalizeHistory(historyFromEntries(ctx.sessionManager.getBranch()));
-
-    if (ctx.sessionManager.getSessionDir() !== "") {
-      try {
-        database = openHistoryDatabase();
-        saveHistoryBatch(database, history);
-      } catch (error) {
-        try {
-          database?.close();
-        } catch {
-          // Keep current-session history usable even when SQLite cleanup fails.
-        }
-
-        database = undefined;
-        warnPersistence(ctx.ui, error);
-      }
-    }
-
-    installHistoryEditor(event, ctx, () => {
-      if (database) {
-        try {
-          // This is only a native-recall seed, not a complete search snapshot.
-          // Leave databaseVersion unset so the first Ctrl+R loads all history.
-          history = loadHistory(database, 100);
-        } catch (error) {
-          warnPersistence(ctx.ui, error);
-        }
-      }
-
-      return history;
-    });
-  };
-
   const recordInput = (event: InputEvent, ctx: ExtensionContext) => {
-    if (ctx.mode === "tui" && event.source === "interactive") {
-      addHistory(event.text, ctx.ui);
-    }
+    if (event.source === "interactive") record(event.text, ctx.ui);
   };
 
   const recordBash = (event: UserBashEvent, ctx: ExtensionContext) => {
-    if (ctx.mode !== "tui") return;
-    addHistory(`${event.excludeFromContext ? "!!" : "!"}${event.command}`, ctx.ui);
+    record(`${event.excludeFromContext ? "!!" : "!"}${event.command}`, ctx.ui);
   };
 
-  const dispose = async (ctx: ExtensionContext) => {
-    if (ctx.mode !== "tui") return;
+  const dispose = async () => {
+    closeSearch?.();
     importAbort?.abort();
 
     try {
       await importPromise;
     } catch {
-      // The import command handles errors; shutdown only waits for cleanup.
+      // The import command reports its errors; shutdown only waits for it to stop writing.
     }
 
-    ctx.ui.setStatus(WIDGET_KEY, undefined);
-    search.reset();
     database?.close();
     database = undefined;
-    databaseVersion = undefined;
+    persistent = false;
     history = [];
-    unsaved.clear();
+    databaseVersion = undefined;
     persistenceWarningShown = false;
   };
 
-  return {
-    dispose,
-    importHistory,
-    open,
-    recordBash,
-    recordInput,
-    start,
-  };
+  return { dispose, importHistory, open, recordBash, recordInput, start };
 };

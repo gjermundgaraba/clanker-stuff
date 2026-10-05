@@ -1,118 +1,57 @@
-import type { Credential } from "@earendil-works/pi-ai";
+import type { AuthResult } from "@earendil-works/pi-ai";
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { SupportedProvider, UsageFetchError } from "./providers.js";
+import { usageFailure } from "./providers.js";
+import type { SupportedProvider, UsageFetchFailure } from "./providers.js";
 
-interface ResolvedAccess {
-  accessToken: string;
-}
+export type GetAuth = (provider: SupportedProvider) => Promise<AuthResult | undefined>;
 
-type AuthResolution<T = ResolvedAccess> =
-  | { ok: true; value: T }
-  | { ok: false; kind: UsageFetchError["kind"]; message: string };
-
-interface AuthLike {
-  auth?: { apiKey?: string };
-  source?: string;
-}
-
-interface ResolvedAuth extends ResolvedAccess {
-  source?: string;
-}
-
-export interface ProviderAuthClient {
-  getProviderAuth: (provider: string) => Promise<AuthLike | undefined>;
-}
-
-const resolveAuth = async (
-  client: ProviderAuthClient,
-  provider: SupportedProvider,
-): Promise<AuthResolution<ResolvedAuth>> => {
-  let auth: AuthLike | undefined;
-
-  try {
-    auth = await client.getProviderAuth(provider);
-  } catch {
-    return {
-      kind: "unavailable",
-      message: "not logged in",
-      ok: false,
-    };
-  }
-
-  const accessToken = auth?.auth?.apiKey;
-  const source = auth?.source;
-
-  if (accessToken === undefined || accessToken.length === 0) {
-    return {
-      kind: "unavailable",
-      message: "not logged in",
-      ok: false,
-    };
-  }
-
-  return {
-    ok: true,
-    value: source === undefined ? { accessToken } : { accessToken, source },
-  };
-};
-
-export const resolveAccessToken = async (
-  client: ProviderAuthClient,
-  provider: SupportedProvider,
-): Promise<AuthResolution> => {
-  const resolved = await resolveAuth(client, provider);
-
-  return resolved.ok ? { ok: true, value: { accessToken: resolved.value.accessToken } } : resolved;
-};
-
-export const resolveOAuthAccess = async (
-  client: ProviderAuthClient,
-  provider: SupportedProvider,
-): Promise<AuthResolution> => {
-  const resolved = await resolveAuth(client, provider);
-
-  if (!resolved.ok) {
-    return resolved;
-  }
-
-  if (resolved.value.source !== "OAuth") {
-    return {
-      kind: "unavailable",
-      message: "subscription usage requires OAuth login (not API key)",
-      ok: false,
-    };
-  }
-
-  return {
-    ok: true,
-    value: { accessToken: resolved.value.accessToken },
-  };
-};
-
-interface ProviderAuthContext {
-  modelRegistry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth">;
-}
-
-type StoredCredentialReader = (provider: string) => Credential | undefined;
-
-export const providerAuthClientFromContext = (
-  ctx: ProviderAuthContext,
-  readCredential: StoredCredentialReader = readStoredCredential,
-): ProviderAuthClient => ({
-  getProviderAuth: async (provider) => {
+/**
+ * Pi's request auth for each provider. Copilot's resolves to the Copilot session token, which the
+ * usage endpoint rejects, so a stored login uses its GitHub token instead.
+ */
+export const contextAuth =
+  (
+    ctx: { modelRegistry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth"> },
+    readCredential: typeof readStoredCredential = readStoredCredential,
+  ): GetAuth =>
+  async (provider) => {
     if (provider === "github-copilot") {
       const credential = readCredential(provider);
 
-      if (credential?.type === "oauth" && credential.refresh.length > 0) {
-        return {
-          auth: { apiKey: credential.refresh },
-          source: "OAuth",
-        };
-      }
+      if (credential?.type === "oauth" && credential.refresh.length > 0)
+        return { auth: { apiKey: credential.refresh }, source: "OAuth" };
     }
 
     return await ctx.modelRegistry.getProviderAuth(provider);
-  },
-});
+  };
+
+/**
+ * The credential to send to a usage endpoint. Subscription endpoints (`oauth`) are unavailable
+ * with API keys rather than failing, so API-key users are not shown a failure on every refresh.
+ */
+export const accessToken = async (
+  getAuth: GetAuth,
+  provider: SupportedProvider,
+  { oauth = false }: { oauth?: boolean } = {},
+): Promise<{ ok: true; token: string } | UsageFetchFailure> => {
+  let auth: AuthResult | undefined;
+
+  try {
+    auth = await getAuth(provider);
+  } catch {
+    // An expired OAuth login whose refresh fails is not logged in for usage purposes.
+    auth = undefined;
+  }
+
+  const token = auth?.auth.apiKey;
+
+  if (token === undefined || token.length === 0)
+    return usageFailure("not logged in", "unavailable");
+
+  if (oauth && auth?.source !== "OAuth")
+    return usageFailure("subscription usage requires OAuth login (not API key)", "unavailable");
+
+  return { ok: true, token };
+};

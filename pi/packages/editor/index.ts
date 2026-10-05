@@ -5,25 +5,19 @@ import type {
   KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import {
-  truncateToWidth,
-  type EditorTheme,
-  type LoaderIndicatorOptions,
-  type TUI,
-} from "@earendil-works/pi-tui";
-import { connect, type Draft, type DocumentView, type DocumentAdapter } from "./adapter.js";
+import { truncateToWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import { connect, type DocumentView, type DocumentAdapter } from "./adapter.js";
 import { decorateRows, type Decoration } from "./render.js";
 
-/** Changes made outside the modal engine. Its own edits, restores and previews are not reported. */
+/** Changes made outside the modal engine. Its own edits and restores are not reported. */
 export type Change = "input" | "insert" | "replace";
 
-type Kind = Change | "edit" | "restore" | "preview";
+type Kind = Change | "edit" | "restore";
 
 export interface Editing {
   input(data: string): boolean;
   changed(kind: Change, before?: DocumentView): void;
   submitted(): void;
-  suspend(): (restore: boolean) => void;
   selection(): Decoration[];
 }
 
@@ -31,28 +25,18 @@ export interface Border {
   render(line: string, width: number, color: (text: string) => string): string;
 }
 
-type StatusIndicator = NonNullable<Parameters<CustomEditor["setWorkingStatusIndicator"]>[0]>;
-
-/** Pi's border-embedded status spinners. The working spinner stays with `ctx.ui.setWorkingIndicator()`. */
-export type StatusKind = Exclude<StatusIndicator["kind"], "working">;
-
-/** Frames and interval for one status spinner; undefined keeps Pi's default animation. */
-export type StatusStyle = LoaderIndicatorOptions;
-
 interface Contributions {
   editing?: Editing;
   foreground?: (text: string) => Decoration[];
   border?: Border;
-  status?: (kind: StatusKind) => StatusStyle | undefined;
 }
 
 class SharedEditor extends CustomEditor {
-  readonly document: DocumentAdapter;
+  /** Undefined when Pi's private editor layout is unsupported: document features are skipped. */
+  readonly document: DocumentAdapter | undefined;
   readonly keys: KeybindingsManager;
   private kind: Kind = "input";
   private before: DocumentView | undefined;
-  private status: StatusIndicator | undefined;
-  private statusStyled = false;
 
   constructor(
     tui: TUI,
@@ -61,10 +45,18 @@ class SharedEditor extends CustomEditor {
     private readonly contributions: Contributions,
     private readonly uiTheme: () => Theme,
     changed: (kind: Kind, before?: DocumentView) => void,
+    unsupported: (reason: string) => void,
   ) {
     super(tui, theme, keys, { embedWorkingStatus: true });
     this.keys = keys;
-    this.document = connect(this);
+
+    try {
+      this.document = connect(this);
+    } catch (error) {
+      // Border, working status, history and change observation still use only public editor APIs.
+      unsupported(error instanceof Error ? error.message : String(error));
+    }
+
     let change: typeof this.onChange;
     let submit: typeof this.onSubmit;
     // Pi assigns callbacks after the factory returns. Keep observation at that instance boundary.
@@ -73,7 +65,7 @@ class SharedEditor extends CustomEditor {
       get: () => (text: string) => {
         changed(this.kind, this.before);
 
-        if (this.before) this.before = this.document.view();
+        if (this.before) this.before = this.document?.view();
         change?.(text);
       },
       set: (next: typeof this.onChange) => {
@@ -83,7 +75,7 @@ class SharedEditor extends CustomEditor {
     Object.defineProperty(this, "onSubmit", {
       configurable: true,
       get: () => (text: string) => {
-        contributions.editing?.submitted();
+        this.editing?.submitted();
         submit?.(text);
       },
       set: (next: typeof this.onSubmit) => {
@@ -91,11 +83,15 @@ class SharedEditor extends CustomEditor {
       },
     });
   }
+  /** The modal engine edits through the document adapter, so it is inactive without one. */
+  private get editing() {
+    return this.document && this.contributions.editing;
+  }
   private withChange(kind: Kind, action: () => void) {
     const previous = this.kind;
     const before = this.before;
 
-    if (kind === "insert" && this.contributions.editing) this.before = this.document.view();
+    if (kind === "insert" && this.editing) this.before = this.document?.view();
     this.kind = kind;
 
     try {
@@ -115,10 +111,7 @@ class SharedEditor extends CustomEditor {
   override handleInput(data: string) {
     // ProcessTerminal delivers complete packets, already framed by StdinBuffer.
     if (data.startsWith("\x1b[200~")) this.withChange("insert", () => super.handleInput(data));
-    else if (data && !this.contributions.editing?.input(data)) this.nativeInput(data);
-  }
-  previewText(text: string) {
-    this.withChange("preview", () => super.setText(text));
+    else if (data && !this.editing?.input(data)) this.nativeInput(data);
   }
   override setText(text: string) {
     // Pi round-trips getText() through setText(), e.g. when a custom view closes. Keep the
@@ -129,48 +122,29 @@ class SharedEditor extends CustomEditor {
   override insertTextAtCursor(text: string) {
     this.withChange("insert", () => super.insertTextAtCursor(text));
   }
-  restore(draft: Draft, kind: "restore" | "preview" = "restore") {
-    this.withChange(kind, () => {
-      this.document.restore(draft);
-      this.onChange?.(this.getText());
-    });
-    this.tui.requestRender();
-  }
+  // The modal engine is the only caller and is inactive without a document.
   restoreView(view: DocumentView) {
+    const document = this.document;
+
+    if (!document) return;
     this.withChange("restore", () => {
-      this.document.restoreView(view);
+      document.restoreView(view);
       this.onChange?.(this.getText());
     });
     this.tui.requestRender();
   }
   edit(start: number, end: number, insertion: string, cursor: number) {
+    const document = this.document;
+
+    if (!document) return;
     this.withChange("edit", () => {
-      this.document.replace(start, end, insertion, cursor);
+      document.replace(start, end, insertion, cursor);
       this.onChange?.(this.getText());
     });
     this.tui.requestRender();
   }
   refresh() {
     this.tui.requestRender();
-  }
-  override setWorkingStatusIndicator(indicator: StatusIndicator | undefined) {
-    this.status = indicator;
-    this.statusStyled = false;
-    this.restyleStatus();
-    super.setWorkingStatusIndicator(indicator);
-  }
-  /** Apply the status contribution to the embedded spinner. Pi keeps styling the working one. */
-  restyleStatus() {
-    const indicator = this.status;
-
-    if (!indicator || indicator.kind === "working") return;
-    const style = this.contributions.status?.(indicator.kind);
-
-    // Pi constructs these spinners with its defaults; restyling restarts the loop, so
-    // only touch an indicator that has a style or was styled before.
-    if (style === undefined && !this.statusStyled) return;
-    indicator.setIndicator(style);
-    this.statusStyled = style !== undefined;
   }
   protected override renderTopBorder(width: number, hiddenLineCount: number): string {
     const line = super.renderTopBorder(width, hiddenLineCount);
@@ -179,25 +153,28 @@ class SharedEditor extends CustomEditor {
   }
   override render(width: number) {
     const native = super.render(width);
-    const text = this.document.text();
+    const document = this.document;
 
-    const spans = [
-      ...(this.contributions.foreground?.(text) ?? []),
-      ...(this.contributions.editing?.selection() ?? []),
-    ];
+    const spans = document
+      ? [
+          ...(this.contributions.foreground?.(document.text()) ?? []),
+          ...(this.editing?.selection() ?? []),
+        ]
+      : [];
 
     const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
 
-    return spans.length
-      ? decorateRows(native, text, padding, this.document, spans, this.uiTheme(), width)
+    return document && spans.length
+      ? decorateRows(native, document.text(), padding, document, spans, this.uiTheme(), width)
       : native.map((row) => truncateToWidth(row, width, ""));
   }
 }
 
 export class EditorHost {
   editor: SharedEditor | undefined;
+  /** Why Pi's private editor layout could not be connected, if it could not. */
+  unsupported: string | undefined;
   private readonly contributions: Contributions = {};
-  private revision = 0;
   private history: string[] = [];
   private readonly mounts = new Set<(editor: SharedEditor) => void>();
   constructor(private readonly theme: () => Theme) {}
@@ -211,10 +188,11 @@ export class EditorHost {
       this.contributions,
       this.theme,
       (kind, before) => {
-        this.revision++;
-
         if (kind === "input" || kind === "insert" || kind === "replace")
           this.contributions.editing?.changed(kind, before);
+      },
+      (reason) => {
+        this.unsupported = reason;
       },
     );
 
@@ -229,17 +207,13 @@ export class EditorHost {
   /** One owner per slot; the release leaves a later owner's contribution in place. */
   contribute<K extends keyof Contributions>(slot: K, value: NonNullable<Contributions[K]>) {
     this.contributions[slot] = value;
-    this.changed(slot);
+    this.editor?.refresh();
 
     return () => {
       if (this.contributions[slot] !== value) return;
       delete this.contributions[slot];
-      this.changed(slot);
+      this.editor?.refresh();
     };
-  }
-  private changed(slot: keyof Contributions) {
-    if (slot === "status") this.editor?.restyleStatus();
-    this.editor?.refresh();
   }
   onMount(mounted: (editor: SharedEditor) => void) {
     this.mounts.add(mounted);
@@ -255,104 +229,50 @@ export class EditorHost {
 
     for (const entry of entries) this.editor?.addToHistory(entry);
   }
-  preview() {
-    const editor = this.editor;
-
-    if (!editor) throw new Error("History preview requires a mounted editor");
-    const draft = editor.document.capture();
-    const resume = this.contributions.editing?.suspend();
-    let expected = this.revision;
-    let active = true;
-
-    return {
-      show: (text: string) => {
-        if (!active) return;
-
-        if (expected !== this.revision) {
-          active = false;
-          resume?.(false);
-
-          return;
-        }
-
-        editor.previewText(text);
-        expected = this.revision;
-      },
-      close: (cancel: boolean) => {
-        if (!active) return;
-        active = false;
-
-        if (expected !== this.revision) {
-          resume?.(false);
-
-          return;
-        }
-
-        if (cancel) editor.restore(draft, "preview");
-        else editor.document.clearNativeUndo();
-        resume?.(cancel);
-        editor.refresh();
-      },
-    };
-  }
 }
 
 // The factory is Pi's existing shared ownership boundary, including across separate jiti loads.
 // The key versions the host's shape; a copy built for another shape sees a foreign editor.
-const owner = Symbol.for("clanker-stuff.editor/1");
-
-interface Owned {
-  host: EditorHost;
-  failure?: string;
-}
+const owner = Symbol.for("clanker-stuff.editor/2");
 
 type OwnedFactory = NonNullable<ReturnType<ExtensionUIContext["getEditorComponent"]>> & {
-  [owner]?: Owned;
+  [owner]?: EditorHost;
 };
 
-/** Install or join the shared editor. Undefined means editor-dependent features are skipped. */
+/** The shared editor while it is Pi's current editor; another extension can replace it later. */
+export function currentEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost | undefined {
+  // SAFETY: The optional symbol property is set only on factories created by acquireEditorHost.
+  return (ctx.ui.getEditorComponent() as OwnedFactory | undefined)?.[owner];
+}
+
+/** Install or join the shared editor. Undefined means another editor owns the session. */
 export function acquireEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost | undefined {
   const ui = ctx.ui;
-  // SAFETY: The optional symbol property is set only on factories created below.
-  const factory = ui.getEditorComponent() as OwnedFactory | undefined;
-  let owned = factory?.[owner];
+  let host = currentEditorHost(ctx);
 
-  if (factory && !owned) {
+  if (!host && ui.getEditorComponent()) {
     ui.setStatus("shared-editor", "Custom editor: shared editing features unavailable");
 
     return undefined;
   }
 
-  if (!owned) {
-    const installed: Owned = { host: new EditorHost(() => ui.theme) };
-    owned = installed;
-
-    const next: OwnedFactory = (tui, theme, keys) => {
-      try {
-        return installed.host.create(tui, theme, keys);
-      } catch (error) {
-        // Pi has already cleared its editor container; an unsupported Pi keeps a stock prompt.
-        installed.failure = error instanceof Error ? error.message : String(error);
-
-        return new CustomEditor(tui, theme, keys, { embedWorkingStatus: true });
-      }
-    };
-
+  if (!host) {
+    const installed = new EditorHost(() => ui.theme);
+    host = installed;
+    const next: OwnedFactory = (tui, theme, keys) => installed.create(tui, theme, keys);
     next[owner] = installed;
     const draft = ui.getEditorText();
     ui.setEditorComponent(next);
     // Pi transfers only the previous editor's getText(), which can contain orphaned markers.
     // Its public UI getter is expanded; repair that lossy initial handoff.
-    installed.host.editor?.setText(draft);
+    installed.editor?.setText(draft);
   }
 
-  ui.setStatus("shared-editor", owned.failure);
+  ui.setStatus("shared-editor", host.unsupported);
 
-  return owned.failure === undefined ? owned.host : undefined;
+  return host;
 }
 
-export type Preview = ReturnType<EditorHost["preview"]>;
-
-export type { Draft, DocumentView } from "./adapter.js";
+export type { DocumentAdapter, DocumentView } from "./adapter.js";
 
 export type { Decoration } from "./render.js";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
@@ -23,10 +23,7 @@ const hasCommand = (command: string) =>
   spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0;
 
 const resumeSession = (sessionManager: SessionManager) => ({
-  getCwd: () => sessionManager.getCwd(),
-  getSessionDir: () => sessionManager.getSessionDir(),
   getSessionFile: () => sessionManager.getSessionFile(),
-  getSessionId: () => sessionManager.getSessionId(),
 });
 
 describe("resume command", () => {
@@ -75,42 +72,29 @@ describe("resume command", () => {
     const [message] = messages;
     assert(message);
     await expect(readFile(path.join(inbox, message), "utf-8")).resolves.toBe(
-      "pi --session full-session-id\n",
+      `pi --session ${sessionManager.getSessionFile()}\n`,
     );
   });
 
-  it("quotes a custom session directory", async () => {
+  it("resumes the session file in its own directory from any shell directory", async () => {
     const { cwd } = await setup();
     const sessionDir = path.join(tempRoot ?? "", "custom pi's sessions");
     const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
     sessionManager.appendMessage(fauxAssistantMessage("test"));
+    const command = formatResumeCommand(sessionManager);
+    assert(command);
 
-    expect(formatResumeCommand(sessionManager)).toBe(
-      `pi --session-dir '${sessionDir.replaceAll("'", String.raw`'\''`)}' --session full-session-id`,
-    );
+    // The shell must hand Pi exactly the session file; Pi then takes the cwd from its header.
+    const args = execFileSync("sh", ["-c", `pi() { printf '%s\\n' "$@"; }; ${command}`], {
+      cwd: tempRoot,
+      encoding: "utf-8",
+    });
+
+    const [flag, sessionFile] = args.trimEnd().split("\n");
+    expect(flag).toBe("--session");
+    expect(sessionFile).toBe(sessionManager.getSessionFile());
+    expect(SessionManager.open(sessionFile ?? "").getCwd()).toBe(cwd);
   });
-
-  it.each(["safe; touch /tmp/pwned", "target.jsonl"])(
-    "uses the session file for unsafe or path-like ID %j",
-    async (sessionId) => {
-      const { cwd } = await setup();
-      const sessionFile = path.join(tempRoot ?? "", "imported.jsonl");
-      await writeFile(
-        sessionFile,
-        `${JSON.stringify({
-          cwd,
-          id: sessionId,
-          timestamp: new Date().toISOString(),
-          type: "session",
-          version: 3,
-        })}\n`,
-      );
-
-      expect(formatResumeCommand(SessionManager.open(sessionFile))).toBe(
-        `pi --session ${sessionFile}`,
-      );
-    },
-  );
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
     const { cwd, inbox } = await setup();

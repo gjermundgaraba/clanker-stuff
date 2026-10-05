@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchClaudeUsage, mapClaudeUsagePayload } from "../../adapters/claude.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuthClient } from "./helpers.js";
+import { NOW, tokenAuth } from "./helpers.js";
 
 describe("claude usage", () => {
   const payload = {
@@ -52,7 +52,7 @@ describe("claude usage", () => {
   it.each([-1, 101])("rejects out-of-range utilization %s at ingress", async (utilization) => {
     await expect(
       fetchClaudeUsage({
-        authClient: tokenAuthClient("token"),
+        getAuth: tokenAuth("token"),
         fetchJson: okFetch({ five_hour: { utilization } }),
         now: () => NOW,
       }),
@@ -67,7 +67,7 @@ describe("claude usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchClaudeUsage({
-      authClient: tokenAuthClient("claude-token"),
+      getAuth: tokenAuth("claude-token"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });
@@ -83,12 +83,10 @@ describe("claude usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchClaudeUsage({
-      authClient: {
-        getProviderAuth: async () => ({
-          auth: { apiKey: "api-key" },
-          source: "Environment",
-        }),
-      },
+      getAuth: async () => ({
+        auth: { apiKey: "api-key" },
+        source: "Environment",
+      }),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

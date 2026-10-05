@@ -136,11 +136,28 @@ describe("run metrics", () => {
     expect(totalTokens(metrics.usage)).toBe(1480);
   });
 
-  it("counts codex-provider's inline checkpoints as compactions", () => {
+  it("counts the calls a tool made itself, such as Code Mode's, with their errors", () => {
     const session = SessionManager.inMemory();
-    session.appendCustomEntry("codex-provider.checkpoint", {});
-    session.appendCustomEntry("other", {});
-    expect(collectMetrics(session.getBranch()).compactions).toBe(1);
+    session.appendMessage(fauxAssistantMessage([fauxToolCall("codemode", {}, { id: "call-1" })]));
+
+    session.appendMessage({
+      role: "toolResult",
+      toolName: "codemode",
+      toolCallId: "call-1",
+      content: [],
+      isError: false,
+      nestedCalls: {
+        complete: true,
+        calls: [
+          { id: "call-1/1", name: "read", status: "ok" },
+          { id: "call-1/2", name: "bash", status: "error", error: "exit 1" },
+          { id: "call-1/3", name: "edit", status: "unfinished" },
+        ],
+      },
+      timestamp: 0,
+    });
+
+    expect(collectMetrics(session.getBranch())).toMatchObject({ toolCalls: 4, toolErrors: 1 });
   });
 
   it("keeps unknown reasoning distinct from a reported zero", () => {

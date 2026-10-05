@@ -8,7 +8,7 @@ import { ROLL_FRAME_MS, RollingNumbers } from "./rolling.js";
 
 /**
  * One widget per run. It owns the only redraw timer: rolling frames while digits move,
- * otherwise the next displayed second, and nothing while paused.
+ * otherwise the next displayed second.
  */
 export const createLiveWidget = (
   tui: TUI,
@@ -30,15 +30,8 @@ export const createLiveWidget = (
 
       if (!state) return [];
 
-      // Values that changed while paused snap on resume.
-      if (state.paused) {
-        numbers.reset();
-
-        return renderLive(state, width, theme);
-      }
-
       // Running time shows whole seconds; wake just after the next one.
-      const nextSecond = 1001 - (state.activeMs % 1000);
+      const nextSecond = 1001 - (state.elapsedMs % 1000);
 
       if (!font) {
         wake(nextSecond);

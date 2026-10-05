@@ -1,5 +1,5 @@
 import type { Answer, Draft, Interaction, Submission } from "./interaction.js";
-import { submissionChanges } from "./interaction.js";
+import { revisedSubmission } from "./interaction.js";
 import type { Question } from "./request.js";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 
@@ -78,41 +78,50 @@ export function submissionRows(
   return rows;
 }
 
-export function draftChanges(item: Interaction): string[] {
-  const previous = item.submissions.at(-1);
-
-  if (!previous || !item.draft) return [];
-
-  const changes = item.request.questions
+/** Headers of questions whose answers or notes differ from a previous submission. */
+export function changedHeaders(
+  questions: Question[],
+  previous: Submission,
+  answers: Record<string, Answer | undefined>,
+  note: string,
+): string[] {
+  const changes = questions
     .filter(
       (q) =>
-        JSON.stringify(answerRows(draftAnswer(item, q))) !==
+        JSON.stringify(answerRows(answers[q.id])) !==
         JSON.stringify(answerRows(previous.answers[q.id])),
     )
     .map((q) => q.header);
 
-  if (previous.note !== item.draft.note) changes.push("Questionnaire note");
+  if (previous.note !== note) changes.push("Questionnaire note");
 
   return changes;
 }
 
 /** Rows for a submission, or for the current draft when no submission is given. */
 export function interactionRows(item: Interaction, submission?: Submission): Row[] {
-  if (submission)
+  const questions = item.request.questions;
+
+  if (submission) {
+    const previous = item.submissions.find((s) => s.revision === submission.revision - 1);
+
     return submissionRows(
       submission.answers,
       submission.note,
-      submission.parent_revision ? submissionChanges(item, submission) : undefined,
+      previous
+        ? changedHeaders(questions, previous, submission.answers, submission.note)
+        : undefined,
     );
+  }
 
-  const answers = Object.fromEntries(
-    item.request.questions.map((q) => [q.id, draftAnswer(item, q)]),
-  );
+  const answers = Object.fromEntries(questions.map((q) => [q.id, draftAnswer(item, q)]));
+  const note = item.draft?.note ?? "";
+  const base = revisedSubmission(item);
 
   return submissionRows(
     answers,
-    item.draft?.note ?? "",
-    item.draft?.base_revision ? draftChanges(item) : undefined,
+    note,
+    base ? changedHeaders(questions, base, answers, note) : undefined,
   );
 }
 

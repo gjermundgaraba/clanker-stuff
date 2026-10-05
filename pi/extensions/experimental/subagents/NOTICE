@@ -3,6 +3,5 @@ Copyright 2025 OpenAI
 
 This package includes collaboration tool names, schemas, descriptions, and
 prompt text derived from OpenAI Codex (https://github.com/openai/codex),
-licensed under the Apache License 2.0. In the source tree, the extracted
-contract fixture under docs/fixtures derives from the same revision.
+licensed under the Apache License 2.0.
 See LICENSE.openai for the license text and UPSTREAM for the pinned revision.

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { resolveJsonSchemaStrictSampling } from "@earendil-works/pi-ai/api/constrained-sampling";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createCustomUiDriver, createKeybindings } from "../../../tests/harness/tui.js";
 import extension from "../index.js";
 import { Coordinator } from "../coordinator.js";
 import {
@@ -37,6 +39,21 @@ describe("questionnaire contract", () => {
     } finally {
       answer.mockRestore();
     }
+  });
+  it("fails a blocking questionnaire whose branch changed while it was open", async () => {
+    initTheme("dark");
+    const driver = createCustomUiDriver({ keybindings: createKeybindings({}) });
+    const host = createExtensionHost(extension);
+    const ctx = host.createToolContext({ ui: { custom: driver.custom } });
+    await host.emitSessionStart(ctx);
+    const question = { id: "q1", header: "Tests", question: "Which test?" };
+    const asking = host.runTool("request_user_input", { questions: [question] }, { ctx });
+
+    await expect.poll(() => driver.component).toBeDefined();
+    await host.emitSessionTree(ctx);
+
+    // Its answer would belong to the branch it was asked on, not the one now active.
+    await expect(asking).rejects.toThrow("Questionnaire belongs to an inactive session branch");
   });
   it("registers the question tools with schemas strict sampling can represent", async () => {
     const host = createExtensionHost(extension);

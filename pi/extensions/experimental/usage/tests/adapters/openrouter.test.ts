@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { fetchOpenRouterUsage, mapOpenRouterCreditsPayload } from "../../adapters/openrouter.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
+import { NOW, okFetch, tokenAuth } from "./helpers.js";
 
 // Live shape returned by https://openrouter.ai/api/v1/credits.
 const creditsPayload = {
@@ -37,7 +37,7 @@ describe("openrouter usage", () => {
     };
 
     const result = await fetchOpenRouterUsage({
-      authClient: tokenAuthClient("sk-or-test"),
+      getAuth: tokenAuth("sk-or-test"),
       fetchJson,
       now: () => NOW,
     });

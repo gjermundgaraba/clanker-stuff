@@ -72,7 +72,7 @@ describe("questionnaire presentation", () => {
   it("shows completion and keeps the current tab visible at narrow widths", () => {
     let item = fresh();
     expect(progressLine(item, 0, 70, theme)).toContain("○ Target");
-    item = transition(item, item.version, { type: "select", question: "target", option: "local" });
+    item = transition(item, { type: "select", question: "target", option: "local" });
     expect(progressLine(item, 1, 70, theme)).toContain("✓ Target");
     const line = progressLine(item, 1, 24, theme);
     expect(line).toContain("Timing");
@@ -80,7 +80,7 @@ describe("questionnaire presentation", () => {
   });
   it("reviews answers without duplicated prompts, recommendations or empty notes", () => {
     let item = fresh();
-    item = transition(item, item.version, { type: "select", question: "target", option: "local" });
+    item = transition(item, { type: "select", question: "target", option: "local" });
     const text = reviewText(item);
     expect(text).toContain("1. Target");
     expect(text).toContain("✓ Local");
@@ -96,16 +96,16 @@ describe("questionnaire presentation", () => {
       ["target", "local"],
       ["timing", "now"],
     ] as const)
-      item = transition(item, item.version, { type: "select", question, option });
-    item = transition(item, item.version, { type: "submit" });
-    item = transition(item, item.version, {
+      item = transition(item, { type: "select", question, option });
+    item = transition(item, { type: "submit" });
+    item = transition(item, {
       type: "reopen",
       base: 1,
       initiated_by: "user",
       mode: "async",
     });
     expect(diffText(item)).toContain("No answer changes");
-    item = transition(item, item.version, {
+    item = transition(item, {
       type: "note",
       question: "target",
       option: "local",
@@ -194,7 +194,7 @@ describe("questionnaire presentation", () => {
   });
   it("indents continuation lines of written answers in Review", () => {
     let item = fresh();
-    item = transition(item, item.version, { type: "custom", question: "target", text: "one\ntwo" });
+    item = transition(item, { type: "custom", question: "target", text: "one\ntwo" });
     expect(reviewText(item)).toContain("  ✓ one\n    two");
   });
 });

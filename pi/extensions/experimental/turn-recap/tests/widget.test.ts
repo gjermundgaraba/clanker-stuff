@@ -23,11 +23,7 @@ afterEach(() => vi.useRealTimers());
 const setup = (configured: RollingFont | undefined) => {
   const metrics = snapshot().metrics;
 
-  const running: LiveState = {
-    activeMs: 1000,
-    paused: false,
-    metrics,
-  };
+  const running: LiveState = { elapsedMs: 1000, metrics };
 
   let state: LiveState | undefined = running;
   const theme = createIdentityTheme();
@@ -52,7 +48,7 @@ const setup = (configured: RollingFont | undefined) => {
 describe("live widget", () => {
   it("wakes once per displayed second when nothing rolls", () => {
     const env = setup(undefined);
-    expect(plain(env.widget.render(80))).toContain("1s active");
+    expect(plain(env.widget.render(80))).toContain("1s elapsed");
     expect(vi.getTimerCount()).toBe(1);
     vi.advanceTimersByTime(1000);
     expect(env.request).not.toHaveBeenCalled();
@@ -62,19 +58,19 @@ describe("live widget", () => {
 
   it("snaps first observations, rolls observed changes, then settles as ordinary text", () => {
     const env = setup(font);
-    expect(plain(env.widget.render(80))).toContain("1s active");
-    env.running.activeMs = 2000;
-    expect(plain(env.widget.render(80))).toContain("1s active"); // ASCII start still moves.
+    expect(plain(env.widget.render(80))).toContain("1s elapsed");
+    env.running.elapsedMs = 2000;
+    expect(plain(env.widget.render(80))).toContain("1s elapsed"); // ASCII start still moves.
     vi.advanceTimersByTime(Math.ceil(ROLL_FRAME_MS));
     expect(env.request).toHaveBeenCalledOnce();
     vi.advanceTimersByTime(130 - Math.ceil(ROLL_FRAME_MS));
     const middle = env.widget.render(80);
-    expect(plain(middle)).toContain(`${font.glyph("1", "2", 0.5)}s active`);
+    expect(plain(middle)).toContain(`${font.glyph("1", "2", 0.5)}s elapsed`);
     expect(middle.every((line) => visibleWidth(line) <= 80)).toBe(true);
     vi.advanceTimersByTime(129);
     env.widget.render(80);
     vi.advanceTimersByTime(1);
-    expect(plain(env.widget.render(80))).toContain("2s active");
+    expect(plain(env.widget.render(80))).toContain("2s elapsed");
 
     // Settled: the next wake is the next second, not another frame.
     env.request.mockClear();
@@ -143,15 +139,12 @@ describe("live widget", () => {
     expect(env.request).not.toHaveBeenCalled();
   });
 
-  it.each(["paused", "settled"])("stops every timer when %s", (reason) => {
+  it("stops every timer when settled", () => {
     const env = setup(font);
     env.widget.render(80);
     env.metrics.toolCalls = 4;
     env.widget.render(80);
-
-    if (reason === "paused") env.running.paused = true;
-
-    if (reason === "settled") env.show(undefined);
+    env.show(undefined);
     expect(hasFrames(plain(env.widget.render(80)))).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
     env.request.mockClear();
@@ -196,11 +189,7 @@ describe("live widget", () => {
       setProgress() {},
     };
 
-    let state: LiveState | undefined = {
-      activeMs: 1000,
-      paused: false,
-      metrics: snapshot().metrics,
-    };
+    let state: LiveState | undefined = { elapsedMs: 1000, metrics: snapshot().metrics };
 
     const tui = new TuiMainScreen(terminal);
 

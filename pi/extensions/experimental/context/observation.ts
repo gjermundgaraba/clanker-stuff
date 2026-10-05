@@ -2,14 +2,10 @@ import type { BodyFormat } from "./snapshot.js";
 
 export const MAX_REQUEST_BYTES = 1024 * 1024;
 
-const SECRET_KEY =
-  /authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|cookie|^(?:auth|authentication|token|credentials?)$/i;
-
+/** One inline image or audio clip would otherwise consume most of the retained-text cap. */
 // oxlint-disable anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- JSON.stringify must receive opaque non-string values unchanged; narrowing or normalizing them here would alter foreign payload serialization.
-function omit(this: unknown, key: string, value: unknown): unknown {
+function omitMedia(this: unknown, key: string, value: unknown): unknown {
   if (typeof value !== "string") return value;
-
-  if (SECRET_KEY.test(key)) return "[credential omitted]";
 
   if (
     /^data:[^,]*;base64,/i.test(value) ||
@@ -37,7 +33,7 @@ export function observeRequest(payload: unknown): ObservedRequest {
   let body: string | undefined;
 
   try {
-    body = JSON.stringify(payload, omit, 2);
+    body = JSON.stringify(payload, omitMedia, 2);
   } catch {
     // Cycles, throwing getters/toJSON, and other non-JSON inputs are inspection failures.
     body = undefined;

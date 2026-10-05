@@ -4,14 +4,8 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
-import { normalizeAnnotationArguments, parseAnnotationOutcome } from "../annotations.js";
+import { parseAnnotationOutcome } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
-import { notifyError } from "../command-runtime.js";
-
-interface AssistantSnapshot {
-  entryId: string;
-  text: string;
-}
 
 type SessionMessage = Extract<SessionEntry, { type: "message" }>["message"];
 
@@ -29,73 +23,43 @@ const getAssistantText = (message: SessionMessage): string | undefined => {
   return text.length > 0 ? text : undefined;
 };
 
-const getLastAssistantSnapshot = (ctx: ExtensionCommandContext): AssistantSnapshot | undefined => {
-  const branch = ctx.sessionManager.getBranch();
-
-  for (const entry of branch.toReversed()) {
-    if (entry.type !== "message") {
-      continue;
-    }
-
-    const text = getAssistantText(entry.message);
+const getLastAssistantText = (ctx: ExtensionCommandContext): string | undefined => {
+  for (const entry of ctx.sessionManager.getBranch().toReversed()) {
+    const text = entry.type === "message" ? getAssistantText(entry.message) : undefined;
 
     if (text !== undefined) {
-      return { entryId: entry.id, text };
+      return text;
     }
   }
 
   return undefined;
 };
 
-const hasMovedPastSnapshot = (ctx: ExtensionCommandContext, entryId: string): boolean => {
-  if (!ctx.isIdle()) {
-    return true;
-  }
-
-  const branch = ctx.sessionManager.getBranch();
-  const index = branch.findIndex((entry) => entry.id === entryId);
-
-  if (index === -1) {
-    return true;
-  }
-
-  return branch.slice(index + 1).some((entry) => entry.type === "message");
-};
-
+// The review can outlive later turns, so feedback always names the response it is about.
+// `message` is the trimmed text getLastAssistantText returned.
 const anchorFeedback = (feedback: string, message: string): string => {
-  const trimmed = message.trim();
-  const excerpt = trimmed.length <= 1000 ? trimmed : `${trimmed.slice(0, 1000).trimEnd()}...`;
+  const excerpt = message.length <= 1000 ? message : `${message.slice(0, 1000).trimEnd()}...`;
 
   const quote = excerpt
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
 
-  return `This feedback applies to the earlier assistant response excerpted below:\n\n${quote}\n\nUser feedback:\n${feedback}`;
+  return `This feedback applies to the assistant response excerpted below:\n\n${quote}\n\nUser feedback:\n${feedback}`;
 };
 
 export const createLastHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-    const parsed = runtime.parseArguments(args, ctx);
+    const tokens = runtime.parseArguments(args, ctx);
 
-    if (parsed === undefined) {
+    if (tokens === undefined) {
       return;
     }
 
-    let tokens: string[];
+    const message = getLastAssistantText(ctx);
 
-    try {
-      tokens = normalizeAnnotationArguments(parsed, new Set(["--json", "--stdin"]));
-    } catch (error) {
-      notifyError(ctx, "Invalid Plannotator arguments", error);
-
-      return;
-    }
-
-    const snapshot = getLastAssistantSnapshot(ctx);
-
-    if (snapshot === undefined) {
+    if (message === undefined) {
       ctx.ui.notify("No assistant message found in session.", "error");
 
       return;
@@ -118,7 +82,7 @@ export const createLastHandler =
           return;
         }
 
-        let feedback = outcome.feedback.trim();
+        const feedback = outcome.feedback.trim();
 
         if (feedback.length === 0) {
           ctx.ui.notify("Plannotator message annotation closed without feedback.", "info");
@@ -126,16 +90,12 @@ export const createLastHandler =
           return;
         }
 
-        if (hasMovedPastSnapshot(ctx, snapshot.entryId)) {
-          feedback = anchorFeedback(feedback, snapshot.text);
-        }
-
         pi.sendUserMessage(
-          `# Message Annotations\n\n${feedback}\n\nPlease address the annotation feedback above.`,
+          `# Message Annotations\n\n${anchorFeedback(feedback, message)}\n\nPlease address the annotation feedback above.`,
           { deliverAs: "followUp" },
         );
       },
       openedMessage: "Plannotator message annotation opened.",
-      stdin: snapshot.text,
+      stdin: message,
     });
   };

@@ -5,7 +5,7 @@ import { createUsageRuntime } from "./runtime.js";
 
 export const createUsageExtension = (dependencies?: UsageControllerDependencies) =>
   function usageExtension(pi: ExtensionAPI): void {
-    const runtime = createUsageRuntime(pi, dependencies);
+    const runtime = createUsageRuntime(dependencies);
 
     pi.registerCommand("usage", {
       description: "Show account usage for supported providers",
@@ -16,7 +16,7 @@ export const createUsageExtension = (dependencies?: UsageControllerDependencies)
       runtime.sessionStart(ctx);
     });
     pi.on("model_select", (_event, ctx) => runtime.refresh(ctx));
-    pi.on("message_end", (event, ctx) => runtime.refresh(ctx, event.message));
+    pi.on("turn_end", (_event, ctx) => runtime.refresh(ctx));
     pi.on("agent_settled", (_event, ctx) => runtime.refresh(ctx));
     pi.on("session_tree", (_event, ctx) => runtime.refresh(ctx));
     pi.on("session_shutdown", () => runtime.shutdown());

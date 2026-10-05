@@ -1,14 +1,12 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { TaskLogs } from "./logs.js";
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
+import { TaskLogs } from "./logs.js";
+import { TaskNotices, type Unread } from "./notices.js";
 import { WatchDecoder } from "./protocol.js";
-import type { TaskSummary } from "./output.js";
+import type { Outcome, TaskSummary } from "./output.js";
 
 export interface StartTask {
   name: string;
@@ -19,8 +17,6 @@ export interface StartTask {
   protocol?: "events-v1";
   timeoutMs?: number;
 }
-
-export type Outcome = Exclude<TaskSummary["status"], "running">;
 
 export interface Task {
   id: string;
@@ -33,41 +29,47 @@ export interface Task {
   cleanup: TaskSummary["cleanup"];
   diagnostic?: string;
   result?: JsonValue;
-  abandoned: boolean;
+  notices: TaskNotices;
+  logs: TaskLogs;
   child?: ChildProcess;
-  logs?: TaskLogs;
   ready: Promise<void>;
   cleanupPromise?: Promise<void>;
   timer?: ReturnType<typeof setTimeout>;
 }
 
-export interface SupervisorHooks {
-  reserve(id: string): void;
-  protected(id: string): boolean;
-  progress(task: Task, data: JsonValue, key?: string): void;
-  terminal(task: Task, outcome: Outcome): void;
-  changed(): void;
-}
-
 export interface ProcessLimits {
   concurrency: number;
+  /** Finished, cleaned and fully read tasks kept for inspection. */
   history: number;
+  /** Finished tasks whose notice is still unread; bounds memory while delivery waits. */
+  unread: number;
   graceMs: number;
   killMs: number;
 }
 
-const defaults: ProcessLimits = { concurrency: 8, history: 32, graceMs: 1000, killMs: 1000 };
+export const DEFAULT_LIMITS: ProcessLimits = {
+  concurrency: 8,
+  history: 32,
+  unread: 32,
+  graceMs: 1000,
+  killMs: 1000,
+};
 
-/** Owns processes, never Pi contexts. Notifications are plain observations. */
+/** A finished task announces its outcome only after cleanup, when its logs are complete. */
+export const unread = (task: Task): Unread | undefined =>
+  task.notices.unread(task.cleanup === "pending" ? undefined : task.outcome);
+
+const describe = (error: unknown) =>
+  safeText(error instanceof Error ? error.message : String(error)).slice(0, 500);
+
+/** Owns processes, never Pi contexts. */
 export class Supervisor {
   private tasks = new Map<string, Task>();
-  private directory?: Promise<string>;
   private closing = false;
   private shutdownPromise?: Promise<void>;
-  evicted = 0;
   constructor(
-    private hooks: SupervisorHooks,
-    private limits: ProcessLimits = defaults,
+    private changed: () => void,
+    private limits: ProcessLimits = DEFAULT_LIMITS,
   ) {}
 
   async start(spec: StartTask, signal?: AbortSignal): Promise<Task> {
@@ -76,43 +78,40 @@ export class Supervisor {
     signal?.throwIfAborted();
 
     if (this.closing) throw new Error("Session is shutting down");
-    await Promise.all(
-      this.list()
-        .filter((t) => t.cleanup === "failed")
-        .map((t) => this.reconcile(t)),
-    );
-    signal?.throwIfAborted();
-
-    if (this.closing) throw new Error("Session is shutting down");
 
     if (this.activeCount >= this.limits.concurrency)
-      throw new Error("Concurrent task limit reached (including cleanup failures)");
-    await this.prune();
-    signal?.throwIfAborted();
+      throw new Error(
+        "Concurrent task limit reached (including cleanup failures); stopping a task whose cleanup failed checks it again",
+      );
+    this.prune();
 
-    // Recheck after pruning: sibling starts execute concurrently.
-    if (this.closing || this.activeCount >= this.limits.concurrency)
-      throw new Error("Task admission unavailable");
-    const id = `t_${randomUUID()}`;
-    this.hooks.reserve(id);
+    if (this.list().filter((t) => t.outcome && unread(t)).length >= this.limits.unread)
+      throw new Error(
+        "Too many finished tasks have unread notifications; inspect them before starting more.",
+      );
 
     const task: Task = {
-      id,
+      id: `t_${randomUUID()}`,
       spec,
       startedAt: Date.now(),
       cleanup: "pending",
-      abandoned: false,
+      notices: new TaskNotices(),
+      logs: new TaskLogs(),
       ready: Promise.resolve(),
     };
 
-    this.tasks.set(id, task);
+    this.tasks.set(task.id, task);
     task.ready = this.launch(task, signal);
     await task.ready;
 
     if (signal?.aborted || task.outcome === "spawn_error" || task.outcome === "cancelled") {
       await this.stop(task.id);
+      // A failed start leaves nothing to inspect unless its process may still be alive.
+      const kept = task.cleanup !== "clean";
+
+      if (!kept) this.tasks.delete(task.id);
       throw new Error(
-        `Task ${id} did not start: ${task.outcome ?? "cancelled"}. Inspect it for diagnostics.`,
+        `Task did not start (${task.outcome ?? "cancelled"})${task.diagnostic ? `: ${task.diagnostic}` : ""}${kept ? `; cleanup failed, see task ${task.id}` : ""}`,
       );
     }
 
@@ -121,17 +120,6 @@ export class Supervisor {
 
   private async launch(task: Task, signal?: AbortSignal): Promise<void> {
     try {
-      this.directory ??= mkdtemp(join(tmpdir(), "pi-background-tasks-"));
-      const root = await this.directory;
-      const directory = await mkdtemp(join(root, `${task.id}-`));
-      task.logs = new TaskLogs(directory);
-
-      if (this.closing || task.outcome || signal?.aborted) {
-        this.finish(task, "cancelled");
-
-        return;
-      }
-
       const child = spawn(task.spec.command, task.spec.args, {
         cwd: task.spec.cwd,
         detached: true,
@@ -145,7 +133,7 @@ export class Supervisor {
 
       const capture = (stream: "stdout" | "stderr", chunk: Buffer) => {
         try {
-          task.logs?.append(stream, chunk);
+          task.logs.append(stream, chunk);
 
           if (stream === "stdout" && decoder && !task.outcome) {
             decoder.push(chunk, (record) => {
@@ -163,13 +151,14 @@ export class Supervisor {
                 return false;
               }
 
-              this.hooks.progress(task, record.data, record.key);
+              task.notices.record(record.data, record.key);
+              this.notify();
 
               return !task.outcome;
             });
           }
         } catch (error) {
-          task.diagnostic = safeText(String(error)).slice(0, 500);
+          task.diagnostic = describe(error);
           this.finish(task, "protocol_error");
         }
       };
@@ -177,7 +166,7 @@ export class Supervisor {
       child.stdout?.on("data", (chunk: Buffer) => capture("stdout", chunk));
       child.stderr?.on("data", (chunk: Buffer) => capture("stderr", chunk));
       child.on("error", (error) => {
-        task.diagnostic = safeText(error.message).slice(0, 500);
+        task.diagnostic = describe(error);
         this.finish(task, "spawn_error");
       });
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
@@ -191,7 +180,7 @@ export class Supervisor {
           try {
             decoder?.finish();
           } catch (error) {
-            task.diagnostic = safeText(String(error)).slice(0, 500);
+            task.diagnostic = describe(error);
             this.finish(task, "protocol_error");
 
             return;
@@ -229,9 +218,9 @@ export class Supervisor {
         task.timer.unref();
       }
 
-      this.changed();
+      this.notify();
     } catch (error) {
-      task.diagnostic = safeText(String(error)).slice(0, 500);
+      task.diagnostic = describe(error);
       this.finish(task, "spawn_error");
     }
   }
@@ -241,88 +230,98 @@ export class Supervisor {
     task.outcome = outcome;
     task.endedAt = Date.now();
     clearTimeout(task.timer);
+    this.reap(task);
+  }
+
+  /** Runs process cleanup; stop() also uses it to retry a cleanup that failed. */
+  private reap(task: Task): void {
+    task.cleanup = "pending";
     // Defer until launch has returned, avoiding a ready/cleanup promise cycle.
     task.cleanupPromise = Promise.resolve()
       .then(async () => {
         await task.ready;
         await this.cleanup(task);
-
-        if (!this.closing && !task.abandoned) this.hooks.terminal(task, outcome);
-        this.changed();
+        this.notify();
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (task.cleanup === "pending") task.cleanup = "failed";
-        task.diagnostic = safeText(String(error)).slice(0, 500);
-        this.changed();
+        task.diagnostic = describe(error);
+        this.notify();
       });
-    this.changed();
+    this.notify();
   }
 
   private async cleanup(task: Task): Promise<void> {
     const child = task.child;
     const pid = child?.pid;
 
-    if (child && pid) {
-      const alive = () => {
-        try {
-          process.kill(-pid, 0);
-
-          return true;
-        } catch (error) {
-          return !(error instanceof Error && "code" in error && error.code === "ESRCH");
-        }
-      };
-
-      const kill = (signal: NodeJS.Signals) => {
-        try {
-          process.kill(-pid, signal);
-        } catch (error) {
-          if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-            task.diagnostic = safeText(String(error)).slice(0, 500);
-          }
-        }
-      };
-
-      const wait = async (ms: number) => {
-        const deadline = Date.now() + ms;
-
-        while (alive() && Date.now() < deadline) await delay(25);
-      };
-
-      if (alive()) {
-        kill("SIGTERM");
-        await wait(this.limits.graceMs);
-      }
-
-      if (alive()) {
-        kill("SIGKILL");
-        await wait(this.limits.killMs);
-      }
-
-      task.cleanup = alive() ? "failed" : "clean";
-
-      // Allow close/data callbacks to drain. Never wait forever for inherited pipes.
-      if (!child.stdout?.destroyed || !child.stderr?.destroyed) {
-        await Promise.race([
-          new Promise<void>((resolve) => child.once("close", () => resolve())),
-          delay(100),
-        ]);
-      }
-
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-    } else {
+    if (!child || !pid) {
       task.cleanup = "clean";
+
+      return;
     }
 
-    await task.logs?.close();
+    const alive = () => {
+      try {
+        process.kill(-pid, 0);
+
+        return true;
+      } catch (error) {
+        return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+      }
+    };
+
+    // macOS can transiently refuse to signal a group of exiting processes.
+    let refusal: string | undefined;
+
+    const kill = (signal: NodeJS.Signals) => {
+      try {
+        process.kill(-pid, signal);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
+          refusal = describe(error);
+      }
+    };
+
+    const wait = async (ms: number) => {
+      const deadline = Date.now() + ms;
+
+      while (alive() && Date.now() < deadline) await delay(25);
+    };
+
+    if (alive()) {
+      kill("SIGTERM");
+      await wait(this.limits.graceMs);
+    }
+
+    if (alive()) {
+      kill("SIGKILL");
+      await wait(this.limits.killMs);
+    }
+
+    const verdict = alive() ? "failed" : "clean";
+
+    if (verdict === "failed" && refusal !== undefined) task.diagnostic ??= refusal;
+
+    // Allow close/data callbacks to drain. Never wait forever for inherited pipes.
+    if (!child.stdout?.destroyed || !child.stderr?.destroyed) {
+      await Promise.race([
+        new Promise<void>((resolve) => child.once("close", () => resolve())),
+        delay(100),
+      ]);
+    }
+
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    // Published once cleanup is over: a stop that sees "failed" retries a finished cleanup.
+    task.cleanup = verdict;
   }
 
-  private changed(): void {
-    if (!this.closing) this.hooks.changed();
+  private notify(): void {
+    if (!this.closing) this.changed();
   }
   get activeCount(): number {
-    return [...this.tasks.values()].filter((t) => !t.outcome || t.cleanup !== "clean").length;
+    return this.list().filter((t) => !t.outcome || t.cleanup !== "clean").length;
   }
   get(id: string): Task {
     const task = this.tasks.get(id);
@@ -337,42 +336,33 @@ export class Supervisor {
   async stop(id: string): Promise<Task> {
     const task = this.get(id);
     this.finish(task, "cancelled");
+
+    // A failed cleanup may be stale: the group can exit after cleanup gives up.
+    if (task.cleanup === "failed") this.reap(task);
     await task.cleanupPromise;
-    await this.reconcile(task);
 
     return task;
   }
-  private async reconcile(task: Task): Promise<void> {
-    if (task.cleanup !== "failed") return;
-    // Cleanup assigns its status before draining pipes and closing logs.
-    await task.cleanupPromise;
-    const child = task.child;
+  /** Stops tasks a branch change orphaned and forgets those whose process group is gone. */
+  async discard(orphaned: (task: Task) => boolean): Promise<void> {
+    const tasks = this.list().filter(orphaned);
 
-    if (!child?.pid || (child.exitCode === null && child.signalCode === null)) return;
+    // Forget them before awaiting cleanup, so no notice announces them meanwhile.
+    for (const task of tasks) this.tasks.delete(task.id);
+    await Promise.all(
+      tasks.map(async (task) => {
+        this.finish(task, "cancelled");
+        await task.cleanupPromise;
 
-    try {
-      process.kill(-child.pid, 0);
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ESRCH") {
-        task.cleanup = "clean";
-        this.changed();
-      }
-    }
-  }
-  async prune(): Promise<void> {
-    const retained = this.list().filter(
-      (t) => t.outcome && t.cleanup === "clean" && !this.hooks.protected(t.id),
+        if (task.cleanup !== "clean") this.tasks.set(task.id, task);
+      }),
     );
+  }
+  private prune(): void {
+    const finished = this.list().filter((t) => t.outcome && t.cleanup === "clean" && !unread(t));
 
-    const victims = retained.slice(0, Math.max(0, retained.length - this.limits.history));
-
-    // Claim every victim before filesystem work can yield to another prune.
-    for (const task of victims) this.tasks.delete(task.id);
-    this.evicted += victims.length;
-
-    for (const task of victims) {
-      if (task.logs) await rm(task.logs.directory, { recursive: true, force: true });
-    }
+    for (const task of finished.slice(0, Math.max(0, finished.length - this.limits.history)))
+      this.tasks.delete(task.id);
   }
   shutdown(): Promise<void> {
     this.shutdownPromise ??= this.close();
@@ -382,12 +372,6 @@ export class Supervisor {
   private async close(): Promise<void> {
     this.closing = true;
     await Promise.all(this.list().map((t) => this.stop(t.id)));
-
-    if (this.directory && this.list().every((t) => t.cleanup === "clean")) {
-      const directory = await this.directory.catch(() => undefined);
-
-      if (directory) await rm(directory, { recursive: true, force: true });
-    }
   }
 }
 
@@ -402,6 +386,5 @@ export function taskSummary(task: Task): TaskSummary {
     ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
     ...(task.exitCode !== undefined ? { exitCode: task.exitCode } : {}),
     ...(task.signal !== undefined ? { signal: task.signal } : {}),
-    abandoned: task.abandoned,
   };
 }

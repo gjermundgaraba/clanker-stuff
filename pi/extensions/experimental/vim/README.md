@@ -12,7 +12,7 @@ pi install /absolute/path/to/clanker-stuff/pi/extensions/experimental/vim
 
 ## Usage
 
-Start typing in Insert mode; press Escape for Normal mode, then `i` to resume typing. History, skill mentions, and border-status compose automatically.
+Start typing in Insert mode; press Escape for Normal mode, then `i` to resume typing. History and skill mentions compose automatically, and the mode shows as the `vim` status.
 
 ## Requirements
 

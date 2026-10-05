@@ -1,20 +1,12 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-  MessageEndEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { createUsageController } from "./controller.js";
 import type { UsageControllerDependencies } from "./controller.js";
 
 type UsageController = ReturnType<typeof createUsageController>;
 
-export const createUsageRuntime = (
-  pi: ExtensionAPI,
-  dependencies?: UsageControllerDependencies,
-) => {
+export const createUsageRuntime = (dependencies?: UsageControllerDependencies) => {
   let pendingStart: ExtensionContext | undefined;
   let startupLoad: ReturnType<typeof setImmediate> | undefined;
 
@@ -23,7 +15,7 @@ export const createUsageRuntime = (
       const { createUsageController } = await import("./controller.js");
       signal.throwIfAborted();
 
-      return createUsageController(pi, dependencies);
+      return createUsageController(dependencies);
     },
     (controller) => {
       if (pendingStart !== undefined) {
@@ -88,9 +80,9 @@ export const createUsageRuntime = (
         controller.dispose();
       });
     },
-    refresh: (ctx: ExtensionContext, newest?: MessageEndEvent["message"]): void => {
+    refresh: (ctx: ExtensionContext): void => {
       if (pendingStart !== undefined) pendingStart = ctx;
-      usage.get()?.refresh(ctx, newest);
+      usage.get()?.refresh(ctx);
     },
   };
 };

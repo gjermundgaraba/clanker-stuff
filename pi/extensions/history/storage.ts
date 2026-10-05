@@ -19,6 +19,18 @@ const UPSERT_HISTORY_SQL = `
 
 const HistoryRowSchema = Type.Object({ last_used_at: Type.Number(), text: Type.String() });
 
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL UNIQUE,
+    last_used_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS history_recency
+  ON history(last_used_at DESC, id DESC);
+`;
+
+/** The persistent store shared by every Pi process. */
 export const openHistoryDatabase = (): DatabaseSync => {
   const { dataDir } = getExtensionStoragePaths("history");
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -29,15 +41,7 @@ export const openHistoryDatabase = (): DatabaseSync => {
       PRAGMA busy_timeout = 1000;
       PRAGMA journal_mode = WAL;
       PRAGMA synchronous = NORMAL;
-
-      CREATE TABLE IF NOT EXISTS history (
-        id INTEGER PRIMARY KEY,
-        text TEXT NOT NULL UNIQUE,
-        last_used_at INTEGER NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS history_recency
-      ON history(last_used_at DESC, id DESC);
+      ${SCHEMA_SQL}
     `);
 
     return database;
@@ -45,6 +49,14 @@ export const openHistoryDatabase = (): DatabaseSync => {
     database.close();
     throw error;
   }
+};
+
+/** A private store for sessions that must not read or write persistent history. */
+export const openMemoryDatabase = (): DatabaseSync => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(SCHEMA_SQL);
+
+  return database;
 };
 
 export const saveHistoryItem = (database: DatabaseSync, item: HistoryItem): void => {

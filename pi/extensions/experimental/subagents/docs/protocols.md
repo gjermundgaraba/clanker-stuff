@@ -1,213 +1,46 @@
-# Subagent protocols and architecture
+# Subagents design
 
-This document is the normative Pi model-facing and runtime contract for the subagents extension. The extension hosts independent Pi `AgentSession` children behind one root-scoped control plane. It supports two mutually exclusive model-facing protocols while sharing only Pi session hosting, selection, persistence, configuration, and nicknames.
+The extension hosts independent Pi `AgentSession` children behind one tree per root session. Its tools, prompts, and mailbox envelope are adapted from the Codex V2 collaboration contract pinned in `../UPSTREAM`; Pi owns sessions, providers, permissions, queues, retries, and compaction.
 
-The [Codex model-facing contract](codex-model-facing-contract.md) is a descriptive pinned upstream reference, not a Pi implementation specification. The broader [Codex implementation reference](codex-reference.md) explains upstream architecture. The [parity ledger](codex-parity.md) records every known match and difference, including intentional and unsupported differences.
+## Tools and addressing
 
-## Compatibility objective
+Every agent, including the root, gets six model-only tools: `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`. Agents have canonical paths such as `/root/research/tests`; a parent may address a direct child by its task name.
 
-This provider-neutral extension adapts Codex collaboration contracts to Pi's native session and tool APIs. The working premise is that Codex models are trained and tuned for the native Codex CLI harness, so reducing model-facing distribution shift should improve their behavior in Pi.
+Mail uses the Codex text envelope (`Message Type`, `Task name`, `Sender`, `Payload`):
 
-The default is therefore to match every portable collaboration surface in the pinned Codex implementation: tool families, names, schemas, descriptions, ordering, results, prompt guidance, addressing, messages, history boundaries, errors, persistence, and lifecycle semantics. Pi may differ only when the backend reserves the native contract, Pi cannot execute it truthfully, matching would reduce safety or correctness, or the Pi host lacks the required representation. Those differences must be explicit in the parity ledger and covered at the smallest practical test layer. They should be reconsidered when either host gains new capabilities.
+- `spawn_agent` starts the child with a `NEW_TASK` user turn and returns its path, model, and thinking level.
+- `send_message` queues a `MESSAGE` without starting a turn.
+- `followup_task` starts a new turn for an idle child or steers a `NEW_TASK` into its current turn, waking the child's pending `wait_agent`. A turn still starting receives the task right after its prompt. A task steered into a turn that settles without reading it, as the transcript shows, starts a turn of its own once the outcome is recorded, unless the agent was interrupted meanwhile; one arriving after the turn ended waits for that outcome the same way. For a child whose last runtime is still closing, it waits until that runtime has released the session file; cancelling the call ends only the wait.
+- A finished turn mails `FINAL_ANSWER` (or the Codex error envelope) to its direct parent only. A turn aborted without `interrupt_agent`, such as by a child extension or tool, counts as failed.
+- `wait_agent` returns when mail reaches the caller, when new user input reaches it, or at the timeout (10 s to 1 h, default 30 s). Mail that arrived since the previous wait returns at once. It never returns payloads.
+- `interrupt_agent` aborts a running turn, marks the agent `interrupted`, and returns its previous status. A late outcome from that turn is ignored.
+- `list_agents` lists every agent in the tree with its latest status; a completed status carries the answer cut to 1,000 characters, as does the status `interrupt_agent` returns. `/agents` shows the same tree with models.
 
-Pi remains authoritative for unrelated application behavior such as its base prompt, project instructions, permissions, extension lifecycle, and session representation. The upstream references provide compatibility evidence; this document defines the truthful Pi projection.
+Task and message text is limited to 262,144 characters, the length at which a final answer is cut.
 
-## Protocol selection
+`fork_turns` accepts `none`, `all` (default), or a positive integer of recent user turns. Forked history keeps user messages whole, including images, plus final assistant text and compaction summaries, so a child may use any registered provider.
 
-The extension resolves and latches the protocol when the first root turn starts:
+## Children
 
-1. An exact non-`auto` `provider/model` config override wins.
-2. An exact `auto` bypasses the wildcard; otherwise a non-`auto` `*` override wins.
-3. A resume or root fork inherits the stored protocol.
-4. Otherwise the stable extension default is V1.
+Each child is an independent session stored under `~/.pi/agent/data/subagents/sessions/`. It inherits the root's cwd, trust decision, provider registrations, runtime credentials, context files, skills, custom and appended system prompts, and active tools as its initial activation. It loads the user's extensions through native discovery, so personal permission policies apply; project extensions load only when trusted. Code Mode, tool search, and MCP load as Pi built-ins, so `-builtin:<name>` settings and replacement extensions apply. The root's own subagents extension is replaced by a bridge that registers the tools for the child's path, and the root-only asynchronous user-interaction tools are excluded.
 
-`auto` means “inherit the stored protocol, or use V1.” An exact `auto` intentionally bypasses `*`. Configure V2 explicitly when wanted; model catalogs do not select the collaboration protocol. Native thinking levels do not change delegation policy.
+A role fixes model, reasoning, and instructions; explicit `model` (`provider/model-id`) and `reasoning_effort` apply otherwise; the parent fills the rest. An unknown model lists available models. A child fails to spawn when its model is missing from the child model runtime.
 
-Later incompatible model selections keep the latched tools and show a warning. Resume restores the latch. A root fork inherits only the protocol into a new root session ID and empty control graph. An explicit current config override beats inherited state and starts a new control generation. V2 descendants share the tree's collaboration interface, subject to normal permissions and concurrency limits. Model changes do not gate that interface.
+A child's runtime lives only for one turn. After the turn settles, the tree records the outcome and disposes the runtime; a later follow-up reloads the session from its file with the recorded model and thinking level. The concurrency limit counts children that are running or still shutting down. Before a cancelled turn starts its run, the prompt's preflight callback stops it, and the bridge cancels any compaction that would begin afterwards.
 
-V1 tools use the extension-owned `pi_subagents` namespace. Provider serialization and Code Mode placement are native Pi responsibilities. This extension does not claim Codex's reserved `collaboration` or `multi_agent_v1` wire identities.
+## Mail delivery
 
-## Architecture
+Every `MESSAGE` and `FINAL_ANSWER` is written to the tree's outbox before delivery and leaves it once the target transcript holds it, so delivery is at least once:
 
-```mermaid
-flowchart TD
-    Pi[Root Pi session] --> M[SubagentManager]
-    M --> S[Protocol selection and latch]
-    M --> N[Shared nickname pool]
-    M --> T[TreeCoordinator]
-    T --> P[Atomic root-bound JSON snapshot]
-    S --> V1[V1Controller]
-    S --> V2[V2Controller]
-    V1 --> R[Child runtime factory]
-    V2 --> R
-    R --> C1[Independent AgentSession]
-    R --> C2[Independent AgentSession]
-    C1 --> F[Session JSONL files]
-    C2 --> F
-```
+- A running child receives mail as a passive custom message: Pi appends it at once when the session is idle, or at the end of the current turn, so the next request includes it. The child's `message_end` event acknowledges it.
+- Mail for a child that is not running waits in the outbox and is appended before its next task.
+- The root receives mail through `pi.sendMessage(..., { triggerTurn: false })`, which never starts a turn. The tree acknowledges root mail found in the root transcript after each send, at `turn_start`, at `agent_settled`, and on session start; mail still missing on session start is sent again.
 
-```text
-subagents/
-├── manager.ts          # lifecycle, latch, root delivery, /agents
-├── coordinator.ts      # serialized authoritative tree transactions
-├── config.ts           # strict global config and role resolution
-├── contract.ts         # collaboration prompt and terminating-result contracts
-├── runtime.ts          # independent Pi AgentSession host
-├── transcript.ts       # forward-only transcript persistence verifier
-├── permanent-error.ts # terminal child persistence failure
-├── history.ts          # sanitized none/all/last-N forks
-├── nicknames.ts        # tree-wide unique presentation names
-├── selection.ts        # config and inherited protocol resolution
-├── snapshot.ts         # bounded atomic control-store persistence
-├── v1/                 # UUID/open-edge protocol and rich input
-└── v2/                 # path/mailbox protocol
-```
+## Persistence
 
-Each child has a separate context, model loop, extension runner, and session file. Children inherit the root's cwd, trust decision, provider registrations, runtime credentials, context files, and discovered skill catalog. Each child owns its native model runtime and catalog; live registry identity is not shared. Their loader registers native Code Mode, tool search, and MCP. The inherited tool list initializes activation; it is not a permanent registry allowlist. Native MCP configuration controls connection, exposure and dynamic discovery. Enabled user/global extensions, including personal permission policies, are reloaded through native discovery even when project trust is declined; project extensions load only when trusted. Loaded native permission hooks govern both direct and nested calls. Root-only asynchronous tools are excluded from the registry through Pi's SDK denylist. Native settings govern Code Mode presentation. Arbitrary parent extension instances, live MCP connections, and factory overrides are not cloned. Code Mode state belongs to each child's own session. Roles can select another registered provider for fresh children, thinking and instructions, but cannot change cwd or trust.
+The tree for a root session is one JSON document, `~/.pi/agent/data/subagents/trees-v3/<sha256 of session id>.json`, written on the first mutation by atomic rename with modes `0600` and `0700`. It holds `version: 3`, the agent nodes, and the outbox. An unreadable or invalid document produces a warning and a fresh tree; earlier formats live elsewhere and are never read. Agents recorded as running when the tree is reopened become `interrupted`. Sessions without a file keep their tree in memory, and a forked root session starts with an empty tree. Two Pi processes must not drive the same root session.
 
-## Model-facing prompt contract
-
-Pi owns the prompt hierarchy. Collaboration guidance is appended through Pi's supported system-prompt hooks rather than fabricated as Codex developer-role world state. Each collaboration prompt is composed from independent layers:
-
-1. Stable facts define identity, addressing, mailbox format, shared-filesystem behavior, and delivery to the parent.
-2. A protocol-specific usage hint explains only tools the current agent can call.
-3. Delegation mode states whether delegation requires an explicit request or may be proactive.
-4. V2 children receive the tree's collaboration usage guidance before every turn.
-
-Configured `prompts.v1.root` and `prompts.v2.root` replace the corresponding root usage-hint layer. `prompts.v2.child` replaces only the V2 child's collaboration usage hint. `prompts.child` is a capability-independent instruction shared by V1 and V2 children. An explicitly empty value suppresses that layer, but not stable identity facts or delegation mode for an agent that can delegate. V1 children never receive collaboration tools. V2 children receive the collaboration interface and configured delegation policy independently of model metadata.
-
-Delegation policy belongs to subagents. `explicit` is the default and `proactive` opts into model-initiated delegation. Native thinking levels do not change that policy. The vendored `orchestrate` skill is not auto-discovered; operators may load its path explicitly.
-
-The model-visible mailbox text is stable. Queue-only and steered mail is stored as a Pi custom session message; an idle child's triggering task is stored as the single user message that starts its turn. Both project to the provider as ordinary user-role LLM input. Codex instead has a structured `AgentMessage` representation. Using Pi's normal prompt lifecycle for triggering mail preserves `before_agent_start`, which is required for child model resolution, prompt policy, and collaboration catalog refresh.
-
-## V1 flow
-
-V1 is the legacy UUID protocol and defaults to six open root children. Child sessions do not receive subagent tools, so nesting depth is one.
-
-```text
-spawn_agent(message XOR items)
-  validate rich input and optional skill/image references
-  stage UUID + nickname outside published state
-  materialize or validate an identity-bound child transcript
-  atomically publish the Open edge, pending task, and session path
-  start child turn
-  return agent_id + nickname
-
-child completes or errors
-  atomically publish final status + root notification outbox item
-  deliver <subagent_notification> to the root at least once
-  keep the Open slot and resident session
-
-child is interrupted
-  persist reusable non-final status without a notification
-
-close_agent
-  atomically mark the target edge Closed and discard queued work
-  stop the target
-  unload its runtime and release the target slot
-
-resume_agent
-  count in-flight spawns against the open-child limit
-  validate and eagerly load the target transcript
-  atomically reopen the target edge
-```
-
-The five V1 tools are `spawn_agent`, `send_input`, `resume_agent`, `wait_agent`, and `close_agent`. `spawn_agent` and `send_input` accept exactly one of plain `message` or rich `items`. Rich items are intentionally limited to text, base64 image data URLs, trusted-project local images, and discovered Pi skills.
-
-The atomic control snapshot owns V1 task ordering. Each agent has at most one active task and a FIFO queue. A task is published as `pending` before the child is invoked and becomes `running` only after the child user message is durable. A crash can therefore redeliver a pending task; this is intentional at-least-once delivery. A running task restores as `interrupted`, because Pi cannot resume an abandoned provider execution. The child transcript is never interpreted as controller state, so an assistant answer that reaches the transcript before the terminal control transaction is not reconstructed after a crash. Destructive `send_input` publishes its replacement without waiting indefinitely for suspended preflight teardown; the old runtime remains fenced from transcript reuse, and replacement delivery begins after that teardown finishes.
-
-`wait_agent` returns the first final status a target reaches: the live status when a target is already final, otherwise the status committed by the transaction that settles a turn or closes the agent. A completed or errored turn therefore reports its own status even when the same transaction promotes queued work, and a later `wait_agent` observes only later transitions. An interrupted turn or a superseded attempt is not final and leaves the wait parked. An empty status means only that the deadline expired; a controller reset fails the wait.
-
-A V1 completion notification admitted before the root's current agent run reaches `agent_end` is active input. Pi steers that notification, so it can produce a follow-up response even after visible final text. At or after the cutoff Pi records the notification at the next safe settlement or input boundary without starting a turn. This timing is a Pi host-lifecycle approximation of Codex's distinction between injecting a V1 response item into an active task and recording it in idle history.
-
-## V2 flow
-
-V2 uses canonical paths such as `/root/research/tests`. V2 children share the tree\'s six-tool collaboration interface, subject to permissions and concurrency limits: `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.
-
-Children inherit ordinary Pi model/thinking settings unless spawn arguments or role configuration override them. There is no provider-owned Ultra inheritance or private metadata exchange.
-
-```mermaid
-sequenceDiagram
-    participant Parent
-    participant Control as V2 control plane
-    participant Child as Child AgentSession
-    Parent->>Control: spawn_agent(task_name, message)
-    Control->>Control: reserve path, nickname, execution + residency
-    Control->>Child: NEW_TASK (trigger turn)
-    Child-->>Control: final assistant answer
-    Control-->>Parent: FINAL_ANSWER (queue only)
-```
-
-Mailbox messages use Codex's model-visible `Message Type`, `Task name`, `Sender`, and `Payload` text envelope. Bookkeeping details carry the durable communication ID but are not relied on for model visibility.
-
-- `send_message` queues context without starting an idle turn. A nonresident target is reloaded so the queue can accept the message, but no model turn starts.
-- `followup_task` starts an idle turn or steers an active one.
-- Triggering task mail remains in the control outbox until the child transcript durably accepts its user turn. The same transaction changes the node from `pending` to `running` and removes the task mail. A crash before that transaction may redeliver the task.
-- Queue-only mail admitted during a model response stays in an extension-owned gate until a safe Pi lifecycle boundary. At `turn_end`, one admitted item is steered into a nonterminating tool continuation only when the boundary snapshot has no pending messages, including custom steering and follow-ups. Otherwise it remains gated through later turns. Final, errored, aborted, and all-terminating responses do not release it, but a later retry response can release it into a qualifying tool continuation. Anything still gated at `agent_settled` is passively recorded and transcript-verified before runtime retirement, without starting another request or changing retry and compaction context.
-- Queue-only mail remains in the control outbox until the child transcript durably records its communication ID. Mail is published before admission, an active `wait_agent` is notified on admission, and delivery is serialized per target. Codex drains every mailbox item present at one native poll; Pi admits and acknowledges same-target items independently, so request grouping can differ while FIFO identity and durability are preserved.
-- Terminal node status and its direct-parent `FINAL_ANSWER` outbox item publish in one transaction. If that transaction is absent after a crash, an earlier `running` node restores as `interrupted`; the child transcript is not searched for an answer.
-- `interrupt_agent` atomically records `interrupted` and removes all undelivered triggering mail for the target from the control snapshot. It then cancels queued triggering work, aborts the child, and starts unloading its runtime without waiting indefinitely for suspended preflight teardown. The old runtime remains fenced from transcript reuse; later mail stays durable and begins delivery after teardown finishes. This is intentionally deterministic: native Codex clears pending input already drained into the active turn, but mailbox work not yet drained can survive interruption and start a fresh turn. Pi cancels both. A later explicit follow-up starts a new delivery.
-- `wait_agent` observes mailbox or user-input activity and never returns payloads.
-- Completion sends `FINAL_ANSWER` only to the direct parent; it does not bubble recursively.
-- `interrupt_agent` rejects an unknown path, reports `not_found` for a known nonresident path, leaves an interrupted durable identity reusable, and does not emit completion.
-
-Pi has no Codex response-item callback between reasoning, commentary, and final-answer items. Its V2 boundary is the aggregate assistant response plus its tool batch. Pi alone owns continuation scheduling, including unfinished responses, queued input, retries and compaction; the child runtime has no provider-specific continuation adapter. Mail that Codex consumes between response items may wait until a qualifying native Pi boundary.
-
-Root notifications remain in the outbox until a matching custom-message entry is visible in the durable root branch and its removal is atomically published. Root mail that arrives while idle outside a safe settlement boundary stays durable in the control outbox. At the next normal input, Pi synchronously drains, verifies, and acknowledges it before the new root prompt takes its provider snapshot. If a trusted root extension removes delivery metadata, Pi conservatively retains and may redeliver the item. Child loading and other fallible preconditions complete before new mail is published. Waiting for transcript acceptance does not hold the target's control-operation queue, so `interrupt_agent` can still reach the active runtime. A V2 spawn remains provisional and unaddressable until its transcript, runtime lease, node, and initial task publish together.
-
-By default, the root plus at most three child turns can run concurrently, and at most three child runtimes may be resident. Terminal and explicitly interrupted V2 runtimes are unloaded; their durable identities reload on later communication. This is deliberately simpler than Codex's LRU residency cache while preserving its model-facing lazy-load behavior. Codex-compatible `list_agents` output shows only resident runtimes; `/agents` shows all durable identities.
-
-### V2 child inventory
-
-Before every model request, including tool continuations and post-compaction requests, V2 prepends one ephemeral user-role `<environment_context>` message containing its direct-child `<subagents>` inventory. The inventory comes from the authoritative control graph, includes unloaded registered children, omits nicknames and statuses, and excludes grandchildren. Resident children precede unloaded children; canonical paths sort alphabetically within each group. The subagents block, including its wrapper and indentation, contains at most eight children and 1,024 UTF-8 bytes, matching the selected 2026-09-13 Codex delta. An oversized path is skipped so later fitting children can still appear.
-
-The context hook replaces its own previous ephemeral prefix and emits no block for an empty inventory. It never appends session entries or changes the active branch. Restored controllers therefore rebuild inventories from the existing graph without a new persistent store. The prefix remains outside the durable baseline used by provider context alignment and is regenerated after compaction. Unchanged inventories retain a stable prefix for transport continuation; an inventory change safely requires full context. Pi's supported context boundary replaces Codex world-state diff updates; V1 receives no inventory change. `list_agents` still lists resident runtimes and `/agents` still shows durable identities.
-
-Child runtimes exclude the root-only asynchronous `request_user_input_async` and `send_message_to_user_async` tools from inherited active tools. The blocking `request_user_input` questionnaire is separate and retains its interactive-TUI and persistence preconditions. These questionnaire contracts belong to `ask-question`, not the native Codex tool schema.
-
-## Spawn presentation
-
-Successful V1 and V2 spawn results retain the child runtime’s resolved provider/model and effective Pi thinking level in host-only tool-result details. The collapsed and expanded renderers show these settings, including inherited settings and thinking off. Saved results without this metadata keep their original presentation; the renderer does not guess from current parent settings or requested overrides. Model-facing JSON results and controller snapshots are unchanged.
-
-## Spawn model selection
-
-When model overrides are exposed, descriptions prepend up to five picker-visible native models across providers, in catalog order. Each suggestion shows its qualified provider/model-id, native name, and supported Pi thinking levels. The shortlist is guidance, not an allowlist: hidden models and entries beyond it remain valid exact registry selections.
-
-Overrides and role models use one explicit `provider/model-id` format; bare IDs and provider guessing are not supported. Omission inherits the parent model. A fresh child can use another registered provider with native authentication. Cross-provider forks require `fork_context: false` in V1 or `fork_turns: "none"` in V2; history is never silently dropped. Unknown-model errors show the same shortlist. Explicit thinking is checked against the final model after role precedence; inherited thinking retains native Pi behavior.
-
-Guidance refreshes at startup, model selection and new-prompt boundaries. Validation uses the current registry. Identical descriptions do not re-register tools, and description updates preserve activation. V2 collaboration is a tree capability, not a model eligibility transition. No private provider descriptions, default-effort markers, service tiers or affordability claims are projected.
-
-These explicit cross-provider references deliberately differ from the pinned Codex same-provider selection contract: native Pi hosts multiple provider catalogs with overlapping model IDs. See the parity ledger.
-
-## Forking and persistence
-
-`fork_turns` follows Codex parsing: surrounding whitespace and ASCII case are ignored for `none`/`all`, an empty string means `all`, and decimal positive integers may have a leading plus sign or zeroes. Values through the 64-bit host `usize` maximum are accepted. Pi saturates values above JavaScript's safe-integer range to its largest safe last-N sentinel, which still selects all feasible Pi history without relabeling the request as full-history mode. Forks keep user text, completed assistant text, and compaction summaries. They drop reasoning, tool calls/results, interrupted assistant output, response IDs, and inherited usage. V1's `fork_context: true` is the full-history form.
-
-V2 retains Codex's `reasoning_effort` argument. Qualified model references apply to both per-call overrides and roles; cross-provider selection is supported only without inherited history.
-
-There is no provider-owned Fast propagation. A future priority-tier extension must use supported native request options and make child-session scope explicit; this extension does not synthesize service-tier metadata.
-
-The control plane has one durable owner: a strict, bounded JSON snapshot under `~/.pi/agent/data/subagents/trees/`. Its file name hashes the normalized root session-file path and header ID, and the document repeats that binding. Every mutation is serialized through one root-scoped coordinator. A temporary sibling file is written with restrictive permissions, synced, and atomically renamed; the rename is the commit point. The live immutable state swaps inside that commit callback, before any later await. A pre-rename failure rejects the mutation. A directory-sync failure after rename preserves the committed mutation, marks durability uncertain, and blocks later collaboration instead of rolling back a state that may already be durable. The 16 MiB snapshot limit reserves terminal-state headroom and stores bounded results inline. `--no-session` uses the same coordinator with an in-memory store.
-
-There is no same-root multi-process writer protocol. Two Pi processes must not operate the same root session concurrently; the file-mutation queue protects cooperating mutations only within one process.
-
-The root conversation is never used as the control log, so collaboration mutations cannot move its active leaf during a provider request. Any failed or persistence-uncertain control-store write poisons the current coordinator and blocks later collaboration tools until the session is reopened. The snapshot owns the protocol latch, nicknames, V1 edges/tasks/statuses/notifications, and V2 identities/statuses/mailbox. Control snapshot version 2 encodes the native capability-selection contract. Version 1 snapshots are rejected with a fresh-tree instruction; they are not migrated or reinterpreted. The schema is strict and every mismatch fails closed. There are no protocol-marker entries, prompt journals, receipt journals, outcome journals, or transcript-derived status reconstruction.
-
-The graph belongs to the root session, not its current conversation branch. `/tree` leaves the graph unchanged. A root fork uses Pi's `previousSessionFile` to identify the source root session and reads that session's control snapshot to inherit only its protocol. The fork gets a new control graph and never inherits generation IDs, nicknames, agents, or communication state.
-
-Child transcripts live under `~/.pi/agent/data/subagents/sessions/`. A fresh transcript is exclusively materialized with a header and child-identity entry before its path can enter the control snapshot. Publication commits ownership; failed publication disposes the provisional runtime and deletes only its unpublished fresh file. Restore requires a contained, nonempty regular Pi session whose identity matches the durable node, and resolves its stored model and thinking level even when it has no model-visible messages.
-
-Transcripts are effect logs, not control-plane recovery logs. A forward-only cursor validates each new segment and its parent chain once. User-message durability acknowledges a task; custom-message durability acknowledges queue mail; assistant, tool-result, and compaction writes are also checked. Any mismatch or append failure permanently poisons and retires that runtime so later output cannot descend from a missing entry. Controller generations, per-agent operation queues, execution reservations, and runtime lease tokens prevent stale work from mutating a replacement tree.
-
-Delivery is at least once rather than exactly once across the independent control and transcript files:
-
-- `pending` work can be redelivered after a crash;
-- accepted `running` work restores as `interrupted`;
-- terminal status and completion mail are atomic within the control snapshot;
-- a crash after an assistant transcript entry but before that terminal transaction does not recover the answer;
-- root outbox mail may be duplicated after a crash before its acknowledgement transaction.
-
-V1 eagerly loads Open edges on resume. V2 reloads recipients lazily. These rules deliberately avoid pretending that Pi offers a transaction spanning the root transcript, child transcript, and extension-owned state.
+The tree lives outside the root transcript because it describes child sessions that exist independently of the root's branch. Stored as session entries, it would revert on `/tree` navigation and be copied into forks, leaving stale trees that point at the same live child session files.
 
 ## Configuration
 
@@ -215,45 +48,22 @@ Create `~/.pi/agent/subagents.json`:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "delegation": "explicit",
   "max_concurrent_threads_per_session": 3,
-  "expose_spawn_agent_model_overrides": true,
-  "protocols": {
-    "*": "auto",
-    "openai/gpt-6.1-sol": "v2",
-    "provider/model": "off"
-  },
   "roles": {
     "researcher": {
       "description": "Investigates a bounded question and reports evidence.",
       "model": "openai/gpt-5.6-luna",
       "thinking": "high",
-      "instructions": "Investigate and report evidence.",
-      "nicknames": ["Scout", "Sage"]
-    }
-  },
-  "prompts": {
-    "delegation": "explicit",
-    "child": "Optional capability-independent instruction for every child.",
-    "v1": {
-      "root": "Optional replacement for the V1 root usage hint."
-    },
-    "v2": {
-      "root": "Optional replacement for the V2 root usage hint.",
-      "child": "Optional replacement for V2 child collaboration guidance."
+      "instructions": "Investigate and report evidence."
     }
   }
 }
 ```
 
-`max_concurrent_threads_per_session` is optional and counts child agents, excluding the root. When set, it applies to both protocols: V1 limits open children, while V2 limits both executing turns and resident child sessions. When omitted, V1 defaults to six and V2 defaults to three. If a persisted V1 tree exceeds a newly lowered limit, the first persisted open children stay open and the excess children are closed but remain resumable.
+`delegation` is `explicit` (spawn only on request; the default) or `proactive`. `agent_type` is offered only when roles exist. Invalid configuration produces a warning and the defaults.
 
-Protocol values are `auto`, `off`, `v1`, or `v2`. Both protocols expose `model` and `reasoning_effort` on `spawn_agent` by default; set `expose_spawn_agent_model_overrides` to false to hide both. `agent_type` is exposed only when at least one executable Pi role exists, and its model-facing description uses the role's optional `description`. Delegation is `explicit` by default; `proactive` opts into model-initiated delegation through the Pi mode layer. User requests override built-in proactive guidance. Protocol-specific prompt values replace only matching usage hints; `prompts.child` is capability-independent. An explicitly empty value suppresses its layer while retaining stable identity and applicable delegation-mode facts. Invalid config falls back to defaults and produces a warning.
+## Differences from Codex
 
-## Deliberate Pi boundaries
-
-This is behavioral adaptation, not an app-server clone. It does not implement Codex's encrypted Responses API mailbox source, broadcast recipients, model allowlists, app-server activity items, SQL spawn-edge table, hooks, or analytics bus. Pi has no equivalent boundary for most of those features.
-
-There is also no tree-wide rollout token budget. Root hints state this explicitly and delegation therefore defaults to `explicit`; provider token counts are not treated as an accurate substitute for Codex rollout-budget units.
-
-These boundaries describe current host constraints. They do not relax the compatibility objective for portable model-facing behavior.
+Pi delivers mail at its own turn boundaries rather than between response items, uses explicit `provider/model-id` references across providers, has no tree-wide token budget, and does not reproduce Codex's app-server items, hooks, or residency cache. Statuses cut a completed answer to 1,000 characters rather than repeating it in full, because every listing and tree save would otherwise carry each answer again.

@@ -1,3 +1,5 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+
 import { buildSnapshot } from "../../snapshot.js";
 import type { ContextPart, ContextMessagePart } from "../../snapshot.js";
 
@@ -22,12 +24,21 @@ export const fixtureMessage = (
   sourceEntryId: label,
 });
 
-export const fixtureSnapshot = (overrides: Partial<Parameters<typeof buildSnapshot>[0]> = {}) =>
+/** A branch whose first request recorded `prompt`, as Pi persists it. */
+export const recordedBranch = (prompt: string) => {
+  const session = SessionManager.inMemory();
+  session.appendMessage({ role: "system", content: prompt, timestamp: 0 });
+
+  return session.getBranch();
+};
+
+export const fixtureSnapshot = ({
+  prompt = "You are pi.\nFollow the project instructions.",
+  ...overrides
+}: Partial<Parameters<typeof buildSnapshot>[0]> & { prompt?: string } = {}) =>
   buildSnapshot({
-    prompt: "You are pi.\nFollow the project instructions.",
-    tools: [],
-    activeTools: [],
-    branch: [],
+    pendingPrompt: prompt,
+    branch: recordedBranch(prompt),
     usage: { tokens: 80, contextWindow: 200, percent: 40 },
     modelLabel: "test/model",
     ...overrides,

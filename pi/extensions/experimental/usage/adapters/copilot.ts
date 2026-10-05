@@ -1,12 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveAccessToken } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
-import { usageFailure, usageResult } from "../providers.js";
+import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { isDefined, makeUsageWindow, parseIso } from "./util.js";
+import { fetchUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
 
 const COPILOT_USAGE_URL = "https://api.github.com/copilot_internal/user";
 
@@ -51,28 +49,19 @@ export const mapCopilotUsagePayload = (
   return usageResult({ fetchedAt: nowMs, provider: "github-copilot", quotaWindows: windows });
 };
 
-export const fetchCopilotUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
-  const auth = await resolveAccessToken(deps.authClient, "github-copilot");
-
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
-
-  const response = await deps.fetchJson(COPILOT_USAGE_URL, CopilotUsagePayloadSchema, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `token ${auth.value.accessToken}`,
-      "Editor-Version": "vscode/1.96.2",
-      "User-Agent": "GitHubCopilotChat/0.26.7",
-      "X-Github-Api-Version": "2025-04-01",
+export const fetchCopilotUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
+  fetchUsage(
+    deps,
+    "github-copilot",
+    {
+      url: COPILOT_USAGE_URL,
+      schema: CopilotUsagePayloadSchema,
+      scheme: "token",
+      headers: {
+        "Editor-Version": "vscode/1.96.2",
+        "User-Agent": "GitHubCopilotChat/0.26.7",
+        "X-Github-Api-Version": "2025-04-01",
+      },
     },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
-  if (response.ok) {
-    return mapCopilotUsagePayload(response.json, now());
-  }
-
-  return usageFailure(response.message);
-};
+    mapCopilotUsagePayload,
+  );

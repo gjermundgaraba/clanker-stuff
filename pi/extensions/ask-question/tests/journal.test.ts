@@ -1,14 +1,7 @@
-import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, it, expect } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { Journal, persistedEntries } from "../journal.js";
+import { REQUEST_TYPE, STATE_TYPE, recordRequest, recordState, replay } from "../journal.js";
 import { createInteraction, transition } from "../interaction.js";
-import { answerResult, answerMessage, isDelivered } from "../delivery.js";
 
 const request = {
   questions: [
@@ -16,159 +9,49 @@ const request = {
   ],
 };
 
-const host = createExtensionHost(() => {});
+const session = () => {
+  const sm = SessionManager.inMemory();
 
-describe("journal persistence and recovery", () => {
-  it("rejects ephemeral/unflushed/partial histories and verifies disk checkpoints", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "question-journal-"));
+  return {
+    sm,
+    pi: {
+      appendEntry: (type: string, data: unknown) => {
+        sm.appendCustomEntry(type, data);
+      },
+    },
+  };
+};
 
-    try {
-      expect(() =>
-        persistedEntries(host.createContext({ sessionManager: SessionManager.inMemory() })),
-      ).toThrow("file-backed");
-      const sm = SessionManager.create(dir, dir);
-      const ctx = host.createContext({ sessionManager: sm });
-      expect(() => persistedEntries(ctx)).toThrow("not initialized");
-      sm.appendMessage(fauxAssistantMessage("Ready"));
+describe("questionnaire journal", () => {
+  it("stores the request once and restores the last state joined to it", () => {
+    const { sm, pi } = session();
+    const created = createInteraction("q_test", request, "call", "async");
+    recordRequest(pi, created);
+    recordState(pi, created);
+    const selected = transition(created, { type: "select", question: "q", option: "yes" });
+    recordState(pi, selected);
+    const submitted = transition(selected, { type: "submit" });
+    recordState(pi, submitted);
 
-      const journal = new Journal(
-        {
-          appendEntry: (type, data) => {
-            sm.appendCustomEntry(type, data);
-          },
-        },
-        ctx,
-      );
+    const types = sm
+      .getBranch()
+      .flatMap((entry) => (entry.type === "custom" ? [entry.customType] : []));
 
-      const item = createInteraction("q_test", request, "c", "async");
-      await journal.checkpoint(item, () => {});
-      expect(journal.replay().get(item.id)).toMatchObject({
-        paused: true,
-        draft: { answers: { q: { selected: [] } } },
-      });
-      const file = sm.getSessionFile()!;
-      const text = readFileSync(file, "utf8");
-      writeFileSync(file, text.slice(0, -2));
-      expect(() => journal.verify()).toThrow("Incomplete");
-      writeFileSync(file, text.split("\n").slice(0, -2).join("\n") + "\n");
-      expect(() => journal.verify()).toThrow("does not match");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    expect(types).toEqual([REQUEST_TYPE, STATE_TYPE, STATE_TYPE, STATE_TYPE]);
+    expect(replay(sm.getBranch()).get("q_test")).toEqual(submitted);
   });
-  it("reconciles canonical blocking results on either side of a missing delivery checkpoint", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "question-result-"));
+  it("skips unreadable entries and states without a request instead of blocking recovery", () => {
+    const { sm, pi } = session();
+    const item = createInteraction("q_kept", request, "call", "async");
+    recordRequest(pi, item);
+    recordState(pi, item);
+    sm.appendCustomEntry(STATE_TYPE, { id: "q_kept", retired: true });
+    sm.appendCustomEntry(REQUEST_TYPE, { id: "q_broken" });
+    recordState(pi, createInteraction("q_orphan", request, "call", "async"));
 
-    try {
-      const sm = SessionManager.create(dir, dir);
-      sm.appendMessage(fauxAssistantMessage("Ready"));
-      const ctx = host.createContext({ sessionManager: sm });
+    const items = replay(sm.getBranch());
 
-      const journal = new Journal(
-        {
-          appendEntry: (type, data) => {
-            sm.appendCustomEntry(type, data);
-          },
-        },
-        ctx,
-      );
-
-      let item = createInteraction("q_result", request, "call1", "blocking");
-      item = transition(item, item.version, { type: "select", question: "q", option: "yes" });
-      item = transition(item, item.version, { type: "submit" });
-      await journal.checkpoint(item, () => {});
-      const submission = item.submissions[0];
-      assert(submission);
-      expect(isDelivered(item, submission, sm.getBranch())).toBe(false);
-      const result = answerResult(item, submission);
-      sm.appendMessage({
-        role: "toolResult",
-        toolCallId: "call1",
-        toolName: "request_user_input",
-        ...result,
-        isError: false,
-        timestamp: Date.now(),
-      });
-      const restored = journal.replay().get(item.id)!;
-      expect(isDelivered(restored, submission, sm.getBranch())).toBe(true);
-      expect(isDelivered(restored, { ...submission, tool_call_id: "wrong" }, sm.getBranch())).toBe(
-        false,
-      );
-      const fork = SessionManager.open(sm.createBranchedSession(sm.getLeafId()!)!);
-      expect(persistedEntries(host.createContext({ sessionManager: fork }))).toHaveLength(
-        sm.getEntries().length,
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-  it("recognizes full async envelopes restored alongside unrelated text, not ID substrings", async () => {
-    const sm = SessionManager.inMemory();
-    let item = createInteraction("q_async", request, "call", "async");
-    item = transition(item, item.version, { type: "select", question: "q", option: "yes" });
-    item = transition(item, item.version, { type: "submit" });
-    const submission = item.submissions[0];
-    assert(submission);
-    sm.appendMessage({ role: "user", content: `Mention ${item.id} only`, timestamp: Date.now() });
-    expect(isDelivered(item, submission, sm.getBranch())).toBe(false);
-    sm.appendMessage({
-      role: "user",
-      content: `${answerMessage(item, submission)}\n\nUnrelated queued text`,
-      timestamp: Date.now(),
-    });
-    expect(isDelivered(item, submission, sm.getBranch())).toBe(true);
-  });
-  it("accepts initialized explicit session files without assistant messages", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "question-initialized-"));
-
-    try {
-      const file = join(dir, "explicit.jsonl");
-      writeFileSync(file, "");
-      const fork = SessionManager.open(file);
-      expect(
-        fork.getBranch().some((e) => e.type === "message" && e.message.role === "assistant"),
-      ).toBe(false);
-
-      const journal = new Journal(
-        {
-          appendEntry: (type, data) => {
-            fork.appendCustomEntry(type, data);
-          },
-        },
-        host.createContext({ sessionManager: fork }),
-      );
-
-      await journal.checkpoint(
-        createInteraction("q_initialized", request, "call", "async"),
-        () => {},
-      );
-      expect(journal.replay().has("q_initialized")).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-  it("does not publish a receipt after a failed append", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "question-failure-"));
-
-    try {
-      const sm = SessionManager.create(dir, dir);
-      sm.appendMessage(fauxAssistantMessage("Ready"));
-
-      const journal = new Journal(
-        {
-          appendEntry: () => {
-            throw new Error("disk full");
-          },
-        },
-        host.createContext({ sessionManager: sm }),
-      );
-
-      await expect(
-        journal.checkpoint(createInteraction("q_failure", request, "c", "async"), () => {}),
-      ).rejects.toThrow("checkpoint failed");
-      expect(() => journal.verify()).toThrow("checkpoint failed");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    expect([...items.keys()]).toEqual(["q_kept"]);
+    expect(items.get("q_kept")).toEqual(item);
   });
 });

@@ -3,7 +3,6 @@ import type {
   Component,
   Focusable,
   KeybindingsManager,
-  OverlayHandle,
   TUI,
   TuiMouseEvent,
   TuiMouseEventResult,
@@ -52,10 +51,6 @@ export class ContextViews implements Component, Focusable {
     this.current.focused = value;
   }
 
-  attachMouse(handle: OverlayHandle): void {
-    for (const view of this.views) view.attachMouse(handle);
-  }
-
   handleInput(data: string): void {
     this.current.handleInput(data);
   }
@@ -70,9 +65,5 @@ export class ContextViews implements Component, Focusable {
 
   invalidate(): void {
     for (const view of this.views) view.invalidate();
-  }
-
-  dispose(): void {
-    for (const view of this.views) view.dispose();
   }
 }

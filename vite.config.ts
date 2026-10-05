@@ -28,20 +28,13 @@ export default defineConfig({
     tasks: {
       // Static checks cache on the files they read; `ready` fans them out, then tests.
       "check:packages": { command: "node ./scripts/check-package-readiness.ts" },
-      "check:plannotator-review": { command: "node ./scripts/build-plannotator-review.ts --check" },
       "check:readmes": { command: "node ./scripts/check-readmes.ts" },
       "check:static": { command: "vp check" },
       "check:tests": { command: "node ./scripts/check-tests.ts" },
       ready: {
         cache: false,
         command: "vp test",
-        dependsOn: [
-          "check:static",
-          "check:packages",
-          "check:plannotator-review",
-          "check:readmes",
-          "check:tests",
-        ],
+        dependsOn: ["check:static", "check:packages", "check:readmes", "check:tests"],
       },
     },
   },

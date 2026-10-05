@@ -1,9 +1,9 @@
-import { TerminatingToolResultSchema } from "./contract.js";
-import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { setImmediate as yieldImmediate } from "node:timers/promises";
 
-import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   createCodemodeExtension,
@@ -16,23 +16,25 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  AgentSession,
   BuildSystemPromptOptions,
-  ExtensionContext,
   ExtensionFactory,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-import { isThinkingLevel } from "./config.js";
-import { PermanentChildError } from "./permanent-error.js";
-import { lastPersistedEntryId, TranscriptCursor } from "./transcript.js";
+import type { AgentThinkingLevel } from "./config.js";
+import { envelopeText, mailMessage, MailDetailsSchema, SUBAGENT_MESSAGE_TYPE } from "./protocol.js";
+import type { Envelope, Mail } from "./protocol.js";
 
 type HistoryMessage = Parameters<SessionManager["appendMessage"]>[0];
 
+type AgentMessage = AgentSession["state"]["messages"][number];
+
 const CHILD_BRIDGE_PATH = "<inline:subagents-child>";
 
-export const SUBAGENT_IDENTITY_ENTRY_TYPE = "subagent-child-identity";
+/** Asynchronous user interaction stays with the root session, which owns the user. */
+const ROOT_ONLY_TOOLS = ["request_user_input_async", "send_message_to_user_async"];
 
 const canonicalExtensionPath = (candidate: string): string => {
   try {
@@ -47,64 +49,43 @@ const SUBAGENT_HOST_PATH = canonicalExtensionPath(path.resolve(import.meta.dirna
 export const isSubagentHostExtensionPath = (candidate: string): boolean =>
   canonicalExtensionPath(candidate) === SUBAGENT_HOST_PATH;
 
-export interface RuntimeMessage {
-  content: string;
-  customType: string;
-  details: {
-    communicationId: string;
-  };
-}
-
-export interface PromptInput {
-  images?: ImageContent[];
-  text: string;
-}
-
 export type ChildTurnOutcome =
   | { status: "completed"; text?: string }
   | { status: "interrupted" }
   | { status: "errored"; error: string };
 
-export interface ChildTurn {
-  accepted: Promise<void>;
-  settled: Promise<ChildTurnOutcome>;
-}
-
-export interface ChildDelivery {
-  accepted: Promise<void>;
-  settled?: ChildTurn["settled"];
-}
-
 export interface ChildRuntime {
-  abort: () => Promise<void>;
-  commit: () => void;
+  /** Requests cancellation of the current turn without waiting for it to settle. */
+  abort: () => void;
+  /** Appends passive mail now, or at the end of the current turn while one is running. */
+  deliver: (mail: Mail) => void;
   dispose: () => Promise<void>;
-  isStreaming: () => boolean;
-  rollback: () => Promise<void>;
-  sendMessage: (
-    message: RuntimeMessage,
-    onEnqueued?: () => void,
-    triggerTurn?: boolean,
-  ) => ChildDelivery;
-  startTurn: (input: PromptInput) => ChildTurn;
+  readonly model: string;
   readonly sessionFile: string;
-  readonly model: ExtensionContext["model"];
-  readonly thinkingLevel: ExtensionContext["thinkingLevel"];
+  /**
+   * Queues a task for the current turn, or returns undefined without one. Resolves once the turn
+   * reads it, or with false when the turn settles without reading it.
+   */
+  steer: (task: Envelope) => Promise<boolean> | undefined;
+  /** Runs one prompt to settlement. */
+  startTurn: (text: string) => Promise<ChildTurnOutcome>;
+  readonly thinkingLevel: AgentThinkingLevel;
 }
 
 export interface ChildRuntimeRequest {
-  bridge?: ExtensionFactory;
+  bridge: ExtensionFactory;
   cwd: string;
   dataDir: string;
-  history: HistoryMessage[];
-  identity: string;
-  model: Model<Api> | undefined;
+  history: readonly HistoryMessage[];
+  model: Model<Api>;
   modelRegistry: ModelRegistry;
+  onDelivered: (mailId: string) => void;
+  onError: (cause: unknown) => void;
   prompt: string;
-  promptOptions?: BuildSystemPromptOptions;
-  sessionFile?: string;
-  thinkingLevel?: NonNullable<ExtensionContext["thinkingLevel"]>;
-  tools: string[];
+  promptOptions: BuildSystemPromptOptions | undefined;
+  sessionFile: string | undefined;
+  thinkingLevel: AgentThinkingLevel | undefined;
+  tools: readonly string[];
   trusted: boolean;
 }
 
@@ -120,216 +101,50 @@ type RuntimeModelSource = Pick<
   | "getRegisteredProviderIds"
 >;
 
-const IdentitySchema = Type.Object(
-  {
-    identity: Type.String(),
-  },
-  { additionalProperties: true },
-);
-
-const TextContentSchema = Type.Object(
-  {
-    text: Type.String(),
-    type: Type.Literal("text"),
-  },
-  { additionalProperties: true },
-);
-
-const AssistantCandidateSchema = Type.Object(
-  {
-    content: Type.Optional(Type.Array(Type.Unknown())),
-    errorMessage: Type.Optional(Type.Unknown()),
-    endTurn: Type.Optional(Type.Boolean()),
-    role: Type.Literal("assistant"),
-    stopReason: Type.Optional(Type.String()),
-  },
-  { additionalProperties: true },
-);
-
-const CommunicationDetailsSchema = Type.Object(
-  {
-    communicationId: Type.String(),
-  },
-  { additionalProperties: true },
-);
-
-const findModel = (
-  registry: ModelRegistry,
-  provider: string,
-  modelId: string,
-): Model<Api> | undefined => registry.find(provider, modelId);
-
-const restoreError = (cause: unknown): PermanentChildError =>
-  cause instanceof PermanentChildError
-    ? cause
-    : new PermanentChildError(cause instanceof Error ? cause.message : String(cause), {
-        cause,
-      });
-
-const validateRestoredSession = (
-  sessionFile: string,
-  sessionDir: string,
-  identity: string,
-  cwd: string,
-): SessionManager => {
-  try {
-    const resolvedDirectory = realpathSync(sessionDir);
-    const resolvedFile = realpathSync(sessionFile);
-    const relative = path.relative(resolvedDirectory, resolvedFile);
-
-    if (
-      relative === "" ||
-      relative === ".." ||
-      relative.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relative)
-    ) {
-      throw new PermanentChildError("Child session file escapes the session directory");
-    }
-
-    const info = lstatSync(sessionFile);
-
-    if (info.isSymbolicLink() || !info.isFile() || info.size === 0) {
-      throw new PermanentChildError("Child session file must be a nonempty regular file");
-    }
-
-    const session = SessionManager.open(resolvedFile, resolvedDirectory, cwd);
-
-    const identities = session
-      .getBranch()
-      .filter(
-        (entry): entry is Extract<typeof entry, { type: "custom" }> =>
-          entry.type === "custom" && entry.customType === SUBAGENT_IDENTITY_ENTRY_TYPE,
-      );
-
-    if (
-      identities.length !== 1 ||
-      !Value.Check(IdentitySchema, identities[0]?.data) ||
-      identities[0].data.identity !== identity
-    ) {
-      throw new PermanentChildError("Child session file belongs to a different agent");
-    }
-
-    if (lastPersistedEntryId(resolvedFile) !== session.getLeafId()) {
-      throw new PermanentChildError("Child session branch is not fully persisted");
-    }
-
-    return session;
-  } catch (error) {
-    throw restoreError(error);
-  }
-};
-
-const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: string) => {
-  mkdirSync(sessionDir, { mode: 0o700, recursive: true });
-  const directoryInfo = lstatSync(sessionDir);
-
-  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
-    throw new Error("Child session directory must be a regular directory");
-  }
-
-  chmodSync(sessionDir, 0o700);
-
-  if (request.sessionFile !== undefined) {
-    return {
-      fresh: false,
-      session: validateRestoredSession(
-        request.sessionFile,
-        sessionDir,
-        request.identity,
-        request.cwd,
-      ),
-    };
-  }
-
-  const generated = SessionManager.create(request.cwd, sessionDir);
-  const sessionFile = generated.getSessionFile();
-
-  if (sessionFile === undefined) {
-    throw new Error("Unable to allocate a child session file");
-  }
-
-  try {
-    writeFileSync(sessionFile, `${JSON.stringify(generated.getHeader())}\n`, {
-      flag: "wx",
-      mode: 0o600,
-    });
-    const session = SessionManager.open(sessionFile, sessionDir, request.cwd);
-    session.appendCustomEntry(SUBAGENT_IDENTITY_ENTRY_TYPE, {
-      identity: request.identity,
-    });
-
-    for (const message of request.history) {
-      session.appendMessage(message);
-    }
-
-    if (lastPersistedEntryId(sessionFile) !== session.getLeafId()) {
-      throw new Error("Unable to materialize child transcript");
-    }
-
-    return { fresh: true, session };
-  } catch (error) {
-    rmSync(sessionFile, { force: true });
-    throw error;
-  }
-};
-
 export const finalFromMessages = (
-  messages: readonly unknown[],
-  options: { readonly cancelled?: boolean } = {},
+  messages: readonly AgentMessage[],
+  cancelled: boolean,
 ): ChildTurnOutcome => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
+  const candidate = messages.findLast((message) => message.role === "assistant");
 
-    if (!Value.Check(AssistantCandidateSchema, candidate)) {
-      continue;
-    }
-
-    const text = Array.isArray(candidate.content)
-      ? candidate.content
-          .filter((item) => Value.Check(TextContentSchema, item))
-          .map((item) => item.text)
-          .join("")
-      : undefined;
-
-    if (candidate.stopReason === "error") {
-      return {
-        error: typeof candidate.errorMessage === "string" ? candidate.errorMessage : "Agent failed",
-        status: "errored",
-      };
-    }
-
-    if (candidate.stopReason === "aborted") {
-      return { status: "interrupted" };
-    }
-
-    // Cancellation can prevent overflow recovery or an explicit unfinished-turn
-    // continuation. Neither intermediate response is a completed answer.
-    if (
-      (candidate.stopReason === "length" || candidate.endTurn === false) &&
-      options.cancelled === true
-    ) {
-      return { status: "interrupted" };
-    }
-
-    const completed: Extract<ChildTurnOutcome, { status: "completed" }> = {
-      status: "completed",
-    };
-
-    if (text !== undefined && text.trim() !== "") {
-      completed.text = text;
-    }
-
-    return completed;
+  if (candidate === undefined) {
+    // Compaction can summarize away a truncated response before a cancelled run ends.
+    return cancelled ? { status: "interrupted" } : { status: "completed" };
   }
 
-  // Compaction can summarize away the truncated response before a cancelled run
-  // ends, leaving no assistant message to settle the turn.
-  return options.cancelled === true ? { status: "interrupted" } : { status: "completed" };
+  // A request failing after cancellation reports the abort, not an agent error. An abort nobody
+  // requested, such as a child extension's, is a failure the parent must hear about.
+  if (!cancelled && (candidate.stopReason === "error" || candidate.stopReason === "aborted")) {
+    return {
+      error:
+        candidate.errorMessage ??
+        (candidate.stopReason === "aborted" ? "Turn was aborted" : "Agent failed"),
+      status: "errored",
+    };
+  }
+
+  // Cancellation can stop overflow recovery or an explicit unfinished-turn continuation;
+  // neither intermediate response is a completed answer.
+  if (
+    cancelled &&
+    (candidate.stopReason === "aborted" ||
+      candidate.stopReason === "error" ||
+      candidate.stopReason === "length" ||
+      candidate.endTurn === false)
+  ) {
+    return { status: "interrupted" };
+  }
+
+  const text = candidate.content
+    .flatMap((item) => (item.type === "text" ? [item.text] : []))
+    .join("");
+
+  return text.trim() === "" ? { status: "completed" } : { status: "completed", text };
 };
 
 export const cloneModelRuntime = async (
   source: RuntimeModelSource,
-  requiredProvider?: string,
+  requiredProvider: string,
 ): Promise<ModelRuntime> => {
   const agentDir = getAgentDir();
 
@@ -352,7 +167,7 @@ export const cloneModelRuntime = async (
   const providers = new Set([
     ...source.getAll().map((model) => model.provider),
     ...source.getRegisteredProviderIds(),
-    ...(requiredProvider === undefined ? [] : [requiredProvider]),
+    requiredProvider,
   ]);
 
   await Promise.all(
@@ -378,743 +193,300 @@ export const cloneModelRuntime = async (
   return runtime;
 };
 
-const ignored = async (promise: Promise<unknown>): Promise<void> => {
-  try {
-    await promise;
-  } catch {
-    // The owning operation observes or reports the failure.
-  }
-};
+interface Turn {
+  cancelled: boolean;
+  /** Settles a turn cancelled before Pi starts its run, where `session.abort()` has nothing to stop. */
+  readonly preflightCancelled: PromiseWithResolvers<undefined>;
+  preflight: boolean;
+  /** The latest run's signal; an abort nobody requested can leave a complete-looking response. */
+  run?: AbortSignal | undefined;
+}
 
 export const createChildRuntime: ChildRuntimeFactory = async (request) => {
+  const agentDir = getAgentDir();
+  const modelRuntime = await cloneModelRuntime(request.modelRegistry, request.model.provider);
+  const model = modelRuntime.getModel(request.model.provider, request.model.id);
+
+  if (model === undefined) {
+    throw new Error(
+      `Model ${request.model.provider}/${request.model.id} is not available to child sessions`,
+    );
+  }
+
   const sessionDir = path.join(request.dataDir, "sessions");
-  const materialized = createMaterializedSession(request, sessionDir);
-  const { session: sessionManager } = materialized;
+  await mkdir(sessionDir, { mode: 0o700, recursive: true });
+
+  const sessionManager =
+    request.sessionFile === undefined
+      ? SessionManager.create(request.cwd, sessionDir)
+      : SessionManager.open(request.sessionFile, sessionDir, request.cwd);
+
+  for (const message of request.history) {
+    sessionManager.appendMessage(message);
+  }
+
   const sessionFile = sessionManager.getSessionFile();
 
   if (sessionFile === undefined) {
     throw new Error("Child session is not persistent");
   }
 
-  let createdSession: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  const { promptOptions } = request;
+  /** The current prompt, from submission until it settles, including after cancellation. */
+  let turn: Turn | undefined;
 
-  try {
-    const restored = sessionManager.buildSessionContext();
-    let selectedModel = request.model;
-    let selectedThinking = request.thinkingLevel;
+  const settingsManager = SettingsManager.create(request.cwd, agentDir, {
+    projectTrusted: request.trusted,
+  });
 
-    if (!materialized.fresh) {
-      if (restored.model === null) {
-        throw new PermanentChildError("Restored child session has no selected model");
-      }
-
-      selectedModel = findModel(
-        request.modelRegistry,
-        restored.model.provider,
-        restored.model.modelId,
-      );
-
-      if (selectedModel === undefined) {
-        throw new PermanentChildError(
-          `Unable to resolve restored child model ${restored.model.provider}/${restored.model.modelId}`,
-        );
-      }
-
-      if (!isThinkingLevel(restored.thinkingLevel)) {
-        throw new PermanentChildError(
-          `Invalid restored child thinking level: ${restored.thinkingLevel}`,
-        );
-      }
-
-      selectedThinking = restored.thinkingLevel;
-    }
-
-    const cursor = new TranscriptCursor(sessionFile);
-    let poisonError: PermanentChildError | undefined;
-    const customStarts: string[] = [];
-    const startedCustom = new Set<string>();
-    const pendingCustom = new Map<string, PromiseWithResolvers<void>>();
-    const pendingPassive: RuntimeMessage[] = [];
-    const terminatingToolCalls = new Set<string>();
-
-    interface ActiveAttempt {
-      accepted: PromiseWithResolvers<void>;
-      cancellation: PromiseWithResolvers<void>;
-      cancellationError?: Error;
-      finished: PromiseWithResolvers<void>;
-      preflight: boolean;
-      userSeen: boolean;
-    }
-
-    let activeAttempt: ActiveAttempt | undefined;
-    let settlementFlush: Promise<void> | undefined;
-    const poisoned = Promise.withResolvers<never>();
-    void ignored(poisoned.promise);
-
-    const poison = (cause: unknown): PermanentChildError => {
-      if (poisonError !== undefined) {
-        return poisonError;
-      }
-
-      poisonError =
-        cause instanceof PermanentChildError
-          ? cause
-          : new PermanentChildError(cause instanceof Error ? cause.message : String(cause), {
-              cause,
-            });
-      poisoned.reject(poisonError);
-
-      if (createdSession !== undefined) {
-        void ignored(createdSession.abort());
-      }
-
-      return poisonError;
-    };
-
-    const assertHealthy = (): void => {
-      if (poisonError instanceof Error) {
-        throw poisonError;
-      }
-    };
-
-    const verifyLeaf = async <T>(expectedMessage?: T): Promise<void> => {
-      const entry =
-        expectedMessage === undefined
-          ? sessionManager.getLeafEntry()
-          : sessionManager
-              .getBranch()
-              .findLast(
-                (candidate) =>
-                  candidate.type === "message" && candidate.message === expectedMessage,
-              );
-
-      if (entry === undefined) {
-        throw poison(
-          new Error(
-            expectedMessage === undefined
-              ? "Session has no persisted leaf"
-              : "Expected session message was not appended",
-          ),
-        );
-      }
-
-      try {
-        await cursor.verify(entry.id);
-      } catch (error) {
-        throw poison(error);
-      }
-    };
-
-    const verifyCustomDelivery = async (deliveryId: string): Promise<void> => {
-      const entry = sessionManager.getLeafEntry();
-
-      if (
-        entry?.type !== "custom_message" ||
-        !Value.Check(CommunicationDetailsSchema, entry.details) ||
-        entry.details.communicationId !== deliveryId
-      ) {
-        throw poison(
-          new Error(
-            `Communication ${deliveryId} was not durably identified in the child transcript`,
-          ),
-        );
-      }
-
-      try {
-        await cursor.verify(entry.id);
-      } catch (error) {
-        throw poison(error);
-      }
-    };
-
-    const { promptOptions } = request;
-
-    const appendedPrompt = [promptOptions?.appendSystemPrompt, request.prompt].filter(
-      (value): value is string => Boolean(value),
-    );
-
-    const agentDir = getAgentDir();
-
-    const settingsManager = SettingsManager.create(request.cwd, agentDir, {
-      projectTrusted: request.trusted,
-    });
-
-    const excludedExtensionPaths = new Set<string>();
-
-    const flushPassive = async (triggerTurn: boolean): Promise<void> => {
-      const session = createdSession;
-
-      if (session === undefined) {
-        throw new Error("Child session is unavailable");
-      }
-
-      const pending = pendingPassive.splice(0, triggerTurn ? 1 : pendingPassive.length);
-
-      for (const message of pending) {
-        const receipt = pendingCustom.get(message.details.communicationId);
-
-        try {
-          await session.sendCustomMessage(
-            { ...message, display: false },
-            { deliverAs: "steer", triggerTurn },
-          );
-
-          if (!triggerTurn) {
-            await receipt?.promise;
-          }
-        } catch (error) {
-          const failure = poison(error);
-          pendingCustom.get(message.details.communicationId)?.reject(failure);
-          pendingCustom.delete(message.details.communicationId);
-          throw failure;
-        }
-      }
-    };
-
-    const hostBridge: ExtensionFactory = async (pi) => {
-      pi.on("session_before_compact", () =>
-        activeAttempt?.cancellationError !== undefined ? { cancel: true } : undefined,
-      );
-      await request.bridge?.(pi);
-      pi.on("input", () =>
-        activeAttempt?.preflight === true && activeAttempt.cancellationError !== undefined
-          ? { action: "handled" }
-          : undefined,
-      );
-      pi.on("turn_start", () => {
-        terminatingToolCalls.clear();
-      });
-      pi.on("tool_execution_end", (event) => {
-        if (Value.Check(TerminatingToolResultSchema, event.result)) {
-          terminatingToolCalls.add(event.toolCallId);
-        }
-      });
-      pi.on("turn_end", async (event, ctx) => {
-        const terminal =
-          event.outcome !== "completed" ||
-          activeAttempt?.cancellationError !== undefined ||
-          ctx.signal?.aborted === true;
-
-        const toolContinuation = event.toolResults.some(
-          ({ toolCallId }) => !terminatingToolCalls.has(toolCallId),
-        );
-
-        try {
-          if (!terminal && toolContinuation && event.context.pendingMessages.length === 0) {
-            await flushPassive(true);
-          }
-        } catch (error) {
-          throw poison(error);
-        } finally {
-          terminatingToolCalls.clear();
-        }
-      });
-      pi.on("agent_settled", async () => {
-        const operation = flushPassive(false);
-        settlementFlush = operation;
-
-        try {
-          await operation;
-        } catch (error) {
-          throw poison(error);
-        } finally {
-          if (settlementFlush === operation) {
-            settlementFlush = undefined;
-          }
-        }
-      });
-      pi.on("tool_call", async () => {
-        assertHealthy();
-        await cursor.verify();
-
-        if (cursor.parentId !== sessionManager.getLeafId()) {
-          throw poison(new Error("Child transcript is behind its in-memory session"));
-        }
-
-        assertHealthy();
-      });
-    };
-
-    const resourceLoader = new DefaultResourceLoader({
-      agentDir,
-      agentsFilesOverride: () => ({
-        agentsFiles: promptOptions?.contextFiles ?? [],
-      }),
-      appendSystemPrompt: appendedPrompt,
-      cwd: request.cwd,
-      extensionFactories: [
-        createCodemodeExtension(),
-        createToolSearchExtension(),
-        createMcpExtension(),
-        { factory: hostBridge, hidden: true, name: "subagents-child" },
-      ],
-      extensionsOverride: (base) => {
-        const extensions = base.extensions.filter((extension) => {
-          const keep =
-            extension.path === CHILD_BRIDGE_PATH ||
-            !isSubagentHostExtensionPath(extension.resolvedPath);
-
-          if (!keep) {
-            excludedExtensionPaths.add(extension.path);
-          }
-
-          return keep;
-        });
-
-        return {
-          ...base,
-          errors: base.errors.filter(
-            ({ error, path: extensionPath }) =>
-              !excludedExtensionPaths.has(extensionPath) &&
-              !(
-                extensionPath === CHILD_BRIDGE_PATH &&
-                error.startsWith("Tool ") &&
-                [...excludedExtensionPaths].some((excludedPath) =>
-                  error.endsWith(`conflicts with ${excludedPath}`),
-                )
-              ),
-          ),
-          extensions,
-        };
+  const resourceLoader = new DefaultResourceLoader({
+    agentDir,
+    agentsFilesOverride: () => ({ agentsFiles: promptOptions?.contextFiles ?? [] }),
+    appendSystemPrompt: [promptOptions?.appendSystemPrompt, request.prompt].filter(
+      (value): value is string => value !== undefined && value !== "",
+    ),
+    cwd: request.cwd,
+    // Built-in entries follow the user's `-builtin:<name>` settings and yield to replacements.
+    extensionFactories: [
+      { builtin: true, factory: createCodemodeExtension(), name: "codemode", replaceable: true },
+      {
+        builtin: true,
+        factory: createToolSearchExtension(),
+        name: "tool-search",
+        replaceable: true,
       },
-      noContextFiles: true,
-      noPromptTemplates: true,
-      noSkills: true,
-      noThemes: true,
-      settingsManager,
-      skillsOverride: () => ({
-        diagnostics: [],
-        skills: promptOptions?.skills ?? [],
-      }),
-      ...(promptOptions?.customPrompt !== undefined
-        ? { systemPrompt: promptOptions.customPrompt }
-        : {}),
-    });
+      { builtin: true, factory: createMcpExtension(), name: "mcp", replaceable: true },
+      {
+        factory: async (pi) => {
+          // abort() cannot stop a pre-prompt compaction that only starts after preflight cancellation.
+          pi.on("session_before_compact", () =>
+            turn?.cancelled === true ? { cancel: true } : undefined,
+          );
+          await request.bridge(pi);
+        },
+        hidden: true,
+        name: "subagents-child",
+      },
+    ],
+    // The bridge replaces the root's own subagents extension inside children.
+    extensionsOverride: (base) => ({
+      ...base,
+      extensions: base.extensions.filter(
+        (extension) => !isSubagentHostExtensionPath(extension.resolvedPath),
+      ),
+    }),
+    noContextFiles: true,
+    noPromptTemplates: true,
+    noSkills: true,
+    noThemes: true,
+    settingsManager,
+    skillsOverride: () => ({ diagnostics: [], skills: promptOptions?.skills ?? [] }),
+    ...(promptOptions?.customPrompt === undefined
+      ? {}
+      : { systemPrompt: promptOptions.customPrompt }),
+  });
 
-    await resourceLoader.reload();
-    // Reload re-reads settings. Apply inherited activation afterwards, without an SDK registry ceiling.
-    settingsManager.applyOverrides({ defaultTools: request.tools });
-    const loadedExtensions = resourceLoader.getExtensions();
+  await resourceLoader.reload();
+  // Reload re-reads settings, so inherited activation is applied afterwards.
+  settingsManager.applyOverrides({ defaultTools: [...request.tools] });
+  const extensions = resourceLoader.getExtensions();
 
-    const bridgeError = loadedExtensions.errors.find(
-      ({ path: extensionPath }) => extensionPath === CHILD_BRIDGE_PATH,
-    );
+  if (!extensions.extensions.some((extension) => extension.path === CHILD_BRIDGE_PATH)) {
+    const reason = extensions.errors.find((error) => error.path === CHILD_BRIDGE_PATH)?.error;
+    throw new Error(`Unable to load the child collaboration bridge: ${reason ?? "not loaded"}`);
+  }
 
-    if (bridgeError !== undefined) {
-      throw new Error(`Unable to load the required child bridge: ${bridgeError.error}`);
+  const { session } = await createAgentSession({
+    agentDir,
+    cwd: request.cwd,
+    excludeTools: ROOT_ONLY_TOOLS,
+    model,
+    modelRuntime,
+    resourceLoader,
+    sessionManager,
+    settingsManager,
+    ...(request.thinkingLevel === undefined ? {} : { thinkingLevel: request.thinkingLevel }),
+  });
+
+  let running: Promise<void> = Promise.resolve();
+  let disposal: Promise<void> | undefined;
+  /** Steered tasks the transcript has not shown yet, by message id. */
+  const steered = new Map<string, (read: boolean) => void>();
+
+  const unsubscribe = session.subscribe((event) => {
+    if (event.type === "agent_start" && turn !== undefined) {
+      turn.run = session.agent.signal;
     }
-
-    if (!loadedExtensions.extensions.some((extension) => extension.path === CHILD_BRIDGE_PATH)) {
-      throw new Error("Unable to load the required child bridge");
-    }
-
-    const { session } = await createAgentSession({
-      agentDir,
-      cwd: request.cwd,
-      ...(selectedModel !== undefined ? { model: selectedModel } : {}),
-      modelRuntime: await cloneModelRuntime(request.modelRegistry, selectedModel?.provider),
-      resourceLoader,
-      sessionManager,
-      settingsManager,
-      ...(selectedThinking !== undefined ? { thinkingLevel: selectedThinking } : {}),
-      excludeTools: ["request_user_input_async", "send_message_to_user_async"],
-    });
-
-    createdSession = session;
-    const stream = session.agent.streamFunction;
-    session.agent.streamFunction = (model, context, options) => {
-      const cancellation = activeAttempt?.cancellationError;
-
-      if (cancellation !== undefined) {
-        if (session.agent.signal?.aborted !== true) {
-          session.agent.abort();
-        }
-
-        throw cancellation;
-      }
-
-      return stream(model, context, options);
-    };
-
-    const activeModel = session.model;
-    const activeContext = sessionManager.buildSessionContext();
 
     if (
-      activeModel !== undefined &&
-      (activeContext.model?.provider !== activeModel.provider ||
-        activeContext.model.modelId !== activeModel.id)
+      event.type === "message_end" &&
+      event.message.role === "custom" &&
+      event.message.customType === SUBAGENT_MESSAGE_TYPE &&
+      Value.Check(MailDetailsSchema, event.message.details)
     ) {
-      sessionManager.appendModelChange(activeModel.provider, activeModel.id);
-    }
+      const { id } = event.message.details;
+      const read = steered.get(id);
 
-    if (activeContext.thinkingLevel !== session.thinkingLevel) {
-      sessionManager.appendThinkingLevelChange(session.thinkingLevel);
+      if (read === undefined) {
+        request.onDelivered(id);
+      } else {
+        steered.delete(id);
+        read(true);
+      }
     }
+  });
 
-    await cursor.verify(sessionManager.getLeafId() ?? undefined);
+  try {
     await session.bindExtensions({ mode: "print" });
+  } catch (error) {
+    unsubscribe();
+    session.dispose();
+    throw error;
+  }
 
-    let committed = !materialized.fresh;
-    let disposal: Promise<void> | undefined;
+  const startTurn = async (text: string): Promise<ChildTurnOutcome> => {
+    if (session.isStreaming || turn !== undefined) {
+      throw new Error("Child is already running");
+    }
 
-    const unsubscribe = session.subscribe((event) => {
-      if (event.type === "message_start" && event.message.role === "custom") {
-        if (Value.Check(CommunicationDetailsSchema, event.message.details)) {
-          const { communicationId } = event.message.details;
-          customStarts.push(communicationId);
-          startedCustom.add(communicationId);
+    const current: Turn = {
+      cancelled: false,
+      preflight: true,
+      preflightCancelled: Promise.withResolvers<undefined>(),
+    };
+
+    turn = current;
+    const boundary = session.state.messages.at(-1);
+
+    const prompt = session.prompt(text, {
+      expandPromptTemplates: false,
+      // Throwing here keeps a turn cancelled during preflight from starting its run.
+      preflightResult: (disposition) => {
+        if (current.cancelled) {
+          throw new Error("Child turn was aborted");
         }
 
-        return;
-      }
-
-      if (event.type === "message_end" && event.message.role === "user") {
-        const attempt = activeAttempt;
-
-        if (attempt !== undefined) {
-          attempt.userSeen = true;
+        if (disposition !== "started") {
+          throw new Error("Child input did not produce a user turn");
         }
 
-        queueMicrotask(() => {
-          void (async () => {
-            try {
-              await verifyLeaf(event.message);
-              attempt?.accepted.resolve();
-            } catch (error) {
-              attempt?.accepted.reject(error);
-            }
-          })();
-        });
-
-        return;
-      }
-
-      if (event.type === "message_end" && event.message.role === "custom") {
-        const deliveryId = customStarts.shift();
-
-        if (deliveryId === undefined) {
-          queueMicrotask(() => {
-            void ignored(verifyLeaf());
-          });
-
-          return;
-        }
-
-        queueMicrotask(() => {
-          void (async () => {
-            try {
-              await verifyCustomDelivery(deliveryId);
-              pendingCustom.get(deliveryId)?.resolve();
-            } catch (error) {
-              pendingCustom.get(deliveryId)?.reject(error);
-            } finally {
-              pendingCustom.delete(deliveryId);
-              startedCustom.delete(deliveryId);
-            }
-          })();
-        });
-
-        return;
-      }
-
-      if (
-        event.type === "message_end" &&
-        (event.message.role === "assistant" || event.message.role === "toolResult")
-      ) {
-        queueMicrotask(() => {
-          void ignored(verifyLeaf(event.message));
-        });
-
-        return;
-      }
-
-      if (event.type === "compaction_end") {
-        queueMicrotask(() => {
-          void ignored(verifyLeaf());
-        });
-      }
+        current.preflight = false;
+      },
+      source: "extension",
     });
 
-    const startTurn = (input: PromptInput): ChildTurn => {
-      assertHealthy();
+    running = (async () => {
+      try {
+        await prompt;
+      } catch {
+        // The outcome below reports the failure.
+      } finally {
+        turn = undefined;
 
-      if (session.isStreaming || activeAttempt !== undefined) {
-        throw new Error("Child is already running");
+        // Pi reads no more steering once the prompt settles, whatever the timing of the steer.
+        for (const read of steered.values()) {
+          read(false);
+        }
+
+        steered.clear();
       }
+    })();
 
-      const accepted = Promise.withResolvers<void>();
-      const cancellation = Promise.withResolvers<void>();
-      const finished = Promise.withResolvers<void>();
-      const boundary = session.state.messages.at(-1);
+    try {
+      await Promise.race([prompt, current.preflightCancelled.promise]);
+    } catch (error) {
+      return current.cancelled
+        ? { status: "interrupted" }
+        : { error: error instanceof Error ? error.message : String(error), status: "errored" };
+    }
 
-      const attempt: ActiveAttempt = {
-        accepted,
-        cancellation,
-        finished,
-        preflight: true,
-        userSeen: false,
-      };
+    if (current.cancelled && current.preflight) {
+      return { status: "interrupted" };
+    }
 
-      activeAttempt = attempt;
+    const { messages } = session.state;
+    const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
+    const outcome = finalFromMessages(messages.slice(index + 1), current.cancelled);
 
-      const prompt = session.prompt(input.text, {
-        expandPromptTemplates: false,
-        ...(input.images !== undefined ? { images: input.images } : {}),
-        preflightResult: (disposition) => {
-          if (attempt.cancellationError !== undefined) {
-            throw attempt.cancellationError;
-          }
+    // A tool aborting the run, for example, leaves its preliminary response as the last message.
+    return outcome.status === "completed" && !current.cancelled && current.run?.aborted === true
+      ? { error: "Turn was aborted", status: "errored" }
+      : outcome;
+  };
 
-          if (disposition !== "started") {
-            throw new Error("Child input did not produce a user turn");
-          }
+  const abort = (): void => {
+    if (turn !== undefined) {
+      turn.cancelled = true;
 
-          attempt.preflight = false;
-        },
-        source: "extension",
-      });
+      if (turn.preflight) {
+        turn.preflightCancelled.resolve(undefined);
+      }
+    }
 
-      const settled = (async () => {
+    session.clearQueue();
+    session.abort().catch(request.onError);
+  };
+
+  return {
+    abort,
+    deliver(mail) {
+      session.sendCustomMessage(mailMessage(mail), { triggerTurn: false }).catch(request.onError);
+    },
+    dispose() {
+      disposal ??= (async () => {
+        abort();
+
         try {
-          await Promise.race([prompt, cancellation.promise, poisoned.promise]);
-          await yieldImmediate();
+          // Shutdown runs alongside the stopping run so handlers blocking preflight can release it.
+          const [shutdown] = await Promise.allSettled([
+            session.extensionRunner.emit({ reason: "quit", type: "session_shutdown" }),
+            running,
+          ]);
 
-          if (!attempt.userSeen) {
-            throw new Error("Child input did not produce a user turn");
+          if (shutdown.status === "rejected") {
+            throw shutdown.reason;
           }
-
-          await cursor.barrier();
-          assertHealthy();
-          const { messages } = session.state;
-          const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
-
-          return finalFromMessages(messages.slice(index + 1), {
-            cancelled: attempt.cancellationError !== undefined,
-          });
-        } catch (error) {
-          accepted.reject(error);
-          throw error;
         } finally {
-          await ignored(prompt);
-
-          if (activeAttempt === attempt) {
-            activeAttempt = undefined;
-          }
-
-          attempt.finished.resolve();
+          unsubscribe();
+          session.dispose();
         }
       })();
 
-      void ignored(accepted.promise);
-      void ignored(cancellation.promise);
-      void ignored(settled);
+      return disposal;
+    },
+    get model() {
+      // Child extensions can switch models at session start; Pi's type allows no model at all.
+      const current = session.model ?? model;
 
-      return { accepted: accepted.promise, settled };
-    };
-
-    const cancelAttempt = (cause: Error): void => {
-      const attempt = activeAttempt;
-
-      if (attempt === undefined || attempt.cancellationError !== undefined) {
-        return;
+      return `${current.provider}/${current.id}`;
+    },
+    sessionFile,
+    startTurn,
+    steer(task) {
+      // Pi delivers queued steering after the prompt when the run starts, or at the next turn
+      // boundary while it runs; the transcript, not Pi's state, shows whether it did.
+      if (turn === undefined) {
+        return undefined;
       }
 
-      attempt.cancellationError = cause;
+      const id = randomUUID();
+      const read = Promise.withResolvers<boolean>();
+      steered.set(id, read.resolve);
 
-      if (attempt.preflight) {
-        attempt.cancellation.reject(cause);
-      }
-    };
+      // sendCustomMessage would append the task at once before the run starts, ahead of the prompt.
+      session.agent.steer({
+        content: envelopeText(task),
+        customType: SUBAGENT_MESSAGE_TYPE,
+        details: { from: task.from, id, kind: task.kind, to: task.to },
+        display: false,
+        role: "custom",
+        timestamp: Date.now(),
+      });
 
-    const stop = async (failure: Error, waitForAttempt = false): Promise<void> => {
-      const attempt = activeAttempt;
-      cancelAttempt(failure);
-      session.clearQueue();
-      session.abortCompaction();
-
-      const postRun =
-        attempt !== undefined &&
-        !attempt.preflight &&
-        session.isStreaming &&
-        session.agent.signal === undefined;
-
-      let stopError: unknown;
-
-      try {
-        const abort = session.abort();
-
-        if (waitForAttempt || !postRun) {
-          await abort;
-        } else {
-          void ignored(abort);
-        }
-      } catch (error) {
-        stopError = error;
-      }
-
-      if (waitForAttempt) {
-        await attempt?.finished.promise;
-      }
-
-      try {
-        await settlementFlush;
-      } catch (error) {
-        stopError ??= error;
-      }
-
-      await Promise.allSettled(
-        [...pendingCustom].flatMap(([deliveryId, delivery]) =>
-          startedCustom.has(deliveryId) ? [delivery.promise] : [],
-        ),
-      );
-
-      for (const [deliveryId, delivery] of pendingCustom) {
-        if (!startedCustom.has(deliveryId)) {
-          delivery.reject(failure);
-          pendingCustom.delete(deliveryId);
-        }
-      }
-
-      pendingPassive.length = 0;
-
-      if (stopError !== undefined) {
-        throw stopError;
-      }
-
-      assertHealthy();
-    };
-
-    const runtime: ChildRuntime = {
-      async abort() {
-        await stop(new Error("Child turn was aborted"));
-      },
-      commit() {
-        committed = true;
-      },
-      dispose() {
-        if (disposal === undefined) {
-          const deferred = Promise.withResolvers<void>();
-          disposal = deferred.promise;
-          void (async () => {
-            const failure = new PermanentChildError("Child runtime was disposed");
-            const preflight = activeAttempt?.preflight === true;
-            const stopping = stop(failure, true);
-
-            try {
-              if (preflight) {
-                const shutdown = session.extensionRunner.emit({
-                  reason: "quit",
-                  type: "session_shutdown",
-                });
-
-                const [stopResult, shutdownResult] = await Promise.allSettled([stopping, shutdown]);
-
-                if (shutdownResult.status === "rejected") {
-                  throw shutdownResult.reason;
-                }
-
-                if (stopResult.status === "rejected") {
-                  throw stopResult.reason;
-                }
-              } else {
-                try {
-                  await stopping;
-                } finally {
-                  await session.extensionRunner.emit({
-                    reason: "quit",
-                    type: "session_shutdown",
-                  });
-                }
-              }
-            } finally {
-              try {
-                unsubscribe();
-              } finally {
-                session.dispose();
-              }
-            }
-          })().then(deferred.resolve, deferred.reject);
-        }
-
-        return disposal;
-      },
-      isStreaming: () => session.isStreaming,
-      async rollback() {
-        try {
-          await runtime.dispose();
-        } finally {
-          if (!committed) {
-            rmSync(sessionFile, { force: true });
-          }
-        }
-      },
-      sendMessage(message, onEnqueued, triggerTurn = false) {
-        assertHealthy();
-
-        if (triggerTurn && !session.isStreaming) {
-          return startTurn({ text: message.content });
-        }
-
-        const { communicationId: deliveryId } = message.details;
-        const accepted = Promise.withResolvers<void>();
-        pendingCustom.set(deliveryId, accepted);
-        const streaming = session.isStreaming;
-
-        if (streaming && !triggerTurn) {
-          pendingPassive.push(message);
-          onEnqueued?.();
-
-          return { accepted: accepted.promise };
-        }
-
-        const operation = (async () => {
-          try {
-            await session.sendCustomMessage(
-              { ...message, display: false },
-              {
-                deliverAs: "steer",
-                triggerTurn: streaming && triggerTurn,
-              },
-            );
-            onEnqueued?.();
-          } catch (error) {
-            pendingCustom.delete(deliveryId);
-            accepted.reject(poison(error));
-          }
-        })();
-
-        void ignored(operation);
-
-        return { accepted: accepted.promise };
-      },
-      sessionFile,
-      get model() {
-        return session.model;
-      },
-      get thinkingLevel() {
-        return session.thinkingLevel;
-      },
-      startTurn,
-    };
-
-    return runtime;
-  } catch (error) {
-    try {
-      if (createdSession !== undefined) {
-        await ignored(
-          createdSession.extensionRunner.emit({
-            reason: "quit",
-            type: "session_shutdown",
-          }),
-        );
-        createdSession.dispose();
-      }
-    } finally {
-      if (materialized.fresh) {
-        rmSync(sessionFile, { force: true });
-      }
-    }
-
-    throw error;
-  }
+      return read.promise;
+    },
+    get thinkingLevel() {
+      return session.thinkingLevel;
+    },
+  };
 };

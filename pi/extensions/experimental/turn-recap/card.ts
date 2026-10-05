@@ -83,9 +83,7 @@ const statistics = (
 };
 
 export interface LiveState {
-  activeMs: number;
-  /** A paused row freezes; it only stops the widget's timer. */
-  paused: boolean;
+  elapsedMs: number;
   metrics: Metrics;
 }
 
@@ -102,7 +100,7 @@ export const renderLive = (
   if (width <= 0) return [];
 
   const text = row(theme, [
-    stat(theme, numeric("active", formatElapsed(state.activeMs, "seconds")), "active"),
+    stat(theme, numeric("elapsed", formatElapsed(state.elapsedMs, "seconds")), "elapsed"),
     ...statistics(state.metrics, theme, false, numeric),
   ]);
 
@@ -136,7 +134,7 @@ export const renderCard = (
       theme.fg("borderMuted", "─ Turn recap · ") +
         theme.fg(
           outcomeTone,
-          `${outcome} ${formatElapsed(snapshot.activeMs)} at ${clock(snapshot.finishedAt)} `,
+          `${outcome} ${formatElapsed(snapshot.wallMs)} at ${clock(snapshot.finishedAt)} `,
         ) +
         theme.fg("borderMuted", "─".repeat(width)),
       width,
@@ -189,12 +187,7 @@ export const renderCard = (
     ),
   );
   add(theme.fg("muted", `${metrics.responses} responses · ${metrics.toolErrors} tool errors`));
-  add(
-    theme.fg(
-      "muted",
-      `${formatElapsed(snapshot.wallMs)} wall · ${formatElapsed(Math.max(0, snapshot.wallMs - snapshot.activeMs))} waiting · Started ${clock(snapshot.startedAt)}`,
-    ),
-  );
+  add(theme.fg("muted", `Started ${clock(snapshot.startedAt)}`));
 
   if (metrics.models.length > 0)
     add(theme.fg("muted", `Models: ${metrics.models.map(sanitizeRecapText).join(", ")}`));

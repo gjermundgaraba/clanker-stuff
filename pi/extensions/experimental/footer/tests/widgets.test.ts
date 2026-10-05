@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { buildBuiltinWidgets, collectSessionTotals } from "../widgets.js";
+import { sessionReads } from "./helpers.js";
 
 const usage = (amount: number): Usage => ({
   cacheRead: amount,
@@ -112,19 +113,30 @@ describe(collectSessionTotals, () => {
 });
 
 describe(buildBuiltinWidgets, () => {
-  const widgets = (percent: number) =>
+  const options = {
+    branch: "main",
+    details: { ahead: 0, behind: 0, staged: 0, unstaged: 2, untracked: 1 },
+    now: 0,
+    thinkingLevel: "high",
+  };
+
+  const build = (
+    overrides: Parameters<ReturnType<typeof createExtensionHost>["createContext"]>[0],
+  ) =>
     buildBuiltinWidgets(
       createExtensionHost(() => {}).createContext({
         cwd: "/tmp/project",
-        getContextUsage: () => ({ contextWindow: 100, percent, tokens: percent }),
+        sessionManager: sessionReads(SessionManager.inMemory()),
+        ...overrides,
       }),
-      {
-        git: { ahead: 0, behind: 0, branch: "main", staged: 0, unstaged: 2, untracked: 1 },
-        now: 0,
-        session: { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 },
-        thinkingLevel: "high",
-      },
+      options,
     );
+
+  const text = (widgets: ReturnType<typeof buildBuiltinWidgets>, id: string) =>
+    widgets
+      .get(id)
+      ?.content.map((span) => span.text)
+      .join("");
 
   it("labels selected versus last executed model/effort and does not leak abandoned responses", () => {
     const session = SessionManager.inMemory();
@@ -153,19 +165,19 @@ describe(buildBuiltinWidgets, () => {
         maxTokens: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       },
-      sessionManager: session,
+      sessionManager: sessionReads(session),
     });
 
     const content = (id: string) =>
-      buildBuiltinWidgets(ctx, {
-        git: null,
-        now: 0,
-        thinkingLevel: "low",
-        session: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
-      })
-        .get(id)
-        ?.snapshot.content.map((item) => item.text)
-        .join("");
+      text(
+        buildBuiltinWidgets(ctx, {
+          ...options,
+          branch: null,
+          details: undefined,
+          thinkingLevel: "low",
+        }),
+        id,
+      );
 
     expect(content("footer.model")).toBe("selected: Auto · last: anthropic/physical");
     expect(content("footer.thinking")).toBe("selected: low · last: high");
@@ -174,12 +186,21 @@ describe(buildBuiltinWidgets, () => {
     expect(content("footer.thinking")).toBe("low");
   });
 
-  const tones = (percent: number, id: string) => {
-    const snapshot = widgets(percent).get(id)?.snapshot;
-    const icon = snapshot?.icon === false ? undefined : snapshot?.icon?.tone;
+  it.each([
+    ["after compaction", { contextWindow: 200_000, percent: null, tokens: null }, " ?/200k"],
+    ["without a context window", undefined, " ?"],
+  ])("marks unknown context usage %s instead of reporting 0%%", (_name, usage, suffix) => {
+    const widgets = build({ getContextUsage: () => usage });
 
-    return new Set([icon, ...(snapshot?.content.map((span) => span.tone) ?? [])]);
-  };
+    expect(text(widgets, "footer.context")).toBe(`${"─".repeat(12)}${suffix}`);
+  });
+
+  const tones = (percent: number, id: string) =>
+    new Set(
+      build({ getContextUsage: () => ({ contextWindow: 100, percent, tokens: percent }) })
+        .get(id)
+        ?.content.map((span) => span.tone),
+    );
 
   const LOUD = ["accent", "success", "warning", "error"] as const;
 

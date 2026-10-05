@@ -1,16 +1,16 @@
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { Type } from "typebox";
-import type { Static } from "typebox";
-import { Value } from "typebox/value";
+import type { Static, TSchema } from "typebox";
 import { Id, MAX_NOTE, MAX_TEXT, QuestionnaireSchema, validateQuestionnaire } from "./request.js";
-import type { Questionnaire } from "./request.js";
 
-const record = <T extends import("typebox").TSchema>(schema: T) =>
+const record = <T extends TSchema>(schema: T) =>
   Type.Record(Id, schema, { additionalProperties: false });
 
 const enumOf = <T extends string>(values: T[]) => Type.Unsafe<T>({ type: "string", enum: values });
 
 const Mode = enumOf(["blocking", "async"]);
+
+const Initiator = enumOf(["user", "agent"]);
 
 const Fields = Type.Object(
   {
@@ -27,8 +27,7 @@ const DraftSchema = Type.Object(
   {
     answers: record(Fields),
     note: Type.String({ maxLength: MAX_NOTE }),
-    base_revision: Type.Integer({ minimum: 0 }),
-    initiated_by: enumOf(["user", "agent"]),
+    initiated_by: Initiator,
     reason: Type.Optional(Type.String()),
     mode: Mode,
     tool_call_id: Type.Optional(Type.String()),
@@ -56,48 +55,51 @@ const AnswerSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const SubmissionSchema = Type.Object(
-  {
-    revision: Type.Integer({ minimum: 1 }),
-    parent_revision: Type.Integer({ minimum: 0 }),
-    timestamp: Type.String(),
-    origin: Type.Literal("user"),
-    initiated_by: enumOf(["user", "agent"]),
-    reason: Type.Optional(Type.String()),
-    tool_call_id: Type.Optional(Type.String()),
-    mode: Mode,
-    answers: record(AnswerSchema),
-    note: Type.String(),
-  },
+/** The immutable answer the user submitted; delivery bookkeeping is kept beside it. */
+export const submittedFields = {
+  revision: Type.Integer({ minimum: 1 }),
+  timestamp: Type.String(),
+  initiated_by: Initiator,
+  reason: Type.Optional(Type.String()),
+  tool_call_id: Type.Optional(Type.String()),
+  mode: Mode,
+  answers: record(AnswerSchema),
+  note: Type.String(),
+};
+
+const SubmissionSchema = Type.Object(
+  { ...submittedFields, sent_at: Type.Optional(Type.String()) },
   { additionalProperties: false },
 );
 
-export const InteractionSchema = Type.Object(
+/** Written once when the agent asks: the authored questions never change. */
+export const RequestRecordSchema = Type.Object(
   {
     id: Id,
     request: QuestionnaireSchema,
-    version: Type.Integer({ minimum: 1 }),
     created_at: Type.String(),
-    updated_at: Type.String(),
     origin_tool_call_id: Type.String(),
-    paused: Type.Boolean(),
-    cancelled: Type.Boolean(),
-    draft: Type.Optional(DraftSchema),
-    submissions: Type.Array(SubmissionSchema),
-    deliveries: Type.Array(
-      Type.Object(
-        {
-          revision: Type.Integer({ minimum: 1 }),
-          status: enumOf(["pending", "handed_to_pi", "delivered", "uncertain"]),
-        },
-        { additionalProperties: false },
-      ),
-    ),
   },
   { additionalProperties: false },
 );
 
-export type Interaction = Static<typeof InteractionSchema>;
+/** Written on every change: the user's draft, submissions and their delivery. */
+export const StateRecordSchema = Type.Object(
+  {
+    id: Id,
+    updated_at: Type.String(),
+    cancelled: Type.Boolean(),
+    draft: Type.Optional(DraftSchema),
+    submissions: Type.Array(SubmissionSchema),
+  },
+  { additionalProperties: false },
+);
+
+export type RequestRecord = Static<typeof RequestRecordSchema>;
+
+export type StateRecord = Static<typeof StateRecordSchema>;
+
+export type Interaction = RequestRecord & StateRecord;
 
 export type Draft = Static<typeof DraftSchema>;
 
@@ -117,33 +119,32 @@ export type Action =
       type: "reopen";
       base: number;
       initiated_by: "user" | "agent";
-      mode: Mode;
+      /** Defaults to the mode of the latest submission: the way the questionnaire was last asked. */
+      mode?: Mode;
       reason?: string;
       tool_call_id?: string;
     }
-  | { type: "pause" | "resume" | "cancel" }
-  | { type: "delivery"; revision: number; status: Interaction["deliveries"][number]["status"] };
+  | { type: "cancel" }
+  | { type: "sent"; revision: number };
 
+/** Validates the authored request; tools pass their arguments straight through. */
 export function createInteraction(
   id: string,
-  request: Questionnaire,
+  input: unknown,
   toolCallId: string,
   mode: Mode,
   now = new Date().toISOString(),
 ): Interaction {
-  validateQuestionnaire(request);
+  const request = validateQuestionnaire(input);
 
   return {
     id,
-    request: structuredClone(request),
-    version: 1,
+    request,
     origin_tool_call_id: toolCallId,
     created_at: now,
     updated_at: now,
-    paused: false,
     cancelled: false,
     submissions: [],
-    deliveries: [],
     draft: {
       answers: Object.fromEntries(
         request.questions.map((q) => [
@@ -158,7 +159,6 @@ export function createInteraction(
         ]),
       ),
       note: "",
-      base_revision: 0,
       initiated_by: "agent",
       tool_call_id: toolCallId,
       mode,
@@ -219,16 +219,12 @@ export function collectAnswers(item: Interaction): Submission["answers"] {
   return answers;
 }
 
+/** Applies one user or agent action to a copy; the original is never mutated. */
 export function transition(
   item: Interaction,
-  expectedVersion: number,
   action: Action,
   now = new Date().toISOString(),
 ): Interaction {
-  if (item.version !== expectedVersion)
-    throw new Error(
-      "Stale questionnaire action; reopen the latest draft. Your editor text has been retained.",
-    );
   const next = structuredClone(item);
   const draft = next.draft;
 
@@ -285,18 +281,12 @@ export function transition(
 
     case "submit": {
       if (!draft || next.cancelled) throw new Error("No editable draft");
-      const latest = next.submissions.at(-1)?.revision ?? 0;
-
-      if (draft.base_revision !== latest) throw new Error("Stale base revision");
 
       const submission: Submission = {
-        revision: latest + 1,
-        parent_revision: latest,
+        revision: next.submissions.length + 1,
         timestamp: now,
-        origin: "user",
         initiated_by: draft.initiated_by,
         mode: draft.mode,
-
         answers: collectAnswers(next),
         note: draft.note,
       };
@@ -305,7 +295,6 @@ export function transition(
 
       if (draft.tool_call_id) submission.tool_call_id = draft.tool_call_id;
       next.submissions.push(submission);
-      next.deliveries.push({ revision: submission.revision, status: "pending" });
       delete next.draft;
       break;
     }
@@ -327,9 +316,8 @@ export function transition(
       if (base.revision !== action.base)
         throw new Error(`Stale base revision; the latest submission is revision ${base.revision}`);
       next.draft = {
-        base_revision: action.base,
         initiated_by: action.initiated_by,
-        mode: action.mode,
+        mode: action.mode ?? base.mode,
 
         note: base.note,
         answers: Object.fromEntries(
@@ -364,57 +352,29 @@ export function transition(
       break;
     }
 
-    case "pause":
-      next.paused = true;
-      break;
-    case "resume":
-      next.paused = false;
-      break;
     case "cancel":
       next.cancelled = true;
       delete next.draft;
       break;
-    case "delivery": {
-      const delivery = next.deliveries.find((d) => d.revision === action.revision);
+    case "sent": {
+      const submission = next.submissions.find((s) => s.revision === action.revision);
 
-      if (!delivery) throw new Error("Unknown submission revision");
-
-      if (delivery.status === "delivered" && action.status !== "delivered")
-        throw new Error("Delivered submissions cannot be unsent");
-      delivery.status = action.status;
+      if (!submission) throw new Error("Unknown submission revision");
+      submission.sent_at = now;
       break;
     }
   }
 
-  next.version++;
   next.updated_at = now;
-
-  if (!Value.Check(InteractionSchema, next)) throw new Error("Invalid interaction state");
 
   return next;
 }
 
-export function submissionChanges(item: Interaction, submission: Submission): string[] {
-  const previous = item.submissions.find((s) => s.revision === submission.parent_revision);
+/** The submission a draft revises, when it revises one. */
+export const revisedSubmission = (item: Interaction): Submission | undefined =>
+  item.draft ? item.submissions.at(-1) : undefined;
 
-  if (!previous) return [];
-
-  const changes = item.request.questions
-    .filter(
-      (q) => JSON.stringify(previous.answers[q.id]) !== JSON.stringify(submission.answers[q.id]),
-    )
-    .map((q) => q.header);
-
-  if (previous.note !== submission.note) changes.push("Questionnaire note");
-
-  return changes;
-}
-
-/** Open drafts and answers never handed to Pi still need the user; sent and cancelled ones do not. */
+/** Open drafts and answers never sent to Pi still need the user; sent and cancelled ones do not. */
 export function awaitingUser(item: Interaction): boolean {
-  return (
-    !item.cancelled &&
-    (!!item.draft ||
-      item.deliveries.some((d) => d.status === "pending" || d.status === "uncertain"))
-  );
+  return !item.cancelled && (!!item.draft || item.submissions.some((s) => !s.sent_at));
 }

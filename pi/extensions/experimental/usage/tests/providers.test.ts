@@ -64,9 +64,10 @@ describe("providers", () => {
 
     expect(resolveQuotaProvider(ctx)).toBeUndefined();
     session.appendMessage({ ...fauxAssistantMessage("done"), provider: "anthropic" });
-    const failed = { ...fauxAssistantMessage("", { stopReason: "error" }), provider: "openai" };
-    expect(resolveQuotaProvider(ctx, failed)).toBe("openai");
-    session.appendMessage(failed);
+    session.appendMessage({
+      ...fauxAssistantMessage("", { stopReason: "error" }),
+      provider: "openai",
+    });
     expect(resolveQuotaProvider(ctx)).toBe("openai");
     session.appendMessage({
       ...fauxAssistantMessage("", { stopReason: "error" }),

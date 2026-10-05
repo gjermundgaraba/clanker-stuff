@@ -31,9 +31,6 @@
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
-  "peerDependencies": {
-    "typebox": "*"
-  },
   "engines": {
     "node": ">=26"
   }

@@ -1,6 +1,6 @@
 # Shape spinner setup
 
-One extension, one font, and one command select between the colored Rubik's puzzle and four wireframe shapes for each of Pi's status spinners. Only one working-indicator controller is active.
+One extension, one font, and one command select between the colored Rubik's puzzle and four wireframe shapes for Pi's working spinner. Only one working-indicator controller is active.
 
 ## Ghostty on macOS
 
@@ -19,28 +19,28 @@ The family name contains a font-content revision. After an update, run `/reload`
 
 ## Settings dialog
 
-Run `/shape-spinner` to open the settings dialog. It previews every spinner with its own animation at the real frame rate, updating as you change settings, and applies each change to the live spinners immediately:
+Run `/shape-spinner` to open the settings dialog. It previews the spinner at the real frame rate, updating as you change settings, and applies each change to the live spinner immediately:
 
-| Row                                                     | Effect                                                                            |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `Motion`                                                | `animated` plays the loop; `static` rests on the closing pose (solved for Rubik). |
-| `Background`                                            | Wireframe ink for a dark or light terminal; the puzzle keeps its sticker colors.  |
-| `<spinner> shape` (working, retry, compaction, summary) | Pick the colored puzzle or a wireframe for that status.                           |
-| `<spinner> color`                                       | Pick the wireframe ink for that status.                                           |
-| `<spinner> enabled`                                     | `off` falls back to Pi's own indicator for that status alone.                     |
+| Row      | Effect                                                                            |
+| -------- | --------------------------------------------------------------------------------- |
+| `Motion` | `animated` plays the loop; `static` rests on the closing pose (solved for Rubik). |
+| `Shape`  | Pick the colored puzzle or a wireframe.                                           |
+| `Color`  | Pick the wireframe ink.                                                           |
 
-Rubik keeps its stickers but remembers the color for the next wireframe. A disabled spinner previews as `off`; the live editor stays visible around the dialog.
+Rubik keeps its stickers but remembers the color for the next wireframe. The live editor stays visible around the dialog.
 
-Choices are saved to `shape-spinner.json` in Pi's agent directory when the dialog closes and restored on the next start. The defaults are an animated cyan orb for working, an orange tetrahedron for retries, a purple cube for compaction, and a blue octahedron for branch summaries, all with dark-background ink. Disable every spinner, or the extension itself in `pi config`, to opt out.
+Wireframe ink follows the theme's light or dark appearance, so a light/dark theme pair switches ink with your terminal. Pi has no theme-change event, so a switch shows from the next run.
+
+Choices are saved to `shape-spinner.json` in Pi's agent directory when the dialog closes and restored on the next start; a file in an earlier format falls back to the defaults. The default is an animated cyan orb. Disable the extension in `pi config` to opt out.
 
 ## Lifecycle and compatibility
 
-Pi owns the playback timer for the real spinners: the extension sets each sequence once. The only private timer is the settings dialog's preview animation, which stops when the dialog closes. There are no editor replacements, widgets, subprocesses, or direct terminal output. All sequences use nominal 50 fps (20-ms ticks). Wireframes have 400 frames: eight seconds of rotation, with constant global opacity and scale. Rubik has 220 frames: a 4.4-second solve/hold/scramble loop, with no opacity pulse. An integer interval avoids Node truncating a 60-fps delay to 16 ms and shortening the loop. Achieved timing depends on Pi's timer, render coalescing, system load, and terminal. This is activity, **not progress**.
+Pi owns the playback timer for the real spinner: the extension sets its sequence at startup and at each run's start. The only private timer is the settings dialog's preview animation, which stops when the dialog closes. There are no editor replacements, widgets, subprocesses, or direct terminal output. All sequences use nominal 50 fps (20-ms ticks). Wireframes have 400 frames: eight seconds of rotation, with constant global opacity and scale. Rubik has 220 frames: a 4.4-second solve/hold/scramble loop, with no opacity pulse. An integer interval avoids Node truncating a 60-fps delay to 16 ms and shortening the loop. Achieved timing depends on Pi's timer, render coalescing, system load, and terminal. This is activity, **not progress**.
 
-Normal completion and Escape remove the indicator immediately. Amp's startup phase correction, stop easing, and persistent idle icon cannot be represented by this cyclic working-indicator slot. Static mode is a separately rendered resting pose, not a retained idle widget. Pi styles only the working spinner through its extension API; the retry, compaction, and branch-summary spinners are restyled by the shared editor from `@clanker-stuff/editor` as Pi embeds them in the editor border, and their labels stay Pi's own. When another extension owns a custom editor, or Pi's editor internals are unsupported, those three keep Pi's default animation and the working spinner still changes. RPC, JSON, and print modes are untouched.
+Normal completion and Escape remove the indicator immediately. Amp's startup phase correction, stop easing, and persistent idle icon cannot be represented by this cyclic working-indicator slot. Static mode is a separately rendered resting pose, not a retained idle widget. Only the working spinner changes, through Pi's extension API; retry, compaction, and branch-summary spinners keep Pi's default animation, and any custom editor can be used. RPC, JSON, and print modes are untouched.
 
-Each frame is one private-use color glyph plus an ordinary space. This reserves two terminal columns and allows Ghostty to display the whole shape without independently fitting two halves. Transparent `sbix` bitmaps preserve depth shading and composite against the real background. Colors are baked, not ANSI-tinted by Pi's theme. The puzzle has fixed multicolor stickers. One deterministic orb seed and all nine named Amp web colors, each with dark/light variants, are bundled; arbitrary colors or seeds require rebuilding.
+Each frame is one private-use color glyph plus an ordinary space. This reserves two terminal columns and allows Ghostty to display the whole shape without independently fitting two halves. Transparent `sbix` bitmaps preserve depth shading and composite against the real background. Colors are baked, not ANSI-tinted by Pi's theme; only the light or dark ink variant follows it. The puzzle has fixed multicolor stickers. One deterministic orb seed and all nine named Amp web colors, each with dark/light variants, are bundled; arbitrary colors or seeds require rebuilding.
 
-Ghostty on macOS with color-font rendering is the supported target, not a guarantee for all terminal versions. There is no monochrome artwork fallback. Pi cannot detect whether your terminal has selected the font. Turn the spinners' `enabled` rows off in the dialog if the result is clipped, missing, or unreadable.
+Ghostty on macOS with color-font rendering is the supported target, not a guarantee for all terminal versions. There is no monochrome artwork fallback. Pi cannot detect whether your terminal has selected the font. Disable the extension if the result is clipped, missing, or unreadable.
 
 Wireframes have intentionally faint rear edges, but the completed icon does not fade or shrink. Check both ink choices at your actual font size. The wireframe geometry is reconstructed from Amp, but the terminal's tiny raster, cell fitting, and font cache still need visual approval. See [font generation and fidelity](font.md).

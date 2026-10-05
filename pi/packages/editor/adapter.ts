@@ -12,16 +12,6 @@ interface NativeSnapshot {
   pasteCounter: number;
 }
 
-export interface Draft extends NativeSnapshot {
-  undo: NativeSnapshot[];
-  historyIndex: number;
-  historyDraft: Position | null;
-  scrollOffset: number;
-  lastAction: string | null;
-  preferredVisualCol: number | null;
-  snappedFromCursorCol: number | null;
-}
-
 export interface DocumentView {
   readonly text: string;
   readonly cursor: number;
@@ -66,7 +56,7 @@ interface NativeEditor extends NativeSnapshot {
     rotate(): void;
     readonly length: number;
   };
-  undoStack: { stack: NativeSnapshot[]; clear(): void };
+  undoStack: { clear(): void };
   historyIndex: number;
   historyDraft: Position | null;
   scrollOffset: number;
@@ -87,7 +77,7 @@ function nativeEditor(instance: unknown): NativeEditor {
   if (
     !Array.isArray(native.state?.lines) ||
     !(native.pastes instanceof Map) ||
-    !Array.isArray(native.undoStack?.stack) ||
+    typeof native.undoStack?.clear !== "function" ||
     typeof native.killRing?.push !== "function" ||
     typeof native.killRing?.peek !== "function" ||
     typeof native.killRing?.rotate !== "function" ||
@@ -104,35 +94,6 @@ function nativeEditor(instance: unknown): NativeEditor {
 export function connect(editor: CustomEditor) {
   const native = nativeEditor(editor);
   const text = () => native.state.lines.join("\n");
-
-  const capture = (): Draft =>
-    structuredClone({
-      state: native.state,
-      pastes: native.pastes,
-      pasteCounter: native.pasteCounter,
-      undo: native.undoStack.stack,
-      historyIndex: native.historyIndex,
-      historyDraft: native.historyDraft,
-      scrollOffset: native.scrollOffset,
-      lastAction: native.lastAction,
-      preferredVisualCol: native.preferredVisualCol,
-      snappedFromCursorCol: native.snappedFromCursorCol,
-    });
-
-  const restore = (draft: Draft) => {
-    native.cancelAutocomplete();
-    const value = structuredClone(draft);
-    native.state = value.state;
-    native.pastes = value.pastes;
-    native.pasteCounter = value.pasteCounter;
-    native.undoStack.stack = value.undo;
-    native.historyIndex = value.historyIndex;
-    native.historyDraft = value.historyDraft;
-    native.scrollOffset = value.scrollOffset;
-    native.lastAction = value.lastAction;
-    native.preferredVisualCol = value.preferredVisualCol;
-    native.snappedFromCursorCol = value.snappedFromCursorCol;
-  };
 
   const view = () => documentView(native);
   const cursor = () => cursorOffset(native.state);
@@ -217,8 +178,6 @@ export function connect(editor: CustomEditor) {
 
   return {
     text,
-    capture,
-    restore,
     cursor,
     move,
     replace,

@@ -15,8 +15,8 @@ export default function history(pi: ExtensionAPI): void {
     handler: (_args, ctx) => runtime.importHistory(ctx),
   });
 
-  pi.on("session_start", (event, ctx) => runtime.start(event, ctx));
+  pi.on("session_start", (_event, ctx) => runtime.start(ctx));
   pi.on("input", (event, ctx) => runtime.recordInput(event, ctx));
   pi.on("user_bash", (event, ctx) => runtime.recordBash(event, ctx));
-  pi.on("session_shutdown", (_event, ctx) => runtime.dispose(ctx));
+  pi.on("session_shutdown", () => runtime.dispose());
 }

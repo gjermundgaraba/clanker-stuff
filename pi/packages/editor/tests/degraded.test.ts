@@ -1,6 +1,12 @@
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { createKeybindings, createMockTui } from "../../../tests/harness/tui.js";
+import {
+  createIdentityTheme,
+  createKeybindings,
+  createMockTui,
+  createStatusIndicator,
+} from "../../../tests/harness/tui.js";
 import { acquireEditorHost } from "../index.js";
 
 // oxlint-disable-next-line anti-slop/no-module-mocking -- Inject an unsupported private Pi layout at the adapter import; testing host recovery must still exercise the real editor installation path.
@@ -23,21 +29,41 @@ const theme = {
   },
 };
 
-it("keeps a stock prompt and skips shared features on an unsupported Pi", () => {
-  const ctx = createExtensionHost(() => {}).createContext();
-  // Pi invokes the factory while installing it, after clearing its editor container.
+it("keeps public editor features when Pi's private layout is unsupported", () => {
+  const marking = Object.assign(createIdentityTheme(), {
+    fg: (_color: string, text: string) => `<${text}>`,
+  });
+
+  const ctx = createExtensionHost(() => {}).createContext({ ui: { theme: marking } });
+  // Pi invokes the factory while installing it.
   vi.mocked(ctx.ui.setEditorComponent).mockImplementationOnce((factory) => {
-    const editor = factory!(createMockTui(), theme, createKeybindings());
-    editor.handleInput?.("still usable");
-    expect(editor.getText()).toBe("still usable");
+    factory!(createMockTui(), theme, createKeybindings());
     vi.mocked(ctx.ui.getEditorComponent).mockReturnValue(factory);
   });
-  expect(acquireEditorHost(ctx)).toBeUndefined();
-  // Cooperating extensions that load later take the same path without reinstalling.
-  expect(acquireEditorHost(ctx)).toBeUndefined();
-  expect(ctx.ui.setEditorComponent).toHaveBeenCalledOnce();
+  const host = acquireEditorHost(ctx)!;
+  const editor = host.editor!;
+  host.seedHistory(["older", "recalled"]);
+  const editing = { input: vi.fn(() => true), changed() {}, submitted() {}, selection: () => [] };
+  host.contribute("editing", editing);
+  host.contribute("foreground", () => [{ start: 0, end: 1, foreground: "accent" }]);
+  host.contribute("border", { render: (line) => line.replace("busy", "BUSY") });
+
+  editor.setWorkingStatusIndicator(
+    Object.assign(createStatusIndicator("working"), { renderInBorder: () => "busy" }),
+  );
+  expect(editor.document).toBeUndefined();
+  expect(stripTerminalSequences(editor.render(30)[0]!)).toContain("BUSY");
+
+  editor.handleInput("\u001B[A");
+  expect(editor.getText()).toBe("recalled");
+  // Decorations and the modal engine need the document adapter.
+  expect(editing.input).not.toHaveBeenCalled();
+  expect(stripTerminalSequences(editor.render(30)[1]!).trimEnd()).toBe("recalled");
   expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(
     "shared-editor",
     "simulated unsupported editor layout",
   );
+  // Cooperating extensions that load later join the same host without reinstalling.
+  expect(acquireEditorHost(ctx)).toBe(host);
+  expect(ctx.ui.setEditorComponent).toHaveBeenCalledOnce();
 });

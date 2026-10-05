@@ -165,7 +165,7 @@ describe("real Pi run boundaries", () => {
     await entered.promise;
 
     try {
-      expect(env.render()).toContain("active ·");
+      expect(env.render()).toContain("elapsed ·");
       expect(env.render()).toContain("1 tool ·");
       expect(env.render()).toContain("processed");
       expect(env.snapshots()).toHaveLength(0);

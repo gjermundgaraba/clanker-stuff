@@ -36,7 +36,7 @@ describe("tree", () => {
     expect(filterTree(tree, "hello")[0]?.children[0]?.body).toContain("hello world");
     const tools = tree.find((node) => node.id === "tools");
     assert.ok(tools);
-    expect(filterTree(tree, "Active tools")[0]?.children).toEqual(tools.children);
+    expect(filterTree(tree, "Tool declarations")[0]?.children).toEqual(tools.children);
     expect(filterTree(tree, "nothing matches")).toEqual([]);
   });
   it.each([

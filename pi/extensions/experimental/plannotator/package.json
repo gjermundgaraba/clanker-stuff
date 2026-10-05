@@ -24,8 +24,7 @@
     "host.ts",
     "index.ts",
     "LICENSE",
-    "README.md",
-    "review-launcher.ts"
+    "README.md"
   ],
   "type": "module",
   "exports": "./index.ts",

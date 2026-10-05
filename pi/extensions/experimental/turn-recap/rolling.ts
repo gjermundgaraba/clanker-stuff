@@ -44,10 +44,6 @@ interface CounterState {
 export class RollingNumbers {
   readonly #counters = new Map<string, CounterState>();
 
-  reset(): void {
-    this.#counters.clear();
-  }
-
   frame(
     now: number,
     font: RollingFont,

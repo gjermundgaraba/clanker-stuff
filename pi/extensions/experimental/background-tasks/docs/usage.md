@@ -11,55 +11,36 @@ pi -e ./pi/extensions/experimental/background-tasks/index.ts \
 
 No installation is necessary. The skill is optional; explicit `-e` loads the extension, not its package's skills. Package discovery loads both when enabled.
 
-Use Node.js 26+, Pi 1.0.0+, and a POSIX host (macOS/Linux). Windows admission is rejected: this implementation has no Windows process-tree backend. Print/JSON one-shot sessions are rejected because they exit when the initial prompt finishes. TUI and RPC sessions both deliver notifications automatically; no confirmation or notification budget is required.
+Use Node.js 26+, Pi 1.0.0+, and a POSIX host (macOS/Linux). Windows is rejected: there is no Windows process-tree backend. Print/JSON one-shot sessions are rejected because they exit when the initial prompt finishes.
 
 ## Tools and commands
 
-`task_start({name, command, args?, cwd?, protocol?, timeoutMs?})` spawns an executable directly, without a shell, and returns a host-generated task ID. Omitted arguments default to an empty array. Working directories resolve literally against the current session directory, including names beginning with `@`. For shell syntax, explicitly use a shell executable and its argument array.
+`task_start({name, command, args?, cwd?, protocol?, timeoutMs?})` spawns an executable directly, without a shell, and returns the running task's summary and host-generated ID. Omitted arguments default to an empty array. Working directories resolve literally against the session directory, including names beginning with `@`. For shell syntax, launch a shell executable with an argument array. A start that fails, such as a missing executable, throws its cause and leaves no task.
 
-Ordinary jobs treat stdout and stderr as logs. Successful exit produces `completed`; a nonzero exit produces `process_error`. Do useful work or finish the turn after starting a task; do not repeatedly poll while waiting.
+Ordinary jobs treat stdout and stderr as logs. Successful exit produces `completed`; a nonzero exit produces `process_error`.
 
-`task_list({})` shows the pending notification count and every retained task in compact rows without consuming notifications. Display names are shortened to 32 Unicode characters plus an ellipsis; full names remain available through inspection. Omission/eviction counts describe bounded retention, not response truncation.
+`task_list({})` lists retained tasks with name, status, cleanup state and whether each has an unread notification.
 
-`task_inspect` requires a task ID and a view:
+`task_inspect({id, tailBytes?})` returns the task summary, diagnostic, terminal `result`, retained watcher `events` (`seq`, optional `key`, `data`), the omitted-event count, and log tails of `tailBytes` source bytes per stream (default 6,000, maximum 131,072). Direct-model text is the same JSON, cut at 51,200 bytes, Pi's own tool-output limit, with an explicit marker. Log tails come last and everything else fits ahead of them, so only logs are cut and a smaller `tailBytes` fits. Code Mode, where enabled, receives the complete structured value.
 
-- `{id, view: "summary", tailBytes?}` returns status, full name, all retained event IDs, result availability, and bounded log tails. `tailBytes` bounds source bytes per stream; decoding and JSON escaping may expand their textual representation. Structured output keeps these requested tails independently of the text-preview budget. Omitted source-byte counts remain visible.
-- `{id, view: "result"}` reads the complete terminal result value in `data`, without logs.
-- `{id, view: "event", eventId}` reads one retained event, including its complete `data` value when present. A terminal lifecycle event can omit `data`; that is distinct from an explicit JSON `null`.
+`task_stop({id})` stops a job that is no longer needed, waits for bounded cleanup, and reports the actual outcome. Cancellation does not overwrite a result already accepted. Stopping a task whose cleanup failed checks its process group again and retries the cleanup if it is still alive.
 
-Inspection returns captured JSON values, not JSON-encoded strings or pages. Code Mode receives the complete structured snapshot in one call. Direct-model text is complete compact JSON when it fits; otherwise it is an explicitly incomplete excerpt with task identity, outcome and diagnostics retained separately. Complete large-data access requires Code Mode; without it, direct calls provide only previews. No offsets, continuation protocol or temporary payload files are provided. An evicted event produces an explicit not-found error. Terminal results remain readable by task ID under task-history retention.
-
-`task_stop({id})` lets the agent stop a job that is no longer needed. It waits for bounded cleanup and reports the actual terminal decision. Cancellation does not overwrite a result already accepted. A successful stop response consumes its terminal notice, but not earlier watcher events. There is no dismissal step: capacity is released after terminal capture when the terminal notice has been retrieved or recorded in session history and no notices for that task remain pending or in flight.
+A successful `task_inspect` or `task_stop` clears that task's pending notification, including an outcome decided while cleanup is still running. Failed calls, `task_list` and `/tasks` clear nothing. This records an invocation, not proof that the model read the output.
 
 Commands:
 
-- `/tasks`: summaries.
-- `/tasks inspect <id>`: summary status, all retained event IDs, result availability, and bounded log tails. Read payloads through `task_inspect` with `view: "result"` or `view: "event"`.
-  These commands are read-only. There are no user-facing pause, resume, stop, or dismiss controls. Ask the agent to stop a job when needed.
+- `/tasks`: one line per task.
+- `/tasks <id>`: that task's line, diagnostic and log tails.
 
-Successful agent-tool retrieval consumes notification eligibility, not retained data:
+These commands are read-only. Ask the agent to stop a job when needed.
 
-- Summary inspection consumes exactly its listed event IDs and reported terminal outcome, including an outcome whose notice is still awaiting cleanup.
-- Event inspection consumes only the selected event. Result inspection consumes only the terminal notice, including when the direct-model text is only a preview.
-- Successful `task_stop` consumes its terminal notice. Failed tool calls consume nothing. Running snapshots cannot consume future completions.
-- `task_list`, `/tasks`, and `/tasks inspect` are observational and do not consume notices.
+## Status indicators
 
-This is an invocation contract, not proof that the model saw or acted on the output. It also applies inside Code Mode when the script discards the return value without printing it. Retrieval and notification acknowledgement do not evict event payloads. New event capture may evict older retired history; task pruning and session replacement can also end access. A wake already admitted to Pi cannot be retracted and may still contain a subsequently retrieved event; remaining unseen events keep their normal delivery timing.
-
-Notification acknowledgement separately means Pi recorded the notice in the actual session branch, not that a model acted on it or that processing succeeded. Neither retrieval nor acknowledgement is undone by navigating to a point before it; retained task results can still be inspected.
-
-## Border indicators
-
-Load the optional [border-status extension](../../border-status/README.md) to see compact counts on the editor border. There is no footer status or fallback when the border host is absent.
-
-- Active tasks: Nerd Font gears (`nf-fa-gears`, U+F085), including tasks still awaiting cleanup.
-- Pending notifications: Nerd Font bell (`nf-fa-bell`, U+F0F3). This counts events, including in-flight notices until acknowledged or consumed, not tasks.
-
-Each indicator is hidden independently when its count is zero. Icons follow the border host's preference; use `/border-status icons nerd` for Nerd Font glyphs. Unicode uses ⚙ / 🔔; ASCII uses `tasks` / `pending`. Task inspection and automatic delivery still work without the border host and in RPC mode.
+In the TUI, `background-tasks.active` shows ⚙ and the number of live tasks, including tasks still awaiting cleanup. `background-tasks.pending` shows 🔔 and the number of tasks with an unread notification. Each is hidden when its count is zero. They appear in Pi's footer; the optional [footer extension](../../footer/README.md) places them in its border. RPC sessions receive no statuses.
 
 ## Agent-authored watchers
 
-Write an ordinary script with Pi's existing file tools. Launch it with `protocol: "events-v1"`. Reserve stdout for UTF-8 JSON records, each followed by LF:
+Write an ordinary script with Pi's file tools. Launch it with `protocol: "events-v1"`. Reserve stdout for UTF-8 JSON records, each followed by LF:
 
 ```json
 {"v":1,"type":"event","key":"ci/123","data":{"status":"in_progress"}}
@@ -68,69 +49,50 @@ Write an ordinary script with Pi's existing file tools. Launch it with `protocol
 
 Every record requires `v`, `type`, and `data`; unknown fields are rejected. Only events may have an optional `key` (up to 128 characters). Send diagnostics to stderr. The host does not parse service-specific statuses, retry network requests, or evaluate predicates.
 
-- Events continue observation. A key opts into last-write-wins replacement of pending snapshots for that task/key. Unkeyed events preserve arrival order unless progress capacity is exceeded.
-- The first result finishes the observation contract and initiates process cleanup. Later records and exit callbacks cannot overwrite it. Observed CI failure can therefore be a valid result, not a watcher crash.
+- Events continue observation. A key replaces that key's unannounced event; announced events stay inspectable.
+- The first result finishes observation and starts process cleanup. Later records and exit callbacks cannot overwrite it, so an observed CI failure is a valid result, not a watcher crash.
 - Successful exit without a result is `result_missing`; nonzero exit without a result is `process_error`.
-- Invalid UTF-8/JSON, unknown versions/fields, oversized records, missing final LF, and excessive record rates produce `protocol_error` immediately. Diagnostics retain stdout provenance; invalid records are not relabeled as stderr.
-- Spawn failure, timeout, and cancellation have separate outcomes. Cleanup status is separate from the outcome.
+- Invalid UTF-8/JSON, unknown versions or fields, oversized records, a missing final LF, and more than 256 records per second produce `protocol_error`. A record is oversized when its line, or its `data` rendered as tool-output JSON after parsing, exceeds 16 KiB; numbers such as `1e20` and escaped characters such as bidi controls render larger than they are written.
+- Timeout and cancellation have separate outcomes. Cleanup status is separate from the outcome.
 
-A detector has the same local capabilities as a shell command. It inherits Pi's environment, potentially including credentials. No sandbox or automatic secret redaction is provided. Watchers should use external clients' existing authentication, never print tokens, and capture those clients' output rather than leaking it onto protocol stdout.
+A detector has the same local capabilities as a shell command and inherits Pi's environment, potentially including credentials. There is no sandbox or secret redaction. Watchers should use external clients' existing authentication, never print tokens, and keep those clients' output off protocol stdout.
 
 See the [authoring skill](../skills/watchers/SKILL.md) for a polling example.
 
-## Automatic notifications and trust
+## Notifications and trust
 
-Automatic messages contain only host-assigned task/event IDs and host-authored outcome names. Names, keys, logs, commands, and result payloads are not pushed into the conversation. Pulling them with `task_inspect` exposes **untrusted data**, not instructions. JSON/custom-message roles are not a prompt-injection boundary. Terminal control sequences are sanitized on display; raw bounded log files remain untrusted.
+When a task finishes, or a watcher emits events, Pi is notified once it is idle: one `background-tasks:wake` message lists every task with unread updates and starts a new turn. A finished task is announced after its process cleanup, so its logs are complete. Notices name only host-assigned task IDs, event counts and outcomes; names, keys, logs, commands and payloads are pulled with `task_inspect` as **untrusted data**, not instructions. Message roles are not a prompt-injection boundary.
 
-Capture continues while Pi is busy or showing an extension prompt. Before a successful activity settles, one already-ready batch of up to eight notices can continue that activity. Delivery never waits for a task to finish and never extends an errored or aborted activity. Ready notices are proposed as native boundary entries; further batches and later completions start new prompts when idle. An open extension prompt blocks both admission points. Only one batch is admitted per activity, ensuring a settlement boundary between batches rather than capping total automatic work. Ordinary stdout/stderr stays in logs; unretrieved completion and watcher records trigger notifications.
-
-Pending notifications recheck readiness once per second while Pi is busy, including during manual compaction. These checks do not call the model or resend an outstanding batch.
-
-Notifications are always enabled, with no approval, wake credits, or total delivery limit. Aborting an agent turn does not disable future notifications or stop tasks. A boundary proposal that Pi does not record retries after settlement with a one-second delay; a synchronous idle handoff failure also retries after one second. Missing history alone is not evidence that a queued message was lost.
-
-A notice recorded during cancellation is accepted even if no model response runs. It remains available for the next request, without an automatic replay. Recorded notices are not retried merely because the model response failed or was aborted. Acceptance means recorded history, not model processing.
-
-The inbox, event history, and logs remain bounded to limit memory use. They are session-owned, not a durable outbox: reload stops tasks and clears live notification state. Old attention checkpoints have no effect.
+Notices wait while the agent is busy, while an extension dialog is open, and during manual compaction, rechecking once per second. When a run settles, pending notices start the next turn immediately. Handing a notice to Pi marks it delivered; it is not retried. A task's state remains available through `task_list` and `task_inspect`.
 
 ## Ownership
 
-All tasks belong to the current extension instance. Quit, reload, new, resume, fork, and clone stop **every** task, including dev servers. There is no detach flag. Forked/resumed historical records are not live process handles and never cause PID reconnection or restarts.
+Tasks belong to the current extension instance. Quit, reload, new, resume, fork and clone stop **every** task, including dev servers. There is no detach flag, and session history never restarts or reconnects processes.
 
-Tree navigation keeps tasks whose creation entry remains an ancestor of the active leaf and cancels others. Jumping before creation stops a task even within the same lineage. Forward navigation does not restart it. Queued wake content is filtered against current ancestry before model processing; prior external effects cannot be undone.
+Tree navigation keeps tasks whose `task_start` call remains on the active branch. It stops and forgets the others; one whose cleanup failed stays listed. Forward navigation does not restart them. External effects cannot be undone.
 
-Shutdown sends TERM to the owned POSIX process group, waits up to one second, then KILL and up to another second. Direct-child exit allows a bounded 100 ms pipe drain; inherited pipes cannot keep a task running indefinitely. Cleanup failures remain visible and count against concurrency. Before admission and on repeated stop, the supervisor rechecks failed cleanup after its original cleanup has finished. Capacity is recovered only when the original child has exited and its process group is confirmed absent; uncertainty remains counted. Rechecking sends no new termination signals and preserves the original outcome and diagnostics. Descendants that deliberately escape their process group and abnormal host death are outside this containment guarantee. Disposable logs are removed after clean shutdown; failed-cleanup logs are retained for diagnosis, without claiming continued supervision.
+Stopping sends TERM to the owned POSIX process group, waits up to one second, then sends KILL and waits up to another second. After the direct child exits, inherited pipes get a 100 ms drain. Cleanup failures stay visible, count against concurrency until a later stop finds the process group gone or the session reloads, and are reported on shutdown with their PIDs. Descendants that leave their process group and abnormal host death are outside this guarantee.
 
-## Fixed v1 limits
+## Limits
 
-| Resource                          | Limit                                                                   |
-| --------------------------------- | ----------------------------------------------------------------------- |
-| Active/unclean tasks              | 8                                                                       |
-| Deadline                          | 1 hour default; 100 ms–24 hours                                         |
-| Record                            | 16 KiB before LF                                                        |
-| Watcher output                    | 256 records per one-second window; excess fails the protocol            |
-| Pending progress                  | 64 records / 64 KiB, plus one in-flight batch                           |
-| Protected-task budget             | 32 active tasks or tasks still protected by capture/outstanding notices |
-| Delivery batch                    | 8 records per batch; no total batch limit                               |
-| Retired event history             | Target 64 at each capture; retirement alone does not evict              |
-| Unprotected finished task history | 32 at admission-time pruning, plus current admitted tasks               |
-| Log storage                       | Last 128 KiB per stream, in memory and disposable files                 |
-| Log tool reads                    | 6,000 bytes/stream default, 12,000 maximum                              |
-| Tool text                         | 32,000 encoded bytes; explicitly incomplete preview when needed         |
-
-Progress overflow drops the oldest pending progress and increments the omitted count. Terminal notices are never evicted by progress. Admission fails when all 32 task reservations are occupied, including completed tasks with unread watcher events. Inspect completed task summaries to consume their listed notices, or allow cleanup and automatic delivery to finish. Rereading only the terminal result does not consume earlier watcher events.
-
-New event capture may evict the oldest consumed or acknowledged events to meet the history target, with a visible eviction count. Retrieval and notification acknowledgement do not evict payloads. Log tails report omitted bytes and storage errors; they are not complete logs. Session lifecycle entries contain metadata, never raw output, and accumulate with session history.
-
-The supervisor, wire decoder, inbox, and delivery controller are separate components. Persistence beyond a session would require a new external owner and authenticated reconnection—not a PID-file escape hatch.
+| Resource                         | Limit                                                       |
+| -------------------------------- | ----------------------------------------------------------- |
+| Task name                        | 80 characters, counted as displayed rather than in bytes    |
+| Live or unclean tasks            | 8                                                           |
+| Finished tasks with unread notes | 32; further starts fail until some are inspected            |
+| Read finished tasks kept         | 32, oldest pruned first                                     |
+| Deadline                         | 1 hour default; 100 ms–24 hours                             |
+| Record                           | 16 KiB line and rendered data; 256 records per second       |
+| Retained events per task         | 64 records / 16 KiB as rendered; oldest dropped and counted |
+| Logs                             | Last 128 KiB per stream, in memory                          |
+| Tool text                        | 51,200 bytes; complete structured value through Code Mode   |
 
 ## Code Mode placement
 
-All four task tools use Pi's ordinary tool registry and work with any provider. Pi's built-in `codemode` can call them in either `on` or `only` mode, through the same permission hooks and session-owned runtime. All four tools declare output schemas and scripts receive structured objects, without `JSON.parse`. No custom Code Mode adapter is required.
+All four tools are ordinary Pi tools with output schemas; Pi's `codemode` can call them in `on` or `only` mode through the same permission hooks. Scripts receive structured objects without `JSON.parse`.
 
 ```js
-const { data } = await tools.task_inspect({ id: "t_…", view: "result" });
+const { result } = await tools.task_inspect({ id: "t_…" });
 // Filter or aggregate in Code Mode; print only the fields the model needs.
-text({ conclusion: data.conclusion });
+text({ conclusion: result.conclusion });
 ```
-
-Structured output and renderer details contain the same full captured snapshot; the 32,000-byte cap applies only to direct-model text. Code Mode's own printed-output limit is separate and does not limit the value available inside the script. Watcher record, retention and log-read limits still apply. The TUI renders structured values when available and falls back to stored text for unsupported historical detail shapes.

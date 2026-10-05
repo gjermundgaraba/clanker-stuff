@@ -23,8 +23,8 @@ const claudeSnapshot = (): UsageSnapshot => ({
       resetsAt: new Date(now + 2 * 3_600_000).toISOString(),
     },
     {
-      id: "7d",
-      label: "7d",
+      id: "week",
+      label: "week",
       remainingPercent: 66.1,
       resetsAt: new Date(now + 3 * 86_400_000).toISOString(),
     },
@@ -63,7 +63,7 @@ describe("detail formatting", () => {
     const text = formatDetail(snapshot, now);
     expect(text).toContain("Claude (plus)");
     expect(text).toContain("5h  68% left  resets in 2h");
-    expect(text).toContain("7d  66% left  resets in 3d");
+    expect(text).toContain("week  66% left  resets in 3d");
   });
 
   it("formats Radius accounting", () => {

@@ -87,13 +87,13 @@ describe("session replacement through the real SDK runtime", () => {
         ]);
         await runtime.session.prompt("Start a synthetic server");
 
-        const entry = runtime.session.sessionManager
-          .getEntries()
-          .findLast((e) => e.type === "custom" && e.customType === "background-tasks:lifecycle");
+        const result = runtime.session.messages.findLast(
+          (m) => m.role === "toolResult" && m.toolName === "task_start",
+        );
 
-        if (entry?.type !== "custom") throw new Error("Missing lifecycle");
+        if (result?.role !== "toolResult") throw new Error("Missing task_start result");
 
-        return Value.Parse(schema, entry.data);
+        return Value.Parse(schema, result.details);
       };
 
       const assertEmpty = async () => {

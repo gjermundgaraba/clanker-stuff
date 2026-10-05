@@ -1,18 +1,96 @@
-import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  DEFAULT_CONFIG,
-  cloneFooterConfig,
-  parseFooterConfig,
-} from "@clanker-stuff/footer-protocol/config";
-import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+
+const IdsSchema = Type.Array(
+  Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\p{Cc}]*$" }),
+);
+
+const FooterConfigSchema = Type.Object(
+  {
+    iconFamily: Type.Union([Type.Literal("ascii"), Type.Literal("unicode"), Type.Literal("nerd")]),
+    rows: Type.Array(
+      Type.Object({ left: IdsSchema, right: IdsSchema }, { additionalProperties: false }),
+    ),
+    border: IdsSchema,
+    hidden: IdsSchema,
+  },
+  { additionalProperties: false },
+);
+
+export type FooterConfig = Static<typeof FooterConfigSchema>;
+
+export type IconFamily = FooterConfig["iconFamily"];
+
+export const STATUSES_ID = "footer.statuses";
+
+export const STATUS_PREFIX = "status:";
+
+export const DEFAULT_CONFIG: FooterConfig = {
+  iconFamily: "unicode",
+  rows: [
+    { left: ["footer.cwd", "footer.git"], right: ["footer.model", "footer.thinking"] },
+    { left: ["footer.context"], right: ["status:usage"] },
+    { left: [STATUSES_ID], right: [] },
+  ],
+  border: [
+    "status:ask-question",
+    "status:vim",
+    "status:background-tasks.pending",
+    "status:background-tasks.active",
+  ],
+  hidden: [],
+};
+
+/** Every placement in render order: rows left to right, then the editor border. */
+export const placedIds = (config: FooterConfig): string[] => [
+  ...config.rows.flatMap((row) => [...row.left, ...row.right]),
+  ...config.border,
+];
+
+export const parseFooterConfig = (text: string): FooterConfig => {
+  const value: unknown = JSON.parse(text);
+
+  if (!Value.Check(FooterConfigSchema, value)) {
+    const error = Value.Errors(FooterConfigSchema, value).find(
+      ({ keyword }) => keyword !== "boolean",
+    );
+
+    throw new Error(`${error?.instancePath || "/"} ${error?.message ?? "is invalid"}`);
+  }
+
+  const seen = new Set<string>();
+
+  for (const id of [...placedIds(value), ...value.hidden]) {
+    if (seen.has(id)) throw new Error(`widget ${id} is listed twice`);
+    seen.add(id);
+  }
+
+  // Only native statuses reach `footer.statuses`, so only they can be hidden from it.
+  const notStatus = value.hidden.find((id) => !id.startsWith(STATUS_PREFIX));
+
+  if (notStatus !== undefined)
+    throw new Error(`hidden accepts only status:<key> IDs, not ${notStatus}`);
+
+  // The border falls back to `footer.statuses` while another editor is installed.
+  if (value.border.includes(STATUSES_ID))
+    throw new Error(`${STATUSES_ID} can only be placed in a row`);
+
+  return value;
+};
+
+export const formatFooterConfig = (config: FooterConfig): string =>
+  `${JSON.stringify(config, null, 2)}\n`;
 
 export interface LoadedFooterConfig {
   config: FooterConfig;
+  /** The file's text, when it exists, so the editor reopens what the user wrote. */
+  text?: string;
   error?: string;
 }
 
@@ -22,76 +100,38 @@ export interface FooterConfigStore {
   save: (config: FooterConfig) => Promise<void>;
 }
 
-const errorCode = (cause: unknown): string | undefined =>
-  cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
+const message = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-export const getFooterConfigPath = (): string => getExtensionStoragePaths("footer").configFile;
-
-export const createFooterConfigStore = (configPath = getFooterConfigPath()): FooterConfigStore => {
-  const targetPath = path.resolve(configPath);
+export const createFooterConfigStore = (
+  configPath = getExtensionStoragePaths("footer").configFile,
+): FooterConfigStore => {
+  const target = path.resolve(configPath);
 
   return {
+    path: target,
     async load() {
       let text: string;
 
       try {
-        text = await readFile(targetPath, "utf-8");
+        text = await readFile(target, "utf-8");
       } catch (error) {
-        if (errorCode(error) === "ENOENT") {
-          return {
-            config: cloneFooterConfig(DEFAULT_CONFIG),
-          };
-        }
-
-        return {
-          config: cloneFooterConfig(DEFAULT_CONFIG),
-          error: `Failed to read ${targetPath}: ${error instanceof Error ? error.message : String(error)}`,
-        };
+        return error instanceof Error && "code" in error && error.code === "ENOENT"
+          ? { config: DEFAULT_CONFIG }
+          : { config: DEFAULT_CONFIG, error: `Cannot read ${target}: ${message(error)}` };
       }
 
       try {
-        return {
-          config: parseFooterConfig(JSON.parse(text)),
-        };
+        return { config: parseFooterConfig(text), text };
       } catch (error) {
-        return {
-          config: cloneFooterConfig(DEFAULT_CONFIG),
-          error: `Invalid ${targetPath}: ${error instanceof Error ? error.message : String(error)}`,
-        };
+        return { config: DEFAULT_CONFIG, error: `Invalid ${target}: ${message(error)}`, text };
       }
     },
-    path: targetPath,
     async save(config) {
-      const validated = parseFooterConfig(config);
-      await withFileMutationQueue(targetPath, async () => {
-        // Replace the symlink's target, not the link, so a dotfiles-managed config stays linked.
-        const writePath = await realpath(targetPath).catch(async (error: unknown) => {
-          if (errorCode(error) !== "ENOENT") throw error;
-
-          const entry = await lstat(targetPath).catch((cause: unknown) => {
-            if (errorCode(cause) === "ENOENT") return undefined;
-            throw cause;
-          });
-
-          if (entry?.isSymbolicLink()) {
-            throw new Error(`Cannot save footer config through dangling symlink: ${targetPath}`);
-          }
-
-          return targetPath;
-        });
-
-        await mkdir(path.dirname(writePath), { recursive: true });
-        const temporary = `${writePath}.tmp-${process.pid}-${randomUUID()}`;
-
-        try {
-          await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
-            encoding: "utf-8",
-            mode: 0o600,
-          });
-          await rename(temporary, writePath);
-        } finally {
-          await rm(temporary, { force: true });
-        }
+      // A plain write follows a dotfiles symlink to its target instead of replacing the link.
+      await withFileMutationQueue(target, async () => {
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, formatFooterConfig(config), "utf-8");
       });
     },
   };

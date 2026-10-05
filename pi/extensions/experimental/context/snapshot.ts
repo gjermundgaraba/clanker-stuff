@@ -1,11 +1,12 @@
-import type { Message } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, getSystemMessageText } from "@earendil-works/pi-ai";
+import type { Message, SystemMessage } from "@earendil-works/pi-ai";
 import {
   buildSessionProjection,
   convertToLlm,
   estimateTokens,
   sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
-import type { ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ContextUsage, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ObservedRequest } from "./observation.js";
 
 export type BodyFormat = "markdown" | "json" | "text";
@@ -25,6 +26,8 @@ export interface ContextSnapshot {
   readonly kind: "state";
   readonly modelLabel: string;
   readonly usage: ContextUsage | undefined;
+  /** False before the first request records the prompt and tool declarations. */
+  readonly recorded: boolean;
   readonly system: ContextPart;
   readonly tools: readonly ContextPart[];
   readonly messages: readonly ContextMessagePart[];
@@ -42,10 +45,8 @@ export interface ContextMessagePart extends ContextPart {
 }
 
 interface SnapshotInput {
-  /** The effective prompt for the next request, from `ctx.getSystemPrompt()`. */
-  prompt: string;
-  tools: readonly ToolInfo[];
-  activeTools: readonly string[];
+  /** `ctx.getSystemPrompt()`, shown only until the first request records the prompt. */
+  pendingPrompt: string;
   branch: SessionEntry[];
   usage: ContextUsage | undefined;
   modelLabel: string;
@@ -76,8 +77,42 @@ const messageTone = (message: Message): NodeTone => {
   return message.role === "user" ? "accent" : "text";
 };
 
+/** The prompt and tool declarations the latest request recorded in the transcript. */
+const declarations = (
+  declared: SystemMessage | undefined,
+  pendingPrompt: string,
+): Pick<ContextSnapshot, "recorded" | "system" | "tools"> => {
+  const { toolsAdded = [], ...prompt }: SystemMessage = declared ?? {
+    role: "system",
+    content: pendingPrompt,
+    timestamp: 0,
+  };
+
+  return {
+    recorded: declared !== undefined,
+    system: {
+      label: declared ? "System prompt" : "System prompt · not yet sent",
+      body: getSystemMessageText(prompt),
+      format: "markdown",
+      tone: "text",
+      estimatedTokens: estimateTokens(prompt),
+    },
+    tools: toolsAdded.map((tool) => ({
+      label: tool.name,
+      body: JSON.stringify(tool, null, 2),
+      format: "json",
+      tone: "code",
+      estimatedTokens: estimateTokens({
+        role: "system",
+        content: "",
+        toolsAdded: [tool],
+        timestamp: 0,
+      }),
+    })),
+  };
+};
+
 export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
-  const active = new Set(input.activeTools);
   const projection = buildSessionProjection(input.branch);
 
   const edits = new Map(
@@ -101,7 +136,7 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
 
     const message = effective[0] ?? original[0];
 
-    // Excludes metadata, system state, !! executions, and older compaction summaries.
+    // Excludes metadata, prompt/tool declarations, !! executions, and older compaction summaries.
     if (!message) continue;
 
     const state = edit?.replacement === null ? "omitted" : edit ? "replaced" : "unchanged";
@@ -131,36 +166,11 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
     });
   }
 
-  const { prompt } = input;
-
   return {
     kind: "state",
     modelLabel: input.modelLabel,
     usage: input.usage === undefined ? undefined : { ...input.usage },
-    system: {
-      label: "System prompt",
-      body: prompt,
-      format: "markdown",
-      tone: "text",
-      estimatedTokens: Math.ceil(prompt.length / 4),
-    },
-    tools: input.tools
-      .filter((tool) => active.has(tool.name))
-      .map((tool) => {
-        const definition = {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-        };
-
-        return {
-          label: tool.name,
-          body: JSON.stringify(definition, null, 2),
-          format: "json",
-          tone: "code",
-          estimatedTokens: Math.ceil(JSON.stringify(definition).length / 4),
-        };
-      }),
+    ...declarations(getCurrentSystemMessage(projection.messages), input.pendingPrompt),
     messages,
   };
 };

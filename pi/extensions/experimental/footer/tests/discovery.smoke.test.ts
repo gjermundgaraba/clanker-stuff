@@ -13,16 +13,34 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
+import { readJson, readWorkspacePackages } from "../../../../../scripts/workspace-packages.ts";
 import { createExtensionSmokeHarness } from "../../../../tests/harness/extension-smoke.js";
 import type { ExtensionSmokeHarness } from "../../../../tests/harness/extension-smoke.js";
 
-const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
+const FOOTER_ROOT = path.resolve(import.meta.dirname, "..");
 
-const FOOTER_ROOT = path.join(REPO_ROOT, "footer");
+const WORKSPACE_ROOT = path.resolve(FOOTER_ROOT, "../../../..");
 
-const USAGE_ROOT = path.join(REPO_ROOT, "usage");
+const MANIFEST = readJson(path.join(FOOTER_ROOT, "package.json"));
 
-describe("cooperative footer discovery", () => {
+/** The footer's workspace dependencies and theirs, so staging follows the manifest. */
+const workspaceDependencyDirs = (): string[] => {
+  const workspace = new Map(readWorkspacePackages(WORKSPACE_ROOT).map((pkg) => [pkg.name, pkg]));
+  const dirs = new Set<string>();
+  const pending = Object.keys(MANIFEST.dependencies ?? {});
+
+  for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
+    const pkg = workspace.get(name);
+
+    if (pkg === undefined || dirs.has(pkg.dir)) continue;
+    dirs.add(pkg.dir);
+    pending.push(...Object.keys(pkg.packageJson.dependencies ?? {}));
+  }
+
+  return [...dirs];
+};
+
+describe("footer discovery", () => {
   let harness: ExtensionSmokeHarness | undefined;
   let tempRoot: string | undefined;
 
@@ -34,28 +52,8 @@ describe("cooperative footer discovery", () => {
     tempRoot = undefined;
   });
 
-  it("direct-loads the footer host and usage contributor together", async () => {
-    harness = await createExtensionSmokeHarness({
-      extensions: [FOOTER_ROOT, USAGE_ROOT],
-    });
-
-    expect(harness.extensionsResult.errors).toStrictEqual([]);
-
-    const footer = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
-      resolvedPath.endsWith(path.join("footer", "index.ts")),
-    );
-
-    const usage = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
-      resolvedPath.endsWith(path.join("usage", "index.ts")),
-    );
-
-    expect(footer?.commands.has("footer")).toBeTruthy();
-    expect(usage?.commands.has("usage")).toBeTruthy();
-  });
-
   it("packs and loads the footer with its production entry points", async () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), "footer-package-smoke-"));
-    const workspaceRoot = path.resolve(FOOTER_ROOT, "../../../..");
     const stagingRoot = path.join(tempRoot, "workspace");
 
     // Legacy deploy can prune its source workspace; give it disposable sources and no links.
@@ -63,14 +61,10 @@ describe("cooperative footer discovery", () => {
       "package.json",
       "pnpm-workspace.yaml",
       "pnpm-lock.yaml",
-      "pi/extensions/experimental/footer",
-      "pi/packages/footer-protocol",
-      "pi/packages/model-history",
-      "pi/packages/status-icons",
-      "pi/packages/tones",
-      "pi/packages/extension-paths",
+      path.relative(WORKSPACE_ROOT, FOOTER_ROOT),
+      ...workspaceDependencyDirs(),
     ]) {
-      cpSync(path.join(workspaceRoot, entry), path.join(stagingRoot, entry), {
+      cpSync(path.join(WORKSPACE_ROOT, entry), path.join(stagingRoot, entry), {
         recursive: true,
         filter: (source) => path.basename(source) !== "node_modules",
       });
@@ -116,15 +110,8 @@ describe("cooperative footer discovery", () => {
       }
     }
 
-    for (const dependency of [
-      "@clanker-stuff/footer-protocol",
-      "@clanker-stuff/model-history",
-      "@clanker-stuff/status-icons",
-      "@clanker-stuff/pi-extension-paths",
-      "@earendil-works/pi-coding-agent",
-      "@earendil-works/pi-tui",
-      "typebox",
-    ]) {
+    // Peers are host-provided: Pi supplies them to the loaded extension.
+    for (const dependency of Object.keys(MANIFEST.dependencies ?? {})) {
       expect(
         realpathSync(path.join(modulesRoot, dependency)).startsWith(`${modulesRoot}${path.sep}`),
       ).toBe(true);

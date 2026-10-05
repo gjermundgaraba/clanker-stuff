@@ -40,52 +40,20 @@ describe("command runtime", () => {
     ]);
   });
 
-  it("does not repeat streamed stderr in a nonzero exit error", async () => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-review", "", ctx);
-
-    const [child] = pending;
-    assert.ok(child);
-    child.options.onStderr?.("Fetching pull request...\nbad repository\n");
-    child.resolve(
-      exited("", {
-        code: 2,
-        stderr: "Fetching pull request...\nbad repository\n",
-      }),
-    );
-
-    await vi.waitFor(() => {
-      expect(host.getNotifications().at(-1)).toStrictEqual({
-        message: "Plannotator code review: exited with code 2",
-        type: "error",
-      });
-    });
-
-    for (const message of ["Fetching pull request...", "bad repository"]) {
-      expect(
-        host.getNotifications().filter((notification) => notification.message.includes(message)),
-      ).toHaveLength(1);
-    }
-  });
-
-  it("keeps a nonzero exit's unterminated stderr tail in the final error", async () => {
+  it("streams stderr, including an unterminated tail, then reports a nonzero exit code", async () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
 
     const [child] = pending;
     assert.ok(child);
     child.options.onStderr?.("Fetching pull request...\nbad repository");
-    child.resolve(
-      exited("", {
-        code: 2,
-        stderr: "Fetching pull request...\nbad repository",
-      }),
-    );
+    child.resolve(exited("", { code: 2 }));
 
     await vi.waitFor(() => {
       expect(host.getNotifications().slice(1)).toStrictEqual([
         { message: "Fetching pull request...", type: "info" },
-        { message: "Plannotator code review: bad repository", type: "error" },
+        { message: "bad repository", type: "info" },
+        { message: "Plannotator code review: exited with code 2", type: "error" },
       ]);
     });
   });
@@ -154,46 +122,6 @@ describe("command runtime", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it.each([
-    {
-      completion: exited("", { code: 2, stderr: "bad repository" }),
-      label: "nonzero exit",
-      message: "Plannotator code review: bad repository",
-    },
-    {
-      completion: signaled("SIGTERM"),
-      label: "unexpected signal",
-      message: "Plannotator code review: terminated by SIGTERM",
-    },
-  ])("reports $label as an error notification", async ({ completion, message }) => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-review", "", ctx);
-    const [child] = pending;
-    assert.ok(child);
-    child.resolve(completion);
-    await vi.waitFor(() => {
-      expect(host.getNotifications().at(-1)).toStrictEqual({
-        message,
-        type: "error",
-      });
-    });
-  });
-
-  it("reports asynchronous spawn failures", async () => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-review", "", ctx);
-    const [child] = pending;
-    assert.ok(child);
-    child.reject(new Error("spawn plannotator ENOENT"));
-    await vi.waitFor(() => {
-      expect(host.getNotifications().at(-1)).toHaveProperty("type", "error");
-      expect(host.getNotifications().at(-1)).toHaveProperty(
-        "message",
-        expect.stringContaining("ENOENT"),
-      );
-    });
   });
 
   it.each([

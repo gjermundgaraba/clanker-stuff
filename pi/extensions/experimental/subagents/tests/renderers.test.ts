@@ -42,34 +42,12 @@ describe("agent presentation", () => {
     expect(refreshed).toContain("\x1b[32mPrevious status");
     expect(refreshed).not.toContain("\x1b[31m");
   });
-  it("summarizes V1 and V2 spawn results with identity and nickname", () => {
-    expect(
-      renderedRows(render("spawn_agent", { agent_id: "uuid", nickname: "Atlas" })).join("\n"),
-    ).toBe("✓ Spawned uuid · Atlas");
-
-    const result = {
-      ...jsonToolResult({ task_name: "/root/review" }),
-      details: { nickname: "Atlas" },
-    };
-
-    const original = structuredClone(result);
-    expect(
-      renderedRows(
-        agentRenderers("spawn_agent").renderResult(
-          result,
-          { expanded: false, isPartial: false },
-          theme,
-          toolRenderContext(),
-        ),
-      ).join("\n"),
-    ).toBe("✓ Spawned /root/review · Atlas");
-    expect(result).toEqual(original);
-  });
-  it.each([false, true])("shows resolved spawn settings in expanded=%s results", (expanded) => {
-    for (const identity of [{ agent_id: "uuid" }, { task_name: "/root/review" }]) {
+  it.each([false, true])(
+    "shows the spawned path and resolved settings (expanded=%s)",
+    (expanded) => {
       const result = {
-        ...jsonToolResult(identity),
-        details: { nickname: "Atlas", model: "provider/child", thinkingLevel: "off" },
+        ...jsonToolResult({ task_name: "/root/review" }),
+        details: { model: "provider/child", thinkingLevel: "off" },
       };
 
       const original = structuredClone(result);
@@ -84,27 +62,29 @@ describe("agent presentation", () => {
         },
       );
 
-      expect(renderedRows(component).join("\n")).toContain("model provider/child · thinking off");
-      expect(renderedRows(component).join("\n")).not.toContain("requested");
+      expect(renderedRows(component)).toStrictEqual([
+        "✓ Spawned /root/review",
+        "model provider/child · thinking off",
+      ]);
 
       for (const width of [1, 2, 20, 80]) {
         expect(component.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
       }
 
       expect(result).toEqual(original);
-    }
-  });
+    },
+  );
   it.each([undefined, null, {}, { model: 7, thinkingLevel: false }])(
     "does not invent settings for absent or malformed saved metadata: %j",
     (details) => {
       const component = agentRenderers("spawn_agent").renderResult(
-        { ...jsonToolResult({ agent_id: "uuid", nickname: "Atlas" }), details },
+        { ...jsonToolResult({ task_name: "/root/review" }), details },
         { expanded: false, isPartial: false },
         theme,
         toolRenderContext(),
       );
 
-      expect(renderedRows(component).join("\n")).toBe("✓ Spawned uuid · Atlas");
+      expect(renderedRows(component).join("\n")).toBe("✓ Spawned /root/review");
     },
   );
   it("sanitizes saved model and thinking metadata", () => {
@@ -148,46 +128,24 @@ describe("agent presentation", () => {
 
       expect(partial).toBe("● working");
     }
-
-    expect(renderedRows(render("send_input", { submission_id: "s_1" })).join("\n")).toBe(
-      "✓ Input submitted s_1",
-    );
   });
-  it("shows V1 final answers and errors with expandable text", () => {
-    const answer = Array.from({ length: 20 }, (_, i) => `answer ${i}`).join("\n");
-
-    const value = {
-      status: { uuid: { completed: answer }, failed: { errored: "No access" } },
-      timed_out: false,
-    };
-
-    const collapsed = renderedRows(render("wait_agent", value)).join("\n");
-    expect(collapsed).toContain("uuid · ✓ completed");
-    expect(collapsed).toContain("failed · ✗ errored");
-    expect(collapsed).toContain("No access");
-    expect(collapsed).not.toContain("answer 19");
-    expect(renderedRows(render("wait_agent", value, true)).join("\n")).toContain("answer 19");
-    expect(renderedRows(render("wait_agent", { status: {}, timed_out: true })).join("\n")).toBe(
-      "Wait timed out",
-    );
-  });
-  it("distinguishes previous status and mailbox activity from completion", () => {
+  it("distinguishes previous status and wait activity from completion", () => {
     expect(renderedRows(render("interrupt_agent", { previous_status: "running" })).join("\n")).toBe(
       "Previous status · ● running",
     );
-    expect(renderedRows(render("close_agent", { previous_status: "not_found" })).join("\n")).toBe(
-      "Previous status · ✗ not found",
-    );
+    expect(
+      renderedRows(render("interrupt_agent", { previous_status: "not_found" })).join("\n"),
+    ).toBe("Previous status · ✗ not found");
     expect(
       renderedRows(
-        render("wait_agent", { message: "User input received.", timed_out: false }),
-      ).join("\n"),
-    ).toContain("User input received.");
-    expect(renderedRows(render("resume_agent", { status: "interrupted" })).join("\n")).toContain(
-      "interrupted",
-    );
+        render("wait_agent", { message: "Wait interrupted by new input.", timed_out: false }),
+      ),
+    ).toStrictEqual(["✓ Activity received", "Wait interrupted by new input."]);
+    expect(
+      renderedRows(render("wait_agent", { message: "Wait timed out.", timed_out: true })),
+    ).toStrictEqual(["Wait timed out", "Wait timed out."]);
   });
-  it("bounds resident lists and shows stored answer detail when expanded", () => {
+  it("bounds agent lists and shows stored answer detail when expanded", () => {
     const value = {
       agents: Array.from({ length: 20 }, (_, i) => ({
         agent_name: `/root/worker_${i}`,
@@ -212,12 +170,11 @@ describe("agent presentation", () => {
       { agent_name: "/root/empty", agent_status: { completed: "" } },
       { agent_name: "/root/error", agent_status: { errored: "Failure" } },
       { agent_name: "/root/blank_error", agent_status: { errored: "" } },
-      { agent_name: "/root/pending", agent_status: "pending_init" },
-      { agent_name: "/root/stopped", agent_status: "shutdown" },
+      { agent_name: "/root/stopped", agent_status: "interrupted" },
     ];
 
     expect(renderedRows(render("list_agents", { agents }, true))).toEqual([
-      "8 resident agents",
+      "7 agents",
       "/root/running · ● running",
       "/root/done · ✓ completed",
       "Answer",
@@ -226,14 +183,11 @@ describe("agent presentation", () => {
       "/root/error · ✗ errored",
       "Failure",
       "/root/blank_error · ✗ errored",
-      "/root/pending · ● pending init",
-      "/root/stopped · ■ shutdown",
+      "/root/stopped · ■ interrupted",
     ]);
-    expect(renderedRows(render("list_agents", { agents: [] }, true))).toEqual([
-      "0 resident agents",
-    ]);
+    expect(renderedRows(render("list_agents", { agents: [] }, true))).toEqual(["0 agents"]);
   });
-  it("bounds hostile and partially streamed call arguments, without dumping images", () => {
+  it("bounds hostile and partially streamed call arguments", () => {
     const renderer = agentRenderers("spawn_agent").renderCall;
 
     const args = {
@@ -255,19 +209,6 @@ describe("agent presentation", () => {
       renderedRows(renderer(args, theme, toolRenderContext({ expanded: true }))).join("\n"),
     ).toContain("END");
 
-    const items = {
-      items: [
-        { type: "image", image_url: "data:image/png;base64,SECRET" },
-        { type: "text", text: "inspect image" },
-      ],
-    };
-
-    const text = renderedRows(renderer(items, theme, toolRenderContext({ expanded: true }))).join(
-      "\n",
-    );
-
-    expect(text).toContain("[image]");
-    expect(text).not.toContain("SECRET");
     expect(() =>
       renderedRows(
         renderer({ message: null, task_name: 7 }, theme, toolRenderContext({ isPartial: true })),
@@ -275,10 +216,10 @@ describe("agent presentation", () => {
     ).not.toThrow();
   });
   it.each<JsonValue>([
-    { agent_id: 4 },
+    { task_name: 4 },
     { previous_status: { completed: 7 } },
     { agents: [{ agent_name: "bad", agent_status: { errored: false } }] },
-    { timed_out: "false", status: {} },
+    { timed_out: "false" },
   ])("preserves malformed result fields as raw text", (value) => {
     const original = structuredClone(value);
     expect(renderedRows(render("spawn_agent", value, true), 2000).join("\n")).toBe(
@@ -287,17 +228,27 @@ describe("agent presentation", () => {
     expect(value).toEqual(original);
   });
 
-  it("does not claim activity from a malformed wait status map", () => {
-    const value = { timed_out: false, status: { worker: 7 } };
-    expect(renderedRows(render("wait_agent", value, true), 2000).join("\n")).toBe(
-      JSON.stringify(value),
+  it("renders stored calls and results of retired tool shapes as plain text", () => {
+    const stored = { agent_id: "uuid", nickname: "Atlas" };
+    expect(renderedRows(render("spawn_agent", stored), 2000).join("\n")).toBe(
+      JSON.stringify(stored),
     );
-  });
+    expect(renderedRows(render("send_input", { submission_id: "s_1" }), 2000).join("\n")).toBe(
+      JSON.stringify({ submission_id: "s_1" }),
+    );
 
-  it("accepts future result fields without changing persisted values", () => {
-    const value = { agent_id: "agent", future: { retained: true } };
-    expect(renderedRows(render("spawn_agent", value)).join("\n")).toBe("✓ Spawned agent");
-    expect(value.future).toEqual({ retained: true });
+    const call = renderedRows(
+      agentRenderers("spawn_agent").renderCall(
+        {
+          items: [{ type: "image", image_url: "data:image/png;base64,SECRET" }],
+          fork_context: true,
+        },
+        theme,
+        toolRenderContext({ expanded: true }),
+      ),
+    ).join("\n");
+
+    expect(call).toBe("spawn_agent");
   });
 
   it("falls back safely for old results and failed messaging", () => {

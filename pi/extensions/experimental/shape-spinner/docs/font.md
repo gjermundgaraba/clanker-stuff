@@ -70,6 +70,6 @@ Before calling a new build visually approved:
 2. Watch the eight-second wireframe and 4.4-second puzzle seams; no position/scale jumps or unintended whole-icon fading.
 3. Test actual Ghostty playback beside Pi's Working text at the usual display scale. Verify font selection, two-cell placement, clipping, and faint-edge legibility.
 4. Check completion, Escape, repeated turns, resize, and any custom editor. The indicator must not outlive Pi's normal work.
-5. Switch between Rubik and wireframes in animated, static, and off modes. Verify that static Rubik is solved, color and dark/light preserve sticker colors, and off restores Pi's default.
+5. Switch between Rubik and wireframes in animated and static modes, under light and dark themes. Verify that static Rubik is solved and that color and theme appearance preserve sticker colors.
 
 Automated proofs do not substitute for step 3. This implementation deliberately does not add a private widget to imitate Amp's startup/stop lifecycle.

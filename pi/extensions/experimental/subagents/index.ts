@@ -8,32 +8,20 @@ const subagents = async (pi: ExtensionAPI) => {
   const paths = getExtensionStoragePaths("subagents");
   const loaded = await loadConfig(paths.configFile);
 
-  const options = {
+  const manager = new SubagentManager(pi, {
     config: loaded.config,
+    configError: loaded.error,
     dataDir: paths.dataDir,
-  };
-
-  if (loaded.error !== undefined) {
-    Object.assign(options, { configError: loaded.error });
-  }
-
-  const manager = new SubagentManager(pi, options);
+  });
 
   pi.on("session_start", manager.start.bind(manager));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
-  pi.on("context", manager.context.bind(manager));
-  pi.on("agent_start", manager.agentStart.bind(manager));
-  pi.on("agent_end", manager.agentEnd.bind(manager));
-  pi.on("agent_settled", manager.agentSettled.bind(manager));
   pi.on("input", manager.input.bind(manager));
-  pi.on("model_select", manager.modelSelect.bind(manager));
-  pi.on("tool_call", manager.toolCall.bind(manager));
-  pi.on("tool_execution_end", manager.toolExecutionEnd.bind(manager));
-  pi.on("tool_result", manager.toolResult.bind(manager));
-  pi.on("turn_end", manager.turnEnd.bind(manager));
+  pi.on("turn_start", manager.settle.bind(manager));
+  pi.on("agent_settled", manager.settle.bind(manager));
   pi.on("session_shutdown", manager.shutdown.bind(manager));
   pi.registerCommand("agents", {
-    description: "Show the durable subagent tree",
+    description: "Show the subagent tree",
     handler: (_args, ctx) => {
       ctx.ui.notify(manager.describe(), "info");
 

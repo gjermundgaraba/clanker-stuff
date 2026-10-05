@@ -71,27 +71,8 @@ describe(ContextViews, () => {
   it("shows an explicit empty observation instead of substituting stored state", () => {
     const t = setup(false);
     t.press("v");
-    expect(t.render()).toContain("No request observed on this branch");
+    expect(t.render()).toContain("No request observed yet");
     expect(t.render()).not.toContain("Provider payload");
     expect(t.render()).not.toContain("state-only instruction");
-  });
-
-  it("transfers regular-mode mouse ownership and restores it when disposed", () => {
-    const t = setup();
-    const write = vi.fn<(data: string) => void>();
-    Object.assign(t.tui, { mode: "regular" });
-    Object.assign(t.tui.terminal, { write });
-    t.views.attachMouse(t.tui.showOverlay(t.views));
-    expect(write).toHaveBeenLastCalledWith("\u001b[?1000h\u001b[?1006h");
-    t.press("v");
-    expect(write.mock.calls.map(([data]) => data)).toEqual([
-      "\u001b[?1000h\u001b[?1006h",
-      "\u001b[?1006l\u001b[?1000l",
-      "\u001b[?1000h\u001b[?1006h",
-    ]);
-    t.views.dispose();
-    expect(write).toHaveBeenLastCalledWith("\u001b[?1006l\u001b[?1000l");
-    t.views.dispose();
-    expect(write).toHaveBeenCalledTimes(4);
   });
 });

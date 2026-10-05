@@ -221,7 +221,7 @@ describe("overlay", () => {
     t.render();
     t.press("\r");
     expect(t.render()).toContain("CONTENT-LINE-A");
-    expect(t.render()).not.toContain("■ system");
+    expect(t.render()).not.toContain("system ~");
     t.press("j");
     expect(t.render()).toContain("CONTENT-LINE-B");
   });
@@ -235,7 +235,7 @@ describe("overlay", () => {
     t.overlay.handleInput("j");
     t.overlay.handleInput("h");
     expect(t.render(70)).not.toContain("read");
-    expect(t.render(70)).toContain("Active tools (1)");
+    expect(t.render(70)).toContain("Tool declarations (1)");
   });
 
   it("highlights only the final parent when collapsing from deep inside a group", () => {
@@ -300,7 +300,7 @@ describe("pane scrolling", () => {
     expect(t.render()).not.toContain("LINE-0");
     t.press("\u001B[6~");
     expect(t.render()).toContain("LINE-15");
-    expect(t.render()).toContain("Active tools");
+    expect(t.render()).toContain("Tool declarations");
     t.press("\t", "j");
     expect(t.render()).toContain("Expand this group");
   });
@@ -334,41 +334,5 @@ describe("pane scrolling", () => {
     t.overlay.handleMouse(mouse({ width: 80, x: 20, wheelDelta: 5 }));
     expect(t.render(80)).toContain("LINE-5");
     expect(t.render(80)).not.toContain("LINE-0");
-  });
-
-  it("decodes regular-mode mouse reports using live overlay bounds and restores reporting on blur/dispose", () => {
-    const t = setup(snapshot());
-    const write = vi.fn();
-    Object.assign(t.tui, { mode: "regular" });
-    Object.assign(t.tui.terminal, { write });
-    const handle = t.tui.showOverlay(t.overlay);
-    let col = 10;
-    handle.getBounds = () => ({ col, row: 2, width: 120, height: 21 });
-    t.overlay.attachMouse(handle);
-    expect(write).toHaveBeenLastCalledWith("\u001B[?1000h\u001B[?1006h");
-    t.render();
-    t.press("\u001B[<65;91;12M");
-    expect(t.render()).toContain("LINE-3");
-    col = 20;
-    t.press("\u001B[<65;101;12M");
-    expect(t.render()).toContain("LINE-6");
-    t.overlay.focused = false;
-    expect(write).toHaveBeenLastCalledWith("\u001B[?1006l\u001B[?1000l");
-    t.overlay.focused = true;
-    expect(write).toHaveBeenLastCalledWith("\u001B[?1000h\u001B[?1006h");
-    t.overlay.dispose();
-    expect(write).toHaveBeenLastCalledWith("\u001B[?1006l\u001B[?1000l");
-    t.overlay.dispose();
-    expect(write).toHaveBeenCalledTimes(4);
-  });
-
-  it("leaves fullscreen mouse reporting to Pi", () => {
-    const t = setup(snapshot());
-    const write = vi.fn();
-    Object.assign(t.tui, { mode: "fullscreen" });
-    Object.assign(t.tui.terminal, { write });
-    t.overlay.attachMouse(t.tui.showOverlay(t.overlay));
-    t.overlay.dispose();
-    expect(write).not.toHaveBeenCalled();
   });
 });

@@ -1,43 +1,28 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createFooterConfigStore } from "./config.js";
-import { readGitStatus } from "./git.js";
-
+import { readGitDetails } from "./git.js";
 import { createFooterHost } from "./host.js";
 
 export default function footerExtension(
   pi: ExtensionAPI,
   configStore = createFooterConfigStore(),
-  readGit = readGitStatus,
+  readGit = readGitDetails,
 ): void {
   const host = createFooterHost(pi, configStore, readGit);
 
   pi.registerCommand("footer", {
-    description: "Configure or inspect the cooperative footer",
-    handler: (args, ctx) => host.runCommand(args, ctx),
+    description: "Edit the footer layout as JSON, or reset or inspect it",
+    handler: (args, ctx) => host.command(args, ctx),
   });
 
   pi.on("session_start", (_event, ctx) => host.start(ctx));
-  pi.on("model_select", (_event, ctx) => {
-    host.refresh(ctx);
+  // Built-in widgets are computed while rendering; these only cover what Pi does not re-render.
+  pi.on("model_select", () => {
+    host.requestRender();
   });
-  pi.on("thinking_level_select", (_event, ctx) => {
-    host.refresh(ctx);
-  });
-  pi.on("message_end", (_event, ctx) => {
-    host.refresh(ctx);
-  });
-  pi.on("turn_end", (_event, ctx) => {
-    host.turnEnd(ctx);
-  });
-  pi.on("session_tree", (_event, ctx) => {
-    host.refreshTotals(ctx);
-  });
-  pi.on("session_compact", (_event, ctx) => {
-    host.refreshTotals(ctx);
-  });
-  pi.on("session_info_changed", (_event, ctx) => {
-    host.refreshTotals(ctx);
+  pi.on("turn_end", () => {
+    host.refreshGit();
   });
   pi.on("session_shutdown", () => {
     host.shutdown();

@@ -1,6 +1,6 @@
 # Native Pi baseline
 
-The workspace pins Pi **1.0.0**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
+The workspace pins Pi **1.0.2**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
 
 ## Local adoption
 
@@ -25,8 +25,8 @@ Native OpenAI subscription requests omit server output-token caps. Local output 
 ## Optional extensions
 
 - **Background tasks:** retained as a separate extension with ordinary Pi tools, job lifecycle, notifications, and bounded inspection output. Native Code Mode supplies nesting and permissions; no Code Mode-specific registration layer remains.
-- **Subagents:** children load native Code Mode, MCP and tool search through SDK factories; inherited selection initializes activation without freezing dynamic discovery. Root-only exclusions and native permissions remain enforced. Fresh children can select explicit provider/model references; cross-provider history forks are rejected. Old version-1 control snapshots require a fresh tree, not migration. Native settings control presentation. V2 configuration provides the tree's collaboration interface to descendants without private provider declarations. Stored protocols, permissions, capability exclusions, and transcript safeguards remain authoritative.
-- **Usage:** legacy OpenAI Codex quota reporting and its cookie transport are retired. Native OpenAI quota availability has not been verified; `/usage` reports that limitation without requesting native credentials for an unverified endpoint. Inference and session token/cost accounting remain native Pi responsibilities.
+- **Subagents:** children load native Code Mode, MCP and tool search as Pi built-ins, so `-builtin:<name>` settings and replacement extensions apply; inherited selection initializes activation without freezing dynamic discovery. Root-only exclusions and native permissions remain enforced. Children may use any registered provider, including with text-only forked history. Only the hierarchical path/mailbox tools remain; mail travels through Pi's custom-message queues and is acknowledged from transcripts. Earlier control snapshots are ignored, not migrated.
+- **Usage:** legacy OpenAI Codex quota reporting and its cookie transport are retired. Quota reporting is unsupported for native OpenAI; `/usage` and the `usage` status report it like any unsupported provider, without sending native credentials to a usage endpoint. Inference and session token/cost accounting remain native Pi responsibilities.
 - **Fast:** a small, optional priority-service-tier request toggle is feasible using native request hooks. Verify subscription/model entitlement before calling it supported. Avoid provider replacement, catalog overrides, private metadata, or implicit tree-wide inheritance.
 - **Ultra:** a native thinking-level shortcut can be tiny; built-in thinking controls may make an extension unnecessary. Proactive delegation is independently configured in subagents, not coupled to thinking or private provider metadata.
 - **Compaction:** native Pi textual summarization only. No remote-checkpoint adapter or standalone compaction extension is retained. Native settings/custom instructions cover ordinary policy changes.
