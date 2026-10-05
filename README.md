@@ -1,6 +1,6 @@
 # clanker stuff
 
-A personal collection of extensions and plugins for Pi, Claude Code, and Codex. This is an independent project that is not affiliated with or endorsed by OpenAI, Anthropic, or the Pi maintainers.
+A personal collection of extensions, plugins, and skills for Pi, Claude Code, and Codex. This is an independent project that is not affiliated with or endorsed by OpenAI, Anthropic, or the Pi maintainers.
 
 ## Pi extensions
 
@@ -43,9 +43,13 @@ Experimental extensions are not published to npm and are not stable daily driver
 | [`plannotator`](codex/plugins/plannotator)       | Adds Plannotator review and annotation workflows to Codex.   |
 | [`resume-history`](codex/plugins/resume-history) | Adds Codex's resume command to the invoking shell's history. |
 
+## Skills
+
+[Reusable skills](skills/README.md) cover coding, review, writing, visualization, and agent-tool workflows. Repository-local workflows live in `.agents/skills/`; package-owned skills stay with their extension or plugin. Personal skills live in the dotfiles repository.
+
 ## Development
 
-Requires Vite+ and Node.js 26 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
+Requires Vite+, Node.js 26 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
 
 ## License
 

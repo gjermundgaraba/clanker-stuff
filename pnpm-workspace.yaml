@@ -4,6 +4,7 @@ packages:
   - "pi/extensions/*"
   - "pi/extensions/experimental/*"
   - "pi/evals/runtime"
+  - "skills/*"
 
 catalogMode: prefer
 

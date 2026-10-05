@@ -1,0 +1,7 @@
+interface:
+  display_name: "Agent History"
+  short_description: "Find and interpret local AI agent sessions"
+  default_prompt: "Use $agent-history to find a relevant session in my local AI agent history."
+
+policy:
+  allow_implicit_invocation: false

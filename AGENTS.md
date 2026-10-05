@@ -1,6 +1,6 @@
 # AGENTS
 
-This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extensions live under `pi/extensions/`, with unstable ones under `pi/extensions/experimental/`; host plugins live under `claude/plugins/` and `codex/plugins/`.
+This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extensions live under `pi/extensions/`, with unstable ones under `pi/extensions/experimental/`; host plugins live under `claude/plugins/` and `codex/plugins/`. Reusable skills live under `skills/`; follow `skills/AGENTS.md` and the installation guidance in `skills/README.md`. Repository-local workflows live under `.agents/skills/`. Use `AGENTS.md` for instructions; do not create `CLAUDE.md` aliases.
 
 ## General instructions
 

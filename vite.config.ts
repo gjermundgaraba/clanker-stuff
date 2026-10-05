@@ -20,10 +20,15 @@ const ignorePatterns = [
   ".roo/**",
   ".windsurf/**",
   "tools/oxlint/anti-slop/**",
+  // Imported third-party installer bundle; preserve its scripts and assets verbatim.
+  "skills/install-anti-slop/**",
 ];
 
 export default defineConfig({
-  fmt: { ignorePatterns },
+  fmt: {
+    // Preserve the imported anti-slop policy text without changing its instructions.
+    ignorePatterns: [...ignorePatterns, "skills/anti-slop-lint/**"],
+  },
   run: {
     tasks: {
       // Static checks cache on the files they read; `ready` fans them out, then tests.
@@ -31,10 +36,20 @@ export default defineConfig({
       "check:readmes": { command: "node ./scripts/check-readmes.ts" },
       "check:static": { command: "vp check" },
       "check:tests": { command: "node ./scripts/check-tests.ts" },
+      "check:skills": {
+        command:
+          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/librarian/tests",
+      },
       ready: {
         cache: false,
         command: "vp test",
-        dependsOn: ["check:static", "check:packages", "check:readmes", "check:tests"],
+        dependsOn: [
+          "check:static",
+          "check:packages",
+          "check:readmes",
+          "check:tests",
+          "check:skills",
+        ],
       },
     },
   },

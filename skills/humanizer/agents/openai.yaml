@@ -1,0 +1,7 @@
+interface:
+  display_name: "Humanizer"
+  short_description: "Edit AI-sounding prose, preserving facts and voice"
+  default_prompt: "Use $humanizer to rewrite this text in my voice without changing its facts, meaning, or opinions."
+
+policy:
+  allow_implicit_invocation: false

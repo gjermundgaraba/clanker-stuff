@@ -66,7 +66,7 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
 
   writeFileSync(
     path.join(root, "README.md"),
-    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |${experimentalSection}\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Development\n\nRequires Vite+ and Node.js 26 or newer. Run \`vp run ready\`.\n\n## License\n\n[MIT](LICENSE)\n`,
+    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |${experimentalSection}\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Skills\n\nReusable skills live in the catalog.\n\n## Development\n\nRequires Vite+ and Node.js 26 or newer. Run \`vp run ready\`.\n\n## License\n\n[MIT](LICENSE)\n`,
   );
 
   const packageReadme = `# sample\n\n${DESCRIPTION}\n\n## Install\n\n\`\`\`bash\npi install npm:${PACKAGE_NAME}\n\`\`\`\n\n## Usage\n\n${usage}`;

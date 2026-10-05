@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "0.1.0",
+  "kind": "graph",
+  "title": "Starter example: validate order requests",
+  "summary": "Fictional example: the request handler now validates orders before calling the unchanged order service.",
+  "lenses": ["architecture"],
+  "provenance": {
+    "repo": { "owner": "example", "name": "starter" },
+    "base": { "sha": "1111111" },
+    "head": { "sha": "2222222" }
+  },
+  "lanes": [{ "id": "application", "label": "Application" }],
+  "nodes": [
+    {
+      "id": "request-handler",
+      "label": "Request handler",
+      "kind": "route",
+      "delta": "modified",
+      "lane": "application",
+      "summary": "Validates the incoming order before calling the service.",
+      "files": [{ "path": "src/handler.ts" }]
+    },
+    {
+      "id": "order-service",
+      "label": "Order service",
+      "kind": "service",
+      "delta": "unchanged",
+      "lane": "application",
+      "summary": "Persists an order; its contract is unchanged.",
+      "files": [{ "path": "src/orders.ts" }]
+    }
+  ],
+  "edges": [
+    {
+      "id": "handler-to-orders",
+      "from": "request-handler",
+      "to": "order-service",
+      "kind": "call",
+      "delta": "modified",
+      "label": "validated order",
+      "emphasis": "hero",
+      "animated": true
+    }
+  ],
+  "stats": { "filesChanged": 1, "additions": 4, "deletions": 1 }
+}

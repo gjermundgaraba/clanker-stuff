@@ -133,6 +133,46 @@ describe("package readiness", () => {
     );
   });
 
+  it("accepts standalone private skill helpers and rejects public or host-loaded ones", () => {
+    const fixture = createFixture(true);
+    const skill = path.join(fixture.root, "skills/sample");
+    mkdirSync(skill, { recursive: true });
+    writeFileSync(
+      path.join(fixture.root, "pnpm-workspace.yaml"),
+      'packages:\n  - "."\n  - "skills/*"\n',
+    );
+    writeFileSync(path.join(skill, "LICENSE"), "fixture license\n");
+    writeFileSync(path.join(skill, "README.md"), "# sample\n");
+
+    const manifest = {
+      name: "@clanker-stuff/sample-skill",
+      version: "0.1.0",
+      description: "Standalone skill helper.",
+      private: true,
+      license: "MIT",
+      engines: { node: ">=26" },
+    };
+
+    const manifestPath = path.join(skill, "package.json");
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    expect(validateFixture(fixture)).toMatchObject({ status: 0, stderr: "" });
+
+    for (const change of [
+      { private: false },
+      { exports: "./index.ts" },
+      { pi: { extensions: ["./index.ts"] } },
+    ]) {
+      writeFileSync(manifestPath, JSON.stringify({ ...manifest, ...change }));
+      const invalid = validateFixture(fixture);
+
+      expect(invalid.status).not.toBe(0);
+      expect(invalid.stderr).toContain(
+        "skill helpers must stay private without Pi or public exports",
+      );
+    }
+  });
+
   it("applies common extension integrity checks to private packages", () => {
     const valid = validateFixture(createFixture(true));
     const invalid = validateFixture(createFixture(false));

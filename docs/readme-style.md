@@ -71,8 +71,9 @@ The root `README.md` should contain:
 5. Descriptions sourced from each package's `package.json`.
 6. A `Claude Code plugins` table linking each Claude plugin directory.
 7. A `Codex plugins` table linking each Codex plugin directory.
-8. A one-line `Development` section naming the Node.js requirement and validation command.
-9. A `License` section linking to the root license.
+8. A `Skills` section linking to the reusable catalog and distinguishing it from repository-local and package-owned skills.
+9. A one-line `Development` section naming the Node.js requirement and validation command.
+10. A `License` section linking to the root license.
 
 List only publishable packages that declare pi extensions in the extension table.
 

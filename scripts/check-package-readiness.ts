@@ -168,6 +168,15 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: missing README.md`);
   }
 
+  // Skill helper packages are private standalone CLIs, not host-loaded Pi packages.
+  if (dir.startsWith("skills/")) {
+    if (pkg.private !== true || pkg.pi !== undefined || pkg.exports !== undefined) {
+      errors.push(`${label}: skill helpers must stay private without Pi or public exports`);
+    }
+
+    continue;
+  }
+
   const isExtensionPackage = dir.startsWith("pi/extensions/");
 
   const subpathExports = Value.Check(SubpathExportsSchema, pkg.exports)

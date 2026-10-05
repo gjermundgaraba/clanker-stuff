@@ -40,15 +40,10 @@ vendored rule implementations retain the pristine baseline behavior.
 
 ## Rule policy
 
-`vite.config.ts` is the source of truth for enabled rules. The conditional empty
-object spread, adjacent filter/map, and `shape` substring bans are off: they
-enforce syntax without establishing omission safety, useful performance, or domain
-ownership. All other generic rules are errors. `no-runtime-typeof` uses
-`allowInTypeGuards: true` so
-handwritten boundary predicates and assertions can perform their validation.
-The rule remains syntactic: legitimate typed-union discrimination, arbitrary-value
-diagnostics, and runtime adapters take narrowly justified exceptions rather than
-one-use wrappers or primitive schema substitutions.
+`vite.config.ts` is the source of truth for enabled rules and severities.
+The repository lint policy explains intentional exclusions, including ordinary
+`typeof` narrowing and legitimate unknown inputs. This provenance record describes
+source adaptations, not a second copy of the active rule configuration.
 
 Follow [the repository lint policy](../../../docs/lint-policy.md) for every
 exception. Strongly consider cleaner, more correct refactors first, including

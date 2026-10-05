@@ -110,6 +110,7 @@ if (existsSync(rootReadmePath)) {
     ...(experimentalPackages.length === 0 ? [] : ["## Experimental pi extensions"]),
     "## Claude Code plugins",
     "## Codex plugins",
+    "## Skills",
     "## Development",
     "## License",
   ];
