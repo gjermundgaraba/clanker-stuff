@@ -126,6 +126,33 @@ describe("collaboration tools", () => {
     });
   });
 
+  it("distinguishes queued context from follow-up work in descriptions and dispatch", async () => {
+    const sendMessage = vi.fn<ToolController["sendMessage"]>(() => Promise.resolve());
+    const followUp = vi.fn<ToolController["followUp"]>(() => Promise.resolve());
+    const extension = await host(controller({ followUp, sendMessage }));
+    const definitions = extension.getRegisteredTools();
+    const sendDescription = definitions.get("send_message")?.definition.description;
+    const followupDescription = definitions.get("followup_task")?.definition.description;
+
+    expect(sendDescription).toMatch(/without starting a turn/iu);
+    expect(sendDescription).toMatch(/an idle recipient will not act until its next task/iu);
+    expect(sendDescription).toMatch(/use followup_task when a non-root agent needs to act/iu);
+    expect(followupDescription).toMatch(/existing non-root agent/iu);
+    expect(followupDescription).toMatch(/if idle[,:]?\s+start a turn/iu);
+    expect(followupDescription).toMatch(
+      /if running[,:]?\s+deliver the task at a safe input boundary/iu,
+    );
+
+    await extension.runTool("send_message", { message: "context", target: "worker" });
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith("/root", "worker", "context");
+    expect(followUp).not.toHaveBeenCalled();
+
+    await extension.runTool("followup_task", { message: "continue", target: "worker" });
+    expect(followUp).toHaveBeenCalledTimes(1);
+    expect(followUp.mock.calls[0]?.slice(0, 3)).toStrictEqual(["/root", "worker", "continue"]);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("offers agent_type only when roles are configured", async () => {
     const spawn = vi.fn<ToolController["spawn"]>(() => Promise.resolve(spawned));
 

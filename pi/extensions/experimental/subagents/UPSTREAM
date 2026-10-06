@@ -5,3 +5,23 @@ Suggestion limits and model/reasoning errors:
 af1fc2dbff641e78298c272c4b45c9fec5c33898
 codex-rs/core/src/tools/handlers/multi_agents_spec.rs
 codex-rs/core/src/agent/child_config.rs
+
+Collaboration planning, handoffs, role hints, and historical Fast/Ultra reference (2026-10-05):
+823ea830c0fd418b09ff02d36cad9a1fff66465b
+codex-rs/core/src/tools/handlers/multi_agents_spec.rs
+codex-rs/prompts/src/model_messages/multi_agent.rs
+codex-rs/prompts/src/multi_agent_instructions.rs
+codex-rs/core/src/session/multi_agents.rs
+codex-rs/core/src/agent/child_config.rs
+codex-rs/core/src/agent/control/service_tier.rs
+codex-rs/core/src/session/mod.rs
+
+Deliberate Pi divergences:
+- Pi separates branch-local delegation policy from native thinking. Ultra is a
+  one-shot native boost, not Codex Ultra effort or inheritance fidelity.
+- Child model and effort selection use Pi's native capabilities and configured
+  defaults rather than reproducing Codex's catalog-specific reasoning semantics.
+- Fast uses independent Pi extension discovery and native subscription priority
+  intent, rather than Codex tree-wide service-tier inheritance or entitlement gates.
+
+Operational policy: docs/delegation.md. Collaboration differences: docs/protocols.md.

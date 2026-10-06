@@ -14,18 +14,19 @@ A personal collection of extensions, plugins, and skills for Pi, Claude Code, an
 
 ## Experimental pi extensions
 
-| Extension                                                                        | Description                                                                                                                                                               |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@clanker-stuff/background-tasks`](pi/extensions/experimental/background-tasks) | Runs session-owned background jobs and agent-authored watchers with automatic notifications.                                                                              |
-| [`@clanker-stuff/context`](pi/extensions/experimental/context)                   | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details.                                                                                |
-| [`@clanker-stuff/footer`](pi/extensions/experimental/footer)                     | Lays out built-in widgets and native extension statuses in the footer and editor border.                                                                                  |
-| [`@clanker-stuff/plannotator`](pi/extensions/experimental/plannotator)           | Adds Plannotator review and annotation commands to pi.                                                                                                                    |
-| [`@clanker-stuff/shape-spinner`](pi/extensions/experimental/shape-spinner)       | Replaces Pi's working spinner with selectable Rubik's cube or wireframe shape animations.                                                                                 |
-| [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)               | Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models. |
-| [`@clanker-stuff/turn-recap`](pi/extensions/experimental/turn-recap)             | Adds a turn card with timing, usage, tool activity, and optional LLM recaps to the chat after each run.                                                                   |
-| [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                       | Shows account usage for supported providers in a status line and on demand.                                                                                               |
-| [`@clanker-stuff/user-attention`](pi/extensions/experimental/user-attention)     | Sends attention notifications while pi continues working.                                                                                                                 |
-| [`@clanker-stuff/vim`](pi/extensions/experimental/vim)                           | Adds composable Vim editing with transactional undo and visual selections to pi.                                                                                          |
+| Extension                                                                        | Description                                                                                                   |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [`@clanker-stuff/background-tasks`](pi/extensions/experimental/background-tasks) | Runs session-owned background jobs and agent-authored watchers with automatic notifications.                  |
+| [`@clanker-stuff/context`](pi/extensions/experimental/context)                   | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details.                    |
+| [`@clanker-stuff/fast`](pi/extensions/experimental/fast)                         | Adds a local /fast toggle for best-effort native OpenAI subscription priority requests.                       |
+| [`@clanker-stuff/footer`](pi/extensions/experimental/footer)                     | Lays out built-in widgets and native extension statuses in the footer and editor border.                      |
+| [`@clanker-stuff/plannotator`](pi/extensions/experimental/plannotator)           | Adds Plannotator review and annotation commands to pi.                                                        |
+| [`@clanker-stuff/shape-spinner`](pi/extensions/experimental/shape-spinner)       | Replaces Pi's working spinner with selectable Rubik's cube or wireframe shape animations.                     |
+| [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)               | Adds durable hierarchical subagents, branch-local proactive delegation, and a one-shot /ultra thinking boost. |
+| [`@clanker-stuff/turn-recap`](pi/extensions/experimental/turn-recap)             | Adds a turn card with timing, usage, tool activity, and optional LLM recaps to the chat after each run.       |
+| [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                       | Shows account usage for supported providers in a status line and on demand.                                   |
+| [`@clanker-stuff/user-attention`](pi/extensions/experimental/user-attention)     | Sends attention notifications while pi continues working.                                                     |
+| [`@clanker-stuff/vim`](pi/extensions/experimental/vim)                           | Adds composable Vim editing with transactional undo and visual selections to pi.                              |
 
 Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.
 

@@ -58,6 +58,10 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
         private: true,
       }),
     );
+    writeFileSync(
+      path.join(experimentalDir, "README.md"),
+      "# preview\n\nLoad ./index.ts as a local extension.\n",
+    );
   }
 
   const experimentalSection = experimental
@@ -113,11 +117,39 @@ describe("README validation", () => {
     expect(result.stderr).toContain("Usage must be one prose line or up to three short bullets.");
   });
 
-  it("accepts an experimental extension catalog", () => {
+  it("accepts experimental catalogs and local README layouts without the public template", () => {
     const result = validateFixture(createFixture("Run `/sample`.", true, true));
 
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
+  });
+
+  it.each([EXPERIMENTAL_PACKAGE_NAME, `${EXPERIMENTAL_PACKAGE_NAME}@0.1.0`])(
+    "rejects an experimental package advertising npm installation of %s",
+    (source) => {
+      const root = createFixture("Run `/sample`.", true, true);
+
+      writeFileSync(
+        path.join(root, "pi/extensions/experimental/preview/README.md"),
+        `# preview\n\n\`\`\`bash\npi install npm:${source}\n\`\`\`\n`,
+      );
+      const result = validateFixture(root);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "pi/extensions/experimental/preview/README.md: experimental packages are not published to npm",
+      );
+    },
+  );
+
+  it("allows an experimental README to document installing another published package", () => {
+    const root = createFixture("Run `/sample`.", true, true);
+
+    writeFileSync(
+      path.join(root, "pi/extensions/experimental/preview/README.md"),
+      `# preview\n\nLoad ./index.ts locally. Install its companion with \`pi install npm:${EXPERIMENTAL_PACKAGE_NAME}-tools\`.\n`,
+    );
+    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
   });
 
   it("accepts formatter-aligned catalog tables", () => {

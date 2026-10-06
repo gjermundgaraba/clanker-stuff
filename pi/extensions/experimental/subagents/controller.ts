@@ -5,10 +5,12 @@ import type { BuildSystemPromptOptions, ExtensionContext } from "@earendil-works
 
 import type { AgentThinkingLevel, SubagentsConfig } from "./config.js";
 import { resolveChildSettings } from "./config.js";
+import { inheritDelegation, readDelegation } from "./delegation.js";
+import type { DelegationPolicy } from "./delegation.js";
 import { forkHistory } from "./history.js";
 import type { ForkTurns } from "./history.js";
 import { KeyedSerialQueue } from "./keyed-queue.js";
-import { childPrompt, errorCompletion } from "./prompts.js";
+import { childPrompt, COLLABORATION_SECTION, errorCompletion } from "./prompts.js";
 import {
   childAgentPath,
   emptyTree,
@@ -172,12 +174,10 @@ export class Controller {
     }
 
     this.#waiters.clear();
-    const residents = [...this.#residents.values()];
-    this.#residents.clear();
+    const retiring = [...this.#residents].map(([path, resident]) => this.#retire(path, resident));
 
-    await Promise.allSettled(
-      residents.map(({ retiring, runtime }) => retiring ?? runtime.dispose()),
-    );
+    this.#residents.clear();
+    await Promise.allSettled(retiring);
   }
 
   rootMail(): readonly Mail[] {
@@ -230,6 +230,7 @@ export class Controller {
         sessionFile: undefined,
         thinkingLevel: settings.thinking,
         tools,
+        delegation: readDelegation(ctx.sessionManager, this.#config.delegation),
       });
       signal?.throwIfAborted();
       this.#assertEpoch(epoch);
@@ -411,7 +412,7 @@ export class Controller {
         if (resident !== undefined) {
           resident.turn = undefined;
           resident.runtime.abort();
-          this.#retire(path, resident);
+          void this.#retire(path, resident);
         }
 
         await this.#save();
@@ -547,6 +548,7 @@ export class Controller {
       sessionFile: node.sessionFile,
       thinkingLevel: node.thinking,
       tools: node.tools,
+      delegation: undefined,
     });
 
     if (epoch !== this.#epoch) {
@@ -574,11 +576,20 @@ export class Controller {
       "history" | "model" | "sessionFile" | "thinkingLevel" | "tools"
     > & {
       instructions: string | undefined;
+      delegation: DelegationPolicy | undefined;
     },
   ): Promise<ChildRuntime> {
     return await this.#createRuntime({
       bridge: (api) => {
+        inheritDelegation(api, child.delegation);
         registerTools(api, this, path, this.#config);
+        api.on("before_agent_start", (event, childCtx) => {
+          event.systemPromptOptions.sections[COLLABORATION_SECTION] = childPrompt(
+            this.#config,
+            path,
+            readDelegation(childCtx.sessionManager, this.#config.delegation),
+          );
+        });
       },
       cwd: ctx.cwd,
       dataDir: this.#dataDir,
@@ -587,9 +598,7 @@ export class Controller {
       modelRegistry: ctx.modelRegistry,
       onDelivered: (id) => this.#delivered(id, epoch),
       onError: this.#onBackgroundError,
-      prompt: [childPrompt(this.#config, path), child.instructions]
-        .filter((value) => value !== undefined && value !== "")
-        .join("\n\n"),
+      prompt: child.instructions ?? "",
       promptOptions: this.#promptOptions,
       sessionFile: child.sessionFile,
       thinkingLevel: child.thinkingLevel,
@@ -638,7 +647,7 @@ export class Controller {
       return;
     }
 
-    this.#retire(path, resident);
+    void this.#retire(path, resident);
     const parent = parentAgentPath(path) ?? ROOT_AGENT_PATH;
     let mail: Mail | undefined;
 
@@ -681,15 +690,30 @@ export class Controller {
   }
 
   /** Disposes a resident after its turn; mail for it waits in the outbox until it runs again. */
-  #retire(path: string, resident: Resident): void {
-    resident.retiring ??= resident.runtime
+  #retire(path: string, resident: Resident): Promise<void> {
+    if (resident.retiring !== undefined) return resident.retiring;
+    const node = this.#node(path);
+    const store = this.#store;
+    const tree = this.#tree;
+
+    resident.retiring = resident.runtime
       .dispose()
+      .finally(async () => {
+        if (node !== undefined) {
+          // Child extensions can change selection after startup; cold reuse needs its final values.
+          node.model = resident.runtime.model;
+          node.thinking = resident.runtime.thinkingLevel;
+          await store.save(tree);
+        }
+      })
       .catch(this.#onBackgroundError)
       .finally(() => {
         if (this.#residents.get(path) === resident) {
           this.#residents.delete(path);
         }
       });
+
+    return resident.retiring;
   }
 
   /** Persists mail before handing it to a resident target; delivery acknowledges it. */

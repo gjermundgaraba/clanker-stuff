@@ -23,6 +23,8 @@ const EXPERIMENTAL_NOTICE =
 const CATALOG_ROW_PATTERN =
   /^\|\s*\[`(?<name>[^`]+)`\]\((?<target>[^)]+)\)\s*\|\s*(?<description>.*?)\s*\|$/gmu;
 
+const NPM_INSTALL_PATTERN = /\bpi\s+install\s+(?<source>npm:[^\s`]+)/gu;
+
 const repoRoot = process.cwd();
 
 const extensionPackages = readWorkspacePackages()
@@ -149,6 +151,24 @@ if (existsSync(rootReadmePath)) {
   }
 } else {
   errors.push("README.md is missing.");
+}
+
+for (const { dir, packageJson } of experimentalPackages) {
+  const readmePath = path.join(repoRoot, dir, "README.md");
+
+  // Package readiness owns README existence; private packages need no public-page template.
+  if (!existsSync(readmePath)) continue;
+  const actual = readFileSync(readmePath, "utf-8");
+  const ownSource = `npm:${packageJson.name}`;
+
+  if (
+    [...actual.matchAll(NPM_INSTALL_PATTERN)].some(
+      ({ groups }) => groups?.source === ownSource || groups?.source?.startsWith(`${ownSource}@`),
+    )
+  )
+    errors.push(
+      `${dir}/README.md: experimental packages are not published to npm; document local installation instead.`,
+    );
 }
 
 for (const { dir, packageJson } of packages) {

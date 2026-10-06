@@ -52,7 +52,11 @@ describe(resolveChildSettings, () => {
         registry: registryOf(parent),
         thinking: "low",
       }),
-    ).toStrictEqual({ instructions: undefined, model: parent, thinking: "low" });
+    ).toStrictEqual({
+      instructions: undefined,
+      model: parent,
+      thinking: "low",
+    });
   });
 
   it("lets a configured role fix model, reasoning, and instructions over explicit requests", () => {
@@ -72,7 +76,43 @@ describe(resolveChildSettings, () => {
         { agentType: "reviewer", model: "other/requested", thinking: "low" },
         { model: parent, registry: registryOf(parent, roleModel, requested), thinking: "off" },
       ),
-    ).toStrictEqual({ instructions: "Review.", model: roleModel, thinking: "high" });
+    ).toStrictEqual({
+      instructions: "Review.",
+      model: roleModel,
+      thinking: "high",
+    });
+  });
+
+  it("uses the native default for different-model requests and roles, and inherits thinking for same-model overrides", () => {
+    const other = model("other", "model", true);
+
+    const parents = {
+      model: parent,
+      registry: registryOf(parent, other),
+      thinking: "high" as const,
+    };
+
+    expect(
+      resolveChildSettings(DEFAULT_CONFIG, { ...request, model: "other/model" }, parents),
+    ).toMatchObject({ thinking: undefined });
+    expect(
+      resolveChildSettings(
+        { ...DEFAULT_CONFIG, roles: { reviewer: { model: "other/model" } } },
+        { ...request, agentType: "reviewer" },
+        parents,
+      ),
+    ).toMatchObject({ thinking: undefined });
+
+    expect(
+      resolveChildSettings(DEFAULT_CONFIG, { ...request, model: "parent/parent-model" }, parents),
+    ).toMatchObject({ thinking: "high" });
+    expect(
+      resolveChildSettings(
+        { ...DEFAULT_CONFIG, roles: { reviewer: { model: "parent/parent-model" } } },
+        { ...request, agentType: "reviewer" },
+        parents,
+      ),
+    ).toMatchObject({ thinking: "high" });
   });
 
   it("allows another provider with inherited history", () => {

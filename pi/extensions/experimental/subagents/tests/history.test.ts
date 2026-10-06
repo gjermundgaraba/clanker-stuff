@@ -24,6 +24,14 @@ describe(forkHistory, () => {
     session.appendMessage(assistant("old answer"));
     session.appendMessage(user("new"));
     session.appendMessage(assistant("unfinished", "toolUse"));
+    session.appendMessage({
+      role: "toolResult",
+      toolCallId: "read-result",
+      toolName: "read",
+      content: [{ type: "text", text: "evidence only in the tool result" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
     session.appendMessage(assistant("final"));
 
     const history = forkHistory(session.buildSessionProjection().messages, 1);
@@ -34,6 +42,14 @@ describe(forkHistory, () => {
     expect(history[1]).not.toHaveProperty("responseId");
     expect(history[1]).toHaveProperty("usage.cost.total", 0);
     expect(forkHistory(session.buildSessionProjection().messages, "none")).toStrictEqual([]);
+    expect(
+      forkHistory(session.buildSessionProjection().messages, "all").map(({ content }) => content),
+    ).toStrictEqual([
+      "old",
+      [{ type: "text", text: "old answer" }],
+      "new",
+      [{ type: "text", text: "final" }],
+    ]);
   });
 
   it("carries compacted context into full forks", () => {

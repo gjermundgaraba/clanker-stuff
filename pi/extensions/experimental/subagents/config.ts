@@ -1,7 +1,7 @@
 // Spawn model errors adapted from OpenAI Codex (Apache-2.0); see ./NOTICE.
 import { readFile } from "node:fs/promises";
 
-import { getSupportedThinkingLevels, StringEnum } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, modelsAreEqual, StringEnum } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -168,6 +168,7 @@ export const resolveChildSettings = (
   return {
     instructions: role?.instructions,
     model,
-    thinking: explicitThinking ?? parent.thinking,
+    thinking:
+      explicitThinking ?? (modelsAreEqual(model, parent.model) ? parent.thinking : undefined),
   };
 };

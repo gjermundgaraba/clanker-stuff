@@ -33,6 +33,7 @@ describe("subagents package", () => {
 
     // Loading the packed extension below covers its modules; these files are not imported.
     expect(entries).toContain("package/docs/protocols.md");
+    expect(entries).toContain("package/docs/delegation.md");
     expect(entries).toContain("package/LICENSE.openai");
     expect(entries).toContain("package/NOTICE");
     expect(entries).toContain("package/UPSTREAM");
@@ -63,5 +64,10 @@ describe("subagents package", () => {
       errors: [],
       extensions: [{ resolvedPath: path.join(packageRoot, "index.ts") }],
     });
+    expect(loader.getExtensions().extensions[0]?.commands.keys().toArray().toSorted()).toEqual([
+      "agents",
+      "proactive",
+      "ultra",
+    ]);
   });
 });

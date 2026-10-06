@@ -136,7 +136,7 @@ export const registerTools = (
 
   pi.registerTool({
     description:
-      "Send a message to an existing agent. The message is delivered promptly and does not trigger a new turn.",
+      "Queue context for an existing agent without starting a turn. Delivery follows Pi's turn boundaries; an idle recipient will not act until its next task. Use followup_task when a non-root agent needs to act.",
     execute: async (_id, params, signal) => {
       signal?.throwIfAborted();
       await controller.sendMessage(caller, params.target, params.message);
@@ -157,7 +157,7 @@ export const registerTools = (
 
   pi.registerTool({
     description:
-      "Send a follow-up task to an existing non-root agent and trigger a turn if it is idle. If it is running, deliver the task at a safe input boundary.",
+      "Send a follow-up task to an existing non-root agent. If idle, start a turn; if running, deliver the task at a safe input boundary.",
     execute: async (_id, params, signal, _update, ctx) => {
       signal?.throwIfAborted();
       await controller.followUp(caller, params.target, params.message, ctx, signal);

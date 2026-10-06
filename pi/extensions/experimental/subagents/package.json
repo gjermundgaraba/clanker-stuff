@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/subagents",
   "version": "0.1.0",
   "private": true,
-  "description": "Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models.",
+  "description": "Adds durable hierarchical subagents, branch-local proactive delegation, and a one-shot /ultra thinking boost.",
   "keywords": [
     "pi-package"
   ],
@@ -19,7 +19,8 @@
   "files": [
     "config.ts",
     "controller.ts",
-    "docs/protocols.md",
+    "delegation.ts",
+    "docs",
     "history.ts",
     "index.ts",
     "keyed-queue.ts",
@@ -41,6 +42,7 @@
   "exports": "./index.ts",
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "peerDependencies": {

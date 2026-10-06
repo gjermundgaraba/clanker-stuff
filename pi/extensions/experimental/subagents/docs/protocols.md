@@ -1,6 +1,6 @@
 # Subagents design
 
-The extension hosts independent Pi `AgentSession` children behind one tree per root session. Its tools, prompts, and mailbox envelope are adapted from the Codex V2 collaboration contract pinned in `../UPSTREAM`; Pi owns sessions, providers, permissions, queues, retries, and compaction.
+The extension hosts independent Pi `AgentSession` children behind one tree per root session. Its tools, prompts, and mailbox envelope are adapted from the Codex V2 collaboration contract recorded in [UPSTREAM](../UPSTREAM); Pi owns sessions, providers, permissions, queues, retries, and compaction.
 
 ## Tools and addressing
 
@@ -18,15 +18,21 @@ Mail uses the Codex text envelope (`Message Type`, `Task name`, `Sender`, `Paylo
 
 Task and message text is limited to 262,144 characters, the length at which a final answer is cut.
 
-`fork_turns` accepts `none`, `all` (default), or a positive integer of recent user turns. Forked history keeps user messages whole, including images, plus final assistant text and compaction summaries, so a child may use any registered provider.
+`fork_turns` accepts `none`, `all` (default), or a positive integer of recent user turns. Forked history keeps user messages whole, including images, plus final assistant text and compaction summaries, so a child may use any registered provider. Even `all` omits tool calls/results and intermediate assistant responses; task messages must supply any required findings and decision context.
+
+## Collaboration guidance
+
+Delegate independent work alongside the next local action; keep immediate blockers local. Give workers self-contained tasks with disjoint write scopes and completion criteria, then review their changes. Continue useful independent work or wait for needed results. Keep implementation and verification within the authorized scope, and report changed files, validation and unresolved issues.
+
+Every agent sees the configured tree-wide child-runtime limit, including startup and shutdown occupancy. The root does not consume a slot; a running child does. These limits do not imply free slots. See [delegation and thinking](delegation.md) for branch-local policy, `/proactive`, the one-shot `/ultra` boost, child inheritance and applicable delegation constraints.
 
 ## Children
 
-Each child is an independent session stored under `~/.pi/agent/data/subagents/sessions/`. It inherits the root's cwd, trust decision, provider registrations, runtime credentials, context files, skills, custom and appended system prompts, and active tools as its initial activation. It loads the user's extensions through native discovery, so personal permission policies apply; project extensions load only when trusted. Code Mode, tool search, and MCP load as Pi built-ins, so `-builtin:<name>` settings and replacement extensions apply. The root's own subagents extension is replaced by a bridge that registers the tools for the child's path, and the root-only asynchronous user-interaction tools are excluded.
+Each child is an independent session stored under `~/.pi/agent/data/subagents/sessions/`. It inherits the root's cwd, trust decision, provider registrations, runtime credentials, context files, skills, custom and appended system prompts, and active tools as its initial activation. It loads the user's extensions through native discovery, so personal permission policies apply; project extensions load only when trusted. Code Mode, tool search, and MCP load as Pi built-ins, so `-builtin:<name>` settings and replacement extensions apply. The root's own subagents extension is replaced by a bridge that registers the tools for the child's path, and the root-only asynchronous user-interaction tools are excluded. Fast is independently discovered like other extensions, without a child adapter or root-only injection; see [Fast behavior](../../fast/docs/behavior.md).
 
-A role fixes model, reasoning, and instructions; explicit `model` (`provider/model-id`) and `reasoning_effort` apply otherwise; the parent fills the rest. An unknown model lists available models. A child fails to spawn when its model is missing from the child model runtime.
+A role fixes model, reasoning, and instructions; explicit `model` (`provider/model-id`) and `reasoning_effort` apply otherwise. See [child thinking selection](delegation.md#native-thinking) for the effort and inheritance rules. An unknown model lists available models. A child fails to spawn when its model is missing from the child model runtime.
 
-A child's runtime lives only for one turn. After the turn settles, the tree records the outcome and disposes the runtime; a later follow-up reloads the session from its file with the recorded model and thinking level. The concurrency limit counts children that are running or still shutting down. Before a cancelled turn starts its run, the prompt's preflight callback stops it, and the bridge cancels any compaction that would begin afterwards.
+A child's runtime lives only for one turn. After the turn settles, the tree records the outcome and disposes the runtime; a later follow-up reloads the session from its file with the recorded model and thinking level. The concurrency limit is shared across all branches and counts child runtimes starting, running or still shutting down, excluding the root. Before a cancelled turn starts its run, the prompt's preflight callback stops it, and the bridge cancels any compaction that would begin afterwards.
 
 ## Mail delivery
 
@@ -62,7 +68,7 @@ Create `~/.pi/agent/subagents.json`:
 }
 ```
 
-`delegation` is `explicit` (spawn only on request; the default) or `proactive`. `agent_type` is offered only when roles exist. Invalid configuration produces a warning and the defaults.
+`delegation` supplies the [branch policy fallback](delegation.md#branch-policy). `agent_type` is offered only when roles exist. Invalid configuration produces a warning and the defaults.
 
 ## Differences from Codex
 

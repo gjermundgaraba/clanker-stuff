@@ -577,9 +577,10 @@ describe(Controller, () => {
     await controller.open(new GatedStore(undefined), emptyTree());
     await spawn("worker");
     gated = true;
-    await runtimes[0]?.finish({ status: "completed", text: "stale" });
-    await controller.open(new TreeStore(undefined), emptyTree());
+    await runtimes[0]?.settle({ status: "completed", text: "stale" });
+    const opening = controller.open(new TreeStore(undefined), emptyTree());
     gate.resolve(undefined);
+    await opening;
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(rootMail).toStrictEqual([]);

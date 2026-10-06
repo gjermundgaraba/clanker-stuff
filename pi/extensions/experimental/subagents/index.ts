@@ -2,11 +2,14 @@ import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { loadConfig } from "./config.js";
+import { createDelegation } from "./delegation.js";
 import { SubagentManager } from "./manager.js";
 
 const subagents = async (pi: ExtensionAPI) => {
   const paths = getExtensionStoragePaths("subagents");
   const loaded = await loadConfig(paths.configFile);
+
+  const delegation = createDelegation(pi, loaded.config.delegation);
 
   const manager = new SubagentManager(pi, {
     config: loaded.config,
@@ -14,6 +17,23 @@ const subagents = async (pi: ExtensionAPI) => {
     dataDir: paths.dataDir,
   });
 
+  pi.registerFlag("ultra", {
+    description: "Enable proactive delegation and boost native thinking once at startup",
+    type: "boolean",
+  });
+  pi.registerCommand("proactive", {
+    description: "Toggle proactive delegation for this branch without changing thinking",
+    handler: async (args, ctx) => delegation.toggle(args, ctx),
+  });
+  pi.registerCommand("ultra", {
+    description: "Enable proactive delegation and select highest native thinking once",
+    handler: async (args, ctx) => delegation.ultra(args, ctx),
+  });
+
+  pi.on("session_start", delegation.start);
+  pi.on("session_tree", (_event, ctx) => delegation.refresh(ctx));
+  pi.on("before_agent_start", (_event, ctx) => delegation.refresh(ctx));
+  pi.on("session_shutdown", (_event, ctx) => delegation.stop(ctx));
   pi.on("session_start", manager.start.bind(manager));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
   pi.on("input", manager.input.bind(manager));

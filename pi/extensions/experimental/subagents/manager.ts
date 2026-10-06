@@ -2,10 +2,12 @@ import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
   ExtensionContext,
+  SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
 import type { SubagentsConfig } from "./config.js";
+import { readDelegation } from "./delegation.js";
 import { Controller } from "./controller.js";
 import { COLLABORATION_SECTION, rootPrompt } from "./prompts.js";
 import {
@@ -59,7 +61,7 @@ export class SubagentManager {
     registerTools(pi, this.#controller, ROOT_AGENT_PATH, options.config);
   }
 
-  async start(_event: unknown, ctx: ExtensionContext): Promise<void> {
+  async start(_event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
     this.#ctx = ctx;
     this.#sent.clear();
 
@@ -85,9 +87,12 @@ export class SubagentManager {
     }
   }
 
-  beforeAgentStart(event: BeforeAgentStartEvent): void {
+  beforeAgentStart(event: BeforeAgentStartEvent, ctx: ExtensionContext): void {
     this.#controller.setPromptOptions(event.systemPromptOptions);
-    event.systemPromptOptions.sections[COLLABORATION_SECTION] = rootPrompt(this.#config);
+    event.systemPromptOptions.sections[COLLABORATION_SECTION] = rootPrompt(
+      this.#config,
+      readDelegation(ctx.sessionManager, this.#config.delegation),
+    );
   }
 
   input(): void {

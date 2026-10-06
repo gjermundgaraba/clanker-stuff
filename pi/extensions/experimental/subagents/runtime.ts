@@ -455,7 +455,8 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       return disposal;
     },
     get model() {
-      // Child extensions can switch models at session start; Pi's type allows no model at all.
+      // Selection stays readable after disposal for the controller's retirement snapshot.
+      // Pi's type allows no model at all.
       const current = session.model ?? model;
 
       return `${current.provider}/${current.id}`;
