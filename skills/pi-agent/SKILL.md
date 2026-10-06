@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Pi coding agent CLI
 
-Use `pi -p` from the intended repo for one-shot work. Check `pi --help` for installed flags and `pi --list-models <search>` for provider availability. If PATH differs in a non-login shell, resolve the intended binary through the user's Node setup; do not substitute a different installation silently.
+Use `pi -p` from the intended repo for one-shot work. Check `pi --help` for installed flags and `pi --list-models <search>` for provider availability. MCP controls below follow Pi 1.0.4; older installations may differ. If PATH differs in a non-login shell, resolve the intended binary through the user's Node setup; do not substitute a different installation silently.
 
 Always pass `--model`, preserving these preferences unless the user chooses otherwise:
 
@@ -27,6 +27,8 @@ pi -p --no-approve --no-extensions --no-skills --tools read,grep,find,ls \
   --model fugu-proxy/fugu-ultra --thinking high \
   'Review this repository and summarize its test strategy. Do not edit files.'
 ```
+
+Keep `--no-extensions` in strict reviews: `--tools` alone can retain indirect MCP access. When retaining other extensions, `--no-mcp` disables built-in MCP startup for one invocation, not replacement MCP extensions or other extension startup behavior.
 
 For a precomputed diff, use `--no-tools` with stdin (and `--no-extensions` to avoid extension startup behavior). `--exclude-tools edit,write` still leaves shell tools capable of writes and is not strict read-only. Trust and tool controls are separate: `--approve` trusts project-local resources; `--no-approve` ignores them. Noninteractive runs show no trust prompt.
 

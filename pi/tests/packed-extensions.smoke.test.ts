@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { Type } from "@earendil-works/pi-ai";
-import { VERSION } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
@@ -14,9 +13,10 @@ import type { ExtensionSmokeHarness } from "./harness/extension-smoke.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 
-const RootPackageSchema = Type.Object({
-  devDependencies: Type.Record(Type.String(), Type.String()),
-});
+const InstalledPackageSchema = Type.Object(
+  { version: Type.String() },
+  { additionalProperties: true },
+);
 
 const PackageDependenciesSchema = Type.Object(
   {
@@ -27,11 +27,6 @@ const PackageDependenciesSchema = Type.Object(
   },
   { additionalProperties: true },
 );
-
-const ROOT_DEV_DEPENDENCIES = Value.Parse(
-  RootPackageSchema,
-  JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8")),
-).devDependencies;
 
 const CONSUMER_DEPENDENCIES = [
   "@earendil-works/pi-ai",
@@ -47,15 +42,11 @@ const DEPENDENCY_FIELDS = [
   "peerDependencies",
 ] as const;
 
-const consumerDependencyVersion = (name: (typeof CONSUMER_DEPENDENCIES)[number]): string => {
-  const version = ROOT_DEV_DEPENDENCIES[name];
-
-  if (version === undefined) {
-    throw new Error(`Missing root dependency ${name}`);
-  }
-
-  return version === "catalog:" ? VERSION : version;
-};
+const consumerDependencyVersion = (name: (typeof CONSUMER_DEPENDENCIES)[number]): string =>
+  Value.Parse(
+    InstalledPackageSchema,
+    JSON.parse(readFileSync(path.join(REPO_ROOT, "node_modules", name, "package.json"), "utf-8")),
+  ).version;
 
 const PUBLISHABLE_PACKAGES = publishableWorkspacePackages(REPO_ROOT);
 

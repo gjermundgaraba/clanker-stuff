@@ -126,6 +126,7 @@ export const normalizedSystemPromptOptions = (
   appendSystemPrompt: input.appendSystemPrompt ?? "",
   contextFiles: (input.contextFiles ?? []).map((file) => ({ ...file })),
   cwd: input.cwd,
+  hiddenTools: [...(input.hiddenTools ?? [])],
   promptGuidelines: [...(input.promptGuidelines ?? [])],
   sections: { ...input.sections },
   selectedTools: [...(input.selectedTools ?? ["read", "bash", "edit", "write"])],

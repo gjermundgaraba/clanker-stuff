@@ -17,18 +17,19 @@ overrides:
   "@earendil-works/pi-coding-agent": "catalog:"
   "@earendil-works/pi-telemetry": "catalog:"
   "@earendil-works/pi-tui": "catalog:"
-  "typebox": "1.3.27"
+  "typebox": "catalog:"
   vite@*: "catalog:"
 catalog:
-  "@earendil-works/chord": 1.0.3
-  "@earendil-works/pi-agent-core": 1.0.3
-  "@earendil-works/pi-ai": 1.0.3
-  "@earendil-works/pi-codemode": 1.0.3
-  "@earendil-works/pi-mcp": 1.0.3
-  "@earendil-works/pi-coding-agent": 1.0.3
-  "@earendil-works/pi-telemetry": 1.0.3
-  "@earendil-works/pi-tui": 1.0.3
+  "@earendil-works/chord": 1.0.4
+  "@earendil-works/pi-agent-core": 1.0.4
+  "@earendil-works/pi-ai": 1.0.4
+  "@earendil-works/pi-codemode": 1.0.4
+  "@earendil-works/pi-mcp": 1.0.4
+  "@earendil-works/pi-coding-agent": 1.0.4
+  "@earendil-works/pi-telemetry": 1.0.4
+  "@earendil-works/pi-tui": 1.0.4
   "@types/node": 26.6.2
+  typebox: 1.3.27
   typescript: 7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@1.0.0
   vite-plus: 1.0.0
@@ -43,12 +44,12 @@ allowBuilds:
   protobufjs: true
 minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeExclude:
-  - "@earendil-works/chord@1.0.3"
-  - "@earendil-works/pi-agent-core@1.0.3"
-  - "@earendil-works/pi-ai@1.0.3"
-  - "@earendil-works/pi-coding-agent@1.0.3"
-  - "@earendil-works/pi-telemetry@1.0.3"
-  - "@earendil-works/pi-tui@1.0.3"
+  - "@earendil-works/chord@1.0.4"
+  - "@earendil-works/pi-agent-core@1.0.4"
+  - "@earendil-works/pi-ai@1.0.4"
+  - "@earendil-works/pi-coding-agent@1.0.4"
+  - "@earendil-works/pi-telemetry@1.0.4"
+  - "@earendil-works/pi-tui@1.0.4"
   - "@types/node@26.6.2"
-  - "@earendil-works/pi-codemode@1.0.3"
-  - "@earendil-works/pi-mcp@1.0.3"
+  - "@earendil-works/pi-codemode@1.0.4"
+  - "@earendil-works/pi-mcp@1.0.4"

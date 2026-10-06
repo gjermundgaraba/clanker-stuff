@@ -11,7 +11,7 @@ import type {
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createExtensionHost } from "./extension-host.js";
+import { createExtensionHost, normalizedSystemPromptOptions } from "./extension-host.js";
 import { createCustomUiDriver } from "./tui.js";
 
 const LegacyToolArgumentsSchema = Type.Object({ legacy: Type.Optional(Type.String()) });
@@ -93,6 +93,17 @@ const setupHost = () =>
   });
 
 describe("extension-host harness", () => {
+  it("normalizes hidden prompt tools without sharing caller state", () => {
+    expect(normalizedSystemPromptOptions({ cwd: process.cwd() }).hiddenTools).toStrictEqual([]);
+
+    const hiddenTools = ["read", "bash"];
+    const options = normalizedSystemPromptOptions({ cwd: process.cwd(), hiddenTools });
+
+    expect(options.hiddenTools).toStrictEqual(["read", "bash"]);
+    options.hiddenTools.push("write");
+    expect(hiddenTools).toStrictEqual(["read", "bash"]);
+  });
+
   it("supplies turn boundary defaults and preserves explicit boundary fields", async () => {
     const seen: TurnEndEvent[] = [];
 

@@ -1,6 +1,6 @@
 # Native Pi baseline
 
-The workspace pins Pi **1.0.3**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
+The workspace pins Pi **1.0.4**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
 
 ## Local adoption
 

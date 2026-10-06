@@ -75,7 +75,6 @@ export const createLazySingleton = <T extends object>(
 
   return {
     get: (): T | undefined => current,
-    isLoading: (): boolean => pending !== undefined,
     isStopped: (): boolean => lifetime.signal.aborted,
     load,
     stop,

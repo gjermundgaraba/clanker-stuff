@@ -15,7 +15,7 @@
     "@earendil-works/pi-tui": "catalog:",
     "@types/node": "catalog:",
     "jiti": "2.7.0",
-    "typebox": "1.3.34",
+    "typebox": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
