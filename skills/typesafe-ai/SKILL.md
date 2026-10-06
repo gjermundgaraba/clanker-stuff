@@ -12,6 +12,14 @@ description: >
   Applications include routing, ranking, extraction, verification, and
   interactive experiences; these are starting points, not the limits.
   Read live docs and cookbooks to find useful patterns and discover new combinations.
+metadata:
+  upstream-source: "https://github.com/typesafe-ai/skills"
+  upstream-path: "skills/typesafe-ai/"
+  upstream-revision: "65a39f393687675ce170e6094757de20370365b9"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "reconstructed"
 ---
 
 # Build with TypeSafe

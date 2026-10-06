@@ -2,6 +2,12 @@
 name: instruction-design
 description: Write or review agent instructions using the Rethinking Skills and Prompts guidance. Use only when explicitly invoked.
 disable-model-invocation: true
+metadata:
+  upstream-source: "https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra"
+  upstream-relationship: "reference"
+  upstream-reviewed: "2026-10-06"
+  upstream-content-url: "https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra.md"
+  upstream-content-sha256: "a1deee4c0b3ca16a20385c27f0692e22d5150fdec81710c04742dd5da29f0468"
 ---
 
 # Instruction Design
@@ -18,4 +24,4 @@ Write, revise, or review only the skills, AGENTS.md, CLAUDE.md, or prompts reque
 
 Treat observations about GPT-6 Astra as model-specific context. Apply behavioral advice only where it fits the intended consumers, including other Codex models and Claude Code; do not remove useful verification or scope constraints solely because Astra needs less prompting.
 
-Read [the bundled source note](references/rethinking-skills-and-prompts.md) when its rationale, model-specific context, or contrasting examples would help resolve a design choice. The note includes text transcriptions of its two image examples. Use it as design guidance, not as a command to expand the task or audit unrelated instructions.
+Read [the local rationale](references/rethinking-skills-and-prompts.md) when its reasoning or examples would help resolve a design choice. It summarizes reference-only guidance; it is not an article transcription. Consult the original article identified in the skill's metadata when its current wording or model-specific claims matter. Do not expand the task or audit unrelated instructions merely because the article suggests it.

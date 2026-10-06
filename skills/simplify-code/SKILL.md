@@ -2,12 +2,23 @@
 name: simplify-code
 description: "Parallel 3-agent cleanup of recent code changes. Use only when explicitly asked to invoke this skill."
 disable-model-invocation: true
+metadata:
+  upstream-source: "https://www.npmjs.com/package/@anthropic-ai/claude-code"
+  upstream-path: "package/claude"
+  upstream-component: "/simplify"
+  upstream-revision: "@anthropic-ai/claude-code@2.1.291"
+  upstream-relationship: "adapted"
+  upstream-license: "proprietary"
+  upstream-baseline-kind: "reconciled"
+  upstream-artifact: "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.291.tgz"
+  upstream-integrity: "sha512-2Qwt+MyI0g3Ysjpj8+DSLGV8aph+OnQhYYD6wU81cU+DtIcPN9hON+nVIIN18FJO6Nro8iSbBxadFFPAD2vWUA=="
 ---
 
 # Simplify Code
 
 By default, run three read-only reviewers for reuse, quality, and efficiency in parallel,
 combine their findings, and apply worthwhile cleanup within the requested scope.
+Focus on behavior-preserving cleanup, not a general correctness or security audit.
 
 ## Invocation
 
@@ -43,11 +54,14 @@ run formatters, create worktrees, or commit.
    already supplies. Name the replacement and its location; do not speculate
    that a helper probably exists.
 2. **Quality:** find redundant state, unnecessary indirection, leaky boundaries,
-   unchecked casts, or avoidable complexity. Establish the behavior and purpose
-   before recommending removal; use history such as `git blame` only when
-   code, callers, and tests leave that purpose unclear.
+   unchecked casts, or avoidable complexity. Include root-cause depth: identify
+   special cases that patch a shared mechanism when a simpler change to that
+   mechanism would do the same job. Establish the behavior and purpose before
+   recommending removal or consolidation; use history such as `git blame` only
+   when code, callers, and tests leave that purpose unclear.
 3. **Efficiency:** find consequential redundant work, broad reads, N+1 calls,
-   avoidable blocking, or resource leaks. Explain the concrete cost or failure
+   avoidable blocking, or resource leaks, including long-lived closures that
+   retain unnecessary state. Explain the concrete cost or failure
    and why the proposed fix improves it. Inspect error-handling intent before
    treating an ignored error as a bug.
 

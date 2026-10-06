@@ -3,6 +3,15 @@ name: diagram-design
 description: Create editorial diagrams or redraw existing diagrams as HTML, SVG, or PNG.
 disable-model-invocation: true
 license: MIT
+metadata:
+  upstream-source: "https://github.com/cathrynlavery/diagram-design"
+  upstream-path: "skills/diagram-design/"
+  upstream-revision: "562dbdf93ff3c3da630be4f90f4f6c2548175058"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "recorded"
+  upstream-release: "2.6.21"
 ---
 
 # Diagram Design
@@ -27,5 +36,3 @@ Default to static HTML with inline SVG when no format is specified. A requested 
 Unless the user specifies a destination, create a workspace with `python3 <skill-dir>/scripts/create_workspace.py <short-topic>` and keep generated files there. The helper prints the new directory's absolute path under `/tmp/diagram-design/YYYY-MM-DD/`. Reuse that workspace for revisions within the same task. Deliver links to the final artifacts. Files under `/tmp` are temporary; use a persistent destination when requested.
 
 Check HTML/SVG structure with `python3 <skill-dir>/scripts/self_check.py <file>`. For PNG delivery, run this check on the HTML/SVG source before rasterization and visually inspect the exported PNG. Inspect the rendered artifact at the intended display size and correct clipping, unreadable labels, and ambiguous connections. Deliver the requested artifact and briefly identify meaningful omissions or verification limitations.
-
-For maintenance, see [upstream alignment](references/upstream-alignment.md).

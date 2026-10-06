@@ -4,8 +4,6 @@ This directory is the canonical source for reusable skill folders. See
 `README.md` for installation and ownership; do not change installed links
 without authorization.
 
-Personal skills belong in the dotfiles repository; `pr-comments` lives there.
-Herdr's generated skill is managed separately and is not part of this catalog.
 Skills owned by an extension or host plugin remain beside that package.
 
 ## Authoring and installation
@@ -22,5 +20,8 @@ Skills owned by an extension or host plugin remain beside that package.
   - `policy.allow_implicit_invocation: false` in `agents/openai.yaml`.
 - Invoke those skills with `$skill-name` in Codex or `/skill-name` in Claude Code.
 - Review new files for secrets, private paths, and runtime state before tracking.
+- Keep skill provenance in flat string `SKILL.md` metadata, following
+  [the provenance convention](../docs/skill-provenance.md). Do not add per-skill
+  provenance prose; preserve source licenses and intentional local behavior.
 
 Use `AGENTS.md` for instructions; do not create `CLAUDE.md` aliases.

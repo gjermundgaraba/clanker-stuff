@@ -1,13 +1,16 @@
 ---
 description: Manage dependent branches and pull requests with gh-stack, including synchronization and recovery.
-metadata:
-  author: github
-  github-path: skills/gh-stack
-  github-ref: refs/tags/v0.1.0
-  github-repo: https://github.com/github/gh-stack
-  github-tree-sha: c95c8b5b4dd850f3fef007b304428f5684f2fb87
-  version: 0.0.9
+license: MIT
 name: gh-stack
+metadata:
+  upstream-source: "https://github.com/github/gh-stack"
+  upstream-path: "skills/gh-stack/"
+  upstream-revision: "a1b4a3d4d0bcde9ec3a78ab99b2d63af121857a9"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "recorded"
+  upstream-release: "v0.1.0"
 ---
 
 # gh-stack
@@ -16,7 +19,7 @@ A stack is linear: the bottom branch depends on trunk; each higher branch
 builds on the one below. Keep changes in their owning layer, then rebase its
 consumers. Read current state with `gh stack view --json` and inspect relevant
 `gh stack <command> --help` before unfamiliar operations. Use the installed CLI
-as the syntax authority; the metadata records this guide's upstream version.
+as the syntax authority.
 
 ## Noninteractive contract
 

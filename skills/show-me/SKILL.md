@@ -1,6 +1,14 @@
 ---
 name: show-me
 description: Help the user understand the current topic visually with concise diagrams, code-shape sketches, and focused HTML artifacts.
+metadata:
+  upstream-source: "https://github.com/humanlayer/skills"
+  upstream-path: "plugins/show-me/skills/show-me/"
+  upstream-revision: "ca7c8088db69e315a8b2deea43820270457f8f3c"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "reconciled"
 ---
 
 Help the user understand the current topic of conversation visually. Skip the preamble and keep prose brief. Pick the smallest view that makes the key point clear.
@@ -81,6 +89,6 @@ function expandSkill(command: string): string {
 
 - For a visual UI, layout, state comparison, or concept too dense for Mermaid, write one focused HTML file — a diagram, an infographic, or a short slide deck, whichever fits the point. Match the product's colors, type, spacing, and components; use real labels and data; support the screen sizes needed by the intended audience. Open it for the user through an available browser or artifact viewer.
 
-- Place each visual next to the short text it supports. Keep only the calls, files, props, states, and boundaries needed to answer the user's current question.
+- Place each visual next to the short text it supports. Keep only the calls, files, props, states, and boundaries needed to answer the user's current question or compare the options under discussion.
 
 You may use one of these, you may use several, it is unlikely you will use all of them. Use your judgement and don't overwhelm the user.

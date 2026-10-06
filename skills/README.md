@@ -9,9 +9,7 @@ scripts, assets, and host metadata.
 This is the canonical source for reusable skills, including `orchestrate`.
 Edit skills here; installations link these complete folders into each host.
 
-`pr-comments` is personal and lives in the dotfiles repository instead.
-Herdr's generated skill remains separately managed. Package-owned skills stay
-with their extension or plugin.
+Package-owned skills stay with their extension or plugin.
 
 ## Installation
 
@@ -24,6 +22,12 @@ skill under the legacy `~/.codex/skills/` location.
 User-invocation-only skills are called with `$skill-name` in Codex or
 `/skill-name` in Claude Code. Keep their explicit-invocation policy in both
 `SKILL.md` and `agents/openai.yaml`; see [AGENTS.md](AGENTS.md).
+
+## Upstream provenance
+
+Source identities and baseline revisions live in `SKILL.md` metadata; licenses
+travel with the skill. Follow the [provenance convention](../docs/skill-provenance.md)
+when adding or updating them.
 
 ## Helper requirements and validation
 

@@ -2,6 +2,14 @@
 name: install-anti-slop
 disable-model-invocation: true
 description: Install, configure, update, or upgrade vendored anti-slop Oxlint plugins. Use when adding anti-slop, picking up upstream rules or fixes, or migrating an existing installation while preserving local customizations.
+metadata:
+  upstream-source: "https://github.com/dmmulroy/anti-slop"
+  upstream-path: "skills/install-anti-slop/"
+  upstream-revision: "c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "assets/anti-slop/LICENSE"
+  upstream-baseline-kind: "recorded"
 ---
 
 # Install or update anti-slop

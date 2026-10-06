@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Adapted and hardened from mitsuhiko/agent-stuff; see SKILL.md metadata and LICENSE.
 set -euo pipefail
 
 usage() {

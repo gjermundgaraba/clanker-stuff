@@ -4,8 +4,21 @@ disable-model-invocation: true
 description: Edit or review supplied text for formulaic AI prose and readability while preserving its facts, meaning, and author voice.
 license: MIT
 metadata:
-  version: "3.0.0"
-  upstream-commit: "9862685f575c65a8247f90369951df1b3416e3d6"
+  upstream-source: "https://github.com/blader/humanizer"
+  upstream-path: "."
+  upstream-revision: "9862685f575c65a8247f90369951df1b3416e3d6"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "recorded"
+  upstream-release: "3.0.0"
+  upstream-ce-noslop-source: "https://github.com/EveryInc/compound-engineering-plugin"
+  upstream-ce-noslop-path: "skills/ce-noslop/"
+  upstream-ce-noslop-revision: "efcb657d9a5733ccc154c36cc7d3d78b4136eb23"
+  upstream-ce-noslop-relationship: "adapted"
+  upstream-ce-noslop-license: "MIT"
+  upstream-ce-noslop-license-file: "LICENSE.ce-noslop"
+  upstream-ce-noslop-baseline-kind: "reconciled"
 ---
 
 # Humanizer
@@ -44,5 +57,3 @@ Use no em or en dashes in rewritten prose; restructure instead, including double
 Preserve the author's distinctive details, humor, asides, opinions, and uneven rhythm when appropriate. Do not force personality onto neutral material. Polished grammar, formal vocabulary, mixed registers, dry prose, missing citations, and a single dash or transition word do not establish AI authorship. These patterns guide editing; do not present them as an AI detector.
 
 The pattern catalog draws on [Wikipedia:Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing). The user's supplied meaning and voice take precedence over formulaic pattern removal.
-
-For future upstream updates, read [alignment notes](references/upstream-alignment.md) for the pinned source and deliberate local differences.

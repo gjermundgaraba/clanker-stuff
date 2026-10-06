@@ -3,6 +3,14 @@ name: architecture-review
 description: Explain and assess architecture at system, subsystem, flow, change, or proposal scope. Use only when explicitly invoked.
 license: MIT
 disable-model-invocation: true
+metadata:
+  upstream-source: "https://github.com/poteto/how"
+  upstream-path: "skills/how/"
+  upstream-revision: "b1ef42969ea7a2bb50aa26c2480274828a0385e7"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "reconstructed"
 ---
 
 # Architecture review

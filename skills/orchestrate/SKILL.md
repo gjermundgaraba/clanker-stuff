@@ -1,6 +1,14 @@
 ---
 name: orchestrate
 description: Coordinate multiple agents on large-scope tasks. Use whenever the work is substantial; trivial tasks do not require this skill.
+metadata:
+  upstream-source: "https://github.com/provencher/codex-skills"
+  upstream-path: "orchestrate/"
+  upstream-revision: "1fe93e920cbd99173eedd22e94d10d49e2c76da7"
+  upstream-relationship: "copied"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "recorded"
 ---
 
 # Orchestrate

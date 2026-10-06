@@ -2,6 +2,14 @@
 name: librarian
 description: Cache and refresh remote Git repositories for local reference research using reusable checkouts.
 disable-model-invocation: true
+metadata:
+  upstream-source: "https://github.com/mitsuhiko/agent-stuff"
+  upstream-path: "skills/librarian/"
+  upstream-revision: "0865c849befd2021490679f96a8dee58c84ac857"
+  upstream-relationship: "adapted"
+  upstream-license: "Apache-2.0"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "reconciled"
 ---
 
 # Librarian

@@ -46,7 +46,7 @@ Experimental extensions are not published to npm and are not stable daily driver
 
 ## Skills
 
-[Reusable skills](skills/README.md) cover coding, review, writing, visualization, and agent-tool workflows. Repository-local workflows live in `.agents/skills/`; package-owned skills stay with their extension or plugin. Personal skills live in the dotfiles repository.
+[Reusable skills](skills/README.md) cover coding, review, writing, visualization, and agent-tool workflows. Repository-local workflows live in `.agents/skills/`; package-owned skills stay with their extension or plugin.
 
 ## Development
 

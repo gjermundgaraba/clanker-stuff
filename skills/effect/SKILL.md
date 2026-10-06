@@ -1,6 +1,20 @@
 ---
 name: effect
 description: Apply repository-compatible Effect conventions when implementing or reviewing code in Effect-based TypeScript projects.
+metadata:
+  upstream-source: "https://github.com/kitlangton/skills"
+  upstream-path: "skills/effect/"
+  upstream-revision: "30dee8607214c893dd89f6eee65c669ef3dce8c9"
+  upstream-relationship: "adapted"
+  upstream-license: "MIT"
+  upstream-license-file: "LICENSE"
+  upstream-baseline-kind: "recorded"
+  upstream-service-design-source: "https://github.com/dmmulroy/.dotfiles"
+  upstream-service-design-path: "home/.agents/skills/effect-service-design/"
+  upstream-service-design-revision: "3669c396c6426a613aceade2112315404dc8e39f"
+  upstream-service-design-relationship: "adapted"
+  upstream-service-design-license: "unresolved"
+  upstream-service-design-baseline-kind: "recorded"
 ---
 
 # Effect
@@ -8,9 +22,6 @@ description: Apply repository-compatible Effect conventions when implementing or
 Use repository-compatible Effect APIs and the production defaults in this skill. Treat the bundled references as preferred playbooks, not API authority.
 
 For reviews and audits, remain read-only and report the problem, supporting evidence, demonstrated consequence, and relevant constraints or uncertainty. Use the design and implementation guidance to assess existing or supplied designs; do not prescribe replacements, implementation steps, or a target design unless requested. A supported finding does not require a known solution.
-
-<!-- Kit Langton material vendored from https://github.com/kitlangton/skills/tree/main/skills/effect at commit 30dee8607214c893dd89f6eee65c669ef3dce8c9. See LICENSE. -->
-<!-- Effect service-design material adapted from https://github.com/dmmulroy/.dotfiles/tree/3669c396c6426a613aceade2112315404dc8e39f/home/.agents/skills/effect-service-design. -->
 
 ## Source And Precedence
 
