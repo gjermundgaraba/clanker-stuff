@@ -6,12 +6,12 @@ metadata:
   upstream-source: "https://www.npmjs.com/package/@anthropic-ai/claude-code"
   upstream-path: "package/claude"
   upstream-component: "/simplify"
-  upstream-revision: "@anthropic-ai/claude-code@2.1.291"
+  upstream-revision: "@anthropic-ai/claude-code@2.1.292"
   upstream-relationship: "adapted"
   upstream-license: "proprietary"
   upstream-baseline-kind: "reconciled"
-  upstream-artifact: "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.291.tgz"
-  upstream-integrity: "sha512-2Qwt+MyI0g3Ysjpj8+DSLGV8aph+OnQhYYD6wU81cU+DtIcPN9hON+nVIIN18FJO6Nro8iSbBxadFFPAD2vWUA=="
+  upstream-artifact: "https://registry.npmjs.org/@anthropic-ai/claude-code-darwin-arm64/-/claude-code-darwin-arm64-2.1.292.tgz"
+  upstream-integrity: "sha512-SBkmDQOPbQ9bqkGrzshn92ByyqQy2P7pSs/11NdMLq2VXbcQc93z+yd8Dtx4+jeAX22G7GSvQpKDyKev70Vn8Q=="
 ---
 
 # Simplify Code

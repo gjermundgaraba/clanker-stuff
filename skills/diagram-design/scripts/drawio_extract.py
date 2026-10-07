@@ -12,7 +12,7 @@ Usage:
     python3 drawio_extract.py <file.drawio> [--page N|NAME] [--json]
                              [--max-rows N] [--out PATH]
 
-Default output is a compact Markdown digest meant to be read into context.
+Default output is a compact Markdown digest for local review.
 ``--json`` emits the full IR instead (every node, every edge, every style).
 
 Exit codes: 0 ok, 2 unreadable / unsupported input.
@@ -26,6 +26,7 @@ import argparse
 import base64
 import html
 import json
+import math
 import re
 import struct
 import sys
@@ -43,6 +44,8 @@ from xml.etree import ElementTree as ET
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 MAX_INPUT_BYTES = 32 * 1024 * 1024
 MAX_XML_BYTES = 64 * 1024 * 1024
+MAX_PAGES = 100
+MAX_CELLS_PER_PAGE = 10000
 
 
 def _configure_stdout_utf8() -> None:
@@ -175,7 +178,7 @@ def load_mxfile(path: Path) -> str:
         if not xml:
             _fail(f"{path.name}: PNG has no embedded draw.io diagram")
         return xml
-    text = data.decode("utf-8", "replace").lstrip("﻿").strip()
+    text = data.decode("utf-8-sig", "replace").strip()
     if "<mxfile" in text or "<mxGraphModel" in text:
         return text
     if "<svg" in text[:2000]:
@@ -352,9 +355,12 @@ def _num(geom: ET.Element | None, key: str) -> float:
     if geom is None:
         return 0.0
     try:
-        return float(geom.get(key, "0") or 0)
-    except ValueError:
+        value = float(geom.get(key, "0") or 0)
+    except (OverflowError, ValueError):
         return 0.0
+    if not math.isfinite(value):
+        _fail(f"invalid geometry: {key} must be finite")
+    return value
 
 
 def parse_page(diagram: ET.Element, index: int) -> Page:
@@ -378,6 +384,10 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
     root = model.find("root")
     if root is None:
         return page
+    if len(root) > MAX_CELLS_PER_PAGE:
+        _fail(
+            f"page {index}: cell limit exceeded (max {MAX_CELLS_PER_PAGE})"
+        )
 
     # Pass 1: collect raw cells, unwrapping <object>/<UserObject> containers.
     raw: dict[str, dict[str, Any]] = {}
@@ -403,6 +413,8 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             continue
         if not cid:
             continue
+        if cid in raw:
+            _fail(f"page {index}: duplicate cell id")
         raw[cid] = {"cell": cell, "attrs": attrs, "value": value}
         order.append(cid)
 
@@ -456,29 +468,35 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
 
     node_map = page.node_map
 
-    # Resolve from immutable relative coordinates, never an already-resolved node.
-    relative = {node.id: (node.x, node.y) for node in page.nodes}
-    resolved: dict[str, tuple[float, float, int]] = {}
+    # Resolve absolute geometry + depth iteratively and reuse resolved prefixes.
+    resolved_by_id: dict[str, tuple[float, float, int]] = {}
     for node in page.nodes:
         chain: list[Node] = []
-        seen: set[str] = set()
+        active: set[str] = set()
         current = node
-        while current.id not in resolved:
-            if current.id in seen:
-                _fail(f"cyclic parent hierarchy at {current.id}")
-            seen.add(current.id)
+        while current.id not in resolved_by_id:
+            if current.id in active:
+                _fail(f"page {index}: parent cycle")
+            active.add(current.id)
             chain.append(current)
             parent = node_map.get(current.parent or "")
             if parent is None:
+                position = (0.0, 0.0, -1)
                 break
             current = parent
-        for child in reversed(chain):
-            x, y = relative[child.id]
-            px, py, depth = resolved.get(child.parent or "", (0.0, 0.0, -1))
-            resolved[child.id] = (x + px, y + py, depth + 1)
+        else:
+            position = resolved_by_id[current.id]
+
+        px, py, pdepth = position
+        while chain:
+            current = chain.pop()
+            px, py, pdepth = current.x + px, current.y + py, pdepth + 1
+            if not math.isfinite(px) or not math.isfinite(py):
+                _fail(f"page {index}: geometry overflow")
+            resolved_by_id[current.id] = (px, py, pdepth)
 
     for node in page.nodes:
-        node.x, node.y, node.depth = resolved[node.id]
+        node.x, node.y, node.depth = resolved_by_id[node.id]
         parent = node_map.get(node.parent or "")
         if parent is not None:
             parent.children.append(node.id)
@@ -539,9 +557,11 @@ def parse_file(path: Path) -> list[Page]:
         wrapper = ET.Element("diagram", {"name": path.stem, "id": "single"})
         wrapper.append(root)
         return [parse_page(wrapper, 0)]
-    diagrams = root.findall(".//diagram")
+    diagrams = root.findall("diagram")
     if not diagrams:
         _fail(f"{path.name}: mxfile contains no <diagram> pages")
+    if len(diagrams) > MAX_PAGES:
+        _fail(f"page limit exceeded (max {MAX_PAGES})")
     return [parse_page(d, i) for i, d in enumerate(diagrams)]
 
 
@@ -679,14 +699,21 @@ def _escape_table(text: str) -> str:
 
 def page_bounds(page: Page) -> tuple[float, float, float, float]:
     boxes = [(n.x, n.y, n.x + n.w, n.y + n.h) for n in page.nodes if n.w and n.h]
+    if any(not math.isfinite(value) for box in boxes for value in box):
+        _fail("invalid geometry: bounding box overflow")
     if not boxes:
         return (0.0, 0.0, 0.0, 0.0)
-    return (
+    bounds = (
         min(b[0] for b in boxes),
         min(b[1] for b in boxes),
         max(b[2] for b in boxes),
         max(b[3] for b in boxes),
     )
+    if not math.isfinite(bounds[2] - bounds[0]) or not math.isfinite(
+        bounds[3] - bounds[1]
+    ):
+        _fail("invalid geometry: canvas span overflow")
+    return bounds
 
 
 def digest(path: Path, pages: list[Page], selected: list[Page], max_rows: int) -> str:

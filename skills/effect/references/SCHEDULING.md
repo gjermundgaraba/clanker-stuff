@@ -25,7 +25,8 @@ Use `Schedule` for retry, polling, pacing, and repeated background work instead 
 - Use `Schedule.exponential(...)` or `Schedule.fibonacci(...)` for backoff.
 - Add `Schedule.jittered` to avoid synchronized retry storms.
 - Use `Schedule.recurs(...)` for a counter schedule or `Schedule.upTo({ times })` to bound a delay schedule.
-- Use `Schedule.tap(...)` to log retry inputs and schedule metadata.
+- Use `Schedule.tap(({ input }) => ...)` to log retry inputs. Its metadata includes `input`, `output`, and `duration`.
+- Use `Schedule.setInputType<E>()` before input-dependent combinators when the input type would otherwise be `unknown`.
 - Use `Effect.retry(...)` followed by `Effect.tapError(...)` to report exhaustion while preserving the typed failure. Use `Effect.retryOrElse(...)` when exhaustion has an explicit fallback.
 - Retry only at the narrowest boundary with proven idempotency.
 - Exhausted failures should remain visible unless the boundary has a truthful fallback.
@@ -120,6 +121,7 @@ const providerRetrySchedule: Schedule.Schedule<RateLimited, RateLimited> = Sched
 ).pipe(
   Schedule.jittered,
   Schedule.upTo({ times: 5 }),
+  Schedule.setInputType<RateLimited>(),
   Schedule.passthrough,
   Schedule.modifyDelay(({ input, duration }) =>
     Effect.succeed(

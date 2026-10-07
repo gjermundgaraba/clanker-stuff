@@ -3,11 +3,53 @@
 ## Create and navigate
 
 `gh stack init --base <trunk> branch-a branch-b` creates or adopts branches in
-bottom-to-top order. Names are literal. `add <branch>` adds only at the top;
+bottom-to-top order and checks out the last branch. Names are literal. If the
+last existing branch is owned by another worktree, adoption succeeds without
+changing the invoking checkout; inspect the reported owner. `add <branch>` adds only at the top;
 use `top` first when needed. Prefer deliberate Git staging over `add -Am`.
 `checkout <branch>` navigates local tracking; a PR number/URL or stack number
 can fetch a remote stack. If checkout conflicts with existing local stack
 tracking, inspect both structures before any `unstack --local` recovery.
+A bare checkout number resolves as a stack number, then a PR number, then a
+branch name. Branch-name checkout uses local tracking only.
+
+Plan layers before writing new multi-part work. Each branch should hold one
+reviewable concern with its dependencies in the same or lower layers. Follow
+repository/user naming conventions; otherwise a shared topic prefix and concern
+makes related branches recognizable. Put unrelated work in separate stacks.
+Before editing an existing stack, identify and check out the owning layer;
+use `view --json` and, when unclear, `git log --all -- <path>`. After a
+committed lower-layer edit, rebase upstack before returning to consumers.
+
+Without `-Am`, `add` carries uncommitted changes onto the new branch; commit or
+stash manually when a clean start is needed. Existing foreign-owned branches
+can be adopted without checkout, but staging/commit shortcuts are rejected
+before changing membership or staging another owner's files.
+
+## Worktree navigation and mutation
+
+Linked worktrees share `<common-dir>/gh-stack`; they do not need API-only
+`link`. Navigation never steals another worktree's checkout. All five
+navigation commands (`up`, `down`, `top`, `bottom`, `trunk`) and
+explicit-target `checkout` accept `--print-path`. A foreign-owned target
+returns its owner's path without switching; an unoccupied target is checked
+out here first. Without path mode, a foreign-owned target is a nonzero error.
+
+Successful path-mode stdout contains only an absolute raw path and newline;
+diagnostics go to stderr and errors leave stdout empty. Check exit status and
+nonempty output before changing directories, quote the path, and never
+`eval` it. Do not treat status text as a path.
+
+`up` and `down` accept a count, clamp at stack bounds, and skip merged
+branches when navigating from an active branch; `bottom` selects the lowest
+unmerged branch.
+
+`rebase` and `sync` update affected clean owning worktrees automatically.
+Unoccupied branches use the operation's origin worktree. Dirty, busy, or
+unavailable owners stop unsafe updates; there is no auto-stash or automatic
+worktree creation/removal. Pruning skips branches occupied elsewhere.
+Mutations serialize across the clone; paused operations remain guarded by
+shared recovery journals. See [recovery.md](recovery.md) for locks and owners.
 
 ## Publish
 
@@ -34,9 +76,11 @@ noninteractive use; only request it when cleanup is in scope.
 
 `rebase --upstack` propagates the current layer through its consumers;
 `--downstack` covers trunk through the current branch. `--no-trunk` only aligns
-branches with each other without fetching/rebasing trunk. Squash-merged PRs are
-handled using onto-rebase semantics. Conflicts during `sync` restore all
-branches; use the explicit rebase recovery path afterward.
+branches with each other without fetching/rebasing trunk. A cascade is needed
+not only when trunk moves, but also when a stack branch fast-forwards from its
+remote or no longer contains its expected parent. Squash-merged PRs are
+handled using onto-rebase semantics. Conflicts during `sync` trigger cascade
+rollback; see recovery for partial restoration failures and owner-local resolution.
 
 ## External branch management
 
@@ -61,5 +105,6 @@ separate groups, and the queue determines the method.
 include `trunk`, `currentBranch`, and `branches`. Branch records carry `name`,
 `head`, `base` (parent HEAD at last sync), `isCurrent`, `isMerged`, `isQueued`,
 `needsRebase`, and optional `pr` (`number`, `url`, `state`). `pr` may be absent.
-`needsRebase` means the base is not an ancestor. PR states include `OPEN`,
+The saved `base` may be older than the parent's current tip. `needsRebase`
+means the current parent tip is not an ancestor. PR states include `OPEN`,
 `MERGED`, and `QUEUED`. Never parse status emoji as structured state.

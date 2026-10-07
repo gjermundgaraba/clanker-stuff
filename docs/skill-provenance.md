@@ -25,6 +25,7 @@ metadata:
 | `license-file`                              | Retained license path relative to the local skill, when applicable           |
 | `baseline-kind`                             | `recorded`, `reconstructed`, or `reconciled`                                 |
 | `release`                                   | Optional supplementary upstream release label                                |
+| `skill-version`                             | Optional upstream skill version, distinct from its repository or CLI release |
 | `artifact`, `integrity`                     | Required versioned archive URL and published integrity for package baselines |
 | `component`                                 | Optional bundled component identifier                                        |
 | `reviewed`, `content-url`, `content-sha256` | Optional reference-page observation; not a recoverable baseline              |

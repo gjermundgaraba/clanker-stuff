@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>High-level architecture · Vertical chevrons (Orchestration + Security)</title>
+
     <style>
       *,
       *::before,
@@ -107,9 +108,14 @@
           </marker>
         </defs>
 
+        <!-- Background -->
         <rect width="100%" height="100%" fill="#f5f5f5" />
         <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
 
+        <!-- ═══════════════════════════════════════════
+           PHASE CHEVRON BANNER  (horizontal, 5 phases)
+           effective_w=964 (8-px margin to right strip), widths=[192,192,192,192,196], cx=[96,288,480,672,866]
+           ═══════════════════════════════════════════ -->
         <polygon points="0,4 180,4 192,18 180,32 0,32" fill="#2d3142" />
         <polygon points="192,4 372,4 384,18 372,32 192,32 204,18" fill="#3d4460" />
         <polygon points="384,4 564,4 576,18 564,32 384,32 396,18" fill="#2d3142" />
@@ -172,6 +178,12 @@
           VISUALIZATION
         </text>
 
+        <!-- ═══════════════════════════════════════════
+           RIGHT STRIP — vertical chevrons (Orchestration / Security / Observability)
+           strip_x=972 w=28, n_cross=2 → strip_y_bot=472, heights=[144,144,144]
+           layout: [40..184, 184..328, 328..472]
+           ═══════════════════════════════════════════ -->
+        <!-- Orchestration (first/topmost): flat top, point at bottom -->
         <polygon points="972,40 1000,40 1000,172 986,184 972,172" fill="#2d3142" />
         <text
           x="986"
@@ -185,7 +197,7 @@
         >
           ORCHESTRATION
         </text>
-
+        <!-- Security (middle): notch on top, point on bottom — chevron color override #b85450 to pair with Identity bar -->
         <polygon points="972,184 986,196 1000,184 1000,316 986,328 972,316" fill="#b85450" />
         <text
           x="986"
@@ -199,7 +211,7 @@
         >
           SECURITY
         </text>
-
+        <!-- Observability (last/bottommost): notch on top, flat bottom -->
         <polygon points="972,328 986,340 1000,328 1000,472 972,472" fill="#2d3142" />
         <text
           x="986"
@@ -214,6 +226,10 @@
           OBSERVABILITY
         </text>
 
+        <!-- ═══════════════════════════════════════════
+           STRUCTURAL ZONES
+           ═══════════════════════════════════════════ -->
+        <!-- Sources zone (dashed external) -->
         <rect
           x="4"
           y="40"
@@ -237,6 +253,7 @@
           SOURCES
         </text>
 
+        <!-- Cluster boundary (solid) — right edge at 964 (8-px gap to strip at 972) -->
         <rect
           x="196"
           y="40"
@@ -248,6 +265,7 @@
           stroke-width="1.2"
         />
 
+        <!-- Identity / cross-cutting bar  (color override: #b85450 rust-red) -->
         <rect
           x="4"
           y="388"
@@ -259,35 +277,41 @@
           stroke-width="0.8"
         />
 
+        <!-- ═══════════════════════════════════════════
+           ARROWS  (drawn before nodes — z-order rule)
+           ═══════════════════════════════════════════ -->
+
+        <!-- Sources → NiFi: PostgreSQL and SFTP enter the left edge (y=132, 172); Web forms and Legacy rise into the bottom edge (x=236, 260) -->
         <path
-          d="M 184,92  H 196 Q 200,92  200,96  V 128 Q 200,132 204,132 H 212"
+          d="M 168,124 Q 168,132 176,132 H 212"
           fill="none"
           stroke="#4f5d75"
           stroke-width="1"
           marker-end="url(#arrow)"
         />
         <path
-          d="M 184,172 H 196 Q 200,172 200,168 V 156 Q 200,152 204,152 H 212"
+          d="M 184,172 H 212"
           fill="none"
           stroke="#4f5d75"
           stroke-width="1"
           marker-end="url(#arrow)"
         />
         <path
-          d="M 184,252 H 196 Q 200,252 200,248 V 176 Q 200,172 204,172 H 212"
+          d="M 184,252 H 228 Q 236,252 236,244 V 200"
           fill="none"
           stroke="#4f5d75"
           stroke-width="1"
           marker-end="url(#arrow)"
         />
         <path
-          d="M 184,332 H 196 Q 200,332 200,328 V 192 Q 200,188 204,188 H 212"
+          d="M 184,332 H 252 Q 260,332 260,324 V 200"
           fill="none"
           stroke="#4f5d75"
           stroke-width="1"
           marker-end="url(#arrow)"
         />
 
+        <!-- Airflow bar → NiFi, Trino, Notebooks (trigger drops at each node's cx, from bar.bottom=96 to node.top=120) -->
         <line
           x1="288"
           y1="96"
@@ -319,24 +343,26 @@
           marker-end="url(#arrow-sm)"
         />
 
+        <!-- NiFi → Trino (secondary, straight at y=148) -->
         <line
           x1="364"
-          y1="164"
+          y1="148"
           x2="404"
-          y2="164"
+          y2="148"
           stroke="#4f5d75"
           stroke-width="1"
           marker-end="url(#arrow)"
         />
-
+        <!-- NiFi → MinIO (PRIMARY accent — own port at y=176, trunk at boundary x=388, drop to MinIO cy=256) -->
         <path
-          d="M 364,156 H 384 Q 388,156 388,164 V 248 Q 388,256 396,256 H 404"
+          d="M 364,176 H 380 Q 388,176 388,184 V 248 Q 388,256 396,256 H 404"
           fill="none"
           stroke="#eb6c36"
           stroke-width="1.2"
           marker-end="url(#arrow-accent)"
         />
 
+        <!-- Trino ↔ MinIO (query read-back, dashed) -->
         <line
           x1="480"
           y1="200"
@@ -348,6 +374,7 @@
           marker-end="url(#arrow-dim)"
         />
 
+        <!-- MinIO → Notebooks (PRIMARY accent — trunk at boundary x=580, rise to Notebooks cy=160) -->
         <path
           d="M 556,256 H 576 Q 580,256 580,248 V 168 Q 580,160 588,160 H 596"
           fill="none"
@@ -356,6 +383,7 @@
           marker-end="url(#arrow-accent)"
         />
 
+        <!-- Notebooks → Superset (secondary, straight at cy=160) -->
         <line
           x1="748"
           y1="160"
@@ -366,6 +394,10 @@
           marker-end="url(#arrow)"
         />
 
+        <!-- ═══════════════════════════════════════════
+           SOURCE NODES  (w=176, h=64, x=8)
+           ═══════════════════════════════════════════ -->
+        <!-- PostgreSQL (db) -->
         <rect
           x="8"
           y="60"
@@ -436,6 +468,7 @@
           CDC · SQL · API
         </text>
 
+        <!-- SFTP (ftp) -->
         <rect
           x="8"
           y="140"
@@ -506,6 +539,7 @@
           Batch · landing
         </text>
 
+        <!-- Web forms (web) -->
         <rect
           x="8"
           y="220"
@@ -576,6 +610,7 @@
           Survey · admin
         </text>
 
+        <!-- Legacy (legacy) -->
         <rect
           x="8"
           y="300"
@@ -649,6 +684,9 @@
           Trade · mainframe
         </text>
 
+        <!-- ═══════════════════════════════════════════
+           AIRFLOW BAR  (Orchestration, x=208 y=52 w=744 h=44 — 12-px inside cluster on both sides)
+           ═══════════════════════════════════════════ -->
         <rect
           x="208"
           y="52"
@@ -694,6 +732,11 @@
           (Apache Airflow)
         </text>
 
+        <!-- ═══════════════════════════════════════════
+           CLUSTER NODES  (w=152, h=80; first_top_y=120)
+           ═══════════════════════════════════════════ -->
+
+        <!-- NiFi (Ingestion, cx=288) -->
         <rect
           x="212"
           y="120"
@@ -760,6 +803,7 @@
           Collect · route · transform
         </text>
 
+        <!-- Trino (Storage col, top row, cx=480, y=120) -->
         <rect
           x="404"
           y="120"
@@ -826,6 +870,7 @@
           SQL · data virtualization
         </text>
 
+        <!-- MinIO / S3  (Storage col, bottom row, FOCAL, cx=480, y=216) -->
         <rect
           x="404"
           y="216"
@@ -893,6 +938,7 @@
           Object store · S3-API
         </text>
 
+        <!-- Notebooks (Transformation, cx=672) -->
         <rect
           x="596"
           y="120"
@@ -959,6 +1005,7 @@
           Jupyter · Python · R
         </text>
 
+        <!-- Superset (Visualization, cx=866) -->
         <rect
           x="790"
           y="120"
@@ -1025,6 +1072,7 @@
           Dashboards · reports
         </text>
 
+        <!-- ── Kubernetes label (bottom-left of cluster) ── -->
         <svg
           x="212"
           y="348"
@@ -1060,6 +1108,9 @@
           Kubernetes
         </text>
 
+        <!-- ═══════════════════════════════════════════
+           CROSS-CUTTING BAR #1 — Identity (Security, y=388..428, color=#b85450)
+           ═══════════════════════════════════════════ -->
         <svg
           x="16"
           y="398"
@@ -1095,6 +1146,9 @@
           (Keycloak · LDAP · OIDC)
         </text>
 
+        <!-- ═══════════════════════════════════════════
+           CROSS-CUTTING BAR #2 — Monitoring (Observability, y=432..472)
+           ═══════════════════════════════════════════ -->
         <rect
           x="4"
           y="432"
@@ -1144,6 +1198,9 @@
           (Prometheus · Grafana · Loki)
         </text>
 
+        <!-- ═══════════════════════════════════
+           LEGEND  (pushed down to clear 2nd crosscut at y=472)
+           ═══════════════════════════════════ -->
         <line x1="40" y1="496" x2="952" y2="496" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
         <text
           x="40"

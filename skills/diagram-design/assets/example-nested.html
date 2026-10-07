@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>The CLAUDE.md Hierarchy</title>
+    <title>The Project Guidance Hierarchy</title>
+
     <style>
       *,
       *::before,
@@ -73,7 +74,7 @@
     </aside>
     <div class="frame">
       <p class="eyebrow">Nested · Diagram Design</p>
-      <h1>The CLAUDE.md Hierarchy</h1>
+      <h1>The Project Guidance Hierarchy</h1>
 
       <svg
         viewBox="0 0 1000 500"
@@ -81,10 +82,10 @@
         role="img"
         aria-labelledby="nested-title nested-desc"
       >
-        <title id="nested-title">The CLAUDE.md Hierarchy</title>
+        <title id="nested-title">The Project Guidance Hierarchy</title>
         <desc id="nested-desc">
-          Nested diagram showing how project CLAUDE.md instructions inherit broader scopes from the
-          global, vault, business, and marketing levels.
+          Nested diagram showing how project guidance inherits broader scopes from the global,
+          vault, business, and marketing levels.
         </desc>
         <defs>
           <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
@@ -95,6 +96,7 @@
         <rect width="100%" height="100%" fill="#f5f5f5" />
         <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
 
+        <!-- Level 1: ~/.claude/ (global) — outermost -->
         <rect
           x="40"
           y="60"
@@ -105,7 +107,7 @@
           stroke="rgba(45,49,66,0.30)"
           stroke-width="1"
         />
-
+        <!-- Level 2: ~/vault/ -->
         <rect
           x="72"
           y="96"
@@ -116,7 +118,7 @@
           stroke="rgba(45,49,66,0.35)"
           stroke-width="1"
         />
-
+        <!-- Level 3: /business -->
         <rect
           x="104"
           y="132"
@@ -127,7 +129,7 @@
           stroke="rgba(45,49,66,0.45)"
           stroke-width="1"
         />
-
+        <!-- Level 4: /marketing -->
         <rect
           x="136"
           y="168"
@@ -138,7 +140,7 @@
           stroke="#4f5d75"
           stroke-width="1"
         />
-
+        <!-- Level 5: /project — innermost, coral focal -->
         <rect
           x="168"
           y="204"
@@ -150,6 +152,7 @@
           stroke-width="1"
         />
 
+        <!-- Level labels on paper-colored masks -->
         <rect x="56" y="52" width="188" height="16" fill="#f5f5f5" />
         <text
           x="64"
@@ -211,6 +214,8 @@
           /project
         </text>
 
+        <!-- File-icon glyphs (simple rect with folded corner) inside each level -->
+        <!-- Glyph in level 1 (bottom-right area of outer ring) -->
         <g transform="translate(908, 408)">
           <path
             d="M0 0 L16 0 L20 4 L20 20 L0 20 Z"
@@ -220,7 +225,7 @@
           />
           <path d="M16 0 L16 4 L20 4" fill="none" stroke="rgba(45,49,66,0.35)" stroke-width="1" />
         </g>
-
+        <!-- Glyph in level 2 ring -->
         <g transform="translate(876, 372)">
           <path
             d="M0 0 L16 0 L20 4 L20 20 L0 20 Z"
@@ -230,7 +235,7 @@
           />
           <path d="M16 0 L16 4 L20 4" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="1" />
         </g>
-
+        <!-- Glyph in level 3 ring -->
         <g transform="translate(844, 336)">
           <path
             d="M0 0 L16 0 L20 4 L20 20 L0 20 Z"
@@ -240,7 +245,7 @@
           />
           <path d="M16 0 L16 4 L20 4" fill="none" stroke="rgba(45,49,66,0.50)" stroke-width="1" />
         </g>
-
+        <!-- Glyph in level 4 ring -->
         <g transform="translate(812, 300)">
           <path
             d="M0 0 L16 0 L20 4 L20 20 L0 20 Z"
@@ -251,6 +256,7 @@
           <path d="M16 0 L16 4 L20 4" fill="none" stroke="#4f5d75" stroke-width="1" />
         </g>
 
+        <!-- Innermost label — human readable -->
         <text
           x="500"
           y="248"
@@ -260,7 +266,7 @@
           font-family="system-ui, -apple-system, sans-serif"
           text-anchor="middle"
         >
-          CLAUDE.md
+          PROJECT GUIDANCE
         </text>
         <text
           x="500"
@@ -274,13 +280,14 @@
           inherits every level above
         </text>
 
+        <!-- Annotation top-right: italic callout with curved arrow -->
         <text
           x="904"
           y="36"
           fill="#2d3142"
           font-size="14"
           font-style="italic"
-          font-family="Georgia, 'Times New Roman', serif"
+          font-family="Georgia, serif"
           text-anchor="end"
         >
           no imports, no configuration
@@ -294,13 +301,14 @@
         />
         <circle cx="520" cy="216" r="2" fill="#2d3142" />
 
+        <!-- Annotation bottom-left: italic callout -->
         <text
           x="40"
           y="484"
           fill="#4f5d75"
           font-size="14"
           font-style="italic"
-          font-family="Georgia, 'Times New Roman', serif"
+          font-family="Georgia, serif"
         >
           structure IS the index
         </text>

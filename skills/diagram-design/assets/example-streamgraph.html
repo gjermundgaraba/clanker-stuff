@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Build minutes by pipeline, twelve weeks · Streamgraph</title>
+
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      :root {
+        --color-paper: #f5f5f5;
+        --color-ink: #2d3142;
+        --color-muted: #4f5d75;
+        --color-accent: #eb6c36;
+        --font-sans: system-ui, -apple-system, sans-serif;
+        --font-serif: Georgia, "Times New Roman", serif;
+        --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+      }
+      body {
+        font-family: var(--font-sans);
+        background: var(--color-paper);
+        color: var(--color-ink);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 2rem;
+      }
+      .frame {
+        max-width: 1200px;
+        width: 100%;
+      }
+      .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--color-muted);
+        margin-bottom: 0.5rem;
+      }
+      h1 {
+        font-family: var(--font-serif);
+        font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+        font-weight: 400;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        margin-bottom: 1.5rem;
+      }
+      svg {
+        width: 100%;
+        min-width: 760px;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <aside
+      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+    >
+      Geometry reference · illustrative data · upstream palette
+    </aside>
+    <div class="frame">
+      <p class="eyebrow">Streamgraph · Diagram Design</p>
+      <h1>Where the extra build minutes went</h1>
+
+      <svg
+        viewBox="0 0 1000 500"
+        xmlns="http://www.w3.org/2000/svg"
+        role="img"
+        aria-labelledby="streamgraph-title streamgraph-desc"
+      >
+        <title id="streamgraph-title">Where the extra build minutes went</title>
+        <desc id="streamgraph-desc">
+          Streamgraph of weekly CI build minutes by pipeline across twelve weeks, stacked on a
+          symmetric baseline so the envelope height reads as the total; the end-to-end suite grows
+          from 12 to 118 minutes a week and passes the unit suite in week eight, while the docs
+          pipeline pauses to zero in weeks five and six.
+        </desc>
+        <defs>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f5f5f5" />
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
+
+        <!-- Symmetric baseline: every period is centred on y=230, so the top and
+           bottom of the envelope always average to the midline and the envelope
+           height IS the weekly total at 1.25px per minute. Shared boundaries use
+           straight segments between exact cumulative values. Adjacent layers reuse
+           the same boundary; nonnegative endpoint thicknesses stay nonnegative
+           between periods, and Docs stays at zero throughout W05–W06. The generic
+           structural checker does not verify quantitative geometry or data fidelity. -->
+        <text
+          transform="rotate(-90 24 230)"
+          x="24"
+          y="230"
+          fill="#4f5d75"
+          font-size="7"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.14em"
+          text-anchor="middle"
+        >
+          BUILD MINUTES PER WEEK
+        </text>
+
+        <!-- No y-axis ticks: the form is about the shape of the envelope and the
+           layers inside it; per-pipeline totals are printed in the legend. -->
+        <path
+          data-layer="Docs"
+          data-values="8,9,7,6,0,0,5,7,8,8,9,9"
+          d="M 80 297.5 L 160 301.25 L 240 308.125 L 320 314.375 L 400 326.875 L 480 337.5 L 560 342.5 L 640 354.375 L 720 364.375 L 800 372.5 L 880 383.125 L 960 392.5 L 960 403.75 L 880 394.375 L 800 382.5 L 720 374.375 L 640 363.125 L 560 348.75 L 480 337.5 L 400 326.875 L 320 321.875 L 240 316.875 L 160 312.5 L 80 307.5 Z"
+          fill="rgba(45,49,66,0.30)"
+          stroke="#f5f5f5"
+          stroke-width="1"
+        />
+        <path
+          data-layer="Integration"
+          data-values="34,36,38,42,44,47,49,52,54,56,59,61"
+          d="M 80 255 L 160 256.25 L 240 260.625 L 320 261.875 L 400 271.875 L 480 278.75 L 560 281.25 L 640 289.375 L 720 296.875 L 800 302.5 L 880 309.375 L 960 316.25 L 960 392.5 L 880 383.125 L 800 372.5 L 720 364.375 L 640 354.375 L 560 342.5 L 480 337.5 L 400 326.875 L 320 314.375 L 240 308.125 L 160 301.25 L 80 297.5 Z"
+          fill="rgba(45,49,66,0.62)"
+          stroke="#f5f5f5"
+          stroke-width="1"
+        />
+        <path
+          data-layer="Unit"
+          data-values="58,60,62,61,64,66,65,68,70,69,72,74"
+          d="M 80 182.5 L 160 181.25 L 240 183.125 L 320 185.625 L 400 191.875 L 480 196.25 L 560 200 L 640 204.375 L 720 209.375 L 800 216.25 L 880 219.375 L 960 223.75 L 960 316.25 L 880 309.375 L 800 302.5 L 720 296.875 L 640 289.375 L 560 281.25 L 480 278.75 L 400 271.875 L 320 261.875 L 240 260.625 L 160 256.25 L 80 255 Z"
+          fill="rgba(45,49,66,0.78)"
+          stroke="#f5f5f5"
+          stroke-width="1"
+        />
+        <!-- End-to-end FOCAL: the accent marks the editorially focal layer —
+           the pipeline whose growth is the story — and it is also the one
+           eating the budget. Every other layer rides the ink-opacity ramp,
+           strongest tone on the largest pipeline. -->
+        <path
+          data-layer="End-to-end"
+          data-values="12,15,19,26,34,45,58,72,85,96,108,118"
+          d="M 80 167.5 L 160 162.5 L 240 159.375 L 320 153.125 L 400 149.375 L 480 140 L 560 127.5 L 640 114.375 L 720 103.125 L 800 96.25 L 880 84.375 L 960 76.25 L 960 223.75 L 880 219.375 L 800 216.25 L 720 209.375 L 640 204.375 L 560 200 L 480 196.25 L 400 191.875 L 320 185.625 L 240 183.125 L 160 181.25 L 80 182.5 Z"
+          fill="#eb6c36"
+          stroke="#f5f5f5"
+          stroke-width="1"
+        />
+        <path
+          data-layer="Lint"
+          data-values="12,12,13,12,13,14,13,14,14,15,15,16"
+          d="M 80 152.5 L 160 147.5 L 240 143.125 L 320 138.125 L 400 133.125 L 480 122.5 L 560 111.25 L 640 96.875 L 720 85.625 L 800 77.5 L 880 65.625 L 960 56.25 L 960 76.25 L 880 84.375 L 800 96.25 L 720 103.125 L 640 114.375 L 560 127.5 L 480 140 L 400 149.375 L 320 153.125 L 240 159.375 L 160 162.5 L 80 167.5 Z"
+          fill="rgba(45,49,66,0.46)"
+          stroke="#f5f5f5"
+          stroke-width="1"
+        />
+
+        <!-- One landmark, one hairline: the week the end-to-end suite becomes the
+           largest pipeline. Nothing else is annotated — the shape is the story. -->
+        <line x1="640" y1="52" x2="640" y2="92" stroke="rgba(45,49,66,0.35)" stroke-width="1" />
+        <text
+          x="640"
+          y="44"
+          fill="#4f5d75"
+          font-size="7"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.14em"
+          text-anchor="middle"
+        >
+          END-TO-END PASSES UNIT
+        </text>
+
+        <text
+          data-period="W01"
+          data-index="0"
+          x="80"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W01
+        </text>
+        <text
+          data-period="W02"
+          data-index="1"
+          x="160"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W02
+        </text>
+        <text
+          data-period="W03"
+          data-index="2"
+          x="240"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W03
+        </text>
+        <text
+          data-period="W04"
+          data-index="3"
+          x="320"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W04
+        </text>
+        <text
+          data-period="W05"
+          data-index="4"
+          x="400"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W05
+        </text>
+        <text
+          data-period="W06"
+          data-index="5"
+          x="480"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W06
+        </text>
+        <text
+          data-period="W07"
+          data-index="6"
+          x="560"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W07
+        </text>
+        <text
+          data-period="W08"
+          data-index="7"
+          x="640"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W08
+        </text>
+        <text
+          data-period="W09"
+          data-index="8"
+          x="720"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W09
+        </text>
+        <text
+          data-period="W10"
+          data-index="9"
+          x="800"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W10
+        </text>
+        <text
+          data-period="W11"
+          data-index="10"
+          x="880"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W11
+        </text>
+        <text
+          data-period="W12"
+          data-index="11"
+          x="960"
+          y="440"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.08em"
+          text-anchor="middle"
+        >
+          W12
+        </text>
+
+        <!-- Legend -->
+        <line x1="40" y1="462" x2="960" y2="462" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
+        <text
+          x="40"
+          y="478"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.18em"
+        >
+          LEGEND
+        </text>
+        <text
+          x="960"
+          y="478"
+          fill="#4f5d75"
+          font-size="8"
+          font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
+          letter-spacing="0.06em"
+          text-anchor="end"
+        >
+          BUILD MINUTES PER WEEK BY PIPELINE · WEEKLY BUCKETS · SYMMETRIC BASELINE, ENVELOPE HEIGHT
+          = WEEKLY TOTAL · ILLUSTRATIVE FIGURES, NOT A MEASURED PROJECT
+        </text>
+
+        <rect x="40" y="488" width="16" height="8" fill="#eb6c36" />
+        <text
+          data-layer="End-to-end"
+          data-total="688"
+          x="64"
+          y="496"
+          fill="#4f5d75"
+          font-size="8.5"
+          font-family="system-ui, -apple-system, sans-serif"
+        >
+          End-to-end · 688 min · focal
+        </text>
+        <rect x="264" y="488" width="16" height="8" fill="rgba(45,49,66,0.78)" />
+        <text
+          data-layer="Unit"
+          data-total="789"
+          x="288"
+          y="496"
+          fill="#4f5d75"
+          font-size="8.5"
+          font-family="system-ui, -apple-system, sans-serif"
+        >
+          Unit · 789 min
+        </text>
+        <rect x="424" y="488" width="16" height="8" fill="rgba(45,49,66,0.62)" />
+        <text
+          data-layer="Integration"
+          data-total="572"
+          x="448"
+          y="496"
+          fill="#4f5d75"
+          font-size="8.5"
+          font-family="system-ui, -apple-system, sans-serif"
+        >
+          Integration · 572 min
+        </text>
+        <rect x="624" y="488" width="16" height="8" fill="rgba(45,49,66,0.46)" />
+        <text
+          data-layer="Lint"
+          data-total="163"
+          x="648"
+          y="496"
+          fill="#4f5d75"
+          font-size="8.5"
+          font-family="system-ui, -apple-system, sans-serif"
+        >
+          Lint · 163 min
+        </text>
+        <rect x="784" y="488" width="16" height="8" fill="rgba(45,49,66,0.30)" />
+        <text
+          data-layer="Docs"
+          data-total="76"
+          x="808"
+          y="496"
+          fill="#4f5d75"
+          font-size="8.5"
+          font-family="system-ui, -apple-system, sans-serif"
+        >
+          Docs · 76 min · paused
+        </text>
+      </svg>
+    </div>
+  </body>
+</html>

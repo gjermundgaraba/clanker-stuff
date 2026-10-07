@@ -1,10 +1,10 @@
 # Deliver HTML, SVG, or PNG
 
-Match the requested format and destination. An SVG request can be fulfilled directly with an `.svg` file; no HTML intermediary is required. HTML with inline SVG is useful for explanatory text, interaction, or a responsive page. Use external assets when appropriate to the destination; make the deliverable self-contained when the user requests standalone/offline output.
+Match the requested format and destination. For SVG delivery, author a valid self-contained `.svg` file directly from the outset. HTML with inline SVG is a legitimate format for explanatory text, interaction, or a responsive page; arbitrary HTML-to-SVG conversion is not a supported delivery path. Use external assets when appropriate to an HTML destination; make the deliverable self-contained when the user requests standalone/offline output.
 
 ## SVG
 
-Write valid SVG XML with `xmlns="http://www.w3.org/2000/svg"`, a finite `viewBox`, and explicit dimensions when the consumer needs a fixed size. Keep diagram metadata, referenced definitions, and styling inside the SVG. Include an accessible name and description, for example:
+Write valid SVG XML with `xmlns="http://www.w3.org/2000/svg"`, a finite `viewBox`, and explicit dimensions when the consumer needs a fixed size. Keep diagram metadata, referenced definitions, and styling inside the SVG. Define any CSS tokens and font choices within the SVG, or use explicit presentation attributes; do not depend on a surrounding HTML page. Use system fonts or permitted embedded font data and embed other required resources. Include an accessible name and description, for example:
 
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400"
@@ -15,9 +15,15 @@ Write valid SVG XML with `xmlns="http://www.w3.org/2000/svg"`, a finite `viewBox
 </svg>
 ```
 
-When extracting an inline SVG from HTML, copy the complete SVG subtree with its referenced `<defs>`. Move applicable page CSS and inherited custom properties into SVG styles/attributes; copy any needed definitions that were outside the subtree and make IDs consistent. HTML CSS inheritance and JavaScript do not automatically survive extraction. If browser DOM access is available, `svg.outerHTML` captures the subtree, but does not embed computed styles, fonts, assets, or external definitions. Review those dependencies before saving. XML-escape text and attributes; HTML-only named entities need replacement with Unicode or XML-compatible escapes.
+The [starter](../assets/template.html) includes a self-contained SVG subtree with explicit diagram colors and system font choices; its HTML wrapper supplies page layout only. The other bundled HTML examples are geometry and composition references: they rely on page CSS and custom properties, so their SVG subtrees are not standalone deliverables. When using their geometry for SVG output, author the needed styles and definitions within the new SVG rather than copying the subtree alone.
 
-For a static inline diagram, the following browser-console expression returns an SVG string with common computed presentation styles copied onto each element. Adapt the selector if the page contains several SVGs. A browser automation tool with DOM evaluation can run the same expression; save its returned string as UTF-8 `.svg`.
+Prefix authored IDs per figure and update fragment references consistently when combining diagrams in one document. There is no automatic CSS scoping or ID renaming. XML-escape text and attributes; HTML-only named entities need replacement with Unicode or XML-compatible escapes. Check the SVG as its own file in the destination renderer, not only inline in a browser page.
+
+### Optional browser adaptation
+
+For an existing inline diagram, browser DOM access can help adapt a known static figure. Copy the complete SVG subtree and its referenced `<defs>`, then resolve its actual dependencies. `svg.outerHTML` alone does not embed computed styles, fonts, assets, or definitions outside the subtree. HTML CSS inheritance and JavaScript do not automatically survive detachment. This is bounded, task-specific adaptation, not a generic faithful HTML-to-SVG converter.
+
+For a known static inline diagram, this browser-console expression copies a limited set of computed presentation styles onto a clone. Adapt the selector if the page contains several SVGs. A browser automation tool with DOM evaluation can run the same expression. Save its returned string as UTF-8 `.svg` only after reviewing dependencies and inspecting the detached result; it is not a fidelity guarantee.
 
 ```js
 (() => {
@@ -77,9 +83,28 @@ For a static inline diagram, the following browser-console expression returns an
 })();
 ```
 
-This snapshots computed colors and font choices, including values inherited through CSS variables; it does not embed the font files. For a diagram relying on web fonts, include its needed `@font-face` data inside SVG styles when embedding is permitted, or choose a system font and recheck line breaks. The snippet is a starting point for static SVG: inspect CSS transforms, CSS-defined geometry, animation, `foreignObject`, and external definitions separately. It is not a general page-to-SVG converter.
+This snapshots computed colors and font choices, including values inherited through CSS variables; it does not embed the font files. For a diagram relying on web fonts, include its needed `@font-face` data inside SVG styles when embedding is permitted, or choose a system font and recheck line breaks. The snippet does not capture pseudo-elements, CSS transforms or CSS-defined geometry, animation state, `foreignObject` layout, or external definitions reliably. Review those separately; when the goal is the rendered appearance rather than editable SVG, prefer a browser PNG capture.
 
 For offline output, embed needed resources or replace them with suitable local geometry/system fonts. Check the standalone SVG in its destination renderer; font metrics and support for filters, CSS, and `foreignObject` vary.
+
+## Exact frames and print sizing
+
+Set the canvas for its actual destination before laying out the content. A few useful upstream landscape starting frames (SVG units treated as CSS pixels at 96 dpi) are:
+
+| Destination                | ViewBox         | Typical raster scale                                  |
+| -------------------------- | --------------- | ----------------------------------------------------- |
+| Inline document            | `0 0 960 600`   | 2×                                                    |
+| Wide document / 16:9 slide | `0 0 1280 720`  | 2×                                                    |
+| 4:3 slide                  | `0 0 1200 900`  | 2×                                                    |
+| Social preview             | `0 0 1200 632`  | Match the platform’s actual required pixel dimensions |
+| Square social image        | `0 0 1080 1080` | Match the requested frame                             |
+| A4 landscape               | `0 0 1120 792`  | 3×                                                    |
+| A3 landscape               | `0 0 1584 1120` | 3× → 4752×3360                                        |
+| Letter landscape           | `0 0 1056 816`  | 3×                                                    |
+
+These are layout presets, not guarantees of physical print size or a platform’s current specification. Honor exact dimensions supplied by the user. For physical print, set explicit SVG dimensions in mm/inches or configure the print/render scale. Keep outer margins and legend clearance, and increase type sizes for presentations instead of merely enlarging the coordinate frame. A `fit` canvas can be derived from actual content bounds plus padding when no fixed aspect ratio is needed.
+
+For a native-width technical figure, match CSS `min-width` to the viewBox width inside a local horizontal scroller; release both minimum width and clipping for print. See [layout-budget.md](layout-budget.md). Recheck the final text scale and layout rather than assuming one numeric preset makes every diagram readable.
 
 ## HTML with inline SVG
 
@@ -95,7 +120,11 @@ rsvg-convert --output diagram.png diagram.svg
 
 Set the SVG's dimensions to the requested pixel frame, or use the renderer's sizing options. Inspect the PNG because font and SVG feature support can differ between renderers.
 
-With an available browser automation API, target the diagram element for a PNG screenshot at the requested pixel size; wait for fonts/images and put animation into the intended complete frame. If the API supports only viewport screenshots, size the viewport to the diagram and crop using an available image tool. Confirm screenshot dimensions and background/transparency before delivery.
+The skill never installs rendering dependencies automatically. Use an approved renderer and compatible browser already provisioned by the host environment; report unavailable capabilities.
+
+With an available browser automation API, target the diagram element for a PNG screenshot at the requested pixel size; wait for fonts/images and put animation into the intended complete frame. Release clipping ancestors of the SVG (local scrollers and `overflow: hidden` wrappers) for a full element screenshot, or the right edge can remain blank even when the PNG has the expected width. Prefer bounded waits for network and fonts; if a font request stalls, stop the load, capture only when a usable fallback is available, and disclose the fallback typography. Treat other rendering errors as failures, not a successful export.
+
+If the API supports only viewport screenshots, size the viewport to the diagram and crop using an available image tool. Confirm screenshot dimensions and background/transparency before delivery.
 
 When a headless browser executable is installed and usable, a CLI screenshot is another route. For example, on macOS with Google Chrome installed at its standard path:
 

@@ -18,13 +18,17 @@ Use semantic tokens so branding changes remain local to the artifact. The defaul
 
 Reserve the accent for a small focal set. Give distinct categories or quantitative series their own consistent encoding when comparison requires it. Include labels, symbols, or line styles when color carries meaning.
 
-Use a serif title, sans-serif node names, and monospace only for technical labels such as ports, code, or field types. Instrument Serif, Geist, and Geist Mono are upstream's preferred families; the [starter](../assets/template.html) uses offline system fallbacks. Supplied branding takes precedence. Match the script of the actual labels; CJK text needs a suitable font and often more space.
+Use high-contrast text on accent-filled marks; the upstream `ink-strong` default is `#111111` in both skins, but check the actual foreground/background pair. Use a serif title, sans-serif node names, and monospace only for technical labels such as ports, code, or field types. Instrument Serif, Geist, and Geist Mono are upstream's preferred families; the [starter](../assets/template.html) uses offline system fallbacks. Supplied branding takes precedence. Match the script of the actual labels; CJK text needs a suitable font and often more space.
+
+For Cyrillic titles, Instrument Serif needs a Cyrillic-capable serif fallback such as Noto Serif (before any CJK serif). Keep printed identifiers exactly as supplied—do not transliterate or re-case cabinet, port, or physical labels. Measure wide Cyrillic glyphs and mixed-script punctuation with actual fonts rather than relying on a per-character average.
 
 Set type sizes for the final displayed figure, not just the SVG coordinate space. Scaling a 960-unit SVG into a 480px column halves the apparent text size. Measure long labels with the fonts that actually render, wrap or expand nodes, and leave space for descenders. For slides, reduce clutter before shrinking labels.
 
+Exact reusable markup and port mechanics: [primitives-core.md](primitives-core.md). Read [layout-budget.md](layout-budget.md) for density planning and narrow-screen/print handling.
+
 ## Composition
 
-Start from [template.html](../assets/template.html) or adapt the nearest example. Examples demonstrate geometry and content hierarchy; their labels and decorative wrappers are replaceable. The starter's background, border treatment, type, and spacing are defaults.
+Start from [template.html](../assets/template.html) or adapt the nearest example. The starter's SVG is self-contained: its diagram colors and system font choices are explicit within the subtree, while the HTML wrapper handles page layout. The other HTML examples demonstrate geometry and content hierarchy but rely on page CSS and custom properties; they are not standalone SVGs. Their labels and decorative wrappers are replaceable. For SVG delivery, author the chosen geometry directly with internal styles/definitions or explicit attributes. The starter's background, border treatment, type, and spacing are defaults.
 
 Let the strongest relationship set the reading direction. Use containment for membership, lanes for responsibility, and edges for actual relationships. Keep legends outside the active routing area when a legend is useful. A title and diagram may be the complete page; add explanatory sections only when they contribute information.
 
@@ -54,6 +58,6 @@ Flip signs for upward travel and reduce the radius when segments are short. See 
 
 Give each informative SVG a descriptive `<title>` and `<desc>` referenced by `aria-labelledby`, with `role="img"`. Prefix IDs per figure so multiple inline diagrams do not collide. Describe the subject and relationships, not a shape-by-shape inventory. Decorative SVG can use `aria-hidden="true"`.
 
-Keep HTML CSS inline and SVG resources internal when a standalone artifact is needed. Offline delivery requires system fonts or embedded font data and no remote assets. Browser-loaded fonts are not automatically embedded in exported SVG; see [export](export.md). Use actual text for labels so they remain selectable and accessible.
+For standalone SVG, keep its styles, tokens, font choices, and referenced resources inside the SVG, independent of page CSS. For standalone HTML, inline the required page resources. Offline delivery requires system fonts or embedded font data and no remote assets. Browser-loaded fonts are not automatically embedded when adapting an inline diagram; see [export](export.md). Use actual text for labels so they remain selectable and accessible.
 
 The structural checker detects supported markup errors; it cannot establish readability, factual correctness, or visual clearance. Inspect the rendered figure, especially arrow endpoints, label wrapping, contrast, and clipping at the requested size.

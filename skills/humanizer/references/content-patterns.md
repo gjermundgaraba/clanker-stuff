@@ -15,7 +15,19 @@ Use when prose inflates significance, markets ordinary facts, relies on vague au
 - **Speculative gap filling:** distinguish what the source says from what it establishes. Never turn “appears to have” into a definite date or replace an unknown biography with plausible details.
 - **Chatbot residue:** remove offers to continue, generic praise, knowledge-cutoff boilerplate, and tutorial announcements when they are pasted into a deliverable. Preserve real limitations and qualifications.
 - **Repeated heading:** remove an opening sentence that only repeats its heading; preserve one that adds information. Ordinary salutations and sign-offs in letters or comments are not chatbot residue.
-- **Diff-anchored prose:** ordinary documentation should describe current behavior; release notes and migration guides can describe changes. Do not invent the current mechanism when the input only describes history.
+- **Document narration:** ordinary documentation should describe its subject, not what the text replaced, how it was sourced or assembled, or a layout the reader can already see. Release notes and migration guides can describe changes. Keep source credits readers can follow, caveats that change what they should do, and conventions they cannot infer; state each convention once. A single page description is a weak cue alone. Do not invent the current mechanism when the input only describes history, or turn sourcing narration into unsupported findings.
+
+## Replies to a known audience
+
+When the surrounding conversation is available, or the text plainly is a reply, check whether it restates background the reader supplied or already agreed to. If the audience's knowledge is unclear, ask or leave the context intact.
+
+Lead with the supported answer or decision, then keep the new facts and reasoning that affect agreement and any links needed to act. Do not bury the decision under a recap, diagnosis, commands, or numbers included only to prove the plan. A reviewer raising a topic is not automatically asking for a full write-up. Keep evidence and investigation history when requested or substantive; move it to an accompanying ticket or document only when that deliverable is in scope, rather than silently losing it.
+
+Before: “As you noted, the parser rejects empty input. I checked the failing test, which exercises the empty-input branch. I agree we should fix that branch in this PR.”
+
+After: “Agreed, let's fix the empty-input branch in this PR.”
+
+This shorter reply assumes the surrounding thread already contains the diagnosis and test result. Without that context, preserve them. Do not add agreement, a commitment, or a recommendation that the source does not express.
 
 ## Fact-preserving examples
 

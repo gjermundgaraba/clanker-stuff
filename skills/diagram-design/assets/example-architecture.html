@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Content site · Architecture</title>
+
     <style>
       *,
       *::before,
@@ -111,6 +112,7 @@
         <rect width="100%" height="100%" fill="#f5f5f5" />
         <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
 
+        <!-- Zone: Content services (drawn before arrows and nodes) -->
         <rect
           x="616"
           y="128"
@@ -134,6 +136,7 @@
           CONTENT
         </text>
 
+        <!-- Arrows first (behind boxes) -->
         <line
           x1="168"
           y1="272"
@@ -152,22 +155,23 @@
           stroke-width="1.4"
           marker-end="url(#arrow-accent)"
         />
-
+        <!-- Two fanned ports on Astro's right edge, each turning once into MDX bottom / CMS top -->
         <path
-          d="M 496,240 H 692 Q 700,240 700,232 V 224"
+          d="M 576,260 H 692 Q 700,260 700,252 V 224"
           fill="none"
           stroke="#4f5d75"
           stroke-width="1.2"
           marker-end="url(#arrow)"
         />
         <path
-          d="M 496,304 H 692 Q 700,304 700,312 V 320"
+          d="M 576,284 H 692 Q 700,284 700,292 V 320"
           fill="none"
           stroke="#4f5d75"
           stroke-width="1.2"
           marker-end="url(#arrow)"
         />
 
+        <!-- Dashed return: Cloudflare→Reader (cached HTML — same orthogonal rules as solid) -->
         <path
           d="M 220,288 H 168"
           fill="none"
@@ -177,6 +181,7 @@
           marker-end="url(#arrow)"
         />
 
+        <!-- Arrow labels -->
         <rect x="172" y="252" width="48" height="12" rx="2" fill="#f5f5f5" />
         <text
           x="196"
@@ -216,10 +221,10 @@
           SSR
         </text>
 
-        <rect x="632" y="246" width="60" height="12" rx="2" fill="#f5f5f5" />
+        <rect x="632" y="240" width="60" height="12" rx="2" fill="#f5f5f5" />
         <text
           x="662"
-          y="255"
+          y="249"
           fill="#4f5d75"
           font-size="8"
           font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
@@ -229,10 +234,10 @@
           READ MDX
         </text>
 
-        <rect x="632" y="286" width="44" height="12" rx="2" fill="#f5f5f5" />
+        <rect x="632" y="292" width="44" height="12" rx="2" fill="#f5f5f5" />
         <text
           x="654"
-          y="295"
+          y="301"
           fill="#4f5d75"
           font-size="8"
           font-family="ui-monospace, 'SFMono-Regular', Consolas, monospace"
@@ -242,6 +247,7 @@
           QUERY
         </text>
 
+        <!-- Node: Reader -->
         <rect x="40" y="240" width="128" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="40"
@@ -296,6 +302,7 @@
           Browser
         </text>
 
+        <!-- Node: Cloudflare -->
         <rect x="220" y="240" width="144" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="220"
@@ -361,6 +368,7 @@
           Pages · cache
         </text>
 
+        <!-- Node: Astro (focal coral) -->
         <rect x="416" y="240" width="160" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="416"
@@ -426,6 +434,7 @@
           SSR + MDX
         </text>
 
+        <!-- Node: MDX Bundle -->
         <rect x="628" y="160" width="144" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="628"
@@ -480,6 +489,7 @@
           src/content/*.mdx
         </text>
 
+        <!-- Node: Content CMS -->
         <rect x="628" y="320" width="144" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="628"
@@ -534,6 +544,7 @@
           assets · og images
         </text>
 
+        <!-- Legend strip -->
         <line x1="40" y1="404" x2="960" y2="404" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
         <text
           x="40"

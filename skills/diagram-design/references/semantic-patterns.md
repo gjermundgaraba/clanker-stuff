@@ -13,4 +13,12 @@ Use these patterns when the behavior is the point of the diagram. They supply me
 | Compensating defenses                | Threat, each mitigation, its limitation, residual risk passed to the next layer, and the remaining consequence or response. Avoid implying zero risk or treating detection as prevention.                                                                | [Layers](type-layers.md)                                                     |
 | Traceable decomposition              | Stable block identifiers, parent/child membership, and supplied implementation references. Put lengthy inputs, outputs, assumptions, or constraints in a companion record if needed. Cross-block dependencies require distinct edges or a separate view. | [Tree](type-tree.md)                                                         |
 
+## Lifecycle phase map
+
+Use this [state-machine](type-state.md) specialization for one subject progressing through phases, waits, retries, cancellation, and terminal outcomes. It is not a message exchange between actors; that belongs in [sequence](type-sequence.md). Dense legal-transition/guard logic may fit an ordinary state machine better.
+
+Arrange a left-to-right primary rail of about 4–5 ordered phase states, a separate interruption/recovery band (about 2 wait/retry states), and a terminal-outcome band. Keep cancellation and failure as separately labeled outcomes when both occur. Label every transition and retry re-entry; do not imply migration order or outcomes unsupported by the source. About 9 states and 10 transitions is a useful overview budget, not permission to remove legal transitions. Split dense guard logic into a detail view.
+
+The static frame shows all phases, supporting states, terminal outcomes, and labeled transitions. Bands and words distinguish progress, interruption, and termination without relying on color. See the [lifecycle example](../assets/example-state-lifecycle.html).
+
 Use text or symbols alongside color for status and risk. Shape size implies quantity only when that encoding is intended and supported. An animation can explain progression, but a static figure should still expose the relevant final or comparison state; see [animation](animation.md).

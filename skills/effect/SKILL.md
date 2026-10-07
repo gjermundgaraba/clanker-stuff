@@ -4,11 +4,11 @@ description: Apply repository-compatible Effect conventions when implementing or
 metadata:
   upstream-source: "https://github.com/kitlangton/skills"
   upstream-path: "skills/effect/"
-  upstream-revision: "30dee8607214c893dd89f6eee65c669ef3dce8c9"
+  upstream-revision: "71195e36024ebd2e66c5beac946e81eafd5abc43"
   upstream-relationship: "adapted"
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
-  upstream-baseline-kind: "recorded"
+  upstream-baseline-kind: "reconciled"
   upstream-service-design-source: "https://github.com/dmmulroy/.dotfiles"
   upstream-service-design-path: "home/.agents/skills/effect-service-design/"
   upstream-service-design-revision: "3669c396c6426a613aceade2112315404dc8e39f"
@@ -47,6 +47,7 @@ Use installed source and types when they answer the question. Otherwise resolve 
 
 Consult the sections that resolve the current task. Established repository patterns and installed source can be sufficient for routine edits. Load additional references as design or API questions arise.
 
+- Migrations from v3 or v4 prereleases, import paths, or renamed APIs: read `references/V4_APIS.md`, then the relevant functional reference. Verify against the project's pinned version before applying any change.
 - Data models, schemas, brands, variants, optional keys, or decoders: read `references/SCHEMA.md`.
 - Service-or-value decisions, authority boundaries, application ports, adapter or composition ownership, dependency lifetimes, or choosing an honest reusable test implementation: consult `references/SERVICE_DESIGN.md`. Use `references/SERVICES_LAYERS.md` for implementation mechanics as needed.
 - Targeted reviews of changed Effect services, Layers, requirement propagation, composition ownership, or test substitutes: use [Targeted Review](references/SERVICE_AUDIT.md#targeted-review). Read the design or mechanics references needed to assess the changed behavior.

@@ -5,12 +5,13 @@ name: gh-stack
 metadata:
   upstream-source: "https://github.com/github/gh-stack"
   upstream-path: "skills/gh-stack/"
-  upstream-revision: "a1b4a3d4d0bcde9ec3a78ab99b2d63af121857a9"
+  upstream-revision: "d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419"
   upstream-relationship: "adapted"
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
-  upstream-baseline-kind: "recorded"
-  upstream-release: "v0.1.0"
+  upstream-baseline-kind: "reconciled"
+  upstream-release: "v0.2.0"
+  upstream-skill-version: "0.2.0"
 ---
 
 # gh-stack
@@ -19,12 +20,15 @@ A stack is linear: the bottom branch depends on trunk; each higher branch
 builds on the one below. Keep changes in their owning layer, then rebase its
 consumers. Read current state with `gh stack view --json` and inspect relevant
 `gh stack <command> --help` before unfamiliar operations. Use the installed CLI
-as the syntax authority.
+as the syntax authority (`gh stack help <command>` only prints top-level help).
+Git 2.36+ and an authenticated GitHub CLI are required.
 
 ## Noninteractive contract
 
 - Supply explicit branch/PR/stack arguments to `init`, `add`, and `checkout`.
   Use `submit --auto` and `view --json`; their bare forms prompt or launch a TUI.
+  Never launch `switch` or the `modify` editor; both are interactive-only.
+  Recovery-only `modify --continue` and `--abort` are covered in the recovery reference.
 - With multiple remotes, select the intended remote via `--remote` on `push`,
   `submit`, `sync`, `rebase`, or `link`. `checkout`, `modify`, and `trunk` instead
   require the appropriate `remote.pushDefault`. Inspect existing config before
@@ -50,7 +54,14 @@ as the syntax authority.
 | Push and create draft PRs              | `gh stack submit --auto`                                    |
 | Fetch, rebase, push, reconcile stack   | `gh stack sync`                                             |
 
-For creation, publication, JSON fields, external branch managers, or an
+Local stacks share a common-directory catalog across linked worktrees. Use
+navigation or explicit-target `checkout` with `--print-path` to locate a branch
+owned elsewhere; check success before using its stdout path. Rebase/sync update
+only affected clean owners, serialize mutations across the clone, and recover
+paused operations in recorded owners. Do not auto-stash or create/remove
+worktrees. Read the references before distributed operations.
+
+For creation, publication, JSON fields, external branch managers, worktrees, or an
 explicitly requested merge, read [operations.md](references/operations.md).
 For conflicts, partial pushes, interrupted commands, divergent stacks, or
 restructuring, read [recovery.md](references/recovery.md) before retrying.

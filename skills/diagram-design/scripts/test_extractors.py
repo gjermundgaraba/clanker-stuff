@@ -42,6 +42,46 @@ def excalidraw_scene(start, end):
 
 
 class DrawioTests(unittest.TestCase):
+    def test_duplicate_cell_ids_are_rejected(self):
+        for duplicate in (vertex("A"), '<mxCell id="A" edge="1"/>'):
+            with self.subTest(duplicate=duplicate):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    drawio_page([vertex("A"), duplicate])
+                self.assertEqual(error.exception.code, 2)
+
+    def test_page_and_cell_limits_include_nondrawable_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "pages.drawio"
+            source.write_text("<mxfile>" + "<diagram/>" * drawio.MAX_PAGES + "</mxfile>")
+            self.assertEqual(len(drawio.parse_file(source)), drawio.MAX_PAGES)
+            source.write_text("<mxfile>" + "<diagram/>" * (drawio.MAX_PAGES + 1) + "</mxfile>")
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                drawio.parse_file(source)
+        # The helper contributes two root cells; the cap counts all direct children.
+        drawio_page(['<mxCell/>' for _ in range(drawio.MAX_CELLS_PER_PAGE - 2)])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            drawio_page(['<mxCell/>' for _ in range(drawio.MAX_CELLS_PER_PAGE - 1)])
+
+    def test_nonfinite_geometry_and_parent_coordinate_overflow_are_rejected(self):
+        for value in ("NaN", "inf", "-inf", "1e309"):
+            with self.subTest(value=value):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    drawio_page([vertex("A", x=value)])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            drawio_page([vertex("parent", x="1e308"), vertex("child", "parent", "1e308")])
+
+    def test_finite_coordinates_can_still_overflow_bounds_or_canvas_span(self):
+        fixtures = [
+            [vertex("A", x="1e308", size="1e308")],
+            [vertex("A", x="-1e308"), vertex("B", x="1e308")],
+        ]
+        for cells in fixtures:
+            with self.subTest(cells=cells):
+                page = drawio_page(cells)
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    drawio.page_bounds(page)
+
+
     def test_nested_coordinates_do_not_depend_on_cell_order(self):
         cells = [vertex("outer", x=100, size=40), vertex("inner", "outer", 20, 20), vertex("leaf", "inner", 5)]
         for order in itertools.permutations(cells):
@@ -102,7 +142,54 @@ class GraphSemanticsTests(unittest.TestCase):
         self.assertFalse(mermaid.analyze(chain)["has_cycle"])
 
 
+class ExcalidrawTests(unittest.TestCase):
+    def test_duplicate_ids_are_rejected_even_when_one_record_is_deleted(self):
+        for deleted in (False, True):
+            with self.subTest(deleted=deleted):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    excalidraw.parse_scene(Path("fixture.excalidraw"), {"elements": [
+                        {"id": "A", "type": "rectangle"},
+                        {"id": "A", "type": "rectangle", "isDeleted": deleted},
+                    ]})
+                self.assertEqual(error.exception.code, 2)
+
+
 class MermaidTests(unittest.TestCase):
+    def test_statement_limit_applies_per_logical_statement_not_physical_line(self):
+        statement = 'A["' + "x" * (mermaid.MAX_STATEMENT_CHARS - 5) + '"]'
+        self.assertEqual(len(statement), mermaid.MAX_STATEMENT_CHARS)
+        parsed = mermaid_diagram("flowchart LR;" + statement + "; B --> C")
+        self.assertEqual(len(parsed.nodes), 3)
+        self.assertEqual(len(parsed.edges), 1)
+        # Closed and still-open oversized statements both fail before further parsing.
+        for oversized in (statement + "x", 'A["' + "x" * mermaid.MAX_STATEMENT_CHARS):
+            with self.subTest(oversized=oversized[-8:]):
+                with contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(SystemExit):
+                    mermaid_diagram("flowchart LR\n" + oversized)
+                self.assertIn("4096-character limit", stderr.getvalue())
+
+    def test_multiline_statement_limit_preserves_completed_semicolon_statement(self):
+        lines = [(3, 'A --> B; C["first'), (4, 'second"]')]
+        statements = mermaid._logical_statements(lines)
+        self.assertEqual([text.strip() for _, text in statements], ['A --> B', 'C["first\nsecond"]'])
+        with contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(SystemExit):
+            mermaid._logical_statements([(7, 'A["' + "x" * 3000), (8, "y" * 2000)])
+        self.assertIn("line 7", stderr.getvalue())
+
+    def test_spaced_quoted_and_compact_dotted_labels_keep_semantics(self):
+        for operator, label in [
+            ('--   yes, then   -->', 'yes, then'),
+            ('-- "yes, and then" -->', 'yes, and then'),
+            ('-.next candidate.->', 'next candidate'),
+            ('-. "retry again" .->', 'retry again'),
+        ]:
+            with self.subTest(operator=operator):
+                diagram = mermaid_diagram(f"flowchart LR; A {operator} B")
+                self.assertEqual([(e.source, e.target, e.label) for e in diagram.edges], [("A", "B", label)])
+                self.assertFalse(diagram.edges[0].bidirectional)
+                self.assertFalse(diagram.edges[0].undirected)
+
+
     def test_header_line_statements_match_multiline_input(self):
         inline = mermaid_diagram('flowchart LR; A["label; intact"] --> B; B --> C')
         multiline = mermaid_diagram('flowchart LR\nA["label; intact"] --> B\nB --> C')

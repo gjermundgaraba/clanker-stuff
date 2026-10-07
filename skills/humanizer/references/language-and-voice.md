@@ -25,7 +25,7 @@ Empty contrasts, repetitive closers, empty aphorisms, staged openers, and invent
 
 ## Rhythm by rule
 
-Check across paragraphs: three parallel examples followed by a lesson can form a forced triad, and a recurring one-line closer can repeat each section's point. Change structure without dropping distinct examples, rankings, or simultaneous actions. A short sentence that adds information can stay. Passive voice and hedging are weak cues alone; keep unknown actors, real uncertainty, scope statements, and necessary notices.
+Check across paragraphs: three parallel examples followed by a lesson can form a forced triad, and a recurring one-line closer can repeat each section's point. Change structure without dropping distinct examples, rankings, or simultaneous actions. Cut a sentence after an example, scene, or number that merely explains what it already showed, including “That distinction matters”, “This shows the importance of...”, or “It was a lesson in patience”. Keep a closer that adds a fact or consequence the example does not establish. A short sentence that adds information can stay. Passive voice and hedging are weak cues alone; keep unknown actors, real uncertainty, scope statements, and necessary notices.
 
 ## Author voice
 

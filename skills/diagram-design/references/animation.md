@@ -16,4 +16,6 @@ Keep state and timers local to each figure. Clear pending timers on pause, resta
 
 Scope animation rules so print and reduced-motion CSS can reliably restore full visibility. Wait for fonts and the selected state before capture. Export the complete figure unless the user requested a specific step, and identify that step in the artifact.
 
+For an [exploded axonometric](type-exploded.md), a part may travel straight up by its exact declared explode distance (`--lift`, exploded `z` minus assembled `z`); it should not rotate or move sideways. Other reveals use restrained travel (about 16–24 units). [Axonometric plans](type-axonometric-plan.md) can reveal buildings by phase or rooms by zone without changing their depth order. Matching animated examples contain self-contained controllers; they are optional implementation references, not a required template. Multiple independently revealed items can share a step without a count limit; update them in natural document order rather than regrouping the geometry by step. Grouping is optional, and must preserve actual depth/painter order.
+
 Check the actual interaction: keyboard operation, pause/resume when present, complete no-JavaScript rendering, reduced motion, and the chosen export state. The bundled structural checker does not validate playback behavior or require a particular controller.

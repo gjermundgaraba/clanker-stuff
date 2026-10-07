@@ -3,6 +3,7 @@
 ## Contents
 
 - [Records](#records)
+- [Construction Versus Decoding](#construction-versus-decoding)
 - [Field And Contract Reuse](#field-and-contract-reuse)
 - [Optionality And Defaults](#optionality-and-defaults)
 - [Nominal Values](#nominal-values)
@@ -29,11 +30,22 @@ Guidance:
 
 - Add `.annotate({ identifier: "User" })` only when tooling consumes it: HTTP API, RPC, OpenAPI/JSON Schema, docs, diagnostics, or codegen.
 - Use `schema.make(...)` when construction is trusted.
-- Use `schema.makeEffect(...)` when construction failure should stay in the Effect error channel.
+- Use `schema.makeEffect(...)` when construction failure should stay in the Effect error channel. It validates typed constructor input and fails with `SchemaIssue.Issue`, not `Schema.SchemaError`.
+- Use `schema.makeOption(...)` when constructor validation details may be discarded.
 - Decode unknown input at boundaries with `Schema.decodeUnknownEffect(...)` by default.
 - Use `Schema.decodeUnknownSync(...)` only in scripts, tests, or startup paths where throwing is acceptable.
 - Use `Schema.decodeUnknownOption(...)` only when mismatch details are intentionally discarded.
 - Use `Schema.decodeUnknownResult(...)` for pure code that wants explicit success/failure without Effect.
+
+## Construction Versus Decoding
+
+`make` / `makeEffect` apply constructor defaults and type-side validation. They are not decoders for an unknown encoded representation. Decode a wire timestamp through its string-to-DateTime codec rather than passing the string to the decoded value's constructor.
+
+- `Schema.decodeUnknownEffect(schema)(input)` fails with `Schema.SchemaError`.
+- `SchemaParser.decodeUnknownEffect(schema)(input)` exposes the raw `SchemaIssue.Issue` for low-level parser composition.
+- `schema.makeEffect(input)` also exposes `SchemaIssue.Issue`; wrap it explicitly with `Effect.mapError((issue) => new Schema.SchemaError(issue))` if the boundary needs `SchemaError`.
+- `schema.make(input)` throws a plain `Error` with the issue in `cause` on validation failure; do not assume it throws `SchemaError`.
+- `Schema.NumberFromString` uses JavaScript `Number(...)` coercion: empty/whitespace-only strings become `0`, and trailing junk becomes `NaN`, which `Schema.Number` accepts. It is not a strict numeric-text validator or prefix parser. Use `Schema.FiniteFromString` for finite results and validate the encoded text separately when blanks or a specific numeric grammar must be rejected.
 
 ## Field And Contract Reuse
 
