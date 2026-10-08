@@ -187,6 +187,7 @@ describe("live widget", () => {
       clearScreen() {},
       setTitle() {},
       setProgress() {},
+      setProgramStatus() {},
     };
 
     let state: LiveState | undefined = { elapsedMs: 1000, metrics: snapshot().metrics };

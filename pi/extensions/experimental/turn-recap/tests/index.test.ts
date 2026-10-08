@@ -58,7 +58,7 @@ describe("turn-recap registrations", () => {
     onTestFinished(() => host.emitSessionShutdown(ctx));
     await host.emitSessionStart(ctx);
     await host.emit("agent_start", { type: "agent_start" }, ctx);
-    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await host.emit("agent_settled", { type: "agent_settled", aborted: false }, ctx);
     await vi.waitFor(() =>
       expect(host.getNotifications()).toEqual([
         { message: "Turn recap failed: Snapshot write failed", type: "error" },
@@ -118,7 +118,7 @@ describe("turn-recap registrations", () => {
     await host.emitSessionStart(ctx);
     await host.emit("agent_start", { type: "agent_start" }, ctx);
     appendTurn(session, 1);
-    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await host.emit("agent_settled", { type: "agent_settled", aborted: false }, ctx);
     const [card] = host.getAppendedEntries();
 
     const runId =
@@ -168,9 +168,12 @@ describe("turn-recap registrations", () => {
     expect(render({ ...snapshot(), activeMs: 900 })).toContain("Completed in 1.5s");
 
     const { runId: _runId, ...withoutRunId } = snapshot();
+    // Cards from before Pi timed responses and tools.
+    const { modelMs: _modelMs, toolMs: _toolMs, ...untimed } = snapshot().metrics;
 
     for (const retired of [
       withoutRunId,
+      { ...snapshot(), metrics: untimed },
       { ...snapshot(), wallMs: -1 },
       { ...snapshot(), wallMs: Infinity },
       { ...snapshot(), metrics: { extra: 1 } },
@@ -217,7 +220,7 @@ describe("turn-recap registrations", () => {
     vi.advanceTimersByTime(2000);
     expect(render()).toContain("2s elapsed");
     appendTurn(session, 1);
-    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await host.emit("agent_settled", { type: "agent_settled", aborted: false }, ctx);
     const [card] = host.getAppendedEntries();
     expect(component).toBeUndefined();
     expect(card).toMatchObject({ data: { wallMs: 2000 } });

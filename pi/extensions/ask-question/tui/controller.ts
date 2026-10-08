@@ -1,7 +1,13 @@
 import type { ExtensionContext, Theme, KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Editor, Markdown } from "@earendil-works/pi-tui";
-import type { TUI, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
+import type {
+  ProgramStatus,
+  Terminal,
+  TUI,
+  TuiMouseEvent,
+  TuiMouseEventResult,
+} from "@earendil-works/pi-tui";
 import type { Action, Draft, Interaction } from "../interaction.js";
 import { collectAnswers, revisedSubmission } from "../interaction.js";
 import { MAX_NOTE, MAX_TEXT } from "../request.js";
@@ -570,13 +576,45 @@ export class QuestionnaireView {
   }
 }
 
+/** Reports under Pi's own name (OSC 7501), so terminals such as Herdr attribute it to Pi's session. */
+function reportStatus(terminal: Terminal, status: Omit<ProgramStatus, "app">): void {
+  terminal.setProgramStatus({ ...status, app: "pi" });
+}
+
 export async function showQuestionnaire(
   ctx: ExtensionContext,
   item: Interaction,
   signal: AbortSignal,
   port: FormPort,
 ): Promise<FormOutcome> {
-  return ctx.ui.custom<FormOutcome>(
-    (tui, theme, keys, done) => new QuestionnaireView(tui, theme, keys, item, port, done, signal),
-  );
+  let terminal: Terminal | undefined;
+
+  try {
+    return await ctx.ui.custom<FormOutcome>((tui, theme, keys, done) => {
+      // Pi reports blocked for its own dialogs but not for custom UI, so a blocking questionnaire
+      // reports it here. A rename while it is open makes Pi report working over it until it closes.
+      if (port.blocking) {
+        terminal = tui.terminal;
+        reportStatus(terminal, {
+          state: "blocked",
+          kind: "question",
+          message: item.request.title ?? "Questions await your answers",
+        });
+      }
+
+      return new QuestionnaireView(tui, theme, keys, item, port, done, signal);
+    });
+  } finally {
+    // Pi never sees these reports and skips repeating its last one, so the terminal would stay
+    // blocked until the run settles: restore what Pi last reported for the continuing run. When
+    // it was aborted instead, Pi reports how it ended.
+    if (terminal && !signal.aborted) {
+      const name = ctx.sessionManager.getSessionName();
+
+      reportStatus(
+        terminal,
+        name === undefined ? { state: "working" } : { state: "working", message: name },
+      );
+    }
+  }
 }

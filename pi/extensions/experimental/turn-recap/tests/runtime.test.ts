@@ -61,13 +61,11 @@ const setup = async (...responses: ResponseStep[]) => {
   await host.ready;
 
   if (!runtime) throw new Error("Missing runtime");
-  const controller = new AbortController();
   const tui = createMockTui();
   const theme = createIdentityTheme();
   let component: (Component & { dispose?(): void }) | undefined;
 
   const ctx = host.createContext({
-    signal: controller.signal,
     sessionManager: session,
     modelRegistry: {
       find,
@@ -119,7 +117,6 @@ const setup = async (...responses: ResponseStep[]) => {
     ctx,
     host,
     runtime,
-    controller,
     snapshots,
     recaps,
     render: () => component?.render(100).join("\n") ?? "",
@@ -178,7 +175,7 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(500);
     expect(env.render()).toContain("1s elapsed");
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
 
     // Same digit width, so carried-over history would roll 1s back down to 0s.
     env.runtime.begin(env.ctx);
@@ -207,7 +204,7 @@ describe("turn recap runtime", () => {
     }
 
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.card()).toContain("Recap still works");
   });
 
@@ -224,7 +221,7 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(130);
     expect(env.render()).toContain(`${glyph}s elapsed`);
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()).toHaveLength(1);
     expect(env.recaps()).toEqual([]);
     expect(env.host.getNotifications()).toHaveLength(1);
@@ -244,7 +241,7 @@ describe("turn recap runtime", () => {
     env.session.appendMessage({ ...fauxAssistantMessage("finished"), usage: sampleUsage() });
     env.runtime.refresh(env.ctx);
     expect(env.render()).toContain("370 processed");
-    const completion = env.runtime.settled(env.ctx);
+    const completion = env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.render()).toBe("");
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]).toMatchObject({
@@ -268,7 +265,7 @@ describe("turn recap runtime", () => {
     const env = await setup(() => fauxAssistantMessage("Restored recap"));
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     await env.runtime.start(env.ctx);
     expect(env.card()).toContain("Restored recap");
   });
@@ -282,7 +279,7 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(3000);
     env.runtime.begin(env.ctx);
     vi.advanceTimersByTime(4000);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]).toMatchObject({ wallMs: 7000 });
     expect(env.recaps()).toEqual([]);
@@ -298,7 +295,7 @@ describe("turn recap runtime", () => {
       const env = await setup();
       env.runtime.begin(env.ctx);
       env.runtime.boundary(boundary(outcome), env.ctx);
-      await env.runtime.settled(env.ctx);
+      await env.runtime.settled({ aborted: false }, env.ctx);
       expect(env.snapshots()[0]?.outcome).toBe(outcome);
       expect(env.card()).not.toContain("Generating");
       expect(env.recaps()).toEqual([]);
@@ -315,17 +312,16 @@ describe("turn recap runtime", () => {
     expect(env.render()).toContain("+0 context");
     env.session.appendMessage(userMessage("request"));
     env.session.appendMessage(measuredResponse(9920));
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()[0]?.metrics.contextGrowth).toBe(4920);
     expect(env.card()).toContain("+4.9k context");
   });
 
-  it("recognizes aborts after the last turn", async () => {
+  it("takes Pi's abort over a last turn that completed", async () => {
     const env = await setup();
     env.runtime.begin(env.ctx);
     env.runtime.boundary(boundary("completed"), env.ctx);
-    env.controller.abort();
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: true }, env.ctx);
     expect(env.snapshots()[0]?.outcome).toBe("aborted");
   });
 
@@ -339,10 +335,10 @@ describe("turn recap runtime", () => {
 
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    const pending = env.runtime.settled(env.ctx);
+    const pending = env.runtime.settled({ aborted: false }, env.ctx);
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 2);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(false);
 
     const [earlier, later] = env.snapshots();
@@ -361,7 +357,7 @@ describe("turn recap runtime", () => {
     const env = await setup(() => response.promise);
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    const completion = env.runtime.settled(env.ctx);
+    const completion = env.runtime.settled({ aborted: false }, env.ctx);
     const cards = env.snapshots();
     env.runtime.shutdown(env.ctx);
     expect(env.stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
@@ -393,7 +389,7 @@ describe("turn recap runtime", () => {
 
       env.runtime.begin(env.ctx);
       appendTurn(env.session, 1);
-      await env.runtime.settled(env.ctx);
+      await env.runtime.settled({ aborted: false }, env.ctx);
       expect(contextUsage).toHaveBeenCalledTimes(2);
       expect(project).toHaveBeenCalledTimes(2);
       expect(env.snapshots()[0]?.metrics.context).toEqual(context);
@@ -414,11 +410,11 @@ describe("turn recap runtime", () => {
     expect(env.auth).not.toHaveBeenCalled();
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.recaps().at(-1)).toMatchObject({ status: "failed", error: "No credentials" });
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 2);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.recaps().at(-1)).toMatchObject({ status: "ready", text: "Authenticated" });
     expect(env.find).toHaveBeenCalledTimes(2);
     expect(env.auth).not.toHaveBeenCalled();
@@ -430,12 +426,12 @@ describe("turn recap runtime", () => {
     env.find.mockReturnValueOnce(undefined);
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.recaps().at(-1)?.status).toBe("failed");
     expect(env.stream).not.toHaveBeenCalled();
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 2);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.recaps().at(-1)).toMatchObject({ status: "ready", text: "Model available" });
   });
 
@@ -446,7 +442,7 @@ describe("turn recap runtime", () => {
     });
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()).toHaveLength(1);
     expect(env.recaps()).toEqual([{ status: "failed", error: "Projection failed" }]);
     expect(env.card()).toContain("Recap unavailable: Projection failed");
@@ -460,7 +456,7 @@ describe("turn recap runtime", () => {
 
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     const recap = env.recaps()[0];
 
     expect(recap?.status === "failed" && Array.from(recap.error).length).toBe(1000);
@@ -477,13 +473,13 @@ describe("turn recap runtime", () => {
 
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
-    const completion = env.runtime.settled(env.ctx);
+    const completion = env.runtime.settled({ aborted: false }, env.ctx);
     await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
     await completion;
     expect(env.card()).toContain("Recap unavailable");
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 2);
-    await env.runtime.settled(env.ctx);
+    await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.card()).toContain("Recovered");
     response.resolve(fauxAssistantMessage("Late"));
     await vi.advanceTimersByTimeAsync(0);
@@ -499,7 +495,7 @@ describe("turn recap runtime", () => {
     await env.runtime.start(ctx);
     env.runtime.begin(ctx);
     vi.advanceTimersByTime(1000);
-    await env.runtime.settled(ctx);
+    await env.runtime.settled({ aborted: false }, ctx);
     expect(env.render()).toBe("");
     expect(env.snapshots()[0]?.wallMs).toBe(1000);
     expect(vi.getTimerCount()).toBe(0);

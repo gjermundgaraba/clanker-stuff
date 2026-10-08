@@ -5,11 +5,15 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import type { Component, ProgramStatus } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { createCustomUiDriver, createKeybindings } from "../../../tests/harness/tui.js";
+import {
+  createCustomUiDriver,
+  createKeybindings,
+  createMockTui,
+} from "../../../tests/harness/tui.js";
 import extension from "../index.js";
 import backgroundTasks from "../../experimental/background-tasks/index.js";
 import { WAKE_TYPE } from "../../experimental/background-tasks/protocol.js";
@@ -48,8 +52,10 @@ async function setup(
   initTheme("dark");
   const dir = mkdtempSync(join(tmpdir(), "question-lifecycle-"));
   let component: Component | undefined;
+  const statuses: ProgramStatus[] = [];
 
   const driver = createCustomUiDriver({
+    tui: createMockTui({ programStatus: statuses }),
     keybindings: keys,
     onComponent: (c) => {
       component = c;
@@ -90,6 +96,7 @@ async function setup(
   return {
     harness,
     select,
+    statuses,
     uiContext,
     press,
     checkpoint,
@@ -204,6 +211,7 @@ describe("durable questionnaires in AgentSession", () => {
         }),
         fauxAssistantMessage("Done"),
       ]);
+      env.harness.session.setSessionName("Deploy");
       const running = env.harness.prompt("Ask a question");
       await expect.poll(() => !!env.component).toBe(true);
       expect(env.component?.render(80).join("\n")).toContain("( ) 1. Local");
@@ -211,6 +219,11 @@ describe("durable questionnaires in AgentSession", () => {
       expect(env.component?.render(80).join("\n")).toContain("Review");
       await env.press("\r");
       await running;
+      // Blocked while the form held the run, then working again as Pi reports it, with the session name.
+      expect(env.statuses).toEqual([
+        { state: "blocked", kind: "question", message: "Deploy target", app: "pi" },
+        { state: "working", message: "Deploy", app: "pi" },
+      ]);
       const result = env.harness.messages().find((m) => m.role === "toolResult");
       expect(result).toMatchObject({
         isError: false,

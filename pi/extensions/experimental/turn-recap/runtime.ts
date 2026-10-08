@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSettledEvent,
+  ExtensionAPI,
+  ExtensionContext,
+  TurnEndEvent,
+} from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
 import type { LiveState, RecapView } from "./card.js";
@@ -27,7 +32,6 @@ interface SessionState {
 interface ActiveRun {
   baseline: string | null;
   timing: ReturnType<typeof createTiming>;
-  signal: AbortSignal | undefined;
   outcome: Snapshot["outcome"];
   metrics: Metrics;
 }
@@ -102,16 +106,11 @@ class TurnRecapRuntime {
 
   begin(ctx: ExtensionContext): void {
     // Retries and queued continuations can emit multiple starts before settling.
-    if (this.#active) {
-      this.#active.signal = ctx.signal;
-
-      return;
-    }
+    if (this.#active) return;
 
     this.#active = {
       baseline: ctx.sessionManager.getLeafId(),
       timing: createTiming(),
-      signal: ctx.signal,
       outcome: "completed",
       metrics: collectMetrics([]),
     };
@@ -144,11 +143,10 @@ class TurnRecapRuntime {
   boundary(event: Pick<TurnEndEvent, "outcome">, ctx: ExtensionContext): void {
     if (!this.#active) return;
     this.#active.outcome = event.outcome;
-    this.#active.signal = ctx.signal ?? this.#active.signal;
     this.refresh(ctx);
   }
 
-  async settled(ctx: ExtensionContext): Promise<void> {
+  async settled(event: Pick<AgentSettledEvent, "aborted">, ctx: ExtensionContext): Promise<void> {
     const config = this.#session?.config;
     const active = this.#active;
 
@@ -161,8 +159,8 @@ class TurnRecapRuntime {
       runId: randomUUID(),
       ...active.timing.read(),
       finishedAt: Date.now(),
-      // An abort during tool execution leaves the last turn "completed".
-      outcome: active.signal?.aborted ? "aborted" : active.outcome,
+      // Pi's flag also covers aborts that leave the last turn "completed", such as during tools.
+      outcome: event.aborted ? "aborted" : active.outcome,
       metrics: active.metrics,
     };
 

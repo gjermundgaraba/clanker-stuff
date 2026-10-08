@@ -1,4 +1,4 @@
-import type { Usage } from "@earendil-works/pi-ai";
+import type { ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -35,6 +35,10 @@ export const MetricsSchema = Type.Object(
     models: Type.Array(Type.String()),
     /** Context the run added, from reported sizes. */
     contextGrowth: count,
+    /** Time the run's responses took, end to end. */
+    modelMs: amount,
+    /** Time at least one tool was running; parallel calls count once. */
+    toolMs: amount,
     /** Pi's current context estimate, for the window details. */
     context: Type.Optional(
       Type.Object(
@@ -125,6 +129,30 @@ const contextGrowth = (branch: readonly SessionEntry[], runStart: number): numbe
 };
 
 /**
+ * Merges each tool's execution, placed to end at its result's timestamp, into the time any tool
+ * ran. Pi stamps a parallel batch's results once the whole batch ends, and its calls start
+ * together, so this counts each parallel batch's longest call and adds up calls run one at a
+ * time. Results Pi did not time add nothing.
+ */
+const toolTime = (results: readonly ToolResultMessage[]): number => {
+  const spans = results
+    .flatMap(({ durationMs, timestamp }) =>
+      durationMs === undefined ? [] : [{ start: timestamp - durationMs, end: timestamp }],
+    )
+    .sort((a, b) => a.start - b.start);
+
+  let total = 0;
+  let reached = -Infinity;
+
+  for (const { start, end } of spans) {
+    total += Math.max(0, end - Math.max(start, reached));
+    reached = Math.max(reached, end);
+  }
+
+  return total;
+};
+
+/**
  * Counts the run from `runStart` in raw branch entries, not projected context: edits/compaction
  * cannot erase spent usage. Earlier entries only supply the context the run started from.
  * Tool counts include calls a tool made itself, such as Code Mode's: Pi records them at every
@@ -138,6 +166,8 @@ export const collectMetrics = (branch: readonly SessionEntry[], runStart = 0): M
   let toolErrors = 0;
   let responses = 0;
   let compactions = 0;
+  let modelMs = 0;
+  const toolResults: ToolResultMessage[] = [];
 
   for (const entry of entries) {
     if (entry.type === "message") {
@@ -145,10 +175,13 @@ export const collectMetrics = (branch: readonly SessionEntry[], runStart = 0): M
 
       if (message.role === "assistant") {
         responses += 1;
+        modelMs += message.durationMs ?? 0;
         addUsage(usage, message.usage);
         models.add(`${message.provider}/${message.responseModel ?? message.model}`);
         toolCalls += message.content.filter((block) => block.type === "toolCall").length;
       } else if (message.role === "toolResult") {
+        toolResults.push(message);
+
         if (message.isError) toolErrors += 1;
         const nested = message.nestedCalls?.calls ?? [];
         toolCalls += nested.length;
@@ -174,5 +207,7 @@ export const collectMetrics = (branch: readonly SessionEntry[], runStart = 0): M
     compactions,
     models: [...models],
     contextGrowth: contextGrowth(branch, runStart),
+    modelMs,
+    toolMs: toolTime(toolResults),
   };
 };

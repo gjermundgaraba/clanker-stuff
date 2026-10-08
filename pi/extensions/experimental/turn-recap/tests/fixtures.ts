@@ -167,6 +167,8 @@ export const snapshot = (): import("../entry.js").Snapshot => ({
     compactions: 1,
     models: ["provider/model"],
     contextGrowth: 400,
+    modelMs: 900,
+    toolMs: 400,
     context: { tokens: 1000, contextWindow: 10000, percent: 10 },
   },
 });

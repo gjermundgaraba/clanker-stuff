@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Pi coding agent CLI
 
-Use `pi -p` from the intended repo for one-shot work. Check `pi --help` for installed flags and `pi --list-models <search>` for provider availability. MCP controls below follow Pi 1.0.4; older installations may differ. If PATH differs in a non-login shell, resolve the intended binary through the user's Node setup; do not substitute a different installation silently.
+Use `pi -p` from the intended repo for one-shot work. Check `pi --help` for installed flags and `pi --list-models <search>` for provider availability. MCP controls below follow Pi 1.1.0; older installations may differ. If PATH differs in a non-login shell, resolve the intended binary through the user's Node setup; do not substitute a different installation silently.
 
 Always pass `--model`, preserving these preferences unless the user chooses otherwise:
 

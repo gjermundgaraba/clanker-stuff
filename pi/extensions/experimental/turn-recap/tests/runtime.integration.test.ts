@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
@@ -215,6 +216,63 @@ describe("real Pi run boundaries", () => {
     expect(env.eventsOfType("agent_start")).toHaveLength(2);
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]).toMatchObject({ outcome: "completed", metrics: { responses: 2 } });
+  });
+
+  it("records an abort during the retry delay, after the last turn failed", async () => {
+    const env = await setup([], {
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 60_000 },
+    });
+
+    const waiting = Promise.withResolvers<void>();
+
+    const unsubscribe = env.session.subscribe((event) => {
+      if (event.type === "auto_retry_start") waiting.resolve();
+    });
+
+    onTestFinished(unsubscribe);
+    env.setResponses([
+      fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded" }),
+    ]);
+    const running = env.prompt("Retry");
+    await waiting.promise;
+    await env.session.abort();
+    await running;
+    expect(env.snapshots()).toHaveLength(1);
+    expect(env.snapshots()[0]?.outcome).toBe("aborted");
+  });
+
+  it("records the time Pi measured for responses and tools", async () => {
+    const env = await setup([
+      (pi) => {
+        pi.registerTool({
+          name: "slow",
+          label: "Slow",
+          description: "Test tool",
+          parameters: Type.Object({}),
+          execute: async () => {
+            await delay(40);
+
+            return { content: [{ type: "text", text: "ok" }], details: {} };
+          },
+        });
+      },
+    ]);
+
+    env.setResponses([
+      async () => {
+        await delay(40);
+
+        return fauxAssistantMessage([fauxToolCall("slow", {})]);
+      },
+      fauxAssistantMessage("Done"),
+    ]);
+    await env.prompt("Work");
+    const metrics = env.snapshots()[0]?.metrics;
+    expect(metrics?.modelMs).toBeGreaterThanOrEqual(35);
+    expect(metrics?.toolMs).toBeGreaterThanOrEqual(35);
+    expect((metrics?.modelMs ?? 0) + (metrics?.toolMs ?? 0)).toBeLessThanOrEqual(
+      env.snapshots()[0]?.wallMs ?? 0,
+    );
   });
 
   it("does not freeze the card at an actionable boundary that requests continuation", async () => {

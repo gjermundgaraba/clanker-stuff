@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, expect, it } from "vite-plus/test";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
+import { toolRenderContext } from "../../../tests/harness/tool-rendering.js";
 import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
 import { answerEnvelope, answerMessage, answerResult } from "../delivery.js";
@@ -26,20 +27,7 @@ const request = {
 
 const theme = createIdentityTheme();
 
-const context = {
-  args: request,
-  toolCallId: "test",
-  invalidate: () => {},
-  lastComponent: undefined,
-  state: {},
-  cwd: "/tmp",
-  executionStarted: true,
-  argsComplete: true,
-  isPartial: false,
-  expanded: false,
-  showImages: false,
-  isError: false,
-};
+const context = { ...toolRenderContext({ toolCallId: "test" }), args: request };
 
 describe("compact questionnaire transcript", () => {
   it("renders exact answer messages from their own envelope, leaving any other text verbatim", () => {

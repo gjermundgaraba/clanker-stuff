@@ -13,6 +13,7 @@ import {
   type OverlayHandle,
   type OverlayOptions,
   type OverlayUnfocusOptions,
+  type ProgramStatus,
   type TUI,
 } from "@earendil-works/pi-tui";
 
@@ -44,6 +45,8 @@ type CustomUiFactory<T> = (
 
 interface MockTuiOptions {
   rows?: number;
+  /** Receives every Program Status report written to the terminal. */
+  programStatus?: ProgramStatus[];
 }
 
 interface CustomUiDriverOptions {
@@ -141,7 +144,12 @@ export const createMockTui = (options: MockTuiOptions = {}): TUI => {
 
       return handle;
     },
-    terminal: { rows: options.rows ?? 40 },
+    terminal: {
+      rows: options.rows ?? 40,
+      setProgramStatus(status: ProgramStatus) {
+        options.programStatus?.push(status);
+      },
+    },
   };
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test UI implements only overlay ownership and invalidation; no terminal renderer is started.

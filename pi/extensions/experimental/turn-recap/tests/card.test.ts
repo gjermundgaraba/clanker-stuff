@@ -90,10 +90,12 @@ describe("transcript card", () => {
     expect(detailed).toContain("Recap only: 370 tokens · $0.3300 reported (excluded above)");
     expect(detailed).toContain("Input 100 · Output 50 · Cache read 200 · Cache write 20");
     expect(detailed).toContain("2 responses · 1 tool errors\n");
+    expect(detailed).toContain("Model 0.9s · Tools 0.4s\n");
     expect(detailed).toMatch(/\n {2}Started \d/u);
     expect(detailed).toContain("Models: provider/model");
     expect(detailed.match(/context/giu)).toHaveLength(1);
     expect(card(data).join("\n")).not.toContain("Reported cost");
+    expect(card(data).join("\n")).not.toContain("Model 0.9s");
   });
 
   it("names a single tool call in the singular", () => {

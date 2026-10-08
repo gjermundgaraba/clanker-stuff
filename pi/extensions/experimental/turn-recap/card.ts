@@ -187,6 +187,12 @@ export const renderCard = (
     ),
   );
   add(theme.fg("muted", `${metrics.responses} responses · ${metrics.toolErrors} tool errors`));
+  add(
+    theme.fg(
+      "muted",
+      `Model ${formatElapsed(metrics.modelMs)} · Tools ${formatElapsed(metrics.toolMs)}`,
+    ),
+  );
   add(theme.fg("muted", `Started ${clock(snapshot.startedAt)}`));
 
   if (metrics.models.length > 0)

@@ -160,6 +160,38 @@ describe("run metrics", () => {
     expect(collectMetrics(session.getBranch())).toMatchObject({ toolCalls: 4, toolErrors: 1 });
   });
 
+  it("sums response time and merges overlapping tool time, from the run's start", () => {
+    const session = SessionManager.inMemory();
+    session.appendMessage({ ...fauxAssistantMessage("before"), durationMs: 5000 });
+    const runStart = session.getBranch().length;
+    session.appendMessage({ ...fauxAssistantMessage("timed"), durationMs: 1200 });
+    session.appendMessage(fauxAssistantMessage("untimed"));
+
+    const result = (id: string, timestamp: number, durationMs?: number) =>
+      session.appendMessage({
+        role: "toolResult",
+        toolName: "test",
+        toolCallId: id,
+        content: [],
+        isError: false,
+        timestamp,
+        ...(durationMs === undefined ? {} : { durationMs }),
+      });
+
+    // A parallel batch ends at 10s, its results stamped together, the last a little later.
+    result("long", 10_000, 3000);
+    result("short", 10_002, 1000);
+    // Then two calls run one at a time.
+    result("first", 11_000, 500);
+    result("second", 11_800, 800);
+    result("untimed", 12_000);
+
+    expect(collectMetrics(session.getBranch(), runStart)).toMatchObject({
+      modelMs: 1200,
+      toolMs: 4302,
+    });
+  });
+
   it("keeps unknown reasoning distinct from a reported zero", () => {
     const session = SessionManager.inMemory();
     const usage = sampleUsage();

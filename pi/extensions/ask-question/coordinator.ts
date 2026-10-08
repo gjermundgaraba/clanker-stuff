@@ -122,7 +122,6 @@ export class Coordinator {
 
     const lifetime = this.lifetime.signal;
     this.blocking.add(item.id);
-    this.pi.events.emit("herdr:blocked", { active: true, label: "Waiting for answers" });
 
     try {
       const result = await this.open(item.id, ctx, signal);
@@ -151,7 +150,6 @@ export class Coordinator {
       };
     } finally {
       this.blocking.delete(item.id);
-      this.pi.events.emit("herdr:blocked", { active: false });
     }
   }
   async open(id: string, ctx: ExtensionContext, runSignal?: AbortSignal) {

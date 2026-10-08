@@ -22,8 +22,8 @@ export default function turnRecapExtension(pi: ExtensionAPI): void {
   });
   pi.on("turn_end", (event, ctx) => runtime.boundary(event, ctx));
   pi.on("session_compact", (_event, ctx) => runtime.refresh(ctx));
-  pi.on("agent_settled", (_event, ctx) => {
-    void runtime.settled(ctx).catch((error: unknown) => {
+  pi.on("agent_settled", (event, ctx) => {
+    void runtime.settled(event, ctx).catch((error: unknown) => {
       ctx.ui.notify(`Turn recap failed: ${errorText(error)}`, "error");
     });
   });

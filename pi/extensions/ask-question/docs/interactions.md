@@ -123,3 +123,5 @@ Changing an answer cannot undo actions already performed. The agent must reconsi
 ## Inbox indicator
 
 While questionnaires need you, a widget above the editor counts them, and the footer status `ask-question` shows a mail icon with the same count. Drafts and unsent answers count; sent or cancelled questionnaires do not. Opening the inbox does not clear the indicator. Press Alt+I or use `/answers` to open the inbox.
+
+Terminals that read Pi's program status (OSC 7501), such as Herdr, see Pi as blocked on a question while a blocking questionnaire is open.
