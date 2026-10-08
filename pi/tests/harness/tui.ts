@@ -3,6 +3,7 @@ import type {
   ExtensionUIContext,
   KeybindingsManager,
   Theme,
+  ThemeAppearance,
 } from "@earendil-works/pi-coding-agent";
 import {
   Loader,
@@ -91,8 +92,9 @@ const createOverlayHandle = (remove?: () => void): OverlayHandle => {
   };
 };
 
-export const createIdentityTheme = (): Theme => {
+export const createIdentityTheme = (appearance: ThemeAppearance = "dark"): Theme => {
   const theme = {
+    appearance,
     bg: (_color: string, text: string) => text,
     bold: (text: string) => text,
     fg: (_color: string, text: string) => text,

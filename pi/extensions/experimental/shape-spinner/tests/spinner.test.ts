@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import manifest from "../assets/shapes.json" with { type: "json" };
 import { rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { manifest, RUBIK, wireframe } from "@clanker-stuff/pi-shape-glyphs";
+import type { Animation } from "@clanker-stuff/pi-shape-glyphs";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionCommandContext,
   ExtensionContext,
   ThemeAppearance,
 } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -19,9 +19,7 @@ import type { Config } from "../config.js";
 import extension from "../index.js";
 import { settingRows, styleFor } from "../spinner.js";
 
-type Animation = typeof manifest.rubik;
-
-const glyph = (codepoint: number) => `${String.fromCodePoint(codepoint)} `;
+type Loop = typeof manifest.rubik;
 
 const down = "\u001B[B";
 
@@ -29,15 +27,9 @@ const space = " ";
 
 const escape = "\u001B";
 
-const framesOf = (
-  shape: keyof typeof manifest.animations,
-  color: keyof typeof manifest.animations.orb,
-  background: ThemeAppearance = "dark",
-) => manifest.animations[shape][color][background];
+const looped = (animation: Animation) => ({ frames: animation.frames, intervalMs: 20 });
 
-const looped = (animation: Animation) => ({ frames: animation.frames.map(glyph), intervalMs: 20 });
-
-const resting = (animation: Animation) => ({ frames: [glyph(animation.still)], intervalMs: 20 });
+const resting = (animation: Animation) => ({ frames: [animation.still], intervalMs: 20 });
 
 function setup(mode: ExtensionContext["mode"] = "tui") {
   initTheme("dark");
@@ -54,7 +46,7 @@ function setup(mode: ExtensionContext["mode"] = "tui") {
       ui: {
         custom: driver.custom,
         setWorkingIndicator,
-        theme: Object.assign(createIdentityTheme(), { appearance }),
+        theme: createIdentityTheme(appearance),
       },
     });
 
@@ -107,7 +99,9 @@ describe("shape spinner", () => {
     await host.emitSessionStart(ctx);
     expect([...host.getRegisteredCommands().keys()]).toEqual(["shape-spinner"]);
     expect(host.getRegisteredTools()).toHaveLength(0);
-    expect(setWorkingIndicator).toHaveBeenCalledExactlyOnceWith(looped(framesOf("orb", "cyan")));
+    expect(setWorkingIndicator).toHaveBeenCalledExactlyOnceWith(
+      looped(wireframe("orb", "cyan", "dark")),
+    );
     await host.emit("agent_start", { type: "agent_start" }, ctx);
     expect(setWorkingIndicator).toHaveBeenCalledTimes(2);
     expect(host.getEditorFactory()).toBeUndefined();
@@ -130,23 +124,23 @@ describe("shape spinner", () => {
   it("inks wireframes for the theme's background, following a switch on the next run", async () => {
     const { context, host, setWorkingIndicator } = setup();
     await host.emitSessionStart(context("light"));
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(framesOf("orb", "cyan", "light")));
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(wireframe("orb", "cyan", "light")));
     await host.emit("agent_start", { type: "agent_start" }, context("dark"));
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(framesOf("orb", "cyan", "dark")));
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(wireframe("orb", "cyan", "dark")));
   });
 
   it("rests on the closing pose in static motion", () => {
     const config = edit(defaultConfig(), { motion: "static", shape: "cube" });
 
-    expect(styleFor(config, "dark")).toStrictEqual(resting(framesOf("cube", "cyan")));
+    expect(styleFor(config, "dark")).toStrictEqual(resting(wireframe("cube", "cyan", "dark")));
   });
 
   it("keeps the puzzle's stickers but remembers the color for the next wireframe", () => {
     const config = edit(defaultConfig(), { color: "red", shape: "rubik" });
 
-    expect(styleFor(config, "light")).toStrictEqual(looped(manifest.rubik));
+    expect(styleFor(config, "light")).toStrictEqual(looped(RUBIK));
     edit(config, { shape: "cube" });
-    expect(styleFor(config, "dark")).toStrictEqual(looped(framesOf("cube", "red")));
+    expect(styleFor(config, "dark")).toStrictEqual(looped(wireframe("cube", "red", "dark")));
   });
 
   it("ignores values a row does not offer", () => {
@@ -172,15 +166,19 @@ describe("shape spinner", () => {
 
     // Motion is the first row; the shape is the row below it.
     dialog.press(space);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(resting(framesOf("orb", "cyan")));
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(resting(wireframe("orb", "cyan", "dark")));
     dialog.press(down, space);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(resting(framesOf("cube", "cyan")));
-    expect(dialog.render()).toContain(`${glyph(framesOf("cube", "cyan").still)} cube · cyan`);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(
+      resting(wireframe("cube", "cyan", "dark")),
+    );
+    expect(dialog.render()).toContain(`${wireframe("cube", "cyan", "dark").still} cube · cyan`);
     await dialog.close();
 
     const reloaded = createExtensionHost(extension);
     await reloaded.emitSessionStart(ctx, "reload");
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(resting(framesOf("cube", "cyan")));
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(
+      resting(wireframe("cube", "cyan", "dark")),
+    );
   });
 
   it("previews the configured spinner, mapping, and font path in the dialog", async () => {
@@ -191,7 +189,9 @@ describe("shape spinner", () => {
 
     expect(line).toContain("orb · cyan");
     // Previews animate, so any frame of the loop may be showing.
-    expect(framesOf("orb", "cyan").frames.some((frame) => line?.includes(glyph(frame)))).toBe(true);
+    expect(wireframe("orb", "cyan", "dark").frames.some((frame) => line?.includes(frame))).toBe(
+      true,
+    );
     expect(rendered).toMatch(
       new RegExp(`Ghostty: font-codepoint-map = U\\+[0-9A-F]+-U\\+[0-9A-F]+=${manifest.family}`),
     );
@@ -204,7 +204,7 @@ describe("shape spinner", () => {
     await dialog.close();
   });
 
-  it("bundles complete, two-column loops and distinct resting poses in its own PUA bank", () => {
+  it("bundles complete loops and distinct resting poses in its own PUA bank", () => {
     expect(manifest.family).toMatch(/^Shape Spinner [a-f0-9]{10}$/);
     expect(manifest.fps).toBe(50);
     expect(Number.isInteger(1000 / manifest.fps)).toBe(true);
@@ -215,7 +215,7 @@ describe("shape spinner", () => {
       new Set(shapes.filter((shape) => shape !== "rubik")),
     );
     expect(new Set(Object.keys(manifest.inks))).toEqual(new Set(colors));
-    const loops: [string, Animation][] = [["rubik", manifest.rubik]];
+    const loops: [string, Loop][] = [["rubik", manifest.rubik]];
 
     for (const [shape, byColor] of Object.entries(manifest.animations)) {
       expect(new Set(Object.keys(byColor))).toEqual(new Set(Object.keys(manifest.inks)));
@@ -245,7 +245,6 @@ describe("shape spinner", () => {
         expect(Number.isInteger(codepoint)).toBe(true);
         expect(codepoint).toBeGreaterThanOrEqual(0x100000);
         expect(codepoint).toBeLessThanOrEqual(0x10fffd);
-        expect(visibleWidth(glyph(codepoint))).toBe(2);
       }
     }
   });

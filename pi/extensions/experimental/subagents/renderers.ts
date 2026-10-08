@@ -1,11 +1,23 @@
 /** Presentation only. Stored calls and results from retired tool shapes fall back to sanitized text. */
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import { displayText as clean, inlineText } from "@clanker-stuff/pi-tool-rendering/text";
-import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import type { MessageRenderer, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
+
+import { isAgentPath, MailDetailsSchema, readEnvelope } from "./protocol.js";
+import {
+  agentName,
+  contentText,
+  isDisplayStatus,
+  statusGlyph,
+  statusTone,
+  treeRows,
+} from "./ui/format.js";
+import type { DisplayStatus } from "./ui/format.js";
 
 // Open display contracts tolerate new wire fields without interpreting them.
 const StatusSchema = Type.Union([
@@ -49,22 +61,55 @@ type Renderers = Required<Pick<ToolDefinition, "renderCall" | "renderResult">>;
 
 const inline = (value: string | undefined) => inlineText(value ?? "");
 
-const status = (value: AgentStatus, theme: Theme): string => {
-  if (typeof value !== "string") {
-    return "completed" in value
-      ? theme.fg("success", "✓ completed")
-      : theme.fg("error", "✗ errored");
-  }
+/** How a reported status looks; a string this version does not know looks stopped. */
+const displayStatus = (value: AgentStatus): DisplayStatus => {
+  if (typeof value !== "string") return "completed" in value ? "completed" : "errored";
 
-  const label = inline(value).replaceAll("_", " ");
-
-  if (value === "running") return theme.fg("accent", `● ${label}`);
-
-  if (value === "not_found") return theme.fg("error", `✗ ${label}`);
-
-  return theme.fg("muted", `■ ${label}`);
+  return isDisplayStatus(value) ? value : "interrupted";
 };
 
+const status = (value: AgentStatus, theme: Theme): string => {
+  const shown = displayStatus(value);
+  const label = typeof value === "string" ? inline(value).replaceAll("_", " ") : shown;
+
+  return `${statusGlyph(theme, shown)} ${theme.fg(statusTone(shown), label)}`;
+};
+
+const statusDetail = (value: AgentStatus): string => {
+  if (typeof value === "string") return "";
+
+  return "completed" in value ? (value.completed ?? "") : value.errored;
+};
+
+/** The connectors that continue below a row, for lines that belong to it. */
+const continuation = (prefix: string): string =>
+  prefix.replace(/[├└]─ $/u, (end) => (end.startsWith("├") ? "│  " : "   "));
+
+const listing = (
+  theme: Theme,
+  agents: readonly { agent_status: AgentStatus; path: string }[],
+  expanded: boolean,
+): string[] =>
+  treeRows(agents).flatMap((row) => {
+    const prefix = theme.fg("dim", row.prefix);
+    const name = inline(agentName(row.path));
+
+    // An ancestor outside a scoped listing only anchors the rows below it.
+    if (row.item === undefined) return [`${prefix}${theme.fg("muted", name)}`];
+    const head = `${prefix}${theme.fg("accent", name)} ${status(row.item.agent_status, theme)}`;
+    const detail = clean(statusDetail(row.item.agent_status));
+
+    if (!expanded || detail === "") return [head];
+
+    const tone =
+      statusTone(displayStatus(row.item.agent_status)) === "error" ? "error" : "toolOutput";
+
+    const indent = theme.fg("dim", `${continuation(row.prefix)}  `);
+
+    return [head, ...detail.split("\n").map((line) => `${indent}${theme.fg(tone, line)}`)];
+  });
+
+/** How the collaboration tools draw, in transcripts too. */
 export const agentRenderers = (name: string): Renderers => ({
   renderCall(args, theme, context) {
     const data = Value.Check(CallDisplaySchema, args) ? args : {};
@@ -103,10 +148,7 @@ export const agentRenderers = (name: string): Renderers => ({
     );
   },
   renderResult(result, options, theme, context) {
-    const text = result.content
-      .filter((item) => item.type === "text")
-      .map((item) => item.text)
-      .join("\n");
+    const text = contentText(result.content);
 
     const output = new Container();
 
@@ -125,9 +167,14 @@ export const agentRenderers = (name: string): Renderers => ({
       return output;
     }
 
+    const args = Value.Check(CallDisplaySchema, context.args) ? context.args : {};
+    // The call line already names the target in accent; a result row naming it again uses text.
+    const target = args.target === undefined ? "" : ` ${theme.fg("text", inline(args.target))}`;
+
     if (!text && (name === "send_message" || name === "followup_task")) {
-      add(() =>
-        theme.fg("success", name === "send_message" ? "✓ Message queued" : "✓ Follow-up submitted"),
+      add(
+        () =>
+          `${theme.fg("success", name === "send_message" ? "✓ Message queued" : "✓ Follow-up submitted")}${target}`,
       );
 
       return output;
@@ -147,19 +194,6 @@ export const agentRenderers = (name: string): Renderers => ({
 
     const data = parsed;
 
-    const addStatus = (value: AgentStatus, target: string, prefix = "") => {
-      add(
-        () =>
-          `${prefix ? theme.fg("muted", prefix) : ""}${target ? `${theme.fg("accent", inline(target))} · ` : ""}${status(value, theme)}`,
-      );
-
-      if (typeof value === "string") return;
-
-      const detail = "completed" in value ? clean(value.completed ?? "") : clean(value.errored);
-
-      if (detail) add(() => theme.fg("errored" in value ? "error" : "toolOutput", detail));
-    };
-
     if (name === "spawn_agent" && data.task_name !== undefined) {
       const task = data.task_name;
       add(() => `${theme.fg("success", "✓ Spawned")} ${theme.fg("accent", inline(task))}`);
@@ -173,34 +207,41 @@ export const agentRenderers = (name: string): Renderers => ({
       if (settings.length > 0) add(() => theme.fg("muted", settings.join(" · ")));
     } else if (data.previous_status !== undefined) {
       // The previous status is not the target's current state.
-      addStatus(data.previous_status, "", "Previous status · ");
+      const previous = data.previous_status;
+
+      add(() =>
+        [
+          previous === "running"
+            ? `${theme.fg("muted", "■ Interrupted")}${target}`
+            : `${theme.fg("muted", "Nothing to interrupt")}${target}`,
+          theme.fg("dim", " · "),
+          theme.fg("muted", "was "),
+          status(previous, theme),
+        ].join(""),
+      );
     } else if (name === "wait_agent" && data.timed_out !== undefined) {
       add(() =>
-        theme.fg(
-          data.timed_out === true ? "muted" : "success",
-          data.timed_out === true ? "Wait timed out" : "✓ Activity received",
-        ),
+        data.timed_out === true
+          ? theme.fg("muted", "◷ Wait timed out")
+          : theme.fg("success", "✓ Activity received"),
       );
 
-      if (data.message !== undefined) add(() => theme.fg("toolOutput", clean(data.message ?? "")));
+      if (data.message !== undefined) add(() => theme.fg("muted", clean(data.message ?? "")));
     } else if (data.agents !== undefined) {
-      const agents = data.agents;
-      add(() => theme.fg("muted", `${agents.length} agents`));
+      const agents = data.agents.map((agent) => ({ ...agent, path: agent.agent_name }));
 
-      if (options.expanded) {
-        for (const agent of agents) addStatus(agent.agent_status, agent.agent_name);
-      } else {
-        add(
-          () =>
-            agents
-              .map(
-                (agent) =>
-                  `${theme.fg("accent", inline(agent.agent_name))} · ${status(agent.agent_status, theme)}`,
-              )
-              .join("\n"),
-          8,
-        );
-      }
+      // The listing draws as the tree its canonical paths describe; anything else is shown as text.
+      if (!agents.every((agent) => isAgentPath(agent.path))) return raw();
+
+      add(() => {
+        const running = agents.filter((agent) => agent.agent_status === "running").length;
+
+        return `${theme.fg("muted", `${agents.length} agents`)}${
+          running > 0 ? `${theme.fg("dim", " · ")}${theme.fg("accent", `${running} running`)}` : ""
+        }`;
+      });
+
+      if (agents.length > 0) add(() => listing(theme, agents, options.expanded).join("\n"), 8);
     } else {
       return raw();
     }
@@ -208,3 +249,50 @@ export const agentRenderers = (name: string): Renderers => ({
     return output;
   },
 });
+
+/** Rows of a final answer or task a card shows before the expand hint; messages show fewer. */
+const PREVIEW_ROWS = { FINAL_ANSWER: 6, MESSAGE: 2, NEW_TASK: 6 } as const;
+
+/**
+ * Mail as a card: a final answer naming its sender and outcome, a task steered into a running turn,
+ * or a quieter note for a message. The model receives the envelope text either way.
+ */
+export const mailRenderer: MessageRenderer = (message, options, theme) => {
+  const text = contentText(message.content);
+
+  const envelope = readEnvelope(text);
+
+  if (envelope === undefined)
+    return new Text(theme.fg("toolOutput", clean(text)), options.outputPad, 0);
+  const sender = theme.bold(inline(agentName(envelope.from)));
+  let heading: string;
+
+  if (envelope.kind === "NEW_TASK") heading = `${theme.fg("muted", "▸ task from")} ${sender}`;
+  else if (envelope.kind === "MESSAGE")
+    heading = `${theme.fg("muted", "✉ message from")} ${sender}`;
+  else if (Value.Check(MailDetailsSchema, message.details) && message.details.failed === true)
+    heading = `${theme.fg("error", "✗")} ${sender} ${theme.fg("error", "failed")}`;
+  else heading = `${theme.fg("success", "✓")} ${sender} ${theme.fg("muted", "finished")}`;
+
+  const box = new Box(options.outputPad, 0);
+  box.addChild(
+    new Text(
+      `${heading}${theme.fg("dim", " · ")}${theme.fg("muted", inline(envelope.from))}`,
+      0,
+      0,
+    ),
+  );
+  const body = clean(envelope.content).trim();
+
+  if (body !== "") {
+    box.addChild(
+      preview(
+        () => new Markdown(body, 2, 0, getMarkdownTheme()),
+        options.expanded,
+        PREVIEW_ROWS[envelope.kind],
+      ),
+    );
+  }
+
+  return box;
+};

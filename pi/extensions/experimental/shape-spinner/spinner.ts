@@ -1,14 +1,11 @@
 import { fileURLToPath } from "node:url";
-import manifest from "./assets/shapes.json" with { type: "json" };
 
 import type { ExtensionContext, ThemeAppearance } from "@earendil-works/pi-coding-agent";
 
 import { colors, defaultConfig, loadConfig, motions, saveConfig, shapes } from "./config.js";
 import type { Config } from "./config.js";
+import { FRAME_INTERVAL_MS, manifest, RUBIK, wireframe } from "@clanker-stuff/pi-shape-glyphs";
 import { openSettings } from "./settings.js";
-
-// The unmapped space reserves a second terminal column for the square artwork.
-const glyph = (codepoint: number): string => `${String.fromCodePoint(codepoint)} `;
 
 const loops = [
   manifest.rubik,
@@ -27,21 +24,17 @@ const mapping = `font-codepoint-map = ${range}=${manifest.family}`;
 
 const fontPath = fileURLToPath(new URL("./assets/ShapeSpinner.ttf", import.meta.url));
 
-const frameIntervalMs = 1000 / manifest.fps;
-
 /** Pi's working indicator for a look, with wireframe ink for the theme's background. */
 export const styleFor = (
   config: Config,
   appearance: ThemeAppearance,
 ): { frames: string[]; intervalMs: number } => {
   const animation =
-    config.shape === "rubik"
-      ? manifest.rubik
-      : manifest.animations[config.shape][config.color][appearance];
+    config.shape === "rubik" ? RUBIK : wireframe(config.shape, config.color, appearance);
 
   return {
-    frames: (config.motion === "static" ? [animation.still] : animation.frames).map(glyph),
-    intervalMs: frameIntervalMs,
+    frames: config.motion === "static" ? [animation.still] : [...animation.frames],
+    intervalMs: FRAME_INTERVAL_MS,
   };
 };
 
@@ -115,7 +108,7 @@ export function createSpinner() {
 
     await openSettings(ctx, {
       footer: [`Ghostty: ${mapping}`, `Font: ${fontPath}`],
-      intervalMs: frameIntervalMs,
+      intervalMs: FRAME_INTERVAL_MS,
       items: rows.map((row) => ({
         currentValue: row.get(),
         description: row.description,

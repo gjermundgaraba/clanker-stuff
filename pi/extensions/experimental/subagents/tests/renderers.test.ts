@@ -8,7 +8,10 @@ import {
   renderedRows,
   toolRenderContext,
 } from "../../../../tests/harness/tool-rendering.js";
-import { agentRenderers } from "../renderers.js";
+import { errorCompletion } from "../prompts.js";
+import { envelopeText, SUBAGENT_MESSAGE_TYPE } from "../protocol.js";
+import type { Envelope } from "../protocol.js";
+import { agentRenderers, mailRenderer } from "../renderers.js";
 
 const theme = createIdentityTheme();
 
@@ -23,7 +26,7 @@ const render = (name: string, value: JsonValue, expanded = false) =>
 beforeAll(() => initTheme("dark"));
 
 describe("agent presentation", () => {
-  it("refreshes the previous-status prefix along with the status on invalidation", () => {
+  it("refreshes the interrupt summary along with the status on invalidation", () => {
     const changing = createIdentityTheme();
     let color = "\x1b[31m";
     changing.fg = (_name, value) => color + value + "\x1b[0m";
@@ -35,11 +38,11 @@ describe("agent presentation", () => {
       toolRenderContext(),
     );
 
-    expect(component.render(80).join("\n")).toContain("\x1b[31mPrevious status");
+    expect(component.render(80).join("\n")).toContain("\x1b[31m■ Interrupted");
     color = "\x1b[32m";
     component.invalidate();
     const refreshed = component.render(80).join("\n");
-    expect(refreshed).toContain("\x1b[32mPrevious status");
+    expect(refreshed).toContain("\x1b[32m■ Interrupted");
     expect(refreshed).not.toContain("\x1b[31m");
   });
   it.each([false, true])(
@@ -102,7 +105,7 @@ describe("agent presentation", () => {
     expect(rows).toEqual(["✓ Spawned /root/review", "model provider/child forged · thinking high"]);
   });
   it("renders queued acknowledgements without inventing completion", () => {
-    for (const name of ["send_message", "followup_task"]) {
+    for (const name of ["send_message", "followup_task"] as const) {
       const result = { content: [{ type: "text" as const, text: "" }], details: {} };
 
       const text = renderedRows(
@@ -131,11 +134,11 @@ describe("agent presentation", () => {
   });
   it("distinguishes previous status and wait activity from completion", () => {
     expect(renderedRows(render("interrupt_agent", { previous_status: "running" })).join("\n")).toBe(
-      "Previous status · ● running",
+      "■ Interrupted · was ● running",
     );
     expect(
       renderedRows(render("interrupt_agent", { previous_status: "not_found" })).join("\n"),
-    ).toBe("Previous status · ✗ not found");
+    ).toBe("Nothing to interrupt · was ✗ not found");
     expect(
       renderedRows(
         render("wait_agent", { message: "Wait interrupted by new input.", timed_out: false }),
@@ -143,7 +146,7 @@ describe("agent presentation", () => {
     ).toStrictEqual(["✓ Activity received", "Wait interrupted by new input."]);
     expect(
       renderedRows(render("wait_agent", { message: "Wait timed out.", timed_out: true })),
-    ).toStrictEqual(["Wait timed out", "Wait timed out."]);
+    ).toStrictEqual(["◷ Wait timed out", "Wait timed out."]);
   });
   it("bounds agent lists and shows stored answer detail when expanded", () => {
     const value = {
@@ -157,7 +160,7 @@ describe("agent presentation", () => {
     expect(collapsed.length).toBeLessThanOrEqual(10);
     expect(collapsed.join("\n")).not.toContain("Detailed answer");
     const expandedRows = renderedRows(render("list_agents", value, true));
-    expect(expandedRows).toHaveLength(41); // Count, then one status and one answer per agent.
+    expect(expandedRows).toHaveLength(42); // Count, root, then one status and one answer per agent.
     const expanded = expandedRows.join("\n");
     expect(expanded).toContain("worker_19");
     expect(expanded).toContain("Detailed answer");
@@ -174,18 +177,85 @@ describe("agent presentation", () => {
     ];
 
     expect(renderedRows(render("list_agents", { agents }, true))).toEqual([
-      "7 agents",
-      "/root/running · ● running",
-      "/root/done · ✓ completed",
-      "Answer",
-      "/root/null · ✓ completed",
-      "/root/empty · ✓ completed",
-      "/root/error · ✗ errored",
-      "Failure",
-      "/root/blank_error · ✗ errored",
-      "/root/stopped · ■ interrupted",
+      "7 agents · 1 running",
+      "root",
+      "├─ running ● running",
+      "├─ done ✓ completed",
+      "│    Answer",
+      "├─ null ✓ completed",
+      "├─ empty ✓ completed",
+      "├─ error ✗ errored",
+      "│    Failure",
+      "├─ blank_error ✗ errored",
+      "└─ stopped ■ interrupted",
     ]);
     expect(renderedRows(render("list_agents", { agents: [] }, true))).toEqual(["0 agents"]);
+  });
+  it("draws nested agents under their parents, anchoring a scoped listing at the root", () => {
+    const agents: JsonValue[] = [
+      { agent_name: "/root/a/b", agent_status: "running" },
+      { agent_name: "/root/a/b/c", agent_status: { completed: null } },
+      { agent_name: "/root/a/d", agent_status: "interrupted" },
+    ];
+
+    expect(renderedRows(render("list_agents", { agents }))).toEqual([
+      "3 agents · 1 running",
+      "root",
+      "└─ a",
+      "   ├─ b ● running",
+      "   │  └─ c ✓ completed",
+      "   └─ d ■ interrupted",
+    ]);
+  });
+  it("colours tree names as their own spans, since a theme colour ends at the next reset", () => {
+    const tagged = createIdentityTheme();
+    tagged.fg = (color, text) => `[${color}:${text}]`;
+
+    const rows = renderedRows(
+      agentRenderers("list_agents").renderResult(
+        jsonToolResult({ agents: [{ agent_name: "/root/a/b", agent_status: "running" }] }),
+        { expanded: false, isPartial: false },
+        tagged,
+        toolRenderContext(),
+      ),
+    );
+
+    expect(rows).toContain("[dim:][muted:root]");
+    expect(rows).toContain("[dim:└─ ][muted:a]");
+    expect(rows).toContain("[dim:   └─ ][accent:b] [accent:●] [accent:running]");
+  });
+  it("shows a listing whose names are not agent paths as text instead of dropping them", () => {
+    const rows = renderedRows(
+      agentRenderers("list_agents").renderResult(
+        jsonToolResult({
+          agents: [
+            { agent_name: "worker", agent_status: "running" },
+            { agent_name: "/root/ok", agent_status: "running" },
+          ],
+        }),
+        { expanded: false, isPartial: false },
+        createIdentityTheme(),
+        toolRenderContext(),
+      ),
+    ).join("");
+
+    expect(rows).toContain('"agent_name":"worker"');
+    expect(rows).toContain('"agent_name":"/root/ok"');
+  });
+  it("repeats a result's target in plain text, leaving accent to the call line", () => {
+    const tagged = createIdentityTheme();
+    tagged.fg = (color, text) => `[${color}:${text}]`;
+
+    const row = renderedRows(
+      agentRenderers("send_message").renderResult(
+        { content: [{ text: "", type: "text" }], details: {} },
+        { expanded: false, isPartial: false },
+        tagged,
+        { ...toolRenderContext(), args: { message: "hi", target: "worker" } },
+      ),
+    ).join("\n");
+
+    expect(row).toBe("[success:✓ Message queued] [text:worker]");
   });
   it("bounds hostile and partially streamed call arguments", () => {
     const renderer = agentRenderers("spawn_agent").renderCall;
@@ -233,7 +303,7 @@ describe("agent presentation", () => {
     expect(renderedRows(render("spawn_agent", stored), 2000).join("\n")).toBe(
       JSON.stringify(stored),
     );
-    expect(renderedRows(render("send_input", { submission_id: "s_1" }), 2000).join("\n")).toBe(
+    expect(renderedRows(render("send_message", { submission_id: "s_1" }), 2000).join("\n")).toBe(
       JSON.stringify({ submission_id: "s_1" }),
     );
 
@@ -270,5 +340,60 @@ describe("agent presentation", () => {
           ),
         ).join("\n"),
       ).toBe("Old error");
+  });
+});
+
+describe(mailRenderer, () => {
+  const card = ({ failed, ...mail }: Envelope & { failed?: true }, expanded = false) => {
+    const component = mailRenderer(
+      {
+        content: envelopeText(mail),
+        customType: SUBAGENT_MESSAGE_TYPE,
+        details: { ...(failed === undefined ? {} : { failed }), id: "mail" },
+        display: true,
+        role: "custom",
+        timestamp: 0,
+      },
+      { expanded, outputPad: 0 },
+      theme,
+    );
+
+    return component === undefined ? [] : renderedRows(component).map((row) => row.trimEnd());
+  };
+
+  it("shows a final answer as a card naming its sender, without the envelope", () => {
+    const answer = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n\n");
+    const base = { from: "/root/research", kind: "FINAL_ANSWER", to: "/root" } as const;
+    const collapsed = card({ ...base, content: answer });
+
+    expect(collapsed[0]).toBe("✓ research finished · /root/research");
+    expect(collapsed.join("\n")).toContain("line 1");
+    expect(collapsed.join("\n")).not.toContain("line 12");
+    expect(collapsed.join("\n")).not.toContain("Message Type");
+    expect(card({ ...base, content: answer }, true).join("\n")).toContain("line 12");
+  });
+
+  it("labels a task steered into a running turn as a task", () => {
+    expect(
+      card({ content: "Also run lint", from: "/root", kind: "NEW_TASK", to: "/root/worker" })[0],
+    ).toBe("▸ task from root · /root");
+  });
+
+  it("marks a failed turn by its recorded outcome, not its text, and keeps plain messages quiet", () => {
+    const failure = errorCompletion("Rate limited");
+
+    const base = {
+      content: failure,
+      from: "/root/docs",
+      kind: "FINAL_ANSWER",
+      to: "/root",
+    } as const;
+
+    expect(card({ ...base, failed: true })[0]).toBe("✗ docs failed · /root/docs");
+    // An answer that merely quotes the failure wording finished.
+    expect(card(base)[0]).toBe("✓ docs finished · /root/docs");
+    expect(
+      card({ content: "Halfway there", from: "/root/a/b", kind: "MESSAGE", to: "/root/a" }),
+    ).toEqual(["✉ message from b · /root/a/b", "  Halfway there"]);
   });
 });

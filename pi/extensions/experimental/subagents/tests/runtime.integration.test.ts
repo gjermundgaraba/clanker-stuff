@@ -39,6 +39,7 @@ const runtimeRequest = (harness: AgentSessionHarness): ChildRuntimeRequest => ({
   onError: (cause) => {
     throw cause;
   },
+  onEvent: () => {},
   prompt: "You are a child.",
   promptOptions: undefined,
   sessionFile: undefined,
@@ -454,6 +455,35 @@ describe("child runtime", () => {
         text: "child answer",
       });
       expect(hasUserTask(runtime.sessionFile, harness, "task")).toBeTruthy();
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it("finishes a turn whose presentation listener throws, reporting the failure", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    harness.setResponses([fauxAssistantMessage("child answer")]);
+    const errors: unknown[] = [];
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      onError: (cause) => errors.push(cause),
+      onEvent: () => {
+        throw new Error("viewer broke");
+      },
+    });
+
+    try {
+      await expect(runtime.startTurn("task")).resolves.toStrictEqual({
+        status: "completed",
+        text: "child answer",
+      });
+      expect(errors.length).toBeGreaterThan(0);
+      expect(
+        errors.every((cause) => cause instanceof Error && cause.message === "viewer broke"),
+      ).toBe(true);
     } finally {
       await runtime.dispose();
       harness.cleanup();

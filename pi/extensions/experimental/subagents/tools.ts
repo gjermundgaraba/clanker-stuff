@@ -1,4 +1,5 @@
 // Tool names, schemas, and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -95,6 +96,158 @@ export type ToolController = Pick<
 
 const empty = () => ({ content: [{ text: "", type: "text" as const }], details: {} });
 
+interface ToolScope {
+  caller: string;
+  config: SubagentsConfig;
+  controller: ToolController;
+  pi: ExtensionAPI;
+}
+
+/** The collaboration tools by name, in registration order; each defines its tool for one agent. */
+const TOOLS = {
+  spawn_agent: ({ caller, config, controller, pi }: ToolScope, name: string) =>
+    defineTool({
+      description: SPAWN_DESCRIPTION,
+      execute: async (_id, params: SpawnParameters, signal, _update, ctx) => {
+        const spawned = await controller.spawn(
+          caller,
+          {
+            agentType:
+              "agent_type" in params && typeof params.agent_type === "string"
+                ? params.agent_type
+                : undefined,
+            forkTurns: parseForkTurns(params.fork_turns),
+            message: params.message,
+            model: params.model,
+            taskName: params.task_name,
+            thinking: params.reasoning_effort,
+            tools: pi.getActiveTools(),
+          },
+          ctx,
+          signal,
+        );
+
+        return json({ task_name: spawned.task_name }, spawned);
+      },
+      executionMode: "parallel",
+      exposure: "model-only",
+      label: "Spawn Agent",
+      name,
+      parameters: spawnParameters(config),
+      promptSnippet: "Spawn a child under your hierarchical task path",
+    }),
+  send_message: ({ caller, controller }: ToolScope, name: string) =>
+    defineTool({
+      description:
+        "Queue context for an existing agent without starting a turn. Delivery follows Pi's turn boundaries; an idle recipient will not act until its next task. Use followup_task when a non-root agent needs to act.",
+      execute: async (_id, params, signal) => {
+        signal?.throwIfAborted();
+        await controller.sendMessage(caller, params.target, params.message);
+
+        return empty();
+      },
+      executionMode: "parallel",
+      exposure: "model-only",
+      label: "Send Message",
+      name,
+      parameters: TargetMessageParameters(
+        "Relative or canonical task name to message, from spawn_agent.",
+        "Message text to queue on the target agent.",
+      ),
+      promptSnippet: "Queue a message for another known agent",
+    }),
+  followup_task: ({ caller, controller }: ToolScope, name: string) =>
+    defineTool({
+      description:
+        "Send a follow-up task to an existing non-root agent. If idle, start a turn; if running, deliver the task at a safe input boundary.",
+      execute: async (_id, params, signal, _update, ctx) => {
+        signal?.throwIfAborted();
+        await controller.followUp(caller, params.target, params.message, ctx, signal);
+
+        return empty();
+      },
+      executionMode: "parallel",
+      exposure: "model-only",
+      label: "Follow-up Task",
+      name,
+      parameters: TargetMessageParameters(
+        "Relative or canonical non-root task name, from spawn_agent.",
+        "Follow-up task text for the target agent.",
+      ),
+      promptSnippet: "Wake or continue a known agent with another task",
+    }),
+  wait_agent: ({ caller, controller }: ToolScope, name: string) =>
+    defineTool({
+      description:
+        "Wait for mailbox activity from any agent or for steered user input. Returns a summary and timeout flag, never the message content.",
+      execute: async (_id, params, signal) => {
+        const waited = await controller.wait(caller, params.timeout_ms ?? 30_000, signal);
+
+        return json(waited, waited);
+      },
+      executionMode: "parallel",
+      exposure: "model-only",
+      label: "Wait for Agent",
+      name,
+      parameters: Type.Object(
+        {
+          timeout_ms: Type.Optional(
+            Type.Number({
+              description: "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
+            }),
+          ),
+        },
+        STRICT,
+      ),
+      promptSnippet: "Wait for incoming agent communication",
+    }),
+  interrupt_agent: ({ caller, controller }: ToolScope, name: string) =>
+    defineTool({
+      description:
+        "Interrupt an agent's current turn, if any, and return its previous status. The agent remains available for messages and follow-up tasks.",
+      execute: async (_id, params, signal) => {
+        signal?.throwIfAborted();
+        const interrupted = await controller.interrupt(caller, params.target);
+
+        return json(interrupted, interrupted);
+      },
+      executionMode: "parallel",
+      exposure: "model-only",
+      label: "Interrupt Agent",
+      name,
+      parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
+      promptSnippet: "Interrupt another known agent's active turn",
+    }),
+  list_agents: ({ caller, controller }: ToolScope, name: string) =>
+    defineTool({
+      description: `List agents in the current root task tree with their latest status, optionally filtered by task-path prefix. Completed answers are cut to ${MAX_STATUS_TEXT} characters; the parent receives each in full as FINAL_ANSWER mail.`,
+      execute: (_id, params) => {
+        const agents = { agents: controller.list(caller, params.path_prefix) };
+
+        return Promise.resolve(json(agents, agents));
+      },
+      executionMode: "parallel",
+      exposure: "model-only",
+      label: "List Agents",
+      name,
+      parameters: Type.Object(
+        {
+          path_prefix: Type.Optional(
+            Type.String({
+              description: "Task-path prefix without a trailing slash. Omit to list every agent.",
+              minLength: 1,
+            }),
+          ),
+        },
+        STRICT,
+      ),
+      promptSnippet: "List the subagent tree and statuses",
+    }),
+};
+
+/** Whether the named tool is one this extension registers and draws. */
+export const isCollaborationTool = (name: string): boolean => Object.hasOwn(TOOLS, name);
+
 /** Registers the collaboration tools for one agent; `caller` is its canonical path. */
 export const registerTools = (
   pi: ExtensionAPI,
@@ -102,147 +255,8 @@ export const registerTools = (
   caller: string,
   config: SubagentsConfig,
 ): void => {
-  pi.registerTool({
-    description: SPAWN_DESCRIPTION,
-    execute: async (_id, params: SpawnParameters, signal, _update, ctx) => {
-      const spawned = await controller.spawn(
-        caller,
-        {
-          agentType:
-            "agent_type" in params && typeof params.agent_type === "string"
-              ? params.agent_type
-              : undefined,
-          forkTurns: parseForkTurns(params.fork_turns),
-          message: params.message,
-          model: params.model,
-          taskName: params.task_name,
-          thinking: params.reasoning_effort,
-          tools: pi.getActiveTools(),
-        },
-        ctx,
-        signal,
-      );
+  const scope = { caller, config, controller, pi };
 
-      return json({ task_name: spawned.task_name }, spawned);
-    },
-    executionMode: "parallel",
-    exposure: "model-only",
-    label: "Spawn Agent",
-    name: "spawn_agent",
-    ...agentRenderers("spawn_agent"),
-    parameters: spawnParameters(config),
-    promptSnippet: "Spawn a child under your hierarchical task path",
-  });
-
-  pi.registerTool({
-    description:
-      "Queue context for an existing agent without starting a turn. Delivery follows Pi's turn boundaries; an idle recipient will not act until its next task. Use followup_task when a non-root agent needs to act.",
-    execute: async (_id, params, signal) => {
-      signal?.throwIfAborted();
-      await controller.sendMessage(caller, params.target, params.message);
-
-      return empty();
-    },
-    executionMode: "parallel",
-    exposure: "model-only",
-    label: "Send Message",
-    name: "send_message",
-    ...agentRenderers("send_message"),
-    parameters: TargetMessageParameters(
-      "Relative or canonical task name to message, from spawn_agent.",
-      "Message text to queue on the target agent.",
-    ),
-    promptSnippet: "Queue a message for another known agent",
-  });
-
-  pi.registerTool({
-    description:
-      "Send a follow-up task to an existing non-root agent. If idle, start a turn; if running, deliver the task at a safe input boundary.",
-    execute: async (_id, params, signal, _update, ctx) => {
-      signal?.throwIfAborted();
-      await controller.followUp(caller, params.target, params.message, ctx, signal);
-
-      return empty();
-    },
-    executionMode: "parallel",
-    exposure: "model-only",
-    label: "Follow-up Task",
-    name: "followup_task",
-    ...agentRenderers("followup_task"),
-    parameters: TargetMessageParameters(
-      "Relative or canonical non-root task name, from spawn_agent.",
-      "Follow-up task text for the target agent.",
-    ),
-    promptSnippet: "Wake or continue a known agent with another task",
-  });
-
-  pi.registerTool({
-    description:
-      "Wait for mailbox activity from any agent or for steered user input. Returns a summary and timeout flag, never the message content.",
-    execute: async (_id, params, signal) => {
-      const waited = await controller.wait(caller, params.timeout_ms ?? 30_000, signal);
-
-      return json(waited, waited);
-    },
-    executionMode: "parallel",
-    exposure: "model-only",
-    label: "Wait for Agent",
-    name: "wait_agent",
-    ...agentRenderers("wait_agent"),
-    parameters: Type.Object(
-      {
-        timeout_ms: Type.Optional(
-          Type.Number({
-            description: "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
-          }),
-        ),
-      },
-      STRICT,
-    ),
-    promptSnippet: "Wait for incoming agent communication",
-  });
-
-  pi.registerTool({
-    description:
-      "Interrupt an agent's current turn, if any, and return its previous status. The agent remains available for messages and follow-up tasks.",
-    execute: async (_id, params, signal) => {
-      signal?.throwIfAborted();
-      const interrupted = await controller.interrupt(caller, params.target);
-
-      return json(interrupted, interrupted);
-    },
-    executionMode: "parallel",
-    exposure: "model-only",
-    label: "Interrupt Agent",
-    name: "interrupt_agent",
-    ...agentRenderers("interrupt_agent"),
-    parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
-    promptSnippet: "Interrupt another known agent's active turn",
-  });
-
-  pi.registerTool({
-    description: `List agents in the current root task tree with their latest status, optionally filtered by task-path prefix. Completed answers are cut to ${MAX_STATUS_TEXT} characters; the parent receives each in full as FINAL_ANSWER mail.`,
-    execute: (_id, params) => {
-      const agents = { agents: controller.list(caller, params.path_prefix) };
-
-      return Promise.resolve(json(agents, agents));
-    },
-    executionMode: "parallel",
-    exposure: "model-only",
-    label: "List Agents",
-    name: "list_agents",
-    ...agentRenderers("list_agents"),
-    parameters: Type.Object(
-      {
-        path_prefix: Type.Optional(
-          Type.String({
-            description: "Task-path prefix without a trailing slash. Omit to list every agent.",
-            minLength: 1,
-          }),
-        ),
-      },
-      STRICT,
-    ),
-    promptSnippet: "List the subagent tree and statuses",
-  });
+  for (const [name, define] of Object.entries(TOOLS))
+    pi.registerTool({ ...define(scope, name), ...agentRenderers(name) });
 };

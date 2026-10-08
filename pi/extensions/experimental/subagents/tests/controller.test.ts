@@ -12,7 +12,12 @@ import { Controller } from "../controller.js";
 import { errorCompletion } from "../prompts.js";
 import { emptyTree, MAX_STATUS_TEXT } from "../protocol.js";
 import type { Envelope, Mail, Tree } from "../protocol.js";
-import type { ChildRuntime, ChildRuntimeRequest, ChildTurnOutcome } from "../runtime.js";
+import type {
+  ChildRuntime,
+  ChildRuntimeRequest,
+  ChildSnapshot,
+  ChildTurnOutcome,
+} from "../runtime.js";
 import { openTree, TreeStore } from "../store.js";
 
 const model = fauxProvider({ models: [{ id: "child" }], provider: "provider" }).getModel();
@@ -41,6 +46,14 @@ class FakeRuntime implements ChildRuntime {
 
   abort(): void {
     this.aborted = true;
+  }
+
+  snapshot(): ChildSnapshot {
+    return { branch: [], executing: new Set<string>(), streaming: undefined };
+  }
+
+  toolRenderers(): undefined {
+    return undefined;
   }
 
   deliver(mail: Mail): void {
@@ -121,6 +134,7 @@ class FakeRuntime implements ChildRuntime {
 
 describe(Controller, () => {
   let dataDir: string;
+  let clock = 1000;
 
   beforeEach(async () => {
     dataDir = await mkdtemp(path.join(os.tmpdir(), "subagents-controller-"));
@@ -166,6 +180,7 @@ describe(Controller, () => {
       onBackgroundError: (cause) => {
         errors.push(cause);
       },
+      now: () => clock,
       rootRunning: () => true,
     });
 
@@ -251,7 +266,7 @@ describe(Controller, () => {
 
     expect(await saved()).toMatchObject({
       nodes: [{ error: "provider failed", status: "errored" }],
-      outbox: [{ content: errorCompletion("provider failed"), kind: "FINAL_ANSWER" }],
+      outbox: [{ content: errorCompletion("provider failed"), failed: true, kind: "FINAL_ANSWER" }],
     });
   });
 
@@ -511,6 +526,85 @@ describe(Controller, () => {
     expect((await saved()).nodes).toStrictEqual([]);
   });
 
+  it("records each turn's start and end, and sums usage across turns", async () => {
+    const { controller, ctx, runtimes, saved, spawn } = await setup();
+
+    const reply = (input: number, cost: number) =>
+      runtimes.at(-1)?.request.onEvent({
+        message: {
+          api: "faux",
+          content: [{ text: "partial", type: "text" }],
+          model: "child",
+          provider: "provider",
+          role: "assistant",
+          stopReason: "stop",
+          timestamp: 0,
+          usage: {
+            cacheRead: 2,
+            cacheWrite: 1,
+            cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: cost },
+            input,
+            output: 5,
+            totalTokens: input + 8,
+          },
+        },
+        type: "message_end",
+      });
+
+    clock = 1000;
+    await spawn("worker");
+    reply(10, 0.25);
+    clock = 4000;
+    await runtimes[0]?.finish({ status: "completed", text: "first" });
+    expect((await saved()).nodes[0]).toMatchObject({
+      endedAt: 4000,
+      startedAt: 1000,
+      usage: { cacheRead: 2, cacheWrite: 1, cost: 0.25, input: 10, output: 5 },
+    });
+
+    clock = 9000;
+    await controller.followUp("/root", "worker", "again", ctx);
+    const running = (await saved()).nodes[0];
+    expect(running).toMatchObject({ startedAt: 9000, status: "running" });
+    expect(running?.endedAt).toBeUndefined();
+
+    reply(20, 0.5);
+    clock = 9500;
+    await runtimes[1]?.finish({ status: "completed", text: "second" });
+    expect((await saved()).nodes[0]).toMatchObject({
+      endedAt: 9500,
+      usage: { cacheRead: 4, cacheWrite: 2, cost: 0.75, input: 30, output: 10 },
+    });
+  });
+
+  it("publishes live activity while a child runs and forgets it when the turn ends", async () => {
+    const { controller, runtimes, spawn } = await setup();
+    const changes = vi.fn();
+    controller.monitor.onChange(changes);
+    await spawn("worker");
+    const runtime = runtimes[0];
+
+    expect(controller.live("/root/worker")).toBe(runtime);
+    runtime?.request.onEvent({ type: "agent_start" });
+    runtime?.request.onEvent({
+      args: { path: "src/a.ts" },
+      toolCallId: "call",
+      toolName: "read",
+      type: "tool_execution_start",
+    });
+    expect(controller.monitor.activity("/root/worker")).toStrictEqual({
+      kind: "tool",
+      label: "read",
+      target: "src/a.ts",
+    });
+
+    changes.mockClear();
+    await runtime?.finish({ status: "completed", text: "done" });
+    expect(controller.monitor.activity("/root/worker")).toBeUndefined();
+    expect(controller.live("/root/worker")).toBeUndefined();
+    expect(changes).toHaveBeenCalled();
+  });
+
   it("marks agents that were running when the tree was saved as interrupted", async () => {
     const tree: Tree = {
       nodes: [
@@ -518,21 +612,25 @@ describe(Controller, () => {
           model: "provider/child",
           path: "/root/a",
           sessionFile: "/a.jsonl",
+          startedAt: 1,
           status: "running",
           thinking: "off",
           tools: [],
+          usage: { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 },
         },
         {
           model: "gone/model",
           path: "/root/b",
           sessionFile: "/b.jsonl",
+          startedAt: 1,
           status: "completed",
           thinking: "off",
           tools: [],
+          usage: { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 },
         },
       ],
       outbox: [],
-      version: 3,
+      version: 4,
     };
 
     const { controller, ctx, saved } = await setup(DEFAULT_CONFIG, tree);

@@ -18,7 +18,7 @@ import type { Tree } from "../protocol.js";
 const treeFile = (sessionId: string) =>
   path.join(
     getExtensionStoragePaths("subagents").dataDir,
-    "trees-v3",
+    "trees-v4",
     `${createHash("sha256").update(sessionId).digest("hex")}.json`,
   );
 
@@ -197,7 +197,7 @@ describe("root delivery", () => {
       const tree: Tree = {
         nodes: [],
         outbox: [mail("transcribed", "already transcribed"), mail("pending", "pending answer")],
-        version: 3,
+        version: 4,
       };
 
       await writeFile(treeFile(sessionId), JSON.stringify(tree));
@@ -248,7 +248,7 @@ describe("root delivery", () => {
         await vi.waitFor(async () => {
           expect(await readTree(resumed)).toMatchObject({
             nodes: [{ path: "/root/worker", status: "completed" }],
-            version: 3,
+            version: 4,
           });
         });
       } finally {

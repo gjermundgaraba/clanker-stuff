@@ -195,7 +195,7 @@ describe("caller delegation snapshots", () => {
 
         const file = path.join(
           getExtensionStoragePaths("subagents").dataDir,
-          "trees-v3",
+          "trees-v4",
           `${createHash("sha256").update(harness.sessionManager.getSessionId()).digest("hex")}.json`,
         );
 

@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/subagents",
   "version": "0.1.0",
   "private": true,
-  "description": "Adds durable hierarchical subagents, branch-local proactive delegation, and a one-shot /ultra thinking boost.",
+  "description": "Adds durable hierarchical subagents with a live tree and viewer, branch-local proactive delegation, and a one-shot /ultra thinking boost.",
   "keywords": [
     "pi-package"
   ],
@@ -25,12 +25,14 @@
     "index.ts",
     "keyed-queue.ts",
     "manager.ts",
+    "monitor.ts",
     "prompts.ts",
     "protocol.ts",
     "renderers.ts",
     "runtime.ts",
     "store.ts",
     "tools.ts",
+    "ui",
     "vendor",
     "README.md",
     "LICENSE",
@@ -42,6 +44,7 @@
   "exports": "./index.ts",
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-shape-glyphs": "workspace:^",
     "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },

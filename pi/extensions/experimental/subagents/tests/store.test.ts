@@ -13,15 +13,17 @@ const tree: Tree = {
       model: "provider/model",
       path: "/root/worker",
       sessionFile: "/sessions/worker.jsonl",
+      startedAt: 1,
       status: "completed",
       thinking: "off",
       tools: ["read"],
+      usage: { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 },
     },
   ],
   outbox: [
     { content: "done", from: "/root/worker", id: "mail", kind: "FINAL_ANSWER", to: "/root" },
   ],
-  version: 3,
+  version: 4,
 };
 
 describe(openTree, () => {
@@ -37,8 +39,8 @@ describe(openTree, () => {
 
   const treeFiles = async () => {
     try {
-      return (await readdir(path.join(dataDir, "trees-v3"))).map((name) =>
-        path.join(dataDir, "trees-v3", name),
+      return (await readdir(path.join(dataDir, "trees-v4"))).map((name) =>
+        path.join(dataDir, "trees-v4", name),
       );
     } catch {
       return [];
@@ -48,7 +50,7 @@ describe(openTree, () => {
   it("writes nothing until the first save, then persists privately and round-trips", async () => {
     const opened = await openTree(dataDir, "session-1", true);
     expect(opened).toMatchObject({
-      tree: { nodes: [], outbox: [], version: 3 },
+      tree: { nodes: [], outbox: [], version: 4 },
       warning: undefined,
     });
     expect(await treeFiles()).toStrictEqual([]);
@@ -82,7 +84,7 @@ describe(openTree, () => {
     await writeFile(file!, contents);
 
     const reopened = await openTree(dataDir, "session", true);
-    expect(reopened.tree).toStrictEqual({ nodes: [], outbox: [], version: 3 });
+    expect(reopened.tree).toStrictEqual({ nodes: [], outbox: [], version: 4 });
     expect(reopened.warning).toContain("Starting a new subagent tree");
   });
 
@@ -91,6 +93,6 @@ describe(openTree, () => {
     await store.save(tree);
 
     expect(await treeFiles()).toStrictEqual([]);
-    await expect(readFile(path.join(dataDir, "trees-v3"))).rejects.toThrow();
+    await expect(readFile(path.join(dataDir, "trees-v4"))).rejects.toThrow();
   });
 });

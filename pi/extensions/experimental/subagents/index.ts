@@ -1,9 +1,14 @@
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { SHAPE_SPINNER_COMMAND } from "@clanker-stuff/pi-shape-glyphs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { loadConfig } from "./config.js";
 import { createDelegation } from "./delegation.js";
 import { SubagentManager } from "./manager.js";
+import { SUBAGENT_MESSAGE_TYPE } from "./protocol.js";
+import { mailRenderer } from "./renderers.js";
+import { BRAILLE_MARKS, orbMarks } from "./ui/format.js";
+import { Presenter, VIEWER_SHORTCUT } from "./ui/presenter.js";
 
 const subagents = async (pi: ExtensionAPI) => {
   const paths = getExtensionStoragePaths("subagents");
@@ -16,6 +21,8 @@ const subagents = async (pi: ExtensionAPI) => {
     configError: loaded.error,
     dataDir: paths.dataDir,
   });
+
+  const presenter = new Presenter(manager.source);
 
   pi.registerFlag("ultra", {
     description: "Enable proactive delegation and boost native thinking once at startup",
@@ -40,13 +47,26 @@ const subagents = async (pi: ExtensionAPI) => {
   pi.on("turn_start", manager.settle.bind(manager));
   pi.on("agent_settled", manager.settle.bind(manager));
   pi.on("session_shutdown", manager.shutdown.bind(manager));
-  pi.registerCommand("agents", {
-    description: "Show the subagent tree",
-    handler: (_args, ctx) => {
-      ctx.ui.notify(manager.describe(), "info");
+  pi.on("session_start", (_event, ctx) => {
+    // Every extension has registered its commands by the time a session starts. The orbs need
+    // shape-spinner's font, which its command shows is in use.
+    const shapes = pi
+      .getCommands()
+      .some(({ name, source }) => source === "extension" && name === SHAPE_SPINNER_COMMAND);
 
-      return Promise.resolve();
-    },
+    presenter.start(ctx, shapes ? orbMarks(() => manager.source.nodes()) : BRAILLE_MARKS);
+  });
+  pi.on("session_shutdown", () => {
+    presenter.stop();
+  });
+  pi.registerMessageRenderer(SUBAGENT_MESSAGE_TYPE, mailRenderer);
+  pi.registerCommand("agents", {
+    description: "Open the subagent viewer",
+    handler: (_args, ctx) => presenter.open(ctx),
+  });
+  pi.registerShortcut(VIEWER_SHORTCUT, {
+    description: "Open the subagent viewer",
+    handler: (ctx) => presenter.open(ctx),
   });
 };
 

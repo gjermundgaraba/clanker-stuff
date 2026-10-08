@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fixtures from "./fixtures/projections.json" with { type: "json" };
-import metadata from "../assets/shapes.json" with { type: "json" };
 
+import { manifest as metadata } from "@clanker-stuff/pi-shape-glyphs";
 import { describe, expect, it } from "vite-plus/test";
 
 import { frame, FPS, INKS, paint, VIEWBOX } from "../scripts/frames.ts";

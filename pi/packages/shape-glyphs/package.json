@@ -1,0 +1,39 @@
+{
+  "name": "@clanker-stuff/pi-shape-glyphs",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Shares Shape Spinner's font glyphs so Pi extensions can draw its spinning shapes as text.",
+  "keywords": [
+    "pi",
+    "pi-extension"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/shape-glyphs#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/packages/shape-glyphs"
+  },
+  "files": [
+    "index.ts",
+    "shapes.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-tui": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

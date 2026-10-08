@@ -1,6 +1,6 @@
 # Font generation and fidelity
 
-Runtime loads only `assets/shapes.json`; the display terminal renders `assets/ShapeSpinner.ttf`. Node/Chrome wireframe rasterization and Python/Pillow/fontTools are build-time only. No files from Amp or the Desktop demo are needed to build or use this package.
+Runtime loads only the glyph metadata, `shapes.json` in the shared [`@clanker-stuff/pi-shape-glyphs`](../../../../packages/shape-glyphs) package; the display terminal renders `assets/ShapeSpinner.ttf`. Node/Chrome wireframe rasterization and Python/Pillow/fontTools are build-time only. No files from Amp or the Desktop demo are needed to build or use this package.
 
 ## Rebuild and inspect
 
@@ -19,7 +19,7 @@ vp check pi/extensions/experimental/shape-spinner
 
 Set `CHROME` to override the macOS Google Chrome executable path. The renderer launches a headless temporary profile and an `about:blank` page, communicates over localhost CDP, then closes the process and deletes the profile. It does not navigate to Amp or any remote website. Python dependencies are pinned inline. The Swift check requires Apple's command-line tools.
 
-A normal build rasterizes and assembles the font once, validates every glyph, formats metadata with the repository formatter, and writes both assets. `--check` re-rasterizes, assembles twice to check determinism, and compares both checked-in assets. Use the Chrome version recorded in `assets/shapes.json` for reproducibility: changing browser version or platform can change rasterization. Family identity hashes the assembled font before adding its derived names, covering bitmaps, codepoint mapping, bounds, and metrics. Source text and browser provenance are not part of the identity; timestamps are fixed. Rebuilding never installs fonts or edits terminal configuration.
+A normal build rasterizes and assembles the font once, validates every glyph, formats metadata with the repository formatter, and writes the font and the metadata. `--check` re-rasterizes, assembles twice to check determinism, and compares both checked-in files. Use the Chrome version recorded in `shapes.json` for reproducibility: changing browser version or platform can change rasterization. Family identity hashes the assembled font before adding its derived names, covering bitmaps, codepoint mapping, bounds, and metrics. Source text and browser provenance are not part of the identity; timestamps are fixed. Rebuilding never installs fonts or edits terminal configuration.
 
 Rubik's 94%-of-em canvas leaves a small geometric inset; Lanczos antialiasing fringe can touch the bitmap edge. Wireframe bitmaps retain fully transparent borders. CoreText's paint check verifies both against their fixed glyph bounds.
 

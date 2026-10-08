@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 
-import type { BuildSystemPromptOptions, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSessionEvent,
+  BuildSystemPromptOptions,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 import type { AgentThinkingLevel, SubagentsConfig } from "./config.js";
 import { resolveChildSettings } from "./config.js";
@@ -10,10 +14,12 @@ import type { DelegationPolicy } from "./delegation.js";
 import { forkHistory } from "./history.js";
 import type { ForkTurns } from "./history.js";
 import { KeyedSerialQueue } from "./keyed-queue.js";
+import { Monitor } from "./monitor.js";
 import { childPrompt, COLLABORATION_SECTION, errorCompletion } from "./prompts.js";
 import {
   childAgentPath,
   emptyTree,
+  emptyUsage,
   envelopeText,
   parentAgentPath,
   MAX_DURABLE_TEXT,
@@ -112,14 +118,19 @@ export interface ControllerDependencies {
   deliverRoot: (mail: Mail) => void;
   onBackgroundError: (cause: unknown) => void;
   rootRunning: () => boolean;
+  /** Clock for the timestamps the tree records. */
+  now?: () => number;
 }
 
 type WaitActivity = "aborted" | "mailbox" | "steered" | "timed_out";
 
 export class Controller {
+  /** Presentation feed; the controller only publishes to it. */
+  readonly monitor: Monitor;
   readonly #config: SubagentsConfig;
   readonly #createRuntime: ChildRuntimeFactory;
   readonly #dataDir: string;
+  readonly #now: () => number;
   readonly #deliverRoot: (mail: Mail) => void;
   readonly #onBackgroundError: (cause: unknown) => void;
   readonly #queue = new KeyedSerialQueue();
@@ -139,7 +150,9 @@ export class Controller {
     this.#dataDir = dependencies.dataDir;
     this.#deliverRoot = dependencies.deliverRoot;
     this.#onBackgroundError = dependencies.onBackgroundError;
+    this.monitor = new Monitor(dependencies.onBackgroundError);
     this.#rootRunning = dependencies.rootRunning;
+    this.#now = dependencies.now ?? Date.now;
   }
 
   setPromptOptions(options: BuildSystemPromptOptions): void {
@@ -154,12 +167,12 @@ export class Controller {
     const stranded = tree.nodes.filter((node) => node.status === "running");
 
     for (const node of stranded) {
+      // When the turn really ended is unknown; no end time beats a made-up duration.
       node.status = "interrupted";
     }
 
-    if (stranded.length > 0) {
-      await this.#save();
-    }
+    if (stranded.length > 0) await this.#save();
+    else this.monitor.changed();
   }
 
   async shutdown(): Promise<void> {
@@ -240,9 +253,11 @@ export class Controller {
         model: runtime.model,
         path,
         sessionFile: runtime.sessionFile,
+        startedAt: this.#now(),
         status: "running",
         thinking: runtime.thinkingLevel,
         tools,
+        usage: emptyUsage(),
       };
 
       this.#tree.nodes.push(node);
@@ -369,6 +384,8 @@ export class Controller {
           node.model = runtime.model;
           node.thinking = runtime.thinkingLevel;
           node.status = "running";
+          node.startedAt = this.#now();
+          delete node.endedAt;
           delete node.error;
           await this.#save();
           this.#assertEpoch(epoch);
@@ -407,6 +424,7 @@ export class Controller {
 
       if (node?.status === "running") {
         node.status = "interrupted";
+        node.endedAt = this.#now();
         const resident = this.#residents.get(path);
 
         if (resident !== undefined) {
@@ -442,12 +460,20 @@ export class Controller {
       .toSorted((left, right) => left.agent_name.localeCompare(right.agent_name));
   }
 
-  describe(): string {
-    if (this.#tree.nodes.length === 0) {
-      return "No subagents in this session.";
-    }
+  /** The tree's agents, for presentation; callers must not mutate them. */
+  nodes(): readonly AgentNode[] {
+    return this.#tree.nodes;
+  }
 
-    return this.#tree.nodes.map((node) => `${node.path}  ${node.status}  ${node.model}`).join("\n");
+  rootRunning(): boolean {
+    return this.#rootRunning();
+  }
+
+  /** The runtime of an agent whose turn is still live, for viewers that follow it. */
+  live(path: string): ChildRuntime | undefined {
+    const resident = this.#residents.get(path);
+
+    return resident?.retiring === undefined ? resident?.runtime : undefined;
   }
 
   /** Waits until mail reaches `caller`, new user input arrives, or the timeout passes. */
@@ -598,6 +624,9 @@ export class Controller {
       modelRegistry: ctx.modelRegistry,
       onDelivered: (id) => this.#delivered(id, epoch),
       onError: this.#onBackgroundError,
+      onEvent: (event) => {
+        this.#observe(path, event, epoch);
+      },
       prompt: child.instructions ?? "",
       promptOptions: this.#promptOptions,
       sessionFile: child.sessionFile,
@@ -650,6 +679,7 @@ export class Controller {
     void this.#retire(path, resident);
     const parent = parentAgentPath(path) ?? ROOT_AGENT_PATH;
     let mail: Mail | undefined;
+    node.endedAt = this.#now();
 
     if (outcome.status === "completed") {
       const answer = outcome.text === undefined ? undefined : bound(outcome.text, MAX_DURABLE_TEXT);
@@ -675,6 +705,7 @@ export class Controller {
       delete node.lastAnswer;
       mail = {
         content: errorCompletion(node.error),
+        failed: true,
         from: path,
         id: randomUUID(),
         kind: "FINAL_ANSWER",
@@ -692,6 +723,7 @@ export class Controller {
   /** Disposes a resident after its turn; mail for it waits in the outbox until it runs again. */
   #retire(path: string, resident: Resident): Promise<void> {
     if (resident.retiring !== undefined) return resident.retiring;
+    this.monitor.clear(path);
     const node = this.#node(path);
     const store = this.#store;
     const tree = this.#tree;
@@ -704,6 +736,7 @@ export class Controller {
           node.model = resident.runtime.model;
           node.thinking = resident.runtime.thinkingLevel;
           await store.save(tree);
+          this.monitor.changed();
         }
       })
       .catch(this.#onBackgroundError)
@@ -770,6 +803,27 @@ export class Controller {
 
   async #save(): Promise<void> {
     await this.#store.save(this.#tree);
+    this.monitor.changed();
+  }
+
+  /** Counts usage and publishes activity for the current tree's children only. */
+  #observe(path: string, event: AgentSessionEvent, epoch: symbol): void {
+    if (epoch !== this.#epoch) return;
+
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      const usage = this.#node(path)?.usage;
+      const { cacheRead, cacheWrite, cost, input, output } = event.message.usage;
+
+      if (usage !== undefined) {
+        usage.input += input;
+        usage.output += output;
+        usage.cacheRead += cacheRead;
+        usage.cacheWrite += cacheWrite;
+        usage.cost += cost.total;
+      }
+    }
+
+    this.monitor.record(path, event);
   }
 
   #assertEpoch(epoch: symbol): void {

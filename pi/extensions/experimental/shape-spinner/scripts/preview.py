@@ -12,19 +12,20 @@ from pathlib import Path
 from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw
 
+from build import ASSETS, METADATA
+
 SIZES = (12, 14, 16, 18, 20)
 THEMES = {"dark": ((24, 26, 31), (224, 227, 234)),
           "light": ((245, 244, 240), (35, 37, 43))}
 
 
 def main():
-    assets = Path(__file__).resolve().parents[1] / "assets"
-    meta = json.loads((assets / "shapes.json").read_text())
+    meta = json.loads(METADATA.read_text())
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path(tempfile.gettempdir()) / "shape-spinner-review")
     parser.add_argument("--color", choices=meta["inks"], default="cyan")
     args = parser.parse_args()
-    font = TTFont(assets / "ShapeSpinner.ttf")
+    font = TTFont(ASSETS / "ShapeSpinner.ttf")
     cmap = font.getBestCmap()
     strike = font["sbix"].strikes[64]
     args.out.mkdir(parents=True, exist_ok=True)

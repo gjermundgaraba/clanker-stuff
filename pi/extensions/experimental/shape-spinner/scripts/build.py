@@ -27,6 +27,8 @@ import rubik
 
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "assets"
+# Extensions read the metadata from the shared glyph package; the font stays with its setup.
+METADATA = HERE.parents[4] / "pi" / "packages" / "shape-glyphs" / "shapes.json"
 BASE = 0x100000
 UPM, ADVANCE, ASCENT, DESCENT = 1000, 600, 800, -200
 
@@ -180,16 +182,15 @@ def main():
         assert (font, metadata) == build(rendered), "Font assembly is not deterministic"
     meta, count = validate(font, metadata)
     metadata = subprocess.run(
-        ["vp", "fmt", "--stdin-filepath", str(ASSETS / "shapes.json")],
+        ["vp", "fmt", "--stdin-filepath", str(METADATA)],
         input=metadata, stdout=subprocess.PIPE, check=True, cwd=HERE.parent,
     ).stdout
-    for name, content in (("ShapeSpinner.ttf", font), ("shapes.json", metadata)):
-        destination = ASSETS / name
+    for destination, content in ((ASSETS / "ShapeSpinner.ttf", font), (METADATA, metadata)):
         if args.check:
             if not destination.exists() or destination.read_bytes() != content:
                 raise SystemExit(f"{destination} is stale; rebuild with the recorded Chrome version")
         else:
-            ASSETS.mkdir(exist_ok=True)
+            destination.parent.mkdir(exist_ok=True)
             destination.write_bytes(content)
     print(f"{'Checked' if args.check else 'Built'} {meta['family']}: {count} glyphs, {len(font):,} bytes; {meta['browser']}")
 

@@ -34,7 +34,8 @@ let fontURL =
 let metadataURL =
   arguments.count == 2
   ? URL(fileURLWithPath: arguments[1])
-  : fontURL.deletingLastPathComponent().appendingPathComponent("shapes.json")
+  : assets.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    .deletingLastPathComponent().appendingPathComponent("packages/shape-glyphs/shapes.json")
 
 do {
   let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: metadataURL))

@@ -14,7 +14,7 @@ Mail uses the Codex text envelope (`Message Type`, `Task name`, `Sender`, `Paylo
 - A finished turn mails `FINAL_ANSWER` (or the Codex error envelope) to its direct parent only. A turn aborted without `interrupt_agent`, such as by a child extension or tool, counts as failed.
 - `wait_agent` returns when mail reaches the caller, when new user input reaches it, or at the timeout (10 s to 1 h, default 30 s). Mail that arrived since the previous wait returns at once. It never returns payloads.
 - `interrupt_agent` aborts a running turn, marks the agent `interrupted`, and returns its previous status. A late outcome from that turn is ignored.
-- `list_agents` lists every agent in the tree with its latest status; a completed status carries the answer cut to 1,000 characters, as does the status `interrupt_agent` returns. `/agents` shows the same tree with models.
+- `list_agents` lists every agent in the tree with its latest status; a completed status carries the answer cut to 1,000 characters, as does the status `interrupt_agent` returns. The [viewer](#presentation) shows the same tree.
 
 Task and message text is limited to 262,144 characters, the length at which a final answer is cut.
 
@@ -44,9 +44,19 @@ Every `MESSAGE` and `FINAL_ANSWER` is written to the tree's outbox before delive
 
 ## Persistence
 
-The tree for a root session is one JSON document, `~/.pi/agent/data/subagents/trees-v3/<sha256 of session id>.json`, written on the first mutation by atomic rename with modes `0600` and `0700`. It holds `version: 3`, the agent nodes, and the outbox. An unreadable or invalid document produces a warning and a fresh tree; earlier formats live elsewhere and are never read. Agents recorded as running when the tree is reopened become `interrupted`. Sessions without a file keep their tree in memory, and a forked root session starts with an empty tree. Two Pi processes must not drive the same root session.
+The tree for a root session is one JSON document, `~/.pi/agent/data/subagents/trees-v4/<sha256 of session id>.json`, written on the first mutation by atomic rename with modes `0600` and `0700`. It holds `version: 4`, the agent nodes, and the outbox, whose final answers record whether their turn failed. Each node records when its latest turn started and ended, and the usage summed over its responses; nodes keep spawn order. An unreadable or invalid document produces a warning and a fresh tree; earlier formats live elsewhere and are never read. Agents recorded as running when the tree is reopened become `interrupted`, with no end time, since when their turn really ended is unknown. Sessions without a file keep their tree in memory, and a forked root session starts with an empty tree. Two Pi processes must not drive the same root session.
 
 The tree lives outside the root transcript because it describes child sessions that exist independently of the root's branch. Stored as session entries, it would revert on `/tree` navigation and be copied into forks, leaving stale trees that point at the same live child session files.
+
+## Presentation
+
+Presentation only reads the tree and never changes what an agent sees. Each child runtime forwards its session events to the tree's monitor, which keeps the current activity of each running child (its latest executing tool call and target, or whether it is thinking, writing, waiting, compacting or retrying after a provider error) and lets a viewer follow one agent's events. Activity lives only as long as the runtime and is not saved.
+
+In TUI mode, a widget above the editor shows the tree while any child runs and disappears as soon as none does. It lists the running agents, those that finished since it appeared, and their ancestors. Each row shows the agent's status, model and thinking level, current activity or outcome, and the time its latest turn took or has taken so far. Running agents spin with a braille dot; while the shape-spinner extension is loaded, they turn its orb instead, in one color per top-level agent that its descendants share, with gray for root. The orbs need shape-spinner's font, which is why they follow its command.
+
+`/agents` and `alt+a` open a read-only overlay. The tree is on the left; on the right, the selected agent's transcript is drawn with Pi's own chat components: its tasks, mail, responses and tool calls. A running agent is read from its live session and then followed through events; any other agent is parsed from its session file without opening it for writing. A transcript that cannot be read or drawn shows the error and is read again at the agent's next turn boundary, the first point where Pi has recorded every message it announced. Each transcript is built once per opening and keeps its scroll position. Transcript lines reach the terminal with only colours and links whose targets hold no controls, so controls in session text cannot act on the terminal; images are described in text, since terminal image protocols cannot draw inside an overlay. A tool keeps the display its live child used for the rest of the process; before a live child has drawn it, Pi's built-in tools and this extension's tools use their own display and other extensions' tools Pi's generic one.
+
+Mail is stored with `display: true`, so the root transcript shows a final answer as a card naming its sender and its recorded outcome, and a message as a short note; the viewer shows a task steered into a running turn the same way. The model receives the same envelope text either way.
 
 ## Configuration
 

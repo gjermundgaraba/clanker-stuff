@@ -17,9 +17,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   AgentSession,
+  AgentSessionEvent,
   BuildSystemPromptOptions,
   ExtensionFactory,
   ModelRegistry,
+  SessionEntry,
+  ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
@@ -29,7 +32,17 @@ import type { Envelope, Mail } from "./protocol.js";
 
 type HistoryMessage = Parameters<SessionManager["appendMessage"]>[0];
 
-type AgentMessage = AgentSession["state"]["messages"][number];
+export type AgentMessage = AgentSession["state"]["messages"][number];
+
+/** What a viewer opened mid-turn needs to catch up before following live events. */
+export interface ChildSnapshot {
+  /** The session's current branch, which includes history that compaction removed from context. */
+  branch: readonly SessionEntry[];
+  /** Ids of the tool calls executing now. */
+  executing: ReadonlySet<string>;
+  /** The partial response being streamed, if any. */
+  streaming: AgentMessage | undefined;
+}
 
 const CHILD_BRIDGE_PATH = "<inline:subagents-child>";
 
@@ -62,6 +75,7 @@ export interface ChildRuntime {
   dispose: () => Promise<void>;
   readonly model: string;
   readonly sessionFile: string;
+  snapshot: () => ChildSnapshot;
   /**
    * Queues a task for the current turn, or returns undefined without one. Resolves once the turn
    * reads it, or with false when the turn settles without reading it.
@@ -70,6 +84,8 @@ export interface ChildRuntime {
   /** Runs one prompt to settlement. */
   startTurn: (text: string) => Promise<ChildTurnOutcome>;
   readonly thinkingLevel: AgentThinkingLevel;
+  /** How the child's own session would draw calls to `name`, including its extensions' tools. */
+  toolRenderers: (name: string) => ToolRenderers | undefined;
 }
 
 export interface ChildRuntimeRequest {
@@ -81,6 +97,8 @@ export interface ChildRuntimeRequest {
   modelRegistry: ModelRegistry;
   onDelivered: (mailId: string) => void;
   onError: (cause: unknown) => void;
+  /** Receives every session event, for presentation; a failure goes to `onError`. */
+  onEvent: (event: AgentSessionEvent) => void;
   prompt: string;
   promptOptions: BuildSystemPromptOptions | undefined;
   sessionFile: string | undefined;
@@ -334,6 +352,13 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         read(true);
       }
     }
+
+    // Pi's session does not catch its listeners: a presentation failure would abort the child's run.
+    try {
+      request.onEvent(event);
+    } catch (error) {
+      request.onError(error);
+    }
   });
 
   try {
@@ -462,6 +487,11 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       return `${current.provider}/${current.id}`;
     },
     sessionFile,
+    snapshot: () => ({
+      branch: sessionManager.getBranch(),
+      executing: session.state.pendingToolCalls,
+      streaming: session.state.streamingMessage,
+    }),
     startTurn,
     steer(task) {
       // Pi delivers queued steering after the prompt when the run starts, or at the next turn
@@ -489,5 +519,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     get thinkingLevel() {
       return session.thinkingLevel;
     },
+    toolRenderers: (name) =>
+      session.extensionRunner.resolveToolRenderers(name, () => session.getToolDefinition(name)),
   };
 };

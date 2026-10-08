@@ -29,7 +29,8 @@
   "type": "module",
   "exports": "./index.ts",
   "dependencies": {
-    "@clanker-stuff/pi-extension-paths": "workspace:^"
+    "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-shape-glyphs": "workspace:^"
   },
   "devDependencies": {
     "typebox": "catalog:",

@@ -19,6 +19,7 @@ import {
 import type { Mail } from "./protocol.js";
 import { openTree } from "./store.js";
 import { registerTools } from "./tools.js";
+import type { ViewerSource } from "./ui/viewer.js";
 
 export interface SubagentManagerOptions {
   config: SubagentsConfig;
@@ -104,8 +105,9 @@ export class SubagentManager {
     await this.#reconcile();
   }
 
-  describe(): string {
-    return this.#controller.describe();
+  /** The tree and live activity, read-only, for presentation. */
+  get source(): ViewerSource {
+    return this.#controller;
   }
 
   async shutdown(): Promise<void> {
