@@ -1,0 +1,7 @@
+interface:
+  display_name: "Foldkit"
+  short_description: "Load Foldkit architecture framing and conventions"
+  default_prompt: "Use $foldkit to load Foldkit framing before working on a Foldkit app."
+
+policy:
+  allow_implicit_invocation: false
