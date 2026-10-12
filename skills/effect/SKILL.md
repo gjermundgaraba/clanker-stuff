@@ -1,6 +1,6 @@
 ---
 name: effect
-description: Apply repository-compatible Effect conventions when implementing or reviewing code in Effect-based TypeScript projects.
+description: Effect conventions and production defaults for TypeScript. Use before writing, migrating to, or reviewing code that imports `effect` or `@effect/*` (services and Layers, Schema, Config, HTTP clients, streams, caching, scheduling, tests), including when introducing Effect to a repository that does not use it yet. Routine small edits that follow existing repository patterns do not need it.
 metadata:
   upstream-source: "https://github.com/kitlangton/skills"
   upstream-path: "skills/effect/"

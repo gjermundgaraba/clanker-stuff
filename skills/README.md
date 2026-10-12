@@ -6,7 +6,7 @@ scripts, assets, and host metadata.
 
 ## Ownership
 
-This is the canonical source for reusable skills, including `orchestrate`.
+This is the canonical source for reusable skills.
 Edit skills here; installations link these complete folders into each host.
 
 Package-owned skills stay with their extension or plugin.

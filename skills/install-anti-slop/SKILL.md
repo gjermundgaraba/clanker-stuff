@@ -40,12 +40,13 @@ Complete when the operation and target path are established and pre-existing wor
    Complete when the files, including vendored license and provenance, exist at the agreed destination without replacing an existing copy.
 
 2. Install current compatible dependencies rather than trusting versions remembered by the agent:
+   - If the repository uses Vite+ and its installed `vite-plus` exports `vite-plus/lint/plugins`, add neither `oxlint` nor `@oxlint/plugins`. Rewrite the copied files' `@oxlint/plugins` imports to `vite-plus/lint/plugins` and record that as an intentional deviation in `UPSTREAM.md`. Skip the remaining bullets.
    - If the repository already depends on `oxlint`, read its installed version from the package manager or lockfile and install `@oxlint/plugins` at exactly that version. Pin it exactly rather than by range so future upgrades move both packages together.
    - Only when the repository has no `oxlint` dependency, query `npm view oxlint version` and `npm view @oxlint/plugins version`, then install the same current version of both packages.
    - `oxlint` is a development dependency. The copied source imports `@oxlint/plugins`, so install it as a development dependency for a local-only plugin.
    - Do not replace the package manager or rewrite unrelated dependency ranges.
 
-   Complete when matching compatible versions are installed and unrelated dependency ranges are preserved.
+   Complete when matching compatible versions are installed, or no Oxlint package was added for Vite+, and unrelated dependency ranges are preserved.
 
 3. Register the generic plugin, configure ignores, and enable all generic rules. For `oxlint.config.ts` or `.oxlintrc.json`, merge these fields with the existing configuration:
 
@@ -125,7 +126,7 @@ Complete when the operation and target path are established and pre-existing wor
 
    Complete when the generic rules and eligible Effect rules are registered and existing configuration is preserved.
 
-4. Run the repository's lint command and typecheck. For Vite+, run the repository's full `vp check` command after adding both lint and format ignores. If findings appear in owned project source, report them and fix them only when the user asked for migration/cleanup. Do not suppress rules, weaken rule severity, add unsafe casts, or mechanically launder types to make lint pass.
+4. Run the repository's lint command and typecheck. For Vite+, run the repository's full `vp check` command after adding both lint and format ignores. If findings appear in owned project source, report them and fix them only when the user asked for migration/cleanup. Otherwise, when a required check now fails on these findings, say so, give the finding counts and how many are autofixable, and ask whether to clean up. Do not suppress rules, weaken rule severity, add unsafe casts, or mechanically launder types to make lint pass.
 
    When cleanup is authorized, apply `require-readable-spacing` with lint autofix, then run the repository's formatter and lint again. Confirm a second fix/format pass leaves files unchanged. Keep whitespace fixes separate from semantic edits, preserve documentation attachment and overload groups, and do not enable an entire competing formatting preset.
 

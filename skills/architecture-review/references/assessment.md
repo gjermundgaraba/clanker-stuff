@@ -15,17 +15,6 @@ Prioritize by demonstrated impact and reach. Group related findings and discard 
 
 ## Findings
 
-For each supported finding, include:
-
-- **Severity:** `structural`, `concern`, or `observation`, according to the consequence and reach of the issue.
-- **Finding:** the affected components and specific ownership, boundary, coupling, or design problem.
-- **Evidence:** concrete paths, symbols, and dependency or data-flow details; cite proposal sections for unimplemented designs.
-- **Impact:** the practical cost to changeability, testing, reliability, or scale.
-- **Counterevidence and confidence:** relevant constraints, guarantees, and unresolved assumptions. Confidence describes evidence strength, independently of severity.
-- **Affected contract and constraints:** the responsibility or guarantee compromised, and existing requirements any later design must preserve.
-
-For implemented changes, label each issue as introduced, worsened, or pre-existing. Keep proposed behavior distinct from verified implementation.
-
 When useful for a decision, distinguish issues worth acting on now, issues with unresolved tradeoffs, and low-priority context. Explain material dismissed concerns when the reasoning affects the user's decision; omit routine rejected nits and empty groups.
 
 Give supported conclusions and investigation limits without claiming that a review establishes readiness to ship.

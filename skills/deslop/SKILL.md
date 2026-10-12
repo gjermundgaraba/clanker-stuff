@@ -1,7 +1,6 @@
 ---
 name: deslop
-description: Review code for unnecessary complexity and behavior-preserving simplifications. Use only when explicitly invoked.
-disable-model-invocation: true
+description: Review a diff, files, or other explicit scope for slop (unnecessary code, overengineering, ceremony that does not pull its weight) and report findings without editing. Use when the user or a delegating agent asks for a deslop or slop review, asks whether code is overcomplicated or could be simpler, or names this skill in a prompt, brief, or pasted text such as `/deslop` or `$deslop`. Not for code review that does not ask about complexity.
 ---
 
 # Deslop
@@ -15,7 +14,6 @@ Deliver diagnosis and evidence. Do not prescribe replacements, implementation st
 - Lead with findings, ordered by practical impact, or say there are no slop findings.
 - For each finding, include a file reference, the unnecessary mechanism, the behavior it currently supports, and evidence that its complexity is avoidable. Explain the maintenance or comprehension cost, relevant constraints, and unresolved assumptions without prescribing an edit.
 - Report any skipped or unfinished coverage and the reason.
-- For explicitly exhaustive audits, include a compact per-file coverage list: `has findings`, `clean`, or `skipped` (with the reason).
 
 ## What to look for
 

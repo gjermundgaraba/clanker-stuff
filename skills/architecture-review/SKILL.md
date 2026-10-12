@@ -45,8 +45,19 @@ Build a coherent explanation of purpose, key concepts, component relationships, 
 
 ## Assess and present
 
-Apply the relevant lenses in [the critique rubric](references/critique-rubric.md), then use [the assessment guidance](references/assessment.md) to substantiate and prioritize findings.
+Read [the critique rubric](references/critique-rubric.md) and [the assessment guidance](references/assessment.md) before assessing. Apply the relevant lenses, then substantiate and prioritize findings. When delegating part of the review, give each agent both file paths and the finding format below.
 
 Present the scope and architectural explanation first, followed by supported findings and investigation limits. Include sound boundaries worth preserving when they explain the assessment. An empty findings list is valid; it does not establish that unexamined areas are sound.
+
+For each supported finding, include:
+
+- **Severity:** `structural`, `concern`, or `observation`, according to the consequence and reach of the issue.
+- **Finding:** the affected components and specific ownership, boundary, coupling, or design problem.
+- **Evidence:** concrete paths, symbols, and dependency or data-flow details; cite proposal sections for unimplemented designs.
+- **Impact:** the practical cost to changeability, testing, reliability, or scale.
+- **Counterevidence and confidence:** relevant constraints, guarantees, and unresolved assumptions. Confidence describes evidence strength, independently of severity.
+- **Affected contract and constraints:** the responsibility or guarantee compromised, and existing requirements any later design must preserve.
+
+For implemented changes, label each issue as introduced, worsened, or pre-existing. Keep proposed behavior distinct from verified implementation.
 
 The review is complete when the scoped question has an evidence-backed assessment, supported diagnoses where warranted, and explicit investigation limits. Solution design, implementation, and documentation updates require their own requested scope. Create a separate report artifact only when requested.
