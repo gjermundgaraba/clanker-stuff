@@ -9,6 +9,13 @@ Review the full user-provided diff, files, or explicit scope for slop: unnecessa
 
 Deliver diagnosis and evidence. Do not prescribe replacements, implementation steps, or a target design unless requested. A supported finding does not require a known solution.
 
+## Resolve a diff review's scope
+
+- For changes introduced by a branch or PR, identify its intended target and review from the merge base of that target and the branch. Use the PR base when supplied; otherwise inspect the available target refs. A stale local branch is not the target's current state. Unrelated changes already in the target are outside this review, even if the stale local-branch diff includes them. Naming `main` as the target does not by itself request a literal comparison with `refs/heads/main`.
+- Honor an explicitly requested revision range, commit, or literal local-ref comparison exactly, including its endpoints and two-dot or three-dot meaning. Do not substitute a newer remote ref for that request.
+- State the resolved base and scope. If available evidence cannot resolve a material ambiguity, ask the focused question needed before presenting findings as belonging to the branch or PR.
+- For a diff review, report complexity the diff introduces, materially changes, or leaves unnecessary, such as code whose last caller it removes. Unchanged code the diff does not affect stays outside the review, even when read for context. Full-file and repository reviews keep their requested broader scope.
+
 ## Output
 
 - Lead with findings, ordered by practical impact, or say there are no slop findings.
