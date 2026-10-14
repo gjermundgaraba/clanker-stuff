@@ -1,7 +1,6 @@
 ---
 name: effect-codebase
-description: "Review or shape an Effect-based TypeScript codebase: by-domain layout, services and Layers, ports and adapters, composition roots, and the testing, error, comment, and lint practices that go with them. Use only when explicitly invoked."
-disable-model-invocation: true
+description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, or assessing/adopting house style. Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
 metadata:
   upstream-source: "https://ratstack.sh/lore/structure-effect-by-domain"
   upstream-relationship: "reference"
@@ -30,7 +29,7 @@ metadata:
 
 # Effect codebase
 
-Shape an Effect codebase, or assess how far one already is. This skill owns two things: the by-domain layout (folders, where services, Layers, ports, and adapters live, and the order of a restructure) and the house style that goes with it (how operations, errors, tests, comments, and enforcement are handled). It does not teach Effect APIs: take mechanics from the project's pinned Effect version and its existing conventions.
+Design or review an Effect codebase's organization and project conventions. This skill owns two things: the by-domain layout (folders, where services, Layers, ports, and adapters live, and the order of a restructure) and the house style that goes with it (how operations, errors, tests, comments, and enforcement are handled). It does not teach Effect APIs: take mechanics from the project's pinned Effect version and its existing conventions.
 
 ## Rules
 
@@ -50,6 +49,8 @@ The source pairs the layout with nine practices: the service constructor and Lay
 The first restates rule 6. The rest stay distinct from the rules: a project can follow the rules without any of them, and none is Effect idiom.
 
 ## Modes
+
+**Focused design** applies when a feature or refactor requires a decision about domain boundaries, file placement, or project conventions. Read only the relevant sections of [SHAPES.md](references/SHAPES.md) and [HOUSE_STYLE.md](references/HOUSE_STYLE.md). Keep the decision within the user's requested scope and the repository's conventions.
 
 **Review** is read-only. Read [REVIEW.md](references/REVIEW.md), plus "What a domain is" and the section for the project's shape in [SHAPES.md](references/SHAPES.md). Gather the facts REVIEW.md lists and report findings. Read HOUSE_STYLE.md to report where the project stands on each practice. When the user limits the review to particular questions, gather and report only what those need, as REVIEW.md describes. Offer a target layout only when asked.
 
