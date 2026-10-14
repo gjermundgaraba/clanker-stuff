@@ -46,7 +46,8 @@
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@clanker-stuff/pi-shape-glyphs": "workspace:^",
     "@clanker-stuff/pi-tones": "workspace:^",
-    "@clanker-stuff/pi-tool-rendering": "workspace:^"
+    "@clanker-stuff/pi-tool-rendering": "workspace:^",
+    "@clanker-stuff/scheduled-check": "workspace:^"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

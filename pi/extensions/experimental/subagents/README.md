@@ -10,7 +10,7 @@ Load `pi/extensions/experimental/subagents/index.ts` as a local extension; npm i
 
 ## Usage
 
-- Ask for delegation explicitly; the model spawns children with `spawn_agent` and each reports its final answer to its parent.
+- Ask for delegation explicitly; children report final answers to their parent and wake an idle root by default (configurable).
 - A live tree of running agents sits above the editor; press `alt+a` or run `/agents` to inspect any agent's transcript.
 - Toggle `/proactive` for branch-local proactive delegation, or run `/ultra` to enable it and boost native thinking once.
 

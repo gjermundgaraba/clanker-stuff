@@ -261,7 +261,7 @@ export const renderOverlay = (
       : `${border(left)}${border("─".repeat(innerWidth))}${border(right)}`;
 
   const title = truncateToWidth(
-    `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", snapshot.kind === "state" ? `state · ${displayText(snapshot.modelLabel)}` : "request observation")}`,
+    `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", snapshot.kind === "state" ? `state · ${displayText(snapshot.modelLabel)}` : snapshot.kind === "request" ? "request observation" : "tools · registered inventory")}`,
     Math.max(0, innerWidth - 4),
     "…",
   );
@@ -280,19 +280,26 @@ export const renderOverlay = (
       `${PAD}${
         snapshot.kind === "state"
           ? renderUsageLine(theme, snapshot.usage)
-          : snapshot.request
-            ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
-            : "No request observed yet"
+          : snapshot.kind === "tools"
+            ? `${snapshot.tools.length} registered · ${snapshot.activeCount} active · Captured ${new Date(snapshot.capturedAt).toISOString()}`
+            : snapshot.request
+              ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
+              : "No request observed yet"
       }`,
     ),
     line(
       `${PAD}${
         snapshot.kind === "state"
           ? renderUsageBar(theme, snapshot.usage, innerWidth - 2 * PAD.length)
-          : theme.fg(
-              "muted",
-              "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay",
-            )
+          : snapshot.kind === "tools"
+            ? theme.fg(
+                "muted",
+                "Registration and activation at open time; loadouts may hide active declarations",
+              )
+            : theme.fg(
+                "muted",
+                "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay",
+              )
       }`,
     ),
     ...(layout.showLegend
@@ -301,10 +308,12 @@ export const renderOverlay = (
             `${PAD}${
               snapshot.kind === "state"
                 ? renderLegend(theme, snapshot)
-                : theme.fg(
-                    "muted",
-                    `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated ? " · truncated to 1 MiB" : ""}`,
-                  )
+                : snapshot.kind === "tools"
+                  ? theme.fg("muted", "Memory-only · no token estimates · reopen to refresh")
+                  : theme.fg(
+                      "muted",
+                      `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated ? " · truncated to 1 MiB" : ""}`,
+                    )
             }`,
           ),
         ]

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fauxAssistantMessage, fauxToolCall, type JsonValue } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  getCurrentSystemPrompt,
+  type JsonValue,
+} from "@earendil-works/pi-ai";
 import { createCodemodeExtension, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -241,18 +246,51 @@ describe("background tasks in a real AgentSession", () => {
   it.each(["tui", "rpc"] as const)(
     "%s wakes idle with metadata only, then allows payload and log inspection",
     async (mode) => {
-      const h = await setup([], mode);
+      const starts: { messageType: string; idle: boolean }[] = [];
+
+      const h = await setup(
+        [
+          (pi) => {
+            pi.on("before_agent_start", (event, ctx) => {
+              starts.push({ messageType: event.messageType, idle: ctx.isIdle() });
+              event.systemPromptOptions.sections.wake_test = `wake-${event.messageType}`;
+            });
+          },
+        ],
+        mode,
+      );
+
+      const releaseWatcher = join(h.tempDir, "release-watcher");
       h.setResponses([
         start(
-          "setTimeout(()=>{console.error('private diagnostic');console.log(JSON.stringify({v:1,type:'result',data:'untrusted-payload'}))},250)",
+          `const timer=setInterval(()=>{if(!require("node:fs").existsSync(${JSON.stringify(releaseWatcher)})) return;` +
+            "clearInterval(timer);console.error('private diagnostic');console.log(JSON.stringify({v:1,type:'result',data:'untrusted-payload'}))},10)",
           "events-v1",
         ),
         fauxAssistantMessage("Continuing other work"),
-        fauxAssistantMessage("Notification received"),
+        (context) => {
+          expect(getCurrentSystemPrompt(context.messages)).toContain("wake-custom");
+
+          return fauxAssistantMessage(fauxToolCall("task_list", {}), { stopReason: "toolUse" });
+        },
+        (context) => {
+          // The wake run must retain hook sections after its first tool call, not reset the prompt.
+          expect(getCurrentSystemPrompt(context.messages)).toContain("wake-custom");
+
+          return fauxAssistantMessage("Notification received");
+        },
       ]);
       await h.prompt("Start a synthetic watcher");
+      // Complete only after the user run settled, even on a busy host.
+      await writeFile(releaseWatcher, "");
       await expect.poll(() => wakes(h).length).toBe(1);
       await expect.poll(() => h.session.isIdle).toBe(true);
+      expect(starts).toStrictEqual([
+        { messageType: "user", idle: false },
+        { messageType: "custom", idle: false },
+      ]);
+      expect(h.getPendingResponseCount()).toBe(0);
+      expect(h.session.getLastAssistantText()).toBe("Notification received");
       const notice = JSON.stringify(wakes(h)[0]);
       expect(notice).not.toContain("untrusted-payload");
       expect(notice).not.toContain("untrusted-name");
@@ -520,7 +558,15 @@ describe("background tasks in a real AgentSession", () => {
     ]);
     await h.prompt("Start server");
     const task = started(h);
-    await delay(150);
+    await expect
+      .poll(
+        async () =>
+          Value.Parse(
+            Type.Object({ logs: Type.Object({ stdout: Type.String() }) }),
+            await callTool(h, "task_inspect", { id: task.id }),
+          ).logs.stdout,
+      )
+      .toBe("serving\n");
     await h.prompt("/tasks");
     await h.prompt(`/tasks ${task.id}`);
     expect(notices).toEqual([

@@ -44,7 +44,7 @@ describe("dollah-skills package", () => {
     await loader.reload();
 
     expect(loader.getExtensions().errors).toStrictEqual([]);
-    expect(loader.getExtensions().extensions[0]?.handlers.has("before_agent_start")).toBeTruthy();
+    expect(loader.getExtensions().extensions[0]?.handlers.has("input")).toBe(true);
     expect(loader.getSkills().skills).toStrictEqual([]);
   });
 

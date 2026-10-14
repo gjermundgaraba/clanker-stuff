@@ -132,11 +132,11 @@ export class Transcript extends Container {
         const component = this.#pending.get(event.toolCallId);
         this.#pending.delete(event.toolCallId);
 
-        component?.updateResult(
-          Value.Check(ToolResultSchema, result)
-            ? { ...result, isError: event.isError }
-            : { content: [], isError: event.isError },
-        );
+        component?.updateResult({
+          ...(Value.Check(ToolResultSchema, result) ? result : { content: [] }),
+          isError: event.isError,
+          ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
+        });
         break;
       }
 

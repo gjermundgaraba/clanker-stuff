@@ -40,7 +40,13 @@ Every `MESSAGE` and `FINAL_ANSWER` is written to the tree's outbox before delive
 
 - A running child receives mail as a passive custom message: Pi appends it at once when the session is idle, or at the end of the current turn, so the next request includes it. The child's `message_end` event acknowledges it.
 - Mail for a child that is not running waits in the outbox and is appended before its next task.
-- The root receives mail through `pi.sendMessage(..., { triggerTurn: false })`, which never starts a turn. The tree acknowledges root mail found in the root transcript after each send, at `turn_start`, at `agent_settled`, and on session start; mail still missing on session start is sent again.
+- The root receives the same passive mail through `pi.sendMessage(..., { triggerTurn: false })`. The tree acknowledges root mail found in the root transcript after each send, at `turn_start`, at `agent_settled`, and on session start; mail still missing on session start is sent again. Handing a message to Pi is not acknowledgement.
+
+By default, each new child `FINAL_ANSWER` requests an opportunity for the root to handle it. Failed child turns are eligible too. If the root is running and mail arrives after its last request was prepared, `agent_before_settle` requests a native continuation when Pi permits one. Mail already available to a later request needs no extra continuation. An idle root instead receives a batched custom wake; a short internal delay coalesces close completions. The original mail remains the durable payload, and the wake only asks the root to review it. A wake waits for visible mail on the selected branch and defers while an extension dialog or compaction is active. Ordinary `MESSAGE` mail never requests automatic handling.
+
+An automatic-handling opportunity is consumed when Pi prepares a request after the mail is recorded, not merely when a run starts. Compaction and context transforms may omit that mail; the extension respects those projections rather than forcing repeated requests. This tracks a request opportunity, not model understanding or successful provider completion. Durable delivery acknowledgement remains independent. Aborting a root run pauses automatic handling until the next user-started run; an unrelated custom run does not re-enable it. Paused mail still lands and is acknowledged normally. Navigation discards pending opportunities, and session resume/reload re-delivers missing mail passively rather than restarting old work. Shutdown clears the timer.
+
+Wakes and boundary continuations can incur additional model requests. Set `wake_on_final_answer: false` to keep all root mail passive. This setting controls waking, not delegation permission; the resumed model must still follow the selected delegation policy and user instructions.
 
 ## Persistence
 
@@ -54,7 +60,7 @@ Presentation only reads the tree and never changes what an agent sees. Each chil
 
 In TUI mode, a widget above the editor shows the tree while any child runs and disappears as soon as none does. It lists the running agents, those that finished since it appeared, and their ancestors. Each row shows the agent's status, model and thinking level, current activity or outcome, and the time its latest turn took or has taken so far. Running agents spin with a braille dot; while the shape-spinner extension is loaded, they turn its orb instead, in one color per top-level agent that its descendants share, with gray for root. The orbs need shape-spinner's font, which is why they follow its command.
 
-`/agents` and `alt+a` open a read-only overlay. The tree is on the left; on the right, the selected agent's transcript is drawn with Pi's own chat components: its tasks, mail, responses and tool calls. A running agent is read from its live session and then followed through events; any other agent is parsed from its session file without opening it for writing. A transcript that cannot be read or drawn shows the error and is read again at the agent's next turn boundary, the first point where Pi has recorded every message it announced. Each transcript is built once per opening and keeps its scroll position. Transcript lines reach the terminal with only colours and links whose targets hold no controls, so controls in session text cannot act on the terminal; images are described in text, since terminal image protocols cannot draw inside an overlay. A tool keeps the display its live child used for the rest of the process; before a live child has drawn it, Pi's built-in tools and this extension's tools use their own display and other extensions' tools Pi's generic one.
+`/agents` and `alt+a` open a read-only overlay. The tree is on the left; on the right, the selected agent's transcript is drawn with Pi's own chat components: its tasks, mail, responses and tool calls, including Pi's recorded tool durations for both live and reopened transcripts. A running agent is read from its live session and then followed through events; any other agent is parsed from its session file without opening it for writing. A transcript that cannot be read or drawn shows the error and is read again at the agent's next turn boundary, the first point where Pi has recorded every message it announced. Each transcript is built once per opening and keeps its scroll position. Transcript lines reach the terminal with only colours and links whose targets hold no controls, so controls in session text cannot act on the terminal; images are described in text, since terminal image protocols cannot draw inside an overlay. A tool keeps the display its live child used for the rest of the process; before a live child has drawn it, Pi's built-in tools and this extension's tools use their own display and other extensions' tools Pi's generic one.
 
 Mail is stored with `display: true`, so the root transcript shows a final answer as a card naming its sender and its recorded outcome, and a message as a short note; the viewer shows a task steered into a running turn the same way. The model receives the same envelope text either way.
 
@@ -67,6 +73,7 @@ Create `~/.pi/agent/subagents.json`:
   "version": 2,
   "delegation": "explicit",
   "max_concurrent_threads_per_session": 3,
+  "wake_on_final_answer": true,
   "roles": {
     "researcher": {
       "description": "Investigates a bounded question and reports evidence.",
@@ -78,7 +85,7 @@ Create `~/.pi/agent/subagents.json`:
 }
 ```
 
-`delegation` supplies the [branch policy fallback](delegation.md#branch-policy). `agent_type` is offered only when roles exist. Invalid configuration produces a warning and the defaults.
+`delegation` supplies the [branch policy fallback](delegation.md#branch-policy). `agent_type` is offered only when roles exist. `wake_on_final_answer` defaults to `true`. Invalid configuration produces a warning and the defaults.
 
 ## Differences from Codex
 

@@ -76,6 +76,54 @@ describe(Transcript, () => {
     expect(text(component)).toContain("SLOW-RESULT");
   });
 
+  it.each([
+    { durationMs: 4321, isError: false },
+    { durationMs: 4321, isError: true },
+    { durationMs: undefined, isError: false },
+  ])(
+    "preserves live and recorded timing ($durationMs ms, error: $isError)",
+    ({ durationMs, isError }) => {
+      const create = () =>
+        new Transcript({
+          cwd: "/project",
+          renderers: () => ({
+            renderResult: (_result, _options, _theme, context) =>
+              new Text(`duration=${context.durationMs ?? "unknown"}`, 0, 0),
+          }),
+          theme: createIdentityTheme(),
+          tui: createMockTui({ rows: 40 }),
+        });
+
+      const live = create();
+      const output = { content: [{ text: "done", type: "text" as const }], details: undefined };
+
+      const recorded = {
+        ...result("fast", output.content),
+        isError,
+        ...(durationMs === undefined ? {} : { durationMs }),
+      };
+
+      live.load([calls], undefined, new Set(["fast"]));
+      live.handle({
+        type: "tool_execution_end",
+        toolCallId: "fast",
+        toolName: "read",
+        result: output,
+        isError,
+        ...(durationMs === undefined ? {} : { durationMs }),
+      });
+      const expected = `duration=${durationMs ?? "unknown"}`;
+      expect(text(live)).toContain(expected);
+      live.handle({ type: "message_start", message: recorded });
+      expect(text(live)).toContain(expected);
+      const restored = create();
+      restored.load([calls, recorded], undefined);
+      expect(text(restored)).toContain(expected);
+      live.dispose();
+      restored.dispose();
+    },
+  );
+
   it("settles running rows when disposed, so their renderers can stop timers", () => {
     const renderResult = vi.fn(() => new Text("", 0, 0));
 

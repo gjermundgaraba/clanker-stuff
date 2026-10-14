@@ -1,6 +1,6 @@
 # Delegation and thinking
 
-Subagents separates branch-local delegation policy from native thinking. `/proactive` controls whether the model may initiate delegation without an explicit request. `/ultra` is a one-shot action: enable proactive delegation and select the current model's highest supported native thinking level. Neither command is an automatic scheduler, a new provider or a backend reasoning level.
+Subagents separates branch-local delegation policy from native thinking. `/proactive` controls whether the model may initiate delegation without an explicit request. `/ultra` is a one-shot action: enable proactive delegation and select the current model's highest supported native thinking level. Neither command controls [idle-root waking](protocols.md#mail-delivery), adds a new provider, or changes backend reasoning levels.
 
 ## Commands
 
@@ -8,7 +8,7 @@ Subagents separates branch-local delegation policy from native thinking. `/proac
 - Run `/ultra` to save a branch-local `proactive` policy and boost native thinking once, even when the configured default is already proactive. Running it again repeats that action; it does not toggle off or restore prior thinking.
 - Start Pi with `--ultra` to perform the same action at startup.
 
-Both slash commands take no arguments. Proactive delegation can increase usage substantially. User requests, project constraints and applicable skill instructions still govern delegation. Tools, permissions, role instructions, tree-wide concurrency and mailbox behavior are unchanged. Ultra never enables Fast.
+Both slash commands take no arguments. Proactive delegation can increase usage substantially. User requests, project constraints and applicable skill instructions still govern delegation. Tools, permissions, role instructions, tree-wide concurrency and mailbox behavior are unchanged by these commands. Idle-root waking is independently enabled by default and can also incur additional requests. Ultra never enables Fast.
 
 ## Branch policy
 

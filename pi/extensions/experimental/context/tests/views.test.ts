@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
 import { observeRequest } from "../observation.js";
 import { ContextViews } from "../views.js";
+import { buildToolsSnapshot } from "../tools.js";
 import { fixtureSnapshot } from "./fixtures/snapshot.js";
 
 const setup = (captured = true) => {
@@ -20,6 +21,7 @@ const setup = (captured = true) => {
         ? observeRequest({ model: "routed", input: "wire-only message" })
         : undefined,
     },
+    buildToolsSnapshot([], []),
     { notify: vi.fn() },
     done,
   );
@@ -47,12 +49,16 @@ describe(ContextViews, () => {
     expect(t.render()).not.toContain("request observation");
     t.press("\u007f", "\r", "v");
     expect(t.render()).toContain("request observation");
-    expect(t.render()).toContain("v state");
+    expect(t.render()).toContain("v tools");
     expect(t.render()).not.toContain("state-only instruction");
     expect(t.render()).not.toContain("~");
     t.press("j", "\r");
     expect(t.render()).toContain("wire-only message");
     expect(t.render()).toContain("routed");
+    t.press("v");
+    expect(t.render()).toContain("tools · registered inventory");
+    expect(t.render()).toContain("v state");
+    expect(t.render()).not.toContain("~");
     t.press("v");
     expect(t.render()).toContain("/needle");
     expect(t.render()).toContain("state-only instruction");

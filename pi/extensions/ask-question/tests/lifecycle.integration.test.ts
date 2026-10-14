@@ -406,8 +406,11 @@ describe("durable questionnaires in AgentSession", () => {
         fauxAssistantMessage("Independent"),
       ]);
       await env.harness.prompt("Ask async");
+      const providerStarted = Promise.withResolvers<void>();
+
       env.harness.setResponses([
         async (_context, options) => {
+          providerStarted.resolve();
           await new Promise<void>((resolve) =>
             options?.signal?.addEventListener("abort", () => resolve(), { once: true }),
           );
@@ -417,7 +420,8 @@ describe("durable questionnaires in AgentSession", () => {
         fauxAssistantMessage("Answer received"),
       ]);
       const running = env.harness.prompt("Independent work");
-      await expect.poll(() => env.harness.session.isStreaming).toBe(true);
+      // Pi is busy during run preparation too; wait for the request before testing its queue.
+      await providerStarted.promise;
       await env.harness.session.steer("Unrelated queued text");
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);

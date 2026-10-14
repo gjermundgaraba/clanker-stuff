@@ -26,6 +26,16 @@ const largestFirst = (parts: readonly ContextPart[]): ContextPart[] =>
   [...parts].sort((a, b) => b.estimatedTokens - a.estimatedTokens);
 
 export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
+  if (snapshot.kind === "tools")
+    return [
+      group(
+        "registered",
+        "Registered tools",
+        snapshot.tools.map((part, index) => leaf(part, `registered-${index}`)),
+        "Registration is not a model declaration. Direct tools are callable from tools only while active; codemode and deferred tools are callable while registered. Model-only and hidden tools are never callable from tools. reachesTools is a capability flag, not an exact dependency list. No token estimates.",
+      ),
+    ];
+
   if (snapshot.kind === "request")
     return snapshot.request
       ? [

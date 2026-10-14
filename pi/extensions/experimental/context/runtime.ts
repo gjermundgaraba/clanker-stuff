@@ -1,5 +1,6 @@
 import type {
   BeforeProviderRequestEvent,
+  ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -8,8 +9,11 @@ import { observeRequest, type ObservedRequest } from "./observation.js";
 import { ContextViews } from "./views.js";
 import { OVERLAY_HEIGHT_RATIO } from "./render.js";
 import { buildSnapshot } from "./snapshot.js";
+import { buildToolsSnapshot } from "./tools.js";
 
-export const createContextInspector = () => {
+export const createContextInspector = (
+  pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools">,
+) => {
   // Session start and tree navigation reset it, so it always belongs to the current branch.
   let captured: ObservedRequest | undefined;
 
@@ -37,6 +41,7 @@ export const createContextInspector = () => {
     });
 
     const request = captured;
+    const tools = buildToolsSnapshot(pi.getAllTools(), pi.getActiveTools());
 
     await ctx.ui.custom(
       (tui, theme, keybindings, done) =>
@@ -46,6 +51,7 @@ export const createContextInspector = () => {
           keybindings,
           snapshot,
           { kind: "request", request },
+          tools,
           ctx.ui,
           () => done(undefined),
         ),

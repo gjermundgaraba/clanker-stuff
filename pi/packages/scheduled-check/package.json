@@ -1,0 +1,21 @@
+{
+  "name": "@clanker-stuff/scheduled-check",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Coalesces scheduled checks while preserving the earliest requested deadline.",
+  "license": "MIT",
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

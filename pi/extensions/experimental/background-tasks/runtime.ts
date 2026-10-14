@@ -1,3 +1,4 @@
+import { createScheduledCheck } from "@clanker-stuff/scheduled-check";
 import { invalidArguments } from "@clanker-stuff/pi-tool-schema";
 import { displayText, inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
@@ -43,8 +44,7 @@ export class TaskRuntime {
   private ctx: ExtensionContext | undefined;
   private closing = false;
   private prompting = false;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private due = 0;
+  private readonly check = createScheduledCheck(() => this.tick());
 
   constructor(private pi: ExtensionAPI) {
     this.supervisor = new Supervisor(() => this.schedule());
@@ -56,7 +56,7 @@ export class TaskRuntime {
   }
   /** Pi defers a prompt triggered during settlement until every settled handler has run. */
   settled(): void {
-    clearTimeout(this.timer);
+    this.check.clear();
     this.tick();
   }
   prompt(active: boolean): void {
@@ -64,18 +64,10 @@ export class TaskRuntime {
 
     if (!active) this.schedule();
   }
-  /** Debounces changes; an earlier request replaces a pending readiness recheck. */
   private schedule(delayMs = 100): void {
-    const due = Date.now() + delayMs;
-
-    if (this.closing || (this.timer && this.due <= due)) return;
-    clearTimeout(this.timer);
-    this.due = due;
-    this.timer = setTimeout(() => this.tick(), delayMs);
-    this.timer.unref();
+    if (!this.closing) this.check.request(delayMs);
   }
   private tick(): void {
-    this.timer = undefined;
     const ctx = this.ctx;
 
     if (this.closing || !ctx) return;
@@ -227,7 +219,7 @@ export class TaskRuntime {
   async shutdown(): Promise<void> {
     if (this.closing) return this.supervisor.shutdown();
     this.closing = true;
-    clearTimeout(this.timer);
+    this.check.clear();
     const ctx = this.ctx;
 
     if (ctx) this.setStatus(ctx, undefined, undefined);

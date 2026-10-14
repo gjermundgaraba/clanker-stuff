@@ -31,6 +31,7 @@ const SubagentsConfigSchema = Type.Object(
     roles: Type.Optional(
       Type.Record(Type.String({ pattern: "^[a-z0-9_-]+$" }), RoleSchema, STRICT),
     ),
+    wake_on_final_answer: Type.Optional(Type.Boolean()),
     version: Type.Literal(2),
   },
   STRICT,
@@ -44,12 +45,14 @@ export interface SubagentsConfig {
   delegation: "explicit" | "proactive";
   maxConcurrent: number;
   roles: Record<string, RoleConfig>;
+  wakeOnFinalAnswer: boolean;
 }
 
 export const DEFAULT_CONFIG: SubagentsConfig = {
   delegation: "explicit",
   maxConcurrent: 3,
   roles: {},
+  wakeOnFinalAnswer: true,
 };
 
 export type SpawnModelRegistry = Pick<ModelRegistry, "find" | "getAvailable">;
@@ -63,6 +66,7 @@ export const parseConfig = <T>(value: T): SubagentsConfig => {
     delegation: value.delegation ?? DEFAULT_CONFIG.delegation,
     maxConcurrent: value.max_concurrent_threads_per_session ?? DEFAULT_CONFIG.maxConcurrent,
     roles: value.roles ?? {},
+    wakeOnFinalAnswer: value.wake_on_final_answer ?? DEFAULT_CONFIG.wakeOnFinalAnswer,
   };
 };
 

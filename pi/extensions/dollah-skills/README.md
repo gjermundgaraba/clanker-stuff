@@ -10,7 +10,7 @@ pi install npm:@clanker-stuff/dollah-skills
 
 ## Usage
 
-Type `$` to complete and highlight a loaded skill name; submitting while Pi is idle loads the complete `SKILL.md` into that turn's prompt. Queued messages load no skills and show a warning; queue `/skill:name` instead.
+Type `$` to complete and highlight a loaded skill name; submitting appends its `SKILL.md` instructions to that user message, including queued messages. Skill bodies are recorded in history, like native `/skill:name`, and mentions inside them do not load other skills.
 
 ## Requirements
 

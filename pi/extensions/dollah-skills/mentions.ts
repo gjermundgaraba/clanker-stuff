@@ -1,27 +1,22 @@
 import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import type {
-  BeforeAgentStartEvent,
-  BuildSystemPromptOptions,
   ExtensionAPI,
   ExtensionContext,
   InputEvent,
+  InputEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 
 import { SKILL_MENTION, installSkillMentionEditor } from "./editor.js";
 
-/** System prompt section holding this turn's loaded skill files; Pi wraps it in `<loaded_skills>`. */
-export const LOADED_SKILLS_SECTION = "loaded_skills";
-
 const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
 
 const SKILL_NAME = /^[A-Za-z0-9_:-]*[A-Za-z0-9_-]$/u;
 
 const SKILL_COMMAND_PREFIX = "skill:";
-
-type Skill = NonNullable<BuildSystemPromptOptions["skills"]>[number];
 
 interface LoadedSkill {
   baseDir: string;
@@ -64,9 +59,6 @@ const mentionedNames = (text: string): Set<string> => {
 };
 
 export const createSkillMentions = (pi: ExtensionAPI) => {
-  /** The latest submission as typed. Pi runs input handlers before before_agent_start on every prompt. */
-  let typed: string | undefined;
-
   const getSkills = () =>
     pi
       .getCommands()
@@ -74,6 +66,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       .map((command) => ({
         description: command.description,
         name: command.name.slice(SKILL_COMMAND_PREFIX.length),
+        filePath: command.sourceInfo.path,
       }))
       .filter((skill) => SKILL_NAME.test(skill.name));
 
@@ -109,19 +102,21 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     }));
   };
 
-  const loadMentionedSkills = async (text: string, skills: Skill[], ctx: ExtensionContext) => {
+  const loadMentionedSkills = async (text: string, ctx: ExtensionContext) => {
     const names = mentionedNames(text);
 
     if (names.size === 0) {
       return [];
     }
 
-    const loadSkill = async (skill: Skill): Promise<LoadedSkill | null> => {
+    const loadSkill = async (
+      skill: ReturnType<typeof getSkills>[number],
+    ): Promise<LoadedSkill | null> => {
       try {
         const contents = await readFile(skill.filePath, "utf-8");
 
         return {
-          baseDir: skill.baseDir,
+          baseDir: dirname(skill.filePath),
           body: stripFrontmatter(contents).trim(),
           name: skill.name,
           path: skill.filePath,
@@ -137,7 +132,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     };
 
     const loaded = await Promise.all(
-      skills
+      getSkills()
         .values()
         .filter((skill) => names.has(skill.name))
         .map(loadSkill),
@@ -146,54 +141,18 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     return loaded.filter((skill) => skill !== null);
   };
 
-  /**
-   * Never rewrites input, so Pi still expands a leading `/skill:name` and later handlers see what
-   * was typed. Queued messages never reach before_agent_start, so their mentions load nothing and
-   * the user is told; Pi expands a queued `/skill:name` before queueing it.
-   */
-  const record = (event: InputEvent, ctx: ExtensionContext): void => {
-    // Kept even when queued: a run that ends while input handlers await makes this a new turn.
-    typed = event.text;
+  /** Expand this input once, before native skill expansion and queueing; no run owns shared input. */
+  const expand = async (
+    event: InputEvent,
+    ctx: ExtensionContext,
+  ): Promise<InputEventResult | undefined> => {
+    const loaded = await loadMentionedSkills(event.text, ctx);
 
-    if (event.streamingBehavior === undefined) {
-      return;
-    }
+    if (loaded.length === 0) return;
+    ctx.ui.notify(`Loaded skills: ${loaded.map((skill) => `$${skill.name}`).join(", ")}`, "info");
 
-    const known = new Set(getSkills().map((skill) => skill.name));
-    const [first, ...rest] = [...mentionedNames(event.text)].filter((name) => known.has(name));
-
-    if (first === undefined) {
-      return;
-    }
-
-    const mentions = [first, ...rest].map((name) => `$${name}`).join(", ");
-    const command = rest.length === 0 ? `/skill:${first}` : "/skill:<name>";
-
-    ctx.ui.notify(
-      `Queued message: ${mentions} not loaded. Queue ${command} instead, or send once Pi is idle.`,
-      "warning",
-    );
+    return { action: "transform", text: `${event.text}\n\n${skillBlocks(loaded)}` };
   };
 
-  // A mention loads the skill for this turn's request, after Pi has validated the prompt. Only the
-  // typed text counts: a skill file that Pi's `/skill:name` expanded loads nothing it mentions. Pi
-  // records the section patch in the transcript and replays it on models that accept
-  // mid-conversation system messages; other models fold it into the prompt for this turn only.
-  const inject = async (event: BeforeAgentStartEvent, ctx: ExtensionContext): Promise<void> => {
-    const text = typed;
-    typed = undefined;
-
-    if (text === undefined) {
-      return;
-    }
-
-    const loaded = await loadMentionedSkills(text, event.systemPromptOptions.skills, ctx);
-
-    if (loaded.length > 0) {
-      event.systemPromptOptions.sections[LOADED_SKILLS_SECTION] = skillBlocks(loaded);
-      ctx.ui.notify(`Loaded skills: ${loaded.map((skill) => `$${skill.name}`).join(", ")}`, "info");
-    }
-  };
-
-  return { inject, install, record };
+  return { expand, install };
 };

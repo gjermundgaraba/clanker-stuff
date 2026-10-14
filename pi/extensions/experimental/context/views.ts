@@ -8,12 +8,13 @@ import type {
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { ContextOverlay } from "./overlay.js";
-import type { ContextSnapshot, RequestSnapshot } from "./snapshot.js";
+import type { ContextSnapshot, RequestSnapshot, InspectorSnapshot } from "./snapshot.js";
+import type { ToolsSnapshot } from "./tools.js";
 
 /** Independent pane/search/scroll state per view, within one Pi-owned overlay interaction. */
 export class ContextViews implements Component, Focusable {
-  private readonly views: [ContextOverlay, ContextOverlay];
-  private active: 0 | 1 = 0;
+  private readonly views: readonly ContextOverlay[];
+  private active = 0;
   private hasFocus = false;
 
   constructor(
@@ -22,24 +23,32 @@ export class ContextViews implements Component, Focusable {
     keys: KeybindingsManager,
     state: ContextSnapshot,
     request: RequestSnapshot,
+    tools: ToolsSnapshot,
     ui: Pick<ExtensionUIContext, "notify">,
     done: () => void,
   ) {
-    const toggle = () => {
-      this.current.focused = false;
-      this.active = this.active === 0 ? 1 : 0;
-      this.current.focused = this.hasFocus;
-      this.tui.requestRender();
-    };
+    const snapshots: readonly InspectorSnapshot[] = [state, request, tools];
 
-    this.views = [
-      new ContextOverlay(tui, theme, keys, state, ui, done, toggle),
-      new ContextOverlay(tui, theme, keys, request, ui, done, toggle),
-    ];
+    this.views = snapshots.map((snapshot, index) => {
+      const next = (index + 1) % snapshots.length;
+      // Both lookups use indexes bounded by this fixed, nonempty collection.
+      const destination = snapshots[next]!;
+
+      return new ContextOverlay(tui, theme, keys, snapshot, ui, done, {
+        label: destination.kind,
+        open: () => {
+          this.current.focused = false;
+          this.active = next;
+          this.current.focused = this.hasFocus;
+          this.tui.requestRender();
+        },
+      });
+    });
   }
 
   private get current(): ContextOverlay {
-    return this.views[this.active];
+    // active is initialized to zero and only assigned an index from views' construction.
+    return this.views[this.active]!;
   }
 
   get focused(): boolean {

@@ -24,6 +24,7 @@
     "render.ts",
     "runtime.ts",
     "snapshot.ts",
+    "tools.ts",
     "tree.ts",
     "docs",
     "README.md",

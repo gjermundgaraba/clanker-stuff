@@ -27,14 +27,17 @@ describe(parseConfig, () => {
       delegation: "proactive",
       maxConcurrent: 2,
       roles: { researcher: { description: "Find evidence.", thinking: "high" } },
+      wakeOnFinalAnswer: true,
     });
     expect(parseConfig({ version: 2 })).toStrictEqual(DEFAULT_CONFIG);
+    expect(parseConfig({ version: 2, wake_on_final_answer: false }).wakeOnFinalAnswer).toBe(false);
   });
 
   it.each([
     { version: 1 },
     { protocols: { "*": "v2" }, version: 2 },
     { max_concurrent_threads_per_session: 0, version: 2 },
+    { wake_on_final_answer: "yes", version: 2 },
     { roles: { "My Role": {} }, version: 2 },
     { roles: { reviewer: { nicknames: ["Scout"] } }, version: 2 },
   ])("rejects retired or invalid configuration %j", (value) => {

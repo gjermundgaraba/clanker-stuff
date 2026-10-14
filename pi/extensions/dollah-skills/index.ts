@@ -8,6 +8,5 @@ export default function dollahSkillsExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     mentions.install(ctx);
   });
-  pi.on("input", (event, ctx) => mentions.record(event, ctx));
-  pi.on("before_agent_start", (event, ctx) => mentions.inject(event, ctx));
+  pi.on("input", (event, ctx) => mentions.expand(event, ctx));
 }

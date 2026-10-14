@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ContextUsage, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ObservedRequest } from "./observation.js";
+import type { ToolsSnapshot } from "./tools.js";
 
 export type BodyFormat = "markdown" | "json" | "text";
 
@@ -38,7 +39,7 @@ export interface RequestSnapshot {
   readonly request: ObservedRequest | undefined;
 }
 
-export type InspectorSnapshot = ContextSnapshot | RequestSnapshot;
+export type InspectorSnapshot = ContextSnapshot | RequestSnapshot | ToolsSnapshot;
 
 export interface ContextMessagePart extends ContextPart {
   readonly sourceEntryId: string;

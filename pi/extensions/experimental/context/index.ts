@@ -3,9 +3,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createContextInspector } from "./runtime.js";
 
 export default function contextExtension(pi: ExtensionAPI): void {
-  const inspector = createContextInspector();
+  const inspector = createContextInspector(pi);
   pi.registerCommand("context", {
-    description: "Inspect Pi context state or the latest observed provider request",
+    description: "Inspect Pi context state, the latest observed request, or registered tools",
     handler: (_args, ctx) => inspector.open(ctx),
   });
   pi.on("session_start", () => inspector.reset());

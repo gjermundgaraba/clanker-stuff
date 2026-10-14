@@ -11,7 +11,7 @@ Load `pi/extensions/experimental/context/index.ts` as a local extension; npm ins
 ## Usage
 
 - Run `/context` to inspect the recorded system prompt, tool declarations, and retained messages with original/effective content and edit provenance.
-- Press v to toggle between **State** and **Request**; each view keeps its own search, scroll, and detail state. The inspector always opens on State.
+- Press v to cycle through **State**, **Request**, and the registered **Tools** inventory; each view keeps its own search, scroll, and detail state. The inspector always opens on State.
 - Use `/` to search, h/l to fold, Tab to switch panes, arrows or j/k and Page Up/Down to scroll, Enter for details, and y to copy; in fullscreen mode the mouse wheel scrolls the pane under the pointer.
 
 ## Configuration

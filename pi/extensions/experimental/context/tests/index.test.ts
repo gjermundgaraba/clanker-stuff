@@ -102,6 +102,45 @@ describe("context command", () => {
     }
   });
 
+  it("captures registered tools and activation only when opened, without changing State", async () => {
+    const host = createExtensionHost(extension, {
+      allTools: ["read", "query"],
+      activeTools: ["read"],
+    });
+
+    const open = async (activeCount: number) => {
+      const ui = createCustomUiDriver({
+        keys: ["\u001b"],
+        keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
+        onComponent(component) {
+          const state = component.render(120).join("\n");
+          expect(state).not.toContain("query");
+          component.handleInput?.("v");
+          component.handleInput?.("v");
+          const inventory = component.render(120).join("\n");
+          expect(inventory).toContain("tools · registered inventory");
+          expect(inventory).toContain(`2 registered · ${activeCount} active`);
+          expect(inventory).toContain("query");
+          component.handleInput?.("v");
+          expect(component.render(120).join("\n")).toBe(state);
+        },
+      });
+
+      await host.runCommand(
+        "context",
+        "",
+        host.createContext({
+          getSystemPrompt: () => "UNCHANGED STATE",
+          ui: { custom: ui.custom },
+        }),
+      );
+    };
+
+    await open(1);
+    host.setActiveTools(["read", "query"]);
+    await open(2);
+  });
+
   it("refuses to open outside TUI mode", async () => {
     const host = createExtensionHost(extension);
     await host.runCommand("context", "", host.createContext({ mode: "json" }));

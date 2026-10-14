@@ -6,7 +6,12 @@ import {
   createMockTui,
 } from "../../../tests/harness/tui.js";
 import { acquireEditorHost, currentEditorHost, EditorHost } from "../index.js";
-import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  CURSOR_MARKER,
+  renderFakeCursor,
+  stripTerminalSequences,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 
 function setup() {
   const fixture = createExtensionHost(() => {});
@@ -201,7 +206,7 @@ it("keeps a focused editor's cursor marker whole and out of decoration offsets",
   host.contribute("foreground", () => [{ start: 10, end: 14, foreground: "accent" }]);
   editor.focused = true;
   const row = editor.render(40)[1]!;
-  expect(row).toContain(CURSOR_MARKER);
+  expect(row).toContain(CURSOR_MARKER + renderFakeCursor("<t>"));
   // Exactly the four spanned characters are decorated, including the one under the cursor.
   expect(row.match(/<[^>]*>/gu)).toHaveLength(4);
   expect(row.replaceAll(CURSOR_MARKER, "")).toMatch(/^this is a <t><e><s>.*<t>/u);

@@ -60,7 +60,7 @@ export class ContextOverlay implements Component, Focusable {
     private readonly snapshot: InspectorSnapshot,
     private readonly ui: Pick<ExtensionUIContext, "notify">,
     private readonly done: () => void,
-    private readonly toggleView?: () => void,
+    private readonly nextView?: { label: string; open: () => void },
   ) {
     this.tree = buildTree(snapshot);
     this.expanded = new Set(groupIds(this.tree));
@@ -241,7 +241,7 @@ export class ContextOverlay implements Component, Focusable {
           this.previewFocused = !this.previewFocused;
         },
       ],
-      [key("v") && this.toggleView !== undefined, () => this.toggleView?.()],
+      [key("v") && this.nextView !== undefined, () => this.nextView?.open()],
       [key("y"), () => void this.copy()],
       [
         key(Key.slash) && !this.detail,
@@ -363,8 +363,8 @@ export class ContextOverlay implements Component, Focusable {
     const keys = [
       {
         key: "v",
-        label: this.snapshot.kind === "state" ? "request" : "state",
-        show: this.toggleView !== undefined,
+        label: this.nextView?.label ?? "",
+        show: this.nextView !== undefined,
       },
       { key: "j/k", label: "scroll", show: this.detail },
       {

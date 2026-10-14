@@ -44,8 +44,13 @@ const subagents = async (pi: ExtensionAPI) => {
   pi.on("session_start", manager.start.bind(manager));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
   pi.on("input", manager.input.bind(manager));
+  pi.on("context", (_event, ctx) => manager.request(ctx));
+  pi.on("agent_before_settle", manager.beforeSettle.bind(manager));
   pi.on("turn_start", manager.settle.bind(manager));
-  pi.on("agent_settled", manager.settle.bind(manager));
+  pi.on("agent_settled", manager.settled.bind(manager));
+  pi.on("ui_prompt_start", () => manager.prompt(true));
+  pi.on("ui_prompt_end", () => manager.prompt(false));
+  pi.on("session_tree", () => manager.navigate());
   pi.on("session_shutdown", manager.shutdown.bind(manager));
   pi.on("session_start", (_event, ctx) => {
     // Every extension has registered its commands by the time a session starts. The orbs need
