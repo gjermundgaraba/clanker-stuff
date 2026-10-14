@@ -1,0 +1,7 @@
+interface:
+  display_name: "Uncomplect"
+  short_description: "Pressure-test a design for braided concerns and deletability"
+  default_prompt: "Use $uncomplect to pressure-test this system or replacement design."
+
+policy:
+  allow_implicit_invocation: false
