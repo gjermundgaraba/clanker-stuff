@@ -40,7 +40,7 @@ import type { BridgeContext } from "./prompt.js";
 import { makePromptStream, userMessage } from "./query/prompt-stream.js";
 import { PROVIDER_ID } from "./session/convert.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
-import { matchedPrefix, plan, queryKey } from "./sync.js";
+import { plan, queryKey } from "./sync.js";
 import type { Plan } from "./sync.js";
 import { MCP_SERVER_NAME, resolveServedTools } from "./tools.js";
 import type { ServedTools } from "./tools.js";
@@ -147,7 +147,7 @@ async function serve(request: Request): Promise<void> {
   debug(`sync: ${describePlan(decision)} msgs=${context.messages.length}`);
 
   if (decision.kind === "rebuild" && decision.reason !== "none") {
-    const at = matchedPrefix(context.messages, state.held);
+    const at = decision.matched;
 
     debug(
       `sync: held ${state.held.length}, first difference at ${at}: held=${state.held[at]?.role ?? "-"} pi=${context.messages[at]?.role ?? "-"}`,

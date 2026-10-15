@@ -413,6 +413,30 @@ it("fails the turn without a query when the gate refuses the prompt", async () =
   expect(fake.queries).toHaveLength(0);
 });
 
+// A steer pi queued while the tool ran, after a compaction: the conversation's next step,
+// not a side call. As a side call it ran without tools and left the query parked, and so
+// did every request after it.
+it("continues a compacted turn with its steer, its tools and no parked query", async () => {
+  const { call, query } = bridge();
+  const u1 = user("read a");
+  const first = call([u1]);
+  const q1 = await query(0);
+
+  q1.push(init("cc-1"));
+  q1.push(toolCall("toolu_1"));
+
+  const a1 = await first.result();
+  const summary = user("<summary>the user asked to read a</summary>");
+
+  call([summary, a1, toolResult("toolu_1", "contents"), user("use b instead")]);
+
+  const q2 = await query(1);
+
+  expect(q1.closed).toBe(true);
+  expect(q2.params.options.mcpServers).toBeDefined();
+  expect(await promptOf(q2)).toEqual([{ type: "text", text: "use b instead" }]);
+});
+
 describe("a one-off request", () => {
   const SUMMARY_PROMPT = "You are a summarization assistant.";
 

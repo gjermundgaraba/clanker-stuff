@@ -90,6 +90,7 @@ describe("ordinary turns", () => {
     expect(plan(holding([]), request([u1]))).toEqual({
       kind: "rebuild",
       reason: "none",
+      matched: 0,
       priors: [],
       turn: [u1],
     });
@@ -123,6 +124,7 @@ describe("ordinary turns", () => {
     expect(plan(holding([u1, a1], { session: undefined }), request([u1, a1, u2]))).toEqual({
       kind: "rebuild",
       reason: "none",
+      matched: 2,
       priors: [u1, a1],
       turn: [u2],
     });
@@ -189,12 +191,14 @@ describe("the tool loop", () => {
     expect(plan(parked([u1, a1]), request([u1, a1, r1], changed))).toEqual({
       kind: "rebuild",
       reason: "changed",
+      matched: 2,
       priors: [u1, a1, r1],
       turn: [],
     });
     expect(plan(parked([u1, a1]), request([u1, a1, r1, steer], changed))).toEqual({
       kind: "rebuild",
       reason: "changed",
+      matched: 2,
       priors: [u1, a1, r1],
       turn: [steer],
     });
@@ -218,6 +222,7 @@ describe("history Claude Code does not hold", () => {
     expect(plan(holding([u1, a1]), request([u1, a1, u2, ...faux, u3]))).toEqual({
       kind: "rebuild",
       reason: "tail",
+      matched: 2,
       priors: [u1, a1, u2, ...faux],
       turn: [u3],
     });
@@ -253,6 +258,7 @@ describe("history Claude Code does not hold", () => {
     expect(plan(holding([u1, a1, u2]), request([u1, a1, u2]))).toEqual({
       kind: "rebuild",
       reason: "tail",
+      matched: 3,
       priors: [u1, a1],
       turn: [u2],
     });
@@ -270,6 +276,26 @@ describe("history Claude Code does not hold", () => {
 });
 
 describe("a request while a query runs", () => {
+  // pi compacted while the tool ran and queued a steer: still the conversation's next
+  // step. Taken for a side call, it would run without tools and leave the query parked.
+  it("rebuilds the conversation's results and steer after its history was rewritten", () => {
+    const [u1, a1, r1, steer] = [user("read a"), call("t1"), result("t1"), user("use b")];
+    const summary = user("<summary>read a</summary>");
+
+    const state = holding([u1, a1], {
+      busy: true,
+      parked: { key: KEY, waiting: new Set(["t1"]) },
+    });
+
+    expect(plan(state, request([summary, a1, r1, steer]))).toEqual({
+      kind: "rebuild",
+      reason: "diverged",
+      matched: 0,
+      priors: [summary, a1, r1],
+      turn: [steer],
+    });
+  });
+
   it("is a side call when it is not the running query's continuation", () => {
     const [u1, a1] = [user("read a"), call("t1")];
 

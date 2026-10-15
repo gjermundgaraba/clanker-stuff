@@ -22,12 +22,15 @@ const identity = (message: Message): string =>
   ]);
 
 /** How many messages from the start of `history` match `held`. Equal to `held.length`
- *  when `history` continues it. */
+ *  when `history` continues it. Within one pi process the messages are the very objects
+ *  the conversation holds, so content is compared only for a copy. */
 export function matchedPrefix(history: readonly Message[], held: readonly Message[]): number {
   const index = held.findIndex((message, at) => {
     const current = history[at];
 
-    return current === undefined || identity(current) !== identity(message);
+    return (
+      current === undefined || (current !== message && identity(current) !== identity(message))
+    );
   });
 
   return index === -1 ? held.length : index;
@@ -96,66 +99,78 @@ export type Plan =
   /** Resume Claude Code's session with the new user turn. */
   | { kind: "resume"; session: string; turn: Message[] }
   /** Write a new session from `priors`, then send `turn`, or the continue prompt when the
-   *  history ends in tool results and there is no turn. */
-  | { kind: "rebuild"; reason: RebuildReason; priors: Message[]; turn: Message[] };
+   *  history ends in tool results and there is no turn. `matched` is how much of what
+   *  Claude Code held pi's history still starts with. */
+  | {
+      kind: "rebuild";
+      reason: RebuildReason;
+      matched: number;
+      priors: Message[];
+      turn: Message[];
+    };
 
-/** The tool results that answer a parked query, then the steer pi queued after them. */
-function delivery(
-  tail: readonly Message[],
+/** The results a parked query waits on, read from the end of pi's history: tool results
+ *  for its calls, then the user messages pi queued after them (a steer). Read from the end
+ *  so a rewritten history (a compaction while the tool ran) is still recognised as the
+ *  conversation's next step, not someone else's request. */
+function trailingDelivery(
+  history: readonly Message[],
   waiting: ReadonlySet<string>,
-): Extract<Plan, { kind: "deliver" }> | undefined {
+): { at: number; results: ToolResultMessage[]; steer: Message[] } | undefined {
+  const steerAt = turnStart(history);
   const results: ToolResultMessage[] = [];
-  let index = 0;
+  let at = steerAt;
 
-  for (; index < tail.length; index++) {
-    const message = tail[index];
-
-    if (message?.role !== "toolResult") break;
-
+  for (let message = history[at - 1]; message?.role === "toolResult"; message = history[at - 1]) {
     if (!waiting.has(message.toolCallId)) return undefined;
 
-    results.push(message);
+    results.unshift(message);
+    at--;
   }
 
-  const steer = tail.slice(index);
-
-  if (results.length === 0 || steer.some((message) => message.role !== "user")) return undefined;
-
-  return { kind: "deliver", results, steer };
+  return results.length === 0 ? undefined : { at, results, steer: history.slice(steerAt) };
 }
 
 export function plan(state: SyncState, request: SyncRequest): Plan {
   const history = request.context.messages;
-  const continues = matchedPrefix(history, state.held) === state.held.length;
+  const matched = matchedPrefix(history, state.held);
+  const continues = matched === state.held.length;
   const start = turnStart(history);
-  const priors = history.slice(0, start);
-  const turn = history.slice(start);
 
-  // The shape decides whose request this is; the key only whether the parked query can
-  // take it.
-  if (state.parked !== undefined && continues) {
-    const delivered = delivery(history.slice(state.held.length), state.parked.waiting);
+  const rebuild = (reason: RebuildReason): Plan => ({
+    kind: "rebuild",
+    reason,
+    matched,
+    priors: history.slice(0, start),
+    turn: history.slice(start),
+  });
 
-    if (delivered !== undefined) {
-      return request.key === state.parked.key
-        ? delivered
-        : { kind: "rebuild", reason: "changed", priors, turn };
-    }
+  // The results the parked query waits on make this its conversation's next step; whether
+  // the query can take them is another matter.
+  const delivered =
+    state.parked === undefined ? undefined : trailingDelivery(history, state.parked.waiting);
+
+  if (state.parked !== undefined && delivered !== undefined) {
+    if (!continues) return rebuild("diverged");
+
+    if (delivered.at !== state.held.length) return rebuild("tail");
+
+    if (request.key !== state.parked.key) return rebuild("changed");
+
+    return { kind: "deliver", results: delivered.results, steer: delivered.steer };
   }
 
   if (state.busy && history.at(-1)?.role === "user") return { kind: "side" };
 
   if (request.aborted && history.at(-1)?.role === "toolResult") return { kind: "finish" };
 
-  if (state.held.length === 0 || state.session === undefined) {
-    return { kind: "rebuild", reason: "none", priors, turn };
+  if (state.held.length === 0 || state.session === undefined) return rebuild("none");
+
+  if (!continues) return rebuild("diverged");
+
+  if (state.held.length === start && start < history.length) {
+    return { kind: "resume", session: state.session, turn: history.slice(start) };
   }
 
-  if (!continues) return { kind: "rebuild", reason: "diverged", priors, turn };
-
-  if (state.held.length === start && turn.length > 0) {
-    return { kind: "resume", session: state.session, turn };
-  }
-
-  return { kind: "rebuild", reason: "tail", priors, turn };
+  return rebuild("tail");
 }
