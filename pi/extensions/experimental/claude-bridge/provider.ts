@@ -42,7 +42,7 @@ import { PROVIDER_ID } from "./session/convert.js";
 import { sessionCwdFor } from "./session/cwd.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
 import { isolatedSummaryStream } from "./summary.js";
-import { fingerprint, firstMismatch, plan, promptKey } from "./sync.js";
+import { matchedPrefix, plan, queryKey } from "./sync.js";
 import type { Plan, RebuildReason } from "./sync.js";
 import { MCP_SERVER_NAME, resolveServedTools } from "./tools.js";
 import type { ServedTools } from "./tools.js";
@@ -92,7 +92,13 @@ export function streamClaudeCode(
   const served = resolveServedTools(context.tools, deps.toolGuidelines());
   const turn = new Turn(model, createAssistantMessageEventStream(), served.toPi);
 
-  serve({ deps, model, context, options, served, turn }).catch((error: unknown) => {
+  const key = queryKey(
+    context,
+    claudeCodeModelId(model.id),
+    effortForReasoning(model, options?.reasoning),
+  );
+
+  serve({ deps, model, context, options, served, turn, key }).catch((error: unknown) => {
     debug("provider: request failed", errorMessage(error));
 
     if (!turn.ended) turn.fail(errorMessage(error));
@@ -109,6 +115,8 @@ interface Request {
   served: ServedTools;
   /** This call's answer: everything reaches pi through it. */
   turn: Turn;
+  /** What a query started for this call is fixed to (`queryKey`). */
+  key: string;
 }
 
 const describePlan = (decision: Plan): string =>
@@ -129,17 +137,21 @@ async function serve(request: Request): Promise<void> {
 
   const conversation = conversationFor(piSession, request.deps.runQuery);
   const snapshot = await settled(conversation);
-  const decision = plan(syncState(snapshot), context);
+  const state = syncState(snapshot);
+
+  const decision = plan(state, {
+    context,
+    key: request.key,
+    aborted: options?.signal?.aborted === true,
+  });
 
   debug(`sync: ${describePlan(decision)} msgs=${context.messages.length}`);
 
   if (decision.kind === "rebuild" && decision.reason !== "none") {
-    const { sent } = snapshot.context;
-    const at = firstMismatch(context.messages, sent);
-    const message = context.messages[at];
+    const at = matchedPrefix(context.messages, state.held);
 
     debug(
-      `sync: held ${sent.length}, first difference at ${at}: held=${sent[at]?.slice(0, 8) ?? "-"} pi=${message === undefined ? "-" : `${message.role}:${fingerprint(message).slice(0, 8)}`}`,
+      `sync: held ${state.held.length}, first difference at ${at}: held=${state.held[at]?.role ?? "-"} pi=${context.messages[at]?.role ?? "-"}`,
     );
   }
 
@@ -163,8 +175,7 @@ async function serve(request: Request): Promise<void> {
 
   // After an abort during a tool call, pi calls back with the run's aborted signal and
   // the tool's result: end the turn, so pi waits for the next real message.
-  if (context.messages.at(-1)?.role === "toolResult" && options?.signal?.aborted === true) {
-    debug("provider: tool result after an abort, ending the turn without a query");
+  if (decision.kind === "finish") {
     turn.finish();
 
     return;
@@ -175,36 +186,37 @@ async function serve(request: Request): Promise<void> {
 
   if (snapshot.matches("active")) conversation.send({ type: "pi.discard" });
 
-  const { ccSessionId, rotate } = conversation.getSnapshot().context;
   const cwd = sessionCwdFor(piSession);
 
-  if (decision.kind === "resume" && ccSessionId !== undefined) {
-    startQuery(request, conversation, { append, cwd, resume: ccSessionId, turn: decision.turn });
+  if (decision.kind === "resume") {
+    startQuery(request, conversation, {
+      append,
+      cwd,
+      resume: decision.session,
+      turn: decision.turn,
+    });
 
     return;
   }
 
-  // A resume with no session to resume (Claude Code never reported one) rebuilds.
-  const priors =
-    decision.kind === "rebuild"
-      ? decision.priors
-      : context.messages.slice(0, turnStart(context.messages));
-
-  const reason: RebuildReason = decision.kind === "rebuild" ? decision.reason : "none";
-
   const resume = rebuildSession(
     {
-      priors,
+      priors: decision.priors,
       cwd,
       toSdk: request.served.toSdk,
       modelId: claudeCodeModelId(request.model.id),
-      previous: ccSessionId,
-      rotate,
+      previous: state.session,
     },
     (message) => notifySession(piSession, message),
   );
 
-  startQuery(request, conversation, { append, cwd, resume, turn: decision.turn, reason });
+  startQuery(request, conversation, {
+    append,
+    cwd,
+    resume,
+    turn: decision.turn,
+    reason: decision.reason,
+  });
 }
 
 /** A request that is not the session's conversation: run it in a conversation of its own
@@ -225,7 +237,6 @@ async function runSide(request: Request): Promise<void> {
       toSdk: unserved.served.toSdk,
       modelId: claudeCodeModelId(request.model.id),
       previous: undefined,
-      rotate: false,
     },
     (message) => notifySession(piSession, message),
   );
@@ -320,12 +331,12 @@ function startQuery(request: Request, conversation: Conversation, start: QuerySt
     turn,
     params: { prompt: promptStream.stream, options: queryOptions },
     promptStream,
-    promptKey: promptKey(context),
+    key: request.key,
     model,
     signal: options?.signal,
     // Claude Code holds pi's whole history once it reads the prompt: the session has
     // everything before the turn, and the prompt is the turn.
-    sent: context.messages.map(fingerprint),
+    held: context.messages,
   });
 }
 

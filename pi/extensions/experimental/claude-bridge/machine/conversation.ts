@@ -6,15 +6,13 @@
 // messages are dropped by XState rather than by bookkeeping here. Abort listeners and the
 // steer push are children of the states they serve, for the same reason.
 
-import { appendFileSync } from "node:fs";
-
 import type { Api, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createCallbackLogic, setup, types } from "xstate";
 import type { EventObject, SnapshotFrom, StateValue } from "xstate";
 
 import { stopQuery } from "../child.js";
-import type { QueryFunction, QueryParams } from "../child.js";
+import type { BridgeQuery, QueryFunction, QueryParams } from "../child.js";
 import { debug, errorMessage } from "../log.js";
 import { toolResultToMcpContent } from "../mcp-server.js";
 import type { McpResult } from "../mcp-server.js";
@@ -28,7 +26,6 @@ import {
   resultErrorText,
 } from "../query/result.js";
 import type { RateLimitRejection } from "../query/result.js";
-import { fingerprint } from "../sync.js";
 import type { SyncState } from "../sync.js";
 import type { Turn } from "../translate.js";
 import { steerBlocks } from "../turn.js";
@@ -41,8 +38,8 @@ export interface ActiveQuery {
   params: QueryParams;
   /** The query's stdin: steers go in while it runs, and a result closes it. */
   promptStream: PromptStream;
-  /** The prompt and tools the query serves; a parked query only continues under them. */
-  promptKey: string;
+  /** What the query is fixed to (`queryKey`); a parked query only continues under it. */
+  key: string;
   model: Model<Api>;
   /** The signal of the provider call that started the query. pi aborts it for the whole
    *  agent run, including while a tool runs and no provider call is open. */
@@ -51,15 +48,16 @@ export interface ActiveQuery {
 
 export interface QueryStart extends ActiveQuery {
   turn: Turn;
-  /** Fingerprints of the pi messages Claude Code holds once it reads the prompt. */
-  sent: readonly string[];
+  /** The pi messages Claude Code holds once it reads the prompt. */
+  held: readonly Message[];
 }
 
-/** Results waiting for the steer ahead of them to reach Claude Code's stdin. */
+/** Results waiting for the steer ahead of them, if any, to reach Claude Code's stdin. */
 interface PendingDelivery {
   results: ReadonlyMap<string, McpResult>;
-  steer: SDKUserMessage;
-  steerSent: readonly string[];
+  steer: readonly Message[];
+  /** The steer as Claude Code reads it; undefined when there is none. */
+  message: SDKUserMessage | undefined;
 }
 
 const NO_HANDLERS: ReadonlyMap<string, ResolveToolCall> = new Map();
@@ -96,21 +94,16 @@ interface QueryInput {
 }
 
 // Reads Claude Code's messages into the conversation. Cleanup stops the query; XState
-// drops anything the read loop sends after that.
+// drops anything the read loop sends after that. Starting it is inside the try: the SDK
+// throws there when it cannot find Claude Code.
 const claudeQuery = createCallbackLogic<EventObject, QueryInput>(({ input, sendBack }) => {
-  const query = input.run(input.params);
+  let query: BridgeQuery | undefined;
 
   void (async () => {
     try {
+      query = input.run(input.params);
+
       for await (const message of query) {
-        // CLAUDE_BRIDGE_RECORD_STREAM=<path> appends every SDK message as a JSON line,
-        // for capturing replay fixtures of what Claude Code really emits.
-        const recordPath = process.env.CLAUDE_BRIDGE_RECORD_STREAM;
-
-        if (recordPath !== undefined && recordPath !== "") {
-          appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
-        }
-
         sendBack({ type: "cc.message", message });
       }
 
@@ -150,19 +143,23 @@ const abortOn = createCallbackLogic<EventObject, AbortSignal | undefined>(
 
 interface SteerInput {
   promptStream: PromptStream;
-  message: SDKUserMessage;
+  message: SDKUserMessage | undefined;
 }
 
 // The steer must reach stdin before the results it rides with: both travel over the
 // same FIFO, and Claude Code drains a steer at the tool boundary only if it was queued
 // before the result. The push resolves once the SDK wrote it (see prompt-stream.ts).
+// With no steer there is nothing to wait for.
 const pushSteer = createCallbackLogic<EventObject, SteerInput>(({ input, sendBack }) => {
-  input.promptStream.push(input.message).then(
+  const pushed =
+    input.message === undefined ? Promise.resolve() : input.promptStream.push(input.message);
+
+  pushed.then(
     () => {
-      sendBack({ type: "steer.acked" });
+      sendBack({ type: "steer.done", error: undefined });
     },
     (error: unknown) => {
-      sendBack({ type: "steer.rejected", message: errorMessage(error) });
+      sendBack({ type: "steer.done", error: errorMessage(error) });
     },
   );
 });
@@ -174,7 +171,6 @@ const resolveAll = (handlers: ReadonlyMap<string, ResolveToolCall>, text: string
 const toMcpResult = (message: ToolResultMessage): McpResult => ({
   content: toolResultToMcpContent(message.content),
   isError: message.isError,
-  toolCallId: message.toolCallId,
 });
 
 /** Hand each result to its waiting handler, or keep it for the handler still to come. */
@@ -224,11 +220,9 @@ export const conversationMachine = setup({
       notify: (message: string) => void;
       /** The Claude Code session the conversation resumes, once a query reported it. */
       ccSessionId: string | undefined;
-      /** A query was killed: its process may still write to the session file, so the
-       *  next rebuild must take a fresh session id. */
-      rotate: boolean;
-      /** Fingerprints of the pi messages Claude Code holds, oldest first. */
-      sent: readonly string[];
+      /** The pi messages Claude Code holds, oldest first. Kept only through a clean exit:
+       *  a query that failed or was killed may have left its session file short. */
+      held: readonly Message[];
       /** A rejection names the next failure as a quota error. */
       rateLimit: RateLimitRejection | null;
       query: ActiveQuery | null;
@@ -259,8 +253,7 @@ export const conversationMachine = setup({
       "cc.message": types<{ message: SDKMessage }>(),
       "cc.end": types<{}>(),
       "cc.error": types<{ message: string }>(),
-      "steer.acked": types<{}>(),
-      "steer.rejected": types<{ message: string }>(),
+      "steer.done": types<{ error: string | undefined }>(),
       "close.timeout": types<{}>(),
     },
     input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
@@ -283,8 +276,7 @@ export const conversationMachine = setup({
     run: input.run,
     notify: input.notify,
     ccSessionId: undefined,
-    rotate: false,
-    sent: [],
+    held: [],
     rateLimit: null,
     ...IDLE,
   }),
@@ -317,13 +309,12 @@ export const conversationMachine = setup({
             query: {
               params: event.params,
               promptStream: event.promptStream,
-              promptKey: event.promptKey,
+              key: event.key,
               model: event.model,
               signal: event.signal,
             },
             turn: event.turn,
-            sent: event.sent,
-            rotate: false,
+            held: event.held,
             // A rejection that labelled no failure in its own query says nothing about
             // the next one.
             rateLimit: null,
@@ -420,7 +411,7 @@ export const conversationMachine = setup({
               turn?.fail(text);
             });
 
-            return { target: ".closing", context: { ...IDLE, query, sent: [], rateLimit: null } };
+            return { target: ".closing", context: { ...IDLE, query, held: [], rateLimit: null } };
           }
 
           if (turn === null) return { target: ".closing", context: { ...IDLE, query } };
@@ -433,7 +424,7 @@ export const conversationMachine = setup({
 
           return {
             target: ".closing",
-            context: { ...IDLE, query, sent: [...context.sent, fingerprint(turn.output)] },
+            context: { ...IDLE, query, held: [...context.held, turn.output] },
           };
         },
         // In `closing` the turn is already answered: an end is the expected exit.
@@ -444,26 +435,26 @@ export const conversationMachine = setup({
             context.turn?.fail("Claude Code ended the query without a result");
           });
 
-          return { target: "idle", context: { ...IDLE, sent: [] } };
+          return { target: "idle", context: { ...IDLE, held: [] } };
         },
         "cc.error": ({ context, event, value }, enq) => {
           debug(`conversation: query failed: ${event.message}`);
 
           // After its result, a failed exit may have cut the session file short.
-          if (isClosing(value)) return { target: "idle", context: { ...IDLE, sent: [] } };
+          if (isClosing(value)) return { target: "idle", context: { ...IDLE, held: [] } };
 
           enq(() => {
             context.turn?.fail(event.message);
           });
 
-          return { target: "idle", context: { ...IDLE, sent: [], rotate: true } };
+          return { target: "idle", context: { ...IDLE, held: [] } };
         },
         "close.timeout": ({ value }) => {
           if (!isClosing(value)) return {};
 
           debug("conversation: Claude Code did not exit after its result, killing it");
 
-          return { target: "idle", context: { ...IDLE, rotate: true } };
+          return { target: "idle", context: { ...IDLE, held: [] } };
         },
         "pi.abort": ({ context }, enq) => {
           debug("conversation: aborted");
@@ -471,7 +462,7 @@ export const conversationMachine = setup({
             context.turn?.fail("Operation aborted", "aborted");
           });
 
-          return { target: "idle", context: { ...IDLE, sent: [], rotate: true } };
+          return { target: "idle", context: { ...IDLE, held: [] } };
         },
         "pi.discard": ({ context }, enq) => {
           debug("conversation: discarding the running query");
@@ -479,7 +470,7 @@ export const conversationMachine = setup({
             context.turn?.fail("claude-bridge: pi's history moved on without this query");
           });
 
-          return { target: "idle", context: { ...IDLE, sent: [], rotate: true } };
+          return { target: "idle", context: { ...IDLE, held: [] } };
         },
       },
       initial: "streaming",
@@ -507,7 +498,7 @@ export const conversationMachine = setup({
                   turn: null,
                   callSignal: undefined,
                   waiting: new Set(turn.toolCallIds),
-                  sent: [...context.sent, fingerprint(turn.output)],
+                  held: [...context.held, turn.output],
                 },
               };
             },
@@ -520,54 +511,24 @@ export const conversationMachine = setup({
             input: ({ context }) => context.query.signal,
           },
           on: {
-            "pi.deliver": ({ context, event }, enq) => {
-              const delivered = new Map(
-                event.results.map((result) => [result.toolCallId, toMcpResult(result)]),
-              );
-
-              const sent = [...context.sent, ...event.results.map(fingerprint)];
-              // A distinct signal only; pi usually aborts one signal for the whole run.
-              const callSignal = event.signal === context.query.signal ? undefined : event.signal;
+            "pi.deliver": ({ context, event }) => {
               const blocks = steerBlocks(event.steer);
 
-              if (blocks !== undefined) {
-                return {
-                  target: "delivering",
-                  context: {
-                    turn: event.turn,
-                    callSignal,
-                    sent,
-                    waiting: NO_CALLS,
-                    pending: {
-                      results: delivered,
-                      steer: userMessage(blocks, "next"),
-                      steerSent: event.steer.map(fingerprint),
-                    },
-                  },
-                };
-              }
-
-              const { handlers, results, answer } = release(
-                context.handlers,
-                context.results,
-                delivered,
-              );
-
-              enq(() => {
-                answer();
-
-                if (handlers.size > 0) context.notify(stuckNotice(handlers.size));
-              });
-
               return {
-                target: "streaming",
+                target: "delivering",
                 context: {
                   turn: event.turn,
-                  callSignal,
-                  sent,
+                  // A distinct signal only; pi usually aborts one signal for the whole run.
+                  callSignal: event.signal === context.query.signal ? undefined : event.signal,
+                  held: [...context.held, ...event.results],
                   waiting: NO_CALLS,
-                  handlers,
-                  results,
+                  pending: {
+                    results: new Map(
+                      event.results.map((result) => [result.toolCallId, toMcpResult(result)]),
+                    ),
+                    steer: event.steer,
+                    message: blocks === undefined ? undefined : userMessage(blocks, "next"),
+                  },
                 },
               };
             },
@@ -582,18 +543,26 @@ export const conversationMachine = setup({
               src: "pushSteer",
               input: ({ context }) => ({
                 promptStream: context.query.promptStream,
-                message: context.pending.steer,
+                message: context.pending.message,
               }),
             },
           ],
           on: {
-            "steer.acked": ({ context }, enq) => {
-              debug("conversation: steer written to Claude Code's stdin before the tool results");
+            // A steer that never reached Claude Code is still in pi's history: leaving it
+            // out of `held` makes the next request rebuild with it.
+            "steer.done": ({ context, event }, enq) => {
+              const { pending } = context;
+
+              if (event.error !== undefined) {
+                debug(`conversation: steer never reached Claude Code: ${event.error}`);
+              } else if (pending.message !== undefined) {
+                debug("conversation: steer written to Claude Code's stdin before the tool results");
+              }
 
               const { handlers, results, answer } = release(
                 context.handlers,
                 context.results,
-                context.pending.results,
+                pending.results,
               );
 
               enq(() => {
@@ -608,28 +577,10 @@ export const conversationMachine = setup({
                   pending: null,
                   handlers,
                   results,
-                  sent: [...context.sent, ...context.pending.steerSent],
+                  held:
+                    event.error === undefined ? [...context.held, ...pending.steer] : context.held,
                 },
               };
-            },
-            // The steer is still in pi's history but never reached Claude Code. Leaving
-            // it out of `sent` makes the next request rebuild with it.
-            "steer.rejected": ({ context, event }, enq) => {
-              debug(`conversation: steer never reached Claude Code: ${event.message}`);
-
-              const { handlers, results, answer } = release(
-                context.handlers,
-                context.results,
-                context.pending.results,
-              );
-
-              enq(() => {
-                answer();
-
-                if (handlers.size > 0) context.notify(stuckNotice(handlers.size));
-              });
-
-              return { target: "streaming", context: { pending: null, handlers, results } };
             },
           },
         },
@@ -655,12 +606,13 @@ export type ConversationSnapshot = SnapshotFrom<typeof conversationMachine>;
 
 /** The conversation as the sync decision reads it. */
 export function syncState(snapshot: ConversationSnapshot): SyncState {
-  const { sent, query, waiting } = snapshot.context;
+  const { held, ccSessionId, query, waiting } = snapshot.context;
   const parked = snapshot.matches({ active: "parked" }) && query !== null;
 
   return {
-    sent,
+    held,
+    session: ccSessionId,
     busy: snapshot.matches("active"),
-    parked: parked ? { promptKey: query.promptKey, waiting } : undefined,
+    parked: parked ? { key: query.key, waiting } : undefined,
   };
 }

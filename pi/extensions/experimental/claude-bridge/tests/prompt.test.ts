@@ -6,7 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 // pi does not export its prompt builder; these tests run against the renderer pi runs, so
 // a pi upgrade that moves its own text into a forwarded section fails here.
 import { buildSystemPromptState } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt.js";
-import { forwardedPrompt, PI_PREAMBLE, systemPromptText, toBridgeContext } from "../prompt.js";
+import { forwardedPrompt, PI_PREAMBLE, systemText, toBridgeContext } from "../prompt.js";
 import { transcript } from "./helpers.js";
 
 /** The system message pi sends providers for these options. */
@@ -153,6 +153,6 @@ describe(toBridgeContext, () => {
 
     expect(context.messages).toEqual([{ role: "user", content: "hi", timestamp: 0 }]);
     expect(context.tools?.map(({ name }) => name)).toEqual(["read"]);
-    expect(systemPromptText(context.system)).toBe("Summarize.");
+    expect(systemText(context.system)).toBe("Summarize.");
   });
 });

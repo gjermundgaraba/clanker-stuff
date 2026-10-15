@@ -119,7 +119,7 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
   );
 
   it(
-    "rebuilds the same Claude Code session in place after pi compacts",
+    "rebuilds Claude Code's session under a new id after pi compacts",
     async () => {
       // Three one-word exchanges fit in any realistic budget, leaving nothing to compact.
       const live = await open({ settings: { compaction: { keepRecentTokens: 1 } } });
@@ -145,10 +145,9 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       const [first] = syncLines(written.slice(marker));
 
       expect(before).toBeDefined();
-      // A resume would answer off the pre-compact transcript. No query was running, so
-      // the session is rewritten in place: a rotated id would orphan the old file.
+      // A resume would answer off the pre-compact transcript.
       expect(first).toEqual({ kind: "rebuild", reason: "diverged" });
-      expect(sessionIds(written.slice(marker))[0]).toBe(before);
+      expect(sessionIds(written.slice(marker))[0]).not.toBe(before);
     },
     LIVE_TIMEOUT,
   );

@@ -24,7 +24,7 @@ Claude Code's own `CLAUDE.md`/`AGENTS.md` loading is excluded (pi already sends 
 
 ## Sessions and caching
 
-Each pi session runs on a Claude Code session file under `~/.claude/projects/` (or `CLAUDE_CONFIG_DIR`). The bridge records which of pi's messages Claude Code holds and compares each request against them by content. When the request is that history plus a new user turn, the turn resumes the session and Claude Code's prompt cache stays warm. Anything else (an abort, a failed turn, `/compact`, tree navigation, an edited message, another provider's turn, a steer that never reached Claude Code, or a pi restart) rebuilds the file from pi's history, and the next request usually misses the cache past the system prompt.
+Each pi session runs on a Claude Code session file under `~/.claude/projects/` (or `CLAUDE_CONFIG_DIR`). The bridge records which of pi's messages Claude Code holds and compares each request against them by content. When the request is that history plus a new user turn, the turn resumes the session and Claude Code's prompt cache stays warm. Anything else (an abort, a failed turn, `/compact`, tree navigation, an edited message, another provider's turn, a steer that never reached Claude Code, a model, prompt or tool change while a tool runs, or a pi restart) writes a new session from pi's history and deletes the old one, and the next request usually misses the cache past the system prompt.
 
 A request made while a turn runs that does not continue it (an extension's one-off call under the session's id) runs in a temporary Claude Code session of its own, without pi's tools, and leaves the running turn alone. Compaction, branch summaries, and other one-off summaries run in a separate Claude Code process without a session. A spent subscription window is reported once and fails the turn as a non-retryable quota error, so pi does not retry a window that resets in hours.
 
@@ -32,7 +32,7 @@ Known limit: files Claude Code edits are not carried across a rebuild (the edit 
 
 ## Debugging
 
-`CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, or `rebuild reason=none|diverged|tail`.
+`CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, `finish` (a tool result after an abort), or `rebuild reason=none|diverged|tail|changed`.
 
 ## Tests
 

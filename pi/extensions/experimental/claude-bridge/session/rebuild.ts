@@ -153,40 +153,33 @@ export interface Rebuild {
   cwd: string;
   toSdk: ReadonlyMap<string, string>;
   modelId: string;
-  /** The session the conversation resumed until now, if any. */
+  /** The session the conversation resumed until now, if any. Nothing resumes it again,
+   *  so it is deleted. A killed Claude Code may still flush a record into it afterwards;
+   *  that leaves a stray file nobody resumes, never a write into the new session. */
   previous: string | undefined;
-  /** A Claude Code process was just killed and may still flush a record into
-   *  `previous`: take a fresh id and leave its file to the orphan writer. Without a
-   *  concurrent writer, rebuilding in place keeps the id stable for log correlation. */
-  rotate: boolean;
 }
 
-/** Write a session holding `priors`. Returns its id, or undefined for a clean start:
+/** Write a new session holding `priors`. Returns its id, or undefined for a clean start:
  *  with no priors there is nothing to resume, and Claude Code mints its own session. */
 export function rebuildSession(
   rebuild: Rebuild,
   warn: (message: string) => void,
 ): string | undefined {
-  const { priors, cwd, previous, rotate } = rebuild;
-  const inPlace = previous !== undefined && !rotate;
+  const { priors, cwd, previous } = rebuild;
   const dir = claudeDir();
 
-  if (priors.length === 0) {
-    if (inPlace) deleteSession(previous, cwd, dir);
+  // Before the previous session is deleted: they live in its file.
+  const carried =
+    previous === undefined || priors.length === 0 ? [] : readCarriedAttachments(previous, cwd);
 
-    return undefined;
-  }
+  if (previous !== undefined) discardSession(previous, cwd);
 
-  // Before deleteSession, which wipes the file they live in.
-  const carried = previous === undefined ? [] : readCarriedAttachments(previous, cwd);
-
-  if (inPlace) deleteSession(previous, cwd, dir);
+  if (priors.length === 0) return undefined;
 
   const session = createSession({
     projectPath: cwd,
     model: rebuild.modelId,
     ...(dir === undefined ? {} : { claudeDir: dir }),
-    ...(inPlace ? { sessionId: previous } : {}),
   });
 
   importMessages(session, priors, rebuild.toSdk, carried);
@@ -195,7 +188,7 @@ export function rebuildSession(
   verify(session.jsonlPath, session.sessionId, session.records.length, cwd, warn);
 
   debug(
-    `rebuild: ${priors.length} prior messages → session ${session.sessionId.slice(0, 8)}, ${session.records.length} records, ${previous === undefined ? "new" : inPlace ? "same id" : `rotated from ${previous.slice(0, 8)}`}`,
+    `rebuild: ${priors.length} prior messages → session ${session.sessionId.slice(0, 8)}, ${session.records.length} records${previous === undefined ? "" : `, replacing ${previous.slice(0, 8)}`}`,
   );
   debugSessionPaths(session.sessionId.slice(0, 8), cwd, session.jsonlPath);
 

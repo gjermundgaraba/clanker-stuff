@@ -466,7 +466,13 @@ export class Turn {
   /** A successful result. Its text is the answer only when the turn produced none:
    *  Claude Code repeats the final text there after delivering it as a message. */
   result(message: SDKResultSuccess): void {
-    if (this.ended || message.result === "") return;
+    if (this.ended) return;
+
+    // A response that arrived whole (the non-streaming fallback) had no message_delta
+    // to carry its stop reason; a token limit shows here.
+    if (mapStopReason(message.stop_reason) === "length") this.output.stopReason = "length";
+
+    if (message.result === "") return;
 
     if (this.blocks.some((block) => block.type === "text" && block.text !== "")) return;
 

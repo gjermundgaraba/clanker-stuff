@@ -78,17 +78,18 @@ function bridge() {
   const fake = fakeQueryFunction();
   const deps = { runQuery: fake.run, toolGuidelines: () => new Map<string, string[]>() };
 
-  /** One provider call, as pi makes it for this session. */
+  /** One provider call, as pi makes it for this session. The messages are copies, as
+   *  pi's are once it has stored them: the bridge may not rely on its own objects. */
   const call = (
     messages: Message[],
     options: SimpleStreamOptions = {},
-    extra: { systemPrompt?: string; tools?: (typeof readTool)[] } = {},
+    extra: { systemPrompt?: string; tools?: (typeof readTool)[]; model?: typeof model } = {},
   ) =>
     streamClaudeCode(
       deps,
-      model,
+      extra.model ?? model,
       transcript({
-        messages,
+        messages: structuredClone(messages),
         tools: extra.tools ?? [readTool],
         ...(extra.systemPrompt === undefined ? {} : { systemPrompt: extra.systemPrompt }),
       }),
@@ -177,6 +178,25 @@ describe("a session's turns", () => {
     expect((await query(1)).params.options.resume).toBe("cc-1");
   });
 
+  // Claude Code repeats a turn's final text in its result, and only there when the turn
+  // streamed none: the record must hold that text, not the empty turn before it.
+  it("resumes after a turn whose text arrived only in the result", async () => {
+    const { call, query } = bridge();
+    const u1 = user("hi");
+    const first = call([u1]);
+    const q1 = await query(0);
+
+    q1.push(init("cc-1"));
+    q1.push(successResult("only here"));
+    q1.end();
+
+    const a1 = await first.result();
+
+    call([u1, a1, user("again")]);
+
+    expect((await query(1)).params.options.resume).toBe("cc-1");
+  });
+
   it("serves each pi session its own conversation", async () => {
     const { call, query } = bridge();
     const u1 = user("hi");
@@ -221,6 +241,27 @@ describe("the tool loop", () => {
     expect((await second.result()).content).toEqual([{ type: "text", text: "read it" }]);
     // One query served the whole turn.
     expect(fake.queries).toHaveLength(1);
+  });
+
+  // The parked query runs the model it started with.
+  it("continues a turn switched to another model in a new query", async () => {
+    const { call, query, fake } = bridge();
+    const u1 = user("read a");
+    const first = call([u1]);
+    const q1 = await query(0);
+
+    q1.push(init("cc-1"));
+    q1.push(toolCall("toolu_1"));
+
+    const a1 = await first.result();
+
+    call([u1, a1, toolResult("toolu_1", "contents")], {}, { model: testModel("claude-opus-5-5") });
+
+    const q2 = await query(1);
+
+    expect(q1.closed).toBe(true);
+    expect(q2.params.options.extraArgs?.["model"]).toBe("claude-opus-5-5[1m]");
+    expect(fake.queries).toHaveLength(2);
   });
 
   it("ends the turn without a query when pi reports the tool after an abort", async () => {
@@ -299,10 +340,10 @@ describe("a history Claude Code does not hold", () => {
     call([u1, a1, u2, faux, u3]);
 
     const q2 = await query(1);
+    const rebuilt = q2.params.options.resume ?? "";
 
-    // Nothing else writes the file, so the session keeps its id.
-    expect(q2.params.options.resume).toBe("cc-1");
-    expect(sessionContents("cc-1")).toEqual([
+    expect(rebuilt).not.toBe("cc-1");
+    expect(sessionContents(rebuilt)).toEqual([
       "hi",
       [{ type: "text", text: "hello" }],
       "now you, faux",

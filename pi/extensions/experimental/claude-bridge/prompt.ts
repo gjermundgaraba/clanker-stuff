@@ -4,7 +4,12 @@
 // billing). Pi hands providers its prompt as named sections, so the forwarded text is
 // those sections minus the ones pi owns.
 
-import { contentText, getCurrentSystemMessage, getCurrentTools } from "@earendil-works/pi-ai";
+import {
+  contentText,
+  getCurrentSystemMessage,
+  getCurrentTools,
+  getSystemMessageText,
+} from "@earendil-works/pi-ai";
 import type { Message, SystemMessage, Tool, TranscriptContext } from "@earendil-works/pi-ai";
 
 import { debugLogPath } from "./log.js";
@@ -33,18 +38,9 @@ export function toBridgeContext(transcript: TranscriptContext): BridgeContext {
   };
 }
 
-/** The whole system prompt as text, for an isolated call that sends it as Claude Code's
- *  own system prompt. */
-export function systemPromptText(system: SystemMessage | undefined): string | undefined {
-  if (system === undefined) return undefined;
-
-  const parts = [
-    contentText(system.content),
-    ...Object.values(system.sections ?? {}).flatMap((value) => (value === null ? [] : [value])),
-  ].filter((part) => part !== "");
-
-  return parts.length > 0 ? parts.join("\n\n") : undefined;
-}
+/** The whole system prompt as text, or undefined when there is none. */
+export const systemText = (system: SystemMessage | undefined): string | undefined =>
+  (system === undefined ? "" : getSystemMessageText(system)) || undefined;
 
 /** Pi's own preamble, the start of every prompt pi renders without a custom prompt. */
 export const PI_PREAMBLE = "You are an expert coding assistant operating inside pi";

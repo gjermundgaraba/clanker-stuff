@@ -15,7 +15,6 @@ import { CLOSE_GRACE_MS, conversationMachine, syncState } from "../../machine/co
 import type { ResolveToolCall } from "../../machine/conversation.js";
 import type { McpResult } from "../../mcp-server.js";
 import { makePromptStream, userMessage } from "../../query/prompt-stream.js";
-import { fingerprint } from "../../sync.js";
 import { resolveServedTools } from "../../tools.js";
 import { Turn } from "../../translate.js";
 import {
@@ -103,10 +102,10 @@ function conversation(ignoresClose = false) {
       ...opened,
       params: { prompt: promptStream.stream, options: {} },
       promptStream,
-      promptKey: "key",
+      key: "key",
       model,
       signal,
-      sent: [fingerprint(prompt)],
+      held: [prompt],
     });
 
     return { ...opened, promptStream };
@@ -120,9 +119,9 @@ function conversation(ignoresClose = false) {
     return opened;
   }
 
-  const sent = (): readonly string[] => actor.getSnapshot().context.sent;
+  const held = (): readonly Message[] => actor.getSnapshot().context.held;
 
-  return { actor, notices, clock, query, settle, start, deliver, sent };
+  return { actor, notices, clock, query, settle, start, deliver, held };
 }
 
 /** An MCP handler's side of a tool call: the promise Claude Code's tools/call awaits. */
@@ -155,7 +154,7 @@ function lastDone(pi: RecordingStream) {
 
 describe("a turn", () => {
   it("answers pi on the result, before Claude Code has exited", async () => {
-    const { actor, query, settle, start, sent } = conversation();
+    const { actor, query, settle, start, held } = conversation();
     const { pi } = start();
 
     query().push(init("cc-session"));
@@ -168,20 +167,19 @@ describe("a turn", () => {
     // Claude Code is still writing its session file.
     expect(query().closed).toBe(false);
 
-    const recorded = sent();
-
     query().end();
     await settle("idle");
 
     expect(query().closed).toBe(true);
-    expect(sent()).toBe(recorded);
-    expect(sent()).toEqual([fingerprint(prompt), fingerprint(lastDone(pi))]);
-    expect(actor.getSnapshot().context.ccSessionId).toBe("cc-session");
-    expect(actor.getSnapshot().context.rotate).toBe(false);
+    // The turn's own output, so its final content is what the next request compares.
+    expect(held()).toEqual([prompt, lastDone(pi)]);
+    expect(held()[1]).toBe(lastDone(pi));
+    expect(syncState(actor.getSnapshot()).session).toBe("cc-session");
   });
 
-  it("kills a Claude Code that does not exit after its result", async () => {
-    const { actor, clock, query, settle, start } = conversation();
+  // Killed before it finished writing, its session may be short of what pi holds.
+  it("kills a Claude Code that does not exit after its result, and forgets what it holds", async () => {
+    const { actor, clock, query, settle, start, held } = conversation();
 
     start();
     query().push(successResult("hello"));
@@ -193,22 +191,22 @@ describe("a turn", () => {
     clock.increment(1);
     expect(actor.getSnapshot().matches("idle")).toBe(true);
     expect(query().closed).toBe(true);
-    expect(actor.getSnapshot().context.rotate).toBe(true);
+    expect(held()).toEqual([]);
   });
 
   it("fails when the query ends without a result, and forgets what Claude Code holds", async () => {
-    const { query, settle, start, sent } = conversation();
+    const { query, settle, start, held } = conversation();
     const { pi } = start();
 
     query().end();
     await settle("idle");
 
     expect(lastEvent(pi)).toMatchObject({ type: "error", reason: "error" });
-    expect(sent()).toEqual([]);
+    expect(held()).toEqual([]);
   });
 
   it("fails when the query throws", async () => {
-    const { actor, query, settle, start, sent } = conversation();
+    const { query, settle, start, held } = conversation();
     const { pi } = start();
 
     query().fail(new Error("Claude Code crashed"));
@@ -218,14 +216,45 @@ describe("a turn", () => {
       type: "error",
       error: { errorMessage: "Claude Code crashed" },
     });
-    expect(sent()).toEqual([]);
-    expect(actor.getSnapshot().context.rotate).toBe(true);
+    expect(held()).toEqual([]);
+  });
+});
+
+// The SDK throws from query() itself when it cannot find Claude Code.
+it("fails the turn when the query cannot start", async () => {
+  const pi = recordingStream();
+
+  const actor = createActor(conversationMachine, {
+    input: {
+      run: () => {
+        throw new Error("Claude Code executable not found");
+      },
+      notify: () => {},
+    },
+  }).start();
+
+  actor.send({
+    type: "pi.start",
+    turn: new Turn(model, pi.stream, toPi),
+    params: { prompt: "read a", options: {} },
+    promptStream: makePromptStream(),
+    key: "key",
+    model,
+    signal: undefined,
+    held: [prompt],
+  });
+
+  await waitFor(actor, (snapshot) => snapshot.matches("idle"), { timeout: 1_000 });
+
+  expect(lastEvent(pi)).toMatchObject({
+    type: "error",
+    error: { errorMessage: "Claude Code executable not found" },
   });
 });
 
 describe("the tool loop", () => {
   it("parks on a tool call and continues the same query with pi's result", async () => {
-    const { actor, query, settle, start, deliver, sent } = conversation();
+    const { actor, query, settle, start, deliver, held } = conversation();
     const first = start();
     const call = handler("toolu_1");
 
@@ -234,9 +263,10 @@ describe("the tool loop", () => {
 
     expect(lastEvent(first.pi)).toMatchObject({ type: "done", reason: "toolUse" });
     expect(syncState(actor.getSnapshot())).toEqual({
-      sent: [fingerprint(prompt), fingerprint(lastDone(first.pi))],
+      held: [prompt, lastDone(first.pi)],
+      session: undefined,
       busy: true,
-      parked: { promptKey: "key", waiting: new Set(["toolu_1"]) },
+      parked: { key: "key", waiting: new Set(["toolu_1"]) },
     });
 
     actor.send(call.event);
@@ -251,12 +281,7 @@ describe("the tool loop", () => {
     await settle({ active: "closing" });
 
     expect(lastDone(second.pi).content).toEqual([{ type: "text", text: "read it" }]);
-    expect(sent()).toEqual([
-      fingerprint(prompt),
-      fingerprint(lastDone(first.pi)),
-      fingerprint(result),
-      fingerprint(lastDone(second.pi)),
-    ]);
+    expect(held()).toEqual([prompt, lastDone(first.pi), result, lastDone(second.pi)]);
   });
 
   it("answers a handler that asks after pi already delivered its result", async () => {
@@ -270,7 +295,6 @@ describe("the tool loop", () => {
     actor.send(call.event);
 
     expect(textOf(await call.answer)).toBe("early");
-    expect(actor.getSnapshot().context.results.size).toBe(0);
   });
 
   it("warns when a delivery leaves a handler waiting", async () => {
@@ -305,7 +329,7 @@ describe("the tool loop", () => {
 
 describe("a steer", () => {
   it("reaches Claude Code's stdin before the results it rides with", async () => {
-    const { actor, query, settle, start, deliver, sent } = conversation();
+    const { actor, query, settle, start, deliver, held } = conversation();
     const call = handler("toolu_1");
     const order: string[] = [];
 
@@ -337,11 +361,11 @@ describe("a steer", () => {
     await call.answer;
 
     expect(order).toEqual(["steer written", "result"]);
-    expect(sent().slice(-2)).toEqual([fingerprint(result), fingerprint(steer)]);
+    expect(held().slice(-2)).toEqual([result, steer]);
   });
 
   it("still releases the results when it never reached Claude Code, and is not recorded", async () => {
-    const { actor, query, settle, start, deliver, sent } = conversation();
+    const { actor, query, settle, start, deliver, held } = conversation();
     const call = handler("toolu_1");
     const { promptStream } = start();
 
@@ -356,13 +380,13 @@ describe("a steer", () => {
 
     expect(textOf(await call.answer)).toBe("a");
     await settle({ active: "streaming" });
-    expect(sent().at(-1)).toBe(fingerprint(result));
+    expect(held().at(-1)).toBe(result);
   });
 });
 
 describe("an abort", () => {
   it("stops the query while pi runs a tool, with no provider call open", async () => {
-    const { actor, query, settle, start, sent } = conversation();
+    const { actor, query, settle, start, held } = conversation();
     const controller = new AbortController();
     const call = handler("toolu_1");
 
@@ -376,8 +400,7 @@ describe("an abort", () => {
     expect(actor.getSnapshot().matches("idle")).toBe(true);
     expect(query().interrupted).toBe(true);
     expect(query().closed).toBe(true);
-    expect(sent()).toEqual([]);
-    expect(actor.getSnapshot().context.rotate).toBe(true);
+    expect(held()).toEqual([]);
   });
 
   it("ends the open provider call as aborted", async () => {
@@ -438,7 +461,7 @@ describe("an abort", () => {
 });
 
 it("discards a parked query pi's history moved on from", async () => {
-  const { actor, query, settle, start, sent } = conversation();
+  const { actor, query, settle, start, held } = conversation();
   const call = handler("toolu_1");
 
   start();
@@ -449,8 +472,7 @@ it("discards a parked query pi's history moved on from", async () => {
 
   expect(textOf(await call.answer)).toBe("Claude Code query ended");
   expect(query().closed).toBe(true);
-  expect(sent()).toEqual([]);
-  expect(actor.getSnapshot().context.rotate).toBe(true);
+  expect(held()).toEqual([]);
 });
 
 // pi carries a failure only as errorMessage text, so whatever reacts to a rate limit
@@ -523,13 +545,13 @@ describe("a rate-limit rejection", () => {
   });
 
   it("leaves an unrelated failure alone, and forgets what Claude Code holds", async () => {
-    const { query, settle, start, sent } = conversation();
+    const { query, settle, start, held } = conversation();
     const { pi } = start();
 
     query().push(successResult(UNRELATED, true));
     await settle({ active: "closing" });
 
     expect(lastEvent(pi)).toMatchObject({ type: "error", error: { errorMessage: UNRELATED } });
-    expect(sent()).toEqual([]);
+    expect(held()).toEqual([]);
   });
 });

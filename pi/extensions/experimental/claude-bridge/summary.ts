@@ -15,7 +15,7 @@ import type { BridgeQuery, QueryFunction } from "./child.js";
 import { childEnv, stopQuery } from "./child.js";
 import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { claudeCodeModelId, effortForReasoning } from "./models.js";
-import { systemPromptText, toBridgeContext } from "./prompt.js";
+import { systemText, toBridgeContext } from "./prompt.js";
 import { logServedContextWindow, resultErrorText } from "./query/result.js";
 import { sessionCwdFor, summarySessionFor } from "./session/cwd.js";
 import { mapStopReason, newAssistantOutput } from "./translate.js";
@@ -72,7 +72,7 @@ async function runIsolatedSummary(
 
     const cwd = sessionCwdFor(summarySessionFor(options?.signal) ?? options?.sessionId);
     const cliModel = claudeCodeModelId(model.id);
-    const systemPrompt = systemPromptText(context.system);
+    const systemPrompt = systemText(context.system);
     // Honours the caller's reasoning level, as the provider path does.
     const effort = effortForReasoning(model, options?.reasoning);
 

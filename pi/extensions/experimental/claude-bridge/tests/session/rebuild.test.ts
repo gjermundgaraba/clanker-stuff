@@ -52,13 +52,10 @@ describe(rebuildSession, () => {
     await rm(cwd, { recursive: true, force: true });
   });
 
-  const rebuild = (priors: readonly Message[], previous?: string, rotate = false) =>
-    rebuildSession(
-      { priors, cwd, toSdk: new Map(), modelId: MODEL, previous, rotate },
-      (message) => {
-        warnings.push(message);
-      },
-    );
+  const rebuild = (priors: readonly Message[], previous?: string) =>
+    rebuildSession({ priors, cwd, toSdk: new Map(), modelId: MODEL, previous }, (message) => {
+      warnings.push(message);
+    });
 
   const contents = (sessionId: string) =>
     openSession({ sessionId, projectPath: cwd }).messages.map((record) => record.message.content);
@@ -80,40 +77,28 @@ describe(rebuildSession, () => {
     expect(existsSync(oldFile)).toBe(false);
   });
 
-  // With no query in flight nothing else writes the file, so the id stays stable for log
-  // correlation.
-  it("rewrites the previous session in place under the same id", () => {
-    const previous = seedSession(cwd, [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: [{ type: "text", text: "Hello." }] },
-    ]);
-
-    const sessionId = rebuild(
-      [user("Summary of earlier work"), assistant([text("Ok.")])],
-      previous,
-    );
-
-    expect(sessionId).toBe(previous);
-    expect(contents(previous)).toEqual([
-      "Summary of earlier work",
-      [{ type: "text", text: "Ok." }],
-    ]);
-  });
-
-  // A killed Claude Code process may still flush a late record into its file, so a
-  // rotating rebuild takes a fresh id and leaves the old file for the orphan writer.
-  it("rotates to a new id when the rebuild must not race a dying writer", () => {
+  // A killed Claude Code may still flush a late record into the old file, so the
+  // rebuild never writes there.
+  it("writes a new session and deletes the one it replaces", () => {
     const previous = seedSession(cwd, [
       { role: "user", content: "Hi" },
       { role: "assistant", content: [{ type: "text", text: "Hello." }] },
     ]);
 
     const oldFile = openSession({ sessionId: previous, projectPath: cwd }).jsonlPath;
-    const sessionId = rebuild([user("Hi"), assistant([text("Hello.")])], previous, true);
+
+    const sessionId = rebuild(
+      [user("Summary of earlier work"), assistant([text("Ok.")])],
+      previous,
+    );
 
     expect(sessionId).toEqual(expect.any(String));
     expect(sessionId).not.toBe(previous);
-    expect(existsSync(oldFile)).toBe(true);
+    expect(contents(sessionId ?? "")).toEqual([
+      "Summary of earlier work",
+      [{ type: "text", text: "Ok." }],
+    ]);
+    expect(existsSync(oldFile)).toBe(false);
   });
 
   // The rebuilt file holds one line per record, and a carried `@file` expansion is an
@@ -142,10 +127,10 @@ describe(rebuildSession, () => {
       ],
     );
 
-    rebuild([user(prompt), assistant([text("Noted.")])], previous);
+    const sessionId = rebuild([user(prompt), assistant([text("Noted.")])], previous) ?? "";
 
     expect(
-      openSession({ sessionId: previous, projectPath: cwd }).attachments.map(
+      openSession({ sessionId, projectPath: cwd }).attachments.map(
         (record) => record.attachment.filename,
       ),
     ).toEqual([fixture]);
