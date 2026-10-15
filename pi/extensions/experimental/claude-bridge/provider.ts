@@ -42,7 +42,7 @@ import { PROVIDER_ID } from "./session/convert.js";
 import { sessionCwdFor } from "./session/cwd.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
 import { isolatedSummaryStream } from "./summary.js";
-import { fingerprint, plan, promptKey } from "./sync.js";
+import { fingerprint, firstMismatch, plan, promptKey } from "./sync.js";
 import type { Plan, RebuildReason } from "./sync.js";
 import { MCP_SERVER_NAME, resolveServedTools } from "./tools.js";
 import type { ServedTools } from "./tools.js";
@@ -132,6 +132,16 @@ async function serve(request: Request): Promise<void> {
   const decision = plan(syncState(snapshot), context);
 
   debug(`sync: ${describePlan(decision)} msgs=${context.messages.length}`);
+
+  if (decision.kind === "rebuild" && decision.reason !== "none") {
+    const { sent } = snapshot.context;
+    const at = firstMismatch(context.messages, sent);
+    const message = context.messages[at];
+
+    debug(
+      `sync: held ${sent.length}, first difference at ${at}: held=${sent[at]?.slice(0, 8) ?? "-"} pi=${message === undefined ? "-" : `${message.role}:${fingerprint(message).slice(0, 8)}`}`,
+    );
+  }
 
   if (decision.kind === "deliver") {
     conversation.send({

@@ -12,7 +12,8 @@ import {
   LIVE_TIMEOUT,
   createLiveSession,
   liveEnvironment,
-  syncResults,
+  sessionIds,
+  syncLines,
   type DebugLog,
   type LiveSession,
 } from "./live.js";
@@ -89,17 +90,16 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
 
       expect(toolNames).toEqual(expect.arrayContaining(["write", "read"]));
 
-      // Consecutive same-provider turns resume the session (Case 3). A rebuild would
-      // reset prompt caching: the off-by-one cursor bug made every follow-up rebuild.
-      const syncs = syncResults(log.since(mark));
+      // Consecutive same-provider turns resume the session. A rebuild would reset prompt
+      // caching.
+      const written = log.since(mark);
+      const syncs = syncLines(written);
 
-      expect(syncs.filter((s) => s.path === "clean-start")).toHaveLength(1);
-      expect(syncs.filter((s) => s.path === "rebuild")).toEqual([]);
-
-      const reuses = syncs.filter((s) => s.path === "reuse");
-
-      expect(reuses.length).toBeGreaterThanOrEqual(2);
-      expect(new Set(reuses.map((s) => s.sessionId)).size).toBe(1);
+      expect(syncs.filter((s) => s.kind === "rebuild")).toEqual([
+        { kind: "rebuild", reason: "none" },
+      ]);
+      expect(syncs.filter((s) => s.kind === "resume").length).toBeGreaterThanOrEqual(2);
+      expect(new Set(sessionIds(written)).size).toBe(1);
 
       // From the third model call on, the system prompt and history are cache hits:
       // cacheRead never drops, and it is at least 90% of the input.
@@ -134,24 +134,21 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
 
       expect(await live.ask("Are you still there? Reply with just 'yes'.")).toMatch(/yes/i);
 
-      // Split at the rewrite marker: the summary call before it legitimately used the
-      // pre-compact session; the next prompt after it must not.
+      // Split at the summary call: the turns before it used the pre-compact session; the
+      // next prompt after it must not resume it.
       const written = log.since(mark);
-      const marker = written.indexOf("session_compact:");
+      const marker = written.indexOf("one-off summarizer call");
 
-      expect(marker, "no session_compact marker: the handler is not subscribed").not.toBe(-1);
+      expect(marker, "the compaction summary never reached the bridge").not.toBe(-1);
 
-      const before = syncResults(written.slice(0, marker)).filter((s) => s.path !== "clean-start");
-      const [first] = syncResults(written.slice(marker));
+      const before = sessionIds(written.slice(0, marker)).at(-1);
+      const [first] = syncLines(written.slice(marker));
 
-      expect(before.at(-1)?.sessionId).toBeDefined();
-      // REUSE would resume the pre-compact transcript (and thrash Claude Code's own
-      // autocompact); a rotated id would orphan the old file under ~/.claude/projects.
-      expect(first).toEqual({
-        path: "rebuild",
-        sessionId: before.at(-1)?.sessionId,
-        flavor: "preserved",
-      });
+      expect(before).toBeDefined();
+      // A resume would answer off the pre-compact transcript. No query was running, so
+      // the session is rewritten in place: a rotated id would orphan the old file.
+      expect(first).toEqual({ kind: "rebuild", reason: "diverged" });
+      expect(sessionIds(written.slice(marker))[0]).toBe(before);
     },
     LIVE_TIMEOUT,
   );
@@ -176,10 +173,11 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       expect(second.toLowerCase()).toContain("quokka");
       expect(second.toLowerCase()).toContain("tamarind");
 
-      // The first bridge turn imports the faux turn as history (Case 2).
-      const [imported] = syncResults(log.since(mark));
+      // The first bridge turn writes the faux turn into a new session as history.
+      const [imported] = syncLines(log.since(mark));
+      const importedSession = sessionIds(log.since(mark)).at(-1);
 
-      expect(imported).toMatchObject({ path: "rebuild", flavor: "first" });
+      expect(imported).toEqual({ kind: "rebuild", reason: "none" });
 
       await live.useFaux();
       live.h.setResponses([fauxAssistantMessage("Noted.")]);
@@ -196,14 +194,11 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       expect(third.toLowerCase()).toContain("tamarind");
       expect(third.toLowerCase()).toContain("zeppelin");
 
-      // Returning after missed turns rewrites the session under the same id (Case 4).
-      const [resumed] = syncResults(log.since(mark));
+      // Returning after turns Claude Code missed rewrites the session under the same id.
+      const [resumed] = syncLines(log.since(mark));
 
-      expect(resumed).toEqual({
-        path: "rebuild",
-        sessionId: imported?.sessionId,
-        flavor: "preserved",
-      });
+      expect(resumed).toEqual({ kind: "rebuild", reason: "tail" });
+      expect(sessionIds(log.since(mark)).at(-1)).toBe(importedSession);
     },
     LIVE_TIMEOUT,
   );

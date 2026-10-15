@@ -372,6 +372,8 @@ export const conversationMachine = setup({
           const { message } = event;
 
           if (message.type === "system" && message.subtype === "init") {
+            debug(`conversation: session ${message.session_id}`);
+
             return { context: { ccSessionId: message.session_id } };
           }
 
@@ -586,6 +588,8 @@ export const conversationMachine = setup({
           ],
           on: {
             "steer.acked": ({ context }, enq) => {
+              debug("conversation: steer written to Claude Code's stdin before the tool results");
+
               const { handlers, results, answer } = release(
                 context.handlers,
                 context.results,

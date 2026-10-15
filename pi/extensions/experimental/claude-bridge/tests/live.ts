@@ -2,7 +2,7 @@
 // by the user's own Claude Code login through the Agent SDK. Every query bills the user's
 // Claude subscription, so the suites run only with CLAUDE_BRIDGE_LIVE=1.
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -160,28 +160,27 @@ export function nextEvent(
   });
 }
 
-/** One `syncResult:` line: which path the mirror took and the session it settled on. */
-export interface SyncResult {
-  path: "reuse" | "rebuild" | "clean-start";
-  sessionId: string | undefined;
-  flavor: string | undefined;
+/** One `sync:` line: what a provider call did with the session's conversation. */
+export interface SyncLine {
+  kind: "deliver" | "side" | "resume" | "rebuild";
+  reason: string | undefined;
 }
 
-const SYNC_PATHS = ["reuse", "rebuild", "clean-start"] as const;
+const SYNC_KINDS = ["deliver", "side", "resume", "rebuild"] as const;
 
-export function syncResults(log: string): SyncResult[] {
-  return [
-    ...log.matchAll(
-      /syncResult: path=(\S+)(?: preserve-shared)?(?: sessionId=([0-9a-f-]+)(?: priors=\d+ (\S+))?)?/g,
-    ),
-  ].flatMap((match) => {
-    const syncPath = SYNC_PATHS.find((candidate) => candidate === match[1]);
+export function syncLines(log: string): SyncLine[] {
+  return [...log.matchAll(/sync: (\w+)(?: reason=(\w+))?/g)].flatMap((match) => {
+    const kind = SYNC_KINDS.find((candidate) => candidate === match[1]);
 
-    return syncPath === undefined
-      ? []
-      : [{ path: syncPath, sessionId: match[2], flavor: match[3] }];
+    return kind === undefined ? [] : [{ kind, reason: match[2] }];
   });
 }
+
+/** The session each query ran in, as Claude Code reported it, in order. */
+export const sessionIds = (log: string): string[] =>
+  [...log.matchAll(/conversation: session ([0-9a-f-]+)/g)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
 
 const SessionRecordSchema = Type.Object({
   type: Type.Optional(Type.String()),
@@ -193,23 +192,17 @@ const SessionRecordSchema = Type.Object({
 
 export type SessionRecord = Static<typeof SessionRecordSchema>;
 
-/**
- * Claude Code's own transcript of the last query in a debug-log slice, in write order.
- * The log names the session by an 8-character prefix, enough to pick the file out of
- * the project directory.
- */
+/** Claude Code's own transcript of the last query in a debug-log slice, in write order. */
 export function sessionRecords(log: string, projectDir: string): SessionRecord[] {
-  const prefix = [...log.matchAll(/query done, session=([0-9a-f]+)/g)].at(-1)?.[1];
+  const sessionId = sessionIds(log).at(-1);
 
-  expect(prefix, "no completed query in the debug log").toBeDefined();
+  expect(sessionId, "no query reported a session in the debug log").toBeDefined();
 
-  const file = readdirSync(projectDir).find(
-    (name) => prefix !== undefined && name.startsWith(prefix) && name.endsWith(".jsonl"),
-  );
+  const file = path.join(projectDir, `${sessionId ?? ""}.jsonl`);
 
-  expect(file, `no session file for ${prefix} in ${projectDir}`).toBeDefined();
+  expect(existsSync(file), `no session file ${file}`).toBe(true);
 
-  return readFileSync(path.join(projectDir, file ?? ""), "utf8")
+  return readFileSync(file, "utf8")
     .split("\n")
     .filter((line) => line !== "")
     .map((line) => Value.Parse(SessionRecordSchema, JSON.parse(line)));

@@ -156,7 +156,7 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
         "the turn continued before the steer was drained",
       ).toEqual([]);
       expect(records.slice(steerAt).some((r) => r.type === "assistant")).toBe(true);
-      expect(written).toContain("steer written to CC stdin before tool result");
+      expect(written).toContain("steer written to Claude Code's stdin before the tool results");
     },
     LIVE_TIMEOUT,
   );

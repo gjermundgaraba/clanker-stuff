@@ -88,6 +88,18 @@ const continuesFrom = (history: readonly Message[], sent: readonly string[]): bo
     return message !== undefined && fingerprint(message) === value;
   });
 
+/** Where `history` stops matching what Claude Code holds: the first differing index,
+ *  or `sent.length` when it only runs longer. For the debug log. */
+export function firstMismatch(history: readonly Message[], sent: readonly string[]): number {
+  const index = sent.findIndex((value, at) => {
+    const message = history[at];
+
+    return message === undefined || fingerprint(message) !== value;
+  });
+
+  return index === -1 ? sent.length : index;
+}
+
 /** The tool results that answer a parked query, then the steer pi queued after them. */
 function delivery(
   tail: readonly Message[],
