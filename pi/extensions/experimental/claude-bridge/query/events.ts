@@ -96,7 +96,7 @@ function endStreamForToolUse(c: QueryContext): void {
   c.currentPiStream = null;
 }
 
-function mapStopReason(reason: string | null | undefined): "stop" | "length" | "toolUse" {
+export function mapStopReason(reason: string | null | undefined): "stop" | "length" | "toolUse" {
   switch (reason) {
     case "tool_use":
       return "toolUse";

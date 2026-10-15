@@ -74,9 +74,11 @@ export function makePromptStream(): PromptStream {
         }
       }
     } finally {
-      // No consumer is left to drain the queue, so a later push would never settle.
-      // Closing here keeps the reject-never-hang contract a property of this module.
+      // No consumer is left to drain the queue: reject what is queued, and close so a
+      // later push rejects too. This keeps reject-never-hang a property of this module.
       done = true;
+
+      for (const item of queue.splice(0)) item.reject(new Error("prompt stream closed"));
     }
   }
 

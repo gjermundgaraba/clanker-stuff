@@ -11,7 +11,7 @@ A clean-break redesign of the provider core. The extension no longer tracks pi-c
 
 ## Facts the design relies on
 
-- pi passes `options.sessionId` on every agent turn (`sdk.ts:435`) and none for compaction (`agent-session.ts:2765`).
+- pi passes `options.sessionId` on every agent turn (`sdk.ts:435`). Summaries go through `completeSummarization`, which sets `cacheRetention: "none"` and a fresh random `sessionId` (`compaction.ts:627-632`), so they are routed before any conversation lookup. All of pi's summary requests are one user message with no tools.
 - Re-registering a provider merges the config and replaces `streamSimple` (`model-runtime.ts:928-948`), so registering on every evaluation is safe once streams hold no state.
 - Subagents copy the parent's registered provider config, stream function included, into each child runtime (`subagents/runtime.ts:163-182`).
 - System messages carry named `sections` (`preamble`, `tools`, `rules`, `docs`, `addendum`, `project_context`, `skills`, `cwd`, extension sections), read through `getCurrentSystemMessage()`.

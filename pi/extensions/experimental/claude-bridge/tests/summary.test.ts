@@ -4,6 +4,7 @@
 import { rm } from "node:fs/promises";
 
 import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { createTempDir } from "../../../../tests/helpers/fs.js";
@@ -190,6 +191,52 @@ describe("isolated summary failures", () => {
 
     expect(reply.stopReason).toBe("error");
     expect(reply.errorMessage).toBe("controlled summary failure");
+  });
+
+  // pi's own check refuses a "length" summary before it replaces any history.
+  it("reports a summary Claude Code cut off at its output cap as truncated", async () => {
+    const { stream, query } = summarize();
+
+    query().push({ ...successResult("half a summ"), stop_reason: "max_tokens" });
+    query().end();
+
+    const reply = await stream.result();
+
+    expect(reply.stopReason).toBe("length");
+  });
+
+  it("refuses a request with history or tools instead of dropping them", async () => {
+    const fake = fakeQueryFunction();
+    const bridge = new Bridge(fake.run, new PromptCaptures());
+
+    const withHistory = isolatedSummaryStream(
+      bridge,
+      model,
+      transcript({
+        messages: [
+          { role: "user", content: "earlier", timestamp: 0 },
+          { role: "user", content: "now", timestamp: 1 },
+        ],
+      }),
+      { cacheRetention: "none" },
+    );
+
+    const withTools = isolatedSummaryStream(
+      bridge,
+      model,
+      transcript({
+        messages: [{ role: "user", content: "now", timestamp: 0 }],
+        tools: [{ name: "read", description: "Read a file", parameters: Type.Object({}) }],
+      }),
+      { cacheRetention: "none" },
+    );
+
+    for (const reply of [await withHistory.result(), await withTools.result()]) {
+      expect(reply.stopReason).toBe("error");
+      expect(reply.errorMessage).toMatch(/single user message and no tools/);
+    }
+
+    expect(fake.queries).toHaveLength(0);
   });
 
   it("fails on an empty summary", async () => {

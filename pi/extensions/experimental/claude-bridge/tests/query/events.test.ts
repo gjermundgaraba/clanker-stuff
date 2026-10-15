@@ -37,8 +37,8 @@ const served = (...names: string[]): ReadonlyMap<string, string> =>
 
 const BASH = "mcp__custom-tools__bash";
 
-// notify_parent rather than bash where arguments matter: bash gains a default timeout,
-// which has nothing to do with the block lifecycle under test.
+// notify_parent rather than bash where arguments matter, so the block lifecycle under
+// test does not depend on any tool's argument mapping.
 const NOTIFY = "mcp__custom-tools__notify_parent";
 
 function openTurn(): { c: QueryContext; pi: RecordingStream } {
@@ -152,7 +152,7 @@ describe("a non-streaming fallback after a stalled stream", () => {
     );
 
     expect(c.turnBlocks.map(describeBlock)).toEqual([
-      ["toolCall", "toolu_retry", { command: "ls", timeout: 120 }],
+      ["toolCall", "toolu_retry", { command: "ls" }],
     ]);
     expect(c.turnOutput?.stopReason).toBe("toolUse");
   });
@@ -342,7 +342,7 @@ describe("tool_use for a tool we do not serve", () => {
     );
 
     expect(c.turnBlocks.map(describeBlock)).toEqual([
-      ["toolCall", "toolu_retry", { command: "ls", timeout: 120 }],
+      ["toolCall", "toolu_retry", { command: "ls" }],
     ]);
     expect(c.turnToolCallIds).toEqual(["toolu_retry"]);
   });
@@ -375,7 +375,7 @@ describe("tool_use for a tool we do not serve", () => {
     );
 
     expect(c.turnBlocks.map(describeBlock)).toEqual([
-      ["toolCall", "toolu_retry", { command: "ls", timeout: 120 }],
+      ["toolCall", "toolu_retry", { command: "ls" }],
     ]);
   });
 });

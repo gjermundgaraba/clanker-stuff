@@ -60,9 +60,6 @@ const SDK_KEY_RENAMES = new Map<string, ReadonlyMap<string, string>>([
   ],
 ]);
 
-// Claude Code's own default; pi's bash tool has none.
-const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
-
 export function mapToolArgs(toolName: string, args: JsonObject): JsonObject {
   const renames = SDK_KEY_RENAMES.get(toolName.toLowerCase());
   const result: JsonObject = {};
@@ -72,10 +69,6 @@ export function mapToolArgs(toolName: string, args: JsonObject): JsonObject {
 
     // First alias wins.
     if (!(piKey in result)) result[piKey] = value;
-  }
-
-  if (toolName.toLowerCase() === "bash" && result.timeout == null) {
-    result.timeout = DEFAULT_BASH_TIMEOUT_SECONDS;
   }
 
   return result;

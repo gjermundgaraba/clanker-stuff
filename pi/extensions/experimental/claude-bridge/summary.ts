@@ -18,6 +18,7 @@ import { claudeCodeModelId, effortForReasoning } from "./models.js";
 import { toBridgeContext } from "./prompt/transcript.js";
 import { logServedContextWindow, resultErrorText } from "./query/consume.js";
 import { newAssistantOutput } from "./query/context.js";
+import { mapStopReason } from "./query/events.js";
 import { sessionCwdFor, summarySessionFor } from "./session/cwd.js";
 import { extractUserPrompt } from "./turn.js";
 
@@ -53,6 +54,17 @@ async function runIsolatedSummary(
   };
 
   try {
+    // Isolated calls carry no history or tools, so anything else would silently lose them.
+    if (
+      context.messages.length !== 1 ||
+      context.messages[0]?.role !== "user" ||
+      (context.tools?.length ?? 0) > 0
+    ) {
+      throw new Error(
+        'claude-bridge runs cacheRetention "none" requests as isolated one-off calls, which take a single user message and no tools',
+      );
+    }
+
     const promptText = extractUserPrompt(context.messages);
 
     if (promptText === undefined || promptText === "") {
@@ -93,6 +105,7 @@ async function runIsolatedSummary(
     let assistantText = "";
     let finalText = "";
     let errorText: string | undefined;
+    let stopReason: string | null = null;
 
     for await (const message of sdkQuery) {
       if (wasAborted) break;
@@ -104,6 +117,7 @@ async function runIsolatedSummary(
       } else if (message.type === "result") {
         logServedContextWindow("compact summary", message, model);
         errorText = resultErrorText(message);
+        stopReason = message.stop_reason;
 
         if (errorText === undefined && message.subtype === "success") {
           finalText = message.result || assistantText;
@@ -139,8 +153,11 @@ async function runIsolatedSummary(
       return;
     }
 
-    debug(`compact summary: done textLen=${text.length}`);
-    stream.push({ type: "done", reason: "stop", message: newAssistantOutput(model, "stop", text) });
+    // A truncated summary must say so: pi refuses to persist a "length" summary.
+    const reason = mapStopReason(stopReason) === "length" ? "length" : "stop";
+
+    debug(`compact summary: done reason=${reason} textLen=${text.length}`);
+    stream.push({ type: "done", reason, message: newAssistantOutput(model, reason, text) });
     stream.end();
   } catch (error) {
     debug("isolated summary threw; pushing terminal error", error);

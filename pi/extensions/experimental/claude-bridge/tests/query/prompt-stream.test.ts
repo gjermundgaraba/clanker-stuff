@@ -114,6 +114,18 @@ describe("makePromptStream", () => {
     await expect(ps.push(userMessage("later"))).rejects.toThrow(/closed/);
   });
 
+  it("settles every queued ack when the consumer abandons the stream", async () => {
+    const ps = makePromptStream();
+    const pulled = ps.stream.next();
+    const first = expect(ps.push(userMessage("in flight"))).rejects.toThrow(/closed/);
+    const second = expect(ps.push(userMessage("queued behind it"))).rejects.toThrow(/closed/);
+
+    await pulled;
+    await ps.stream.return(undefined);
+    await first;
+    await second;
+  });
+
   it("keeps the first failure rather than the last", async () => {
     const ps = makePromptStream();
     const pumping = expect(pump(ps.stream, () => {})).rejects.toThrow(/CLI exited with code 1/);

@@ -79,19 +79,8 @@ describe("mapToolArgs", () => {
     });
   });
 
-  it("gives bash Claude Code's default timeout only when none is set", () => {
-    expect(mapToolArgs("bash", { command: "ls" })).toEqual({ command: "ls", timeout: 120 });
-    expect(mapToolArgs("Bash", { command: "ls", timeout: null })).toEqual({
-      command: "ls",
-      timeout: 120,
-    });
-    expect(mapToolArgs("bash", { command: "ls", timeout: 0 })).toEqual({
-      command: "ls",
-      timeout: 0,
-    });
-    expect(mapToolArgs("bash", { command: "ls", timeout: 5 })).toEqual({
-      command: "ls",
-      timeout: 5,
-    });
+  // pi's bash schema promises no default timeout; a long build must not be cut short.
+  it("leaves bash without a timeout when the model set none", () => {
+    expect(mapToolArgs("bash", { command: "make" })).toEqual({ command: "make" });
   });
 });

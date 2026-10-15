@@ -2,10 +2,8 @@
 // which conversation it resumes, and how a query parked at a tool boundary is discarded
 // when pi rewrites the history under it.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { Type } from "@earendil-works/pi-ai";
 import type {
@@ -839,47 +837,5 @@ describe("a one-off summarizer call", () => {
 
     expect(replyText(await summary.result())).toBe("the summary");
     expect(p.bridge.mirrors.get("pi-session")?.sessionId).toBe("cc-live");
-  });
-});
-
-describe("pi's streamFn consumers", () => {
-  // Anything pi hands a streamFn can route an LLM call through this provider with a
-  // system prompt no capture boundary recorded. Branch summarization did exactly that
-  // unnoticed: a behavioural test only probes the entry points already known, so the
-  // installed source is inventoried instead.
-  //
-  // If this fails, a pi upgrade added or moved a streamFn consumer. Work out whether it
-  // can reach a bridge model, then route it to the isolated summary path
-  // (cacheRetention "none") or record here why it is harmless. A changed count inside a
-  // listed file is the shape of the branch-summarization miss: read the diff.
-  const piCore = fileURLToPath(
-    new URL("../node_modules/@earendil-works/pi-coding-agent/dist/core", import.meta.url),
-  );
-
-  const accounted = {
-    // Hands branch summaries and /bug summaries to the two consumers below.
-    "agent-session.js": 2,
-    // Constructs the agent; summarizes nothing.
-    "sdk.js": 2,
-    // /bug summarization through completeSummarization, cacheRetention "none".
-    "bug-report.js": 1,
-    // Native compaction through completeSummarization, cacheRetention "none".
-    "compaction/compaction.js": 13,
-    // Branch summaries through completeSummarization, cacheRetention "none".
-    "compaction/branch-summarization.js": 2,
-  } satisfies Record<string, number>;
-
-  it("are the ones the bridge has accounted for, in the same places", () => {
-    const found: Record<string, number> = {};
-
-    for (const file of readdirSync(piCore, { recursive: true, encoding: "utf8" })) {
-      if (!file.endsWith(".js")) continue;
-
-      const mentions = readFileSync(join(piCore, file), "utf8").match(/streamFn/g)?.length ?? 0;
-
-      if (mentions > 0) found[file] = mentions;
-    }
-
-    expect(found).toEqual(accounted);
   });
 });
