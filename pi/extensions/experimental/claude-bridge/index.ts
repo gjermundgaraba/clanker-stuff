@@ -5,7 +5,7 @@ import type { QueryFunction } from "./child.js";
 import { endConversation, notifySession } from "./conversations.js";
 import { providerConfig } from "./provider.js";
 import { PROVIDER_ID } from "./session/convert.js";
-import { forgetSessionCwd, rememberSessionCwd, rememberSummarySession } from "./session/cwd.js";
+import { forgetSessionCwd, rememberSessionCwd } from "./session/cwd.js";
 import { shared } from "./shared.js";
 
 /** The extension, with the Agent SDK's query() replaceable for tests. */
@@ -40,14 +40,6 @@ export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) 
       endConversation(sessionId);
       forgetSessionCwd(sessionId);
       shared().uis.delete(sessionId);
-    });
-
-    // Summary calls run in the session's cwd; pi forwards the operation's signal to them.
-    pi.on("session_before_compact", (event, ctx) => {
-      rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
-    });
-    pi.on("session_before_tree", (event, ctx) => {
-      rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
     });
   };
 }

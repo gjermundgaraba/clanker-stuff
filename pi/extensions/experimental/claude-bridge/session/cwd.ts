@@ -15,12 +15,3 @@ export function forgetSessionCwd(sessionId: string): void {
 export function sessionCwdFor(sessionId: string | null | undefined): string {
   return (sessionId == null ? undefined : shared().sessionCwds.get(sessionId)) ?? process.cwd();
 }
-
-/** Pi forwards a summary operation's signal from its before hook to every summary call. */
-export function rememberSummarySession(signal: AbortSignal, sessionId: string): void {
-  shared().summarySessions.set(signal, sessionId);
-}
-
-export function summarySessionFor(signal: AbortSignal | undefined): string | undefined {
-  return signal === undefined ? undefined : shared().summarySessions.get(signal);
-}

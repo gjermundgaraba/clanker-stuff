@@ -39,6 +39,24 @@ let clock = 0;
 
 const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: clock++ });
 
+const said = (text: string): AssistantMessage => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+  api: model.api,
+  provider: model.provider,
+  model: model.id,
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: "stop",
+  timestamp: clock++,
+});
+
 const toolResult = (id: string, text: string): ToolResultMessage => ({
   role: "toolResult",
   toolCallId: id,
@@ -132,6 +150,8 @@ function answer(query: FakeQuery, text: string, sessionId = "cc-1"): void {
 
 const sessionContents = (sessionId: string) =>
   openSession({ sessionId, projectPath: cwd }).messages.map((record) => record.message.content);
+
+const sessionPath = (sessionId: string) => openSession({ sessionId, projectPath: cwd }).jsonlPath;
 
 describe("a session's turns", () => {
   it("starts the first turn clean and resumes Claude Code's session for the next", async () => {
@@ -260,7 +280,7 @@ describe("the tool loop", () => {
     const q2 = await query(1);
 
     expect(q1.closed).toBe(true);
-    expect(q2.params.options.extraArgs?.["model"]).toBe("claude-opus-5-5[1m]");
+    expect(q2.params.options.model).toBe("claude-opus-5-5[1m]");
     expect(fake.queries).toHaveLength(2);
   });
 
@@ -392,14 +412,78 @@ it("fails the turn without a query when the gate refuses the prompt", async () =
   expect(fake.queries).toHaveLength(0);
 });
 
-it("runs a summarizer call isolated, leaving the session's conversation alone", async () => {
+describe("a one-off request", () => {
+  const SUMMARY_PROMPT = "You are a summarization assistant.";
+
+  // pi's compaction and branch summaries: a session id pi minted for the call, and
+  // cacheRetention "none".
+  it("runs a summary under the caller's prompt, leaving the session's conversation alone", async () => {
+    const { call, query } = bridge();
+
+    const reply = call(
+      [user("Summarize the conversation.")],
+      { cacheRetention: "none" },
+      { systemPrompt: SUMMARY_PROMPT, tools: [] },
+    );
+
+    const q = await query(0);
+
+    expect(q.params.options.systemPrompt).toBe(SUMMARY_PROMPT);
+    expect(q.params.options.resume).toBeUndefined();
+    expect(await promptOf(q)).toEqual([{ type: "text", text: "Summarize the conversation." }]);
+    expect(shared().conversations.has(SESSION)).toBe(false);
+
+    answer(q, "the summary", "cc-summary");
+
+    expect((await reply.result()).content).toEqual([{ type: "text", text: "the summary" }]);
+  });
+
+  // No later call could deliver a tool's result to it.
+  it("carries the history it was given without tools, and leaves no session behind", async () => {
+    const { call, query } = bridge();
+    const reply = call([user("earlier"), said("noted"), user("now")], { cacheRetention: "none" });
+    const q = await query(0);
+    const written = sessionPath(q.params.options.resume ?? "");
+
+    expect(q.params.options.mcpServers).toBeUndefined();
+    expect(sessionContents(q.params.options.resume ?? "")).toEqual([
+      "earlier",
+      [{ type: "text", text: "noted" }],
+    ]);
+    expect(await promptOf(q)).toEqual([{ type: "text", text: "now" }]);
+
+    answer(q, "done");
+    await reply.result();
+
+    await vi.waitFor(() => {
+      expect(existsSync(written)).toBe(false);
+    });
+  });
+
+  it("passes the caller's reasoning level to Claude Code", async () => {
+    const { call, query } = bridge();
+
+    // Fable 5.1's pi-ai thinking map names only xhigh and max.
+    const fable = {
+      ...testModel("claude-fable-5-1"),
+      thinkingLevelMap: { off: null, xhigh: "xhigh", max: "max" },
+    };
+
+    call([user("Advise.")], { cacheRetention: "none", reasoning: "max" }, { model: fable });
+
+    expect((await query(0)).params.options.effort).toBe("max");
+  });
+});
+
+it("runs Claude Code without the user's own Claude Code setup", async () => {
   const { call, query } = bridge();
 
-  call([user("Summarize the conversation.")], { cacheRetention: "none" }, { tools: [] });
+  call([user("hi")]);
 
-  const q = await query(0);
-
-  expect(q.params.options).toMatchObject({ persistSession: false });
-  expect(shared().conversations.has(SESSION)).toBe(false);
-  expect(existsSync(configDir)).toBe(true);
+  expect((await query(0)).params.options).toMatchObject({
+    settingSources: [],
+    skills: [],
+    strictMcpConfig: true,
+    model: "claude-haiku-5-5[1m]",
+  });
 });

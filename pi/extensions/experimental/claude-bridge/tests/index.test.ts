@@ -1,15 +1,11 @@
-// The entrypoint's wiring: registration, the session lifecycle, and summary operations.
+// The entrypoint's wiring: registration and the session lifecycle.
 
-import type {
-  SessionBeforeCompactEvent,
-  SessionBeforeTreeEvent,
-} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { conversationFor } from "../conversations.js";
 import { createClaudeBridge } from "../index.js";
-import { sessionCwdFor, summarySessionFor } from "../session/cwd.js";
+import { sessionCwdFor } from "../session/cwd.js";
 import { shared } from "../shared.js";
 import { fakeQueryFunction } from "./helpers.js";
 
@@ -67,28 +63,4 @@ describe("the session lifecycle", () => {
     expect(shared().conversations.has(SESSION_ID)).toBe(false);
     expect(other.getSnapshot().status).toBe("active");
   });
-});
-
-describe("summary operations", () => {
-  // The handlers only see the event's signal; the rest of the event is pi's business.
-  it.each(["session_before_compact", "session_before_tree"] as const)(
-    "%s leaves the summary to pi and other extensions, in the session's cwd",
-    async (type) => {
-      const host = createExtensionHost(createClaudeBridge(fakeQueryFunction().run), {
-        sessionId: SESSION_ID,
-      });
-
-      const signal = new AbortController().signal;
-
-      const event = { type, signal } satisfies Pick<
-        SessionBeforeCompactEvent | SessionBeforeTreeEvent,
-        "type" | "signal"
-      >;
-
-      // Any result would cancel the operation or replace pi's summarizer.
-      expect(await host.emit(type, event)).toEqual([undefined]);
-      // pi forwards this signal to the summary calls, which run in this session's cwd.
-      expect(summarySessionFor(signal)).toBe(SESSION_ID);
-    },
-  );
 });

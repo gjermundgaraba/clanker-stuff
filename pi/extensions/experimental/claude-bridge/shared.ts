@@ -10,8 +10,6 @@ export interface SharedBridgeState {
   /** Pi session id → cwd. A host serving many sessions from one process has one
    *  process cwd, so Claude Code would otherwise load the host's project instructions. */
   sessionCwds: Map<string, string>;
-  /** Summary operation signal → pi session id; pi forwards the signal to every summary call. */
-  summarySessions: WeakMap<AbortSignal, string>;
   /** Pi session id → its Claude Code conversation. */
   conversations: Map<string, Conversation>;
   /** Pi session id → the UI its notices go to. */
@@ -25,7 +23,6 @@ declare global {
 export function shared(): SharedBridgeState {
   globalThis.__clankerStuffClaudeBridge ??= {
     sessionCwds: new Map(),
-    summarySessions: new WeakMap(),
     conversations: new Map(),
     uis: new Map(),
   };

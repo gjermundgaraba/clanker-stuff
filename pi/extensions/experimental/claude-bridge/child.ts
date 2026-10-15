@@ -13,7 +13,7 @@ export interface QueryParams {
 
 export type QueryFunction = (params: QueryParams) => BridgeQuery;
 
-/** Applied to every child, provider and summary alike, so a guard is added once.
+/** Applied to every Claude Code child.
  *  - ENABLE_CLAUDEAI_MCP_SERVERS=0: keep claude.ai-connected MCP servers out; pi serves
  *    its own tools, and these are not blocked by --strict-mcp-config.
  *  - DISABLE_AUTO_COMPACT=1: pi owns compaction. Claude Code compacting its own copy
@@ -28,14 +28,6 @@ const CHILD_ENV = {
 } as const;
 
 export const childEnv = (): NodeJS.ProcessEnv => ({ ...process.env, ...CHILD_ENV });
-
-// Pi owns context files, so Claude Code must not load its own on top: project
-// CLAUDE.md/AGENTS.md would arrive twice, and ~/.claude/CLAUDE.md (a persona written for
-// another harness) would arrive at all, stamped as overriding default behavior. Excludes
-// rather than settingSources: the same source gate reads settings.json, where
-// Bedrock/Vertex users keep `env` and `apiKeyHelper`. Patterns match absolute paths;
-// rules need their own. Managed policy memory is not excludable by design.
-export const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
 
 /** Stop a query now: interrupt() asks the CLI to stop gracefully and close() kills it.
  *  Both are needed, since interrupt alone lets the current API call finish. Neither may

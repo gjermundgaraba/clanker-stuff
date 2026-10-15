@@ -134,20 +134,22 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
 
       expect(await live.ask("Are you still there? Reply with just 'yes'.")).toMatch(/yes/i);
 
-      // Split at the summary call: the turns before it used the pre-compact session; the
-      // next prompt after it must not resume it.
+      // Split at the summary calls: the turns before them used the pre-compact session;
+      // the next prompt after them must not resume it.
       const written = log.since(mark);
-      const marker = written.indexOf("one-off summarizer call");
+      const SUMMARY = "sync: side (cacheRetention none)";
+      const first = written.indexOf(SUMMARY);
+      const last = written.lastIndexOf(SUMMARY);
 
-      expect(marker, "the compaction summary never reached the bridge").not.toBe(-1);
+      expect(first, "the compaction summary never reached the bridge").not.toBe(-1);
 
-      const before = sessionIds(written.slice(0, marker)).at(-1);
-      const [first] = syncLines(written.slice(marker));
+      const before = sessionIds(written.slice(0, first)).at(-1);
+      const [next] = syncLines(written.slice(last + SUMMARY.length));
 
       expect(before).toBeDefined();
       // A resume would answer off the pre-compact transcript.
-      expect(first).toEqual({ kind: "rebuild", reason: "diverged" });
-      expect(sessionIds(written.slice(marker))[0]).not.toBe(before);
+      expect(next).toEqual({ kind: "rebuild", reason: "diverged" });
+      expect(sessionIds(written).at(-1)).not.toBe(before);
     },
     LIVE_TIMEOUT,
   );

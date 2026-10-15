@@ -31,7 +31,6 @@
     "query",
     "session",
     "shared.ts",
-    "summary.ts",
     "sync.ts",
     "tools.ts",
     "translate.ts",

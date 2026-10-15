@@ -1,12 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  forgetSessionCwd,
-  rememberSessionCwd,
-  rememberSummarySession,
-  sessionCwdFor,
-  summarySessionFor,
-} from "../../session/cwd.js";
+import { forgetSessionCwd, rememberSessionCwd, sessionCwdFor } from "../../session/cwd.js";
 
 describe("session cwd", () => {
   afterEach(() => {
@@ -44,17 +38,5 @@ describe("session cwd", () => {
     rememberSessionCwd("s3", "/shared");
 
     expect(fresh.sessionCwdFor("s3")).toBe("/shared");
-  });
-});
-
-describe("summary sessions", () => {
-  it("maps a summary operation's signal to the session that started it", () => {
-    const signal = new AbortController().signal;
-
-    rememberSummarySession(signal, "s-compact");
-
-    expect(summarySessionFor(signal)).toBe("s-compact");
-    expect(summarySessionFor(new AbortController().signal)).toBeUndefined();
-    expect(summarySessionFor(undefined)).toBeUndefined();
   });
 });

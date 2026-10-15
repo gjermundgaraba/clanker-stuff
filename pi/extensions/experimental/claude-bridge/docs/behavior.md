@@ -20,13 +20,13 @@ Claude Code always runs its own `claude_code` preset prompt. The bridge appends 
 
 Anthropic treats a request carrying pi's preamble, or both `docs/custom-provider.md` and `docs/packages.md`, as a third-party app (a 400, or Extra Usage billing), so the bridge refuses such a turn with an error naming where it found the text, including the context files.
 
-Claude Code's own `CLAUDE.md`/`AGENTS.md` loading is excluded (pi already sends them), and so are its git-status block, auto-compaction (pi owns compaction), auto-memory, and MCP servers from `~/.claude.json`, `.mcp.json`, and claude.ai (pi serves the tools). `~/.claude/settings.json` hooks still run inside bridge turns; a hook can skip itself with `[ -n "$PI_CODING_AGENT" ] && exit 0`.
+Claude Code runs without its filesystem settings: no `CLAUDE.md`/`AGENTS.md` or rules (pi already sends them), skills, hooks, permissions or `env` from `settings.json`. Its git-status block, auto-compaction (pi owns compaction), auto-memory, and MCP servers from `~/.claude.json`, `.mcp.json`, and claude.ai (pi serves the tools) are off too. Your Claude Code login still applies.
 
 ## Sessions and caching
 
 Each pi session runs on a Claude Code session file under `~/.claude/projects/` (or `CLAUDE_CONFIG_DIR`). The bridge records which of pi's messages Claude Code holds and compares each request against them by content. When the request is that history plus a new user turn, the turn resumes the session and Claude Code's prompt cache stays warm. Anything else (an abort, a failed turn, `/compact`, tree navigation, an edited message, another provider's turn, a steer that never reached Claude Code, a model, prompt or tool change while a tool runs, or a pi restart) writes a new session from pi's history and deletes the old one, and the next request usually misses the cache past the system prompt.
 
-A request made while a turn runs that does not continue it (an extension's one-off call under the session's id) runs in a temporary Claude Code session of its own, without pi's tools, and leaves the running turn alone. Compaction, branch summaries, and other one-off summaries run in a separate Claude Code process without a session. A spent subscription window is reported once and fails the turn as a non-retryable quota error, so pi does not retry a window that resets in hours.
+One-off requests (compaction and branch summaries, an extension's call without a session, or a call made while a turn runs that does not continue it) run in a temporary Claude Code session of their own under the caller's system prompt, without pi's tools, and leave the running turn alone. A spent subscription window is reported once and fails the turn as a non-retryable quota error, so pi does not retry a window that resets in hours.
 
 Known limit: files Claude Code edits are not carried across a rebuild (the edit survives as a tool call and result, the post-edit snapshot does not; `@file` expansions are carried).
 

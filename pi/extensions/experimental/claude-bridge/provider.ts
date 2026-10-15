@@ -22,7 +22,7 @@ import type {
 import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { waitFor } from "xstate";
 
-import { childEnv, CLAUDE_MD_EXCLUDES } from "./child.js";
+import { childEnv } from "./child.js";
 import type { QueryFunction } from "./child.js";
 import { conversationFor, ephemeralConversation, notifySession, settled } from "./conversations.js";
 import type { Conversation } from "./conversations.js";
@@ -41,7 +41,6 @@ import { makePromptStream, userMessage } from "./query/prompt-stream.js";
 import { PROVIDER_ID } from "./session/convert.js";
 import { sessionCwdFor } from "./session/cwd.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
-import { isolatedSummaryStream } from "./summary.js";
 import { matchedPrefix, plan, queryKey } from "./sync.js";
 import type { Plan, RebuildReason } from "./sync.js";
 import { MCP_SERVER_NAME, resolveServedTools } from "./tools.js";
@@ -80,14 +79,6 @@ export function streamClaudeCode(
   transcript: TranscriptContext,
   options: SimpleStreamOptions | undefined,
 ): AssistantMessageEventStream {
-  // Pi's compaction, branch-summary and bug-report calls use cacheRetention "none". Their
-  // prompts are one-off requests, so they run isolated, without a conversation.
-  if (options?.cacheRetention === "none") {
-    debug("provider: one-off summarizer call (cacheRetention none) routed to isolated summary");
-
-    return isolatedSummaryStream(deps.runQuery, model, transcript, options);
-  }
-
   const context = toBridgeContext(transcript);
   const served = resolveServedTools(context.tools, deps.toolGuidelines());
   const turn = new Turn(model, createAssistantMessageEventStream(), served.toPi);
@@ -127,10 +118,12 @@ async function serve(request: Request): Promise<void> {
   const piSession = options?.sessionId;
 
   // pi passes its session id on every agent turn, so a call without one is an
-  // extension's one-off: it cannot continue a conversation.
-  if (piSession === undefined) {
-    debug("sync: side (no pi session)");
-    await runSide(request);
+  // extension's one-off. Compaction, branch and bug-report summaries come with a session
+  // id pi minted for the call, and cacheRetention "none". Neither continues a
+  // conversation.
+  if (piSession === undefined || options?.cacheRetention === "none") {
+    debug(`sync: side (${piSession === undefined ? "no pi session" : "cacheRetention none"})`);
+    await runOneOff(request);
 
     return;
   }
@@ -168,7 +161,7 @@ async function serve(request: Request): Promise<void> {
   }
 
   if (decision.kind === "side") {
-    await runSide(request);
+    await runOneOff(request);
 
     return;
   }
@@ -184,13 +177,22 @@ async function serve(request: Request): Promise<void> {
   // Refused before anything is touched: a parked query stays for pi's next request.
   const append = forwardedPrompt(context.system);
 
+  // Pi owns the prompt: rendered fresh on every request rather than recorded in the
+  // session, where a resume would keep the old one.
+  const systemPrompt: SystemPrompt = {
+    type: "preset",
+    preset: "claude_code",
+    snapshot: false,
+    ...(append === undefined ? {} : { append }),
+  };
+
   if (snapshot.matches("active")) conversation.send({ type: "pi.discard" });
 
   const cwd = sessionCwdFor(piSession);
 
   if (decision.kind === "resume") {
     startQuery(request, conversation, {
-      append,
+      systemPrompt,
       cwd,
       resume: decision.session,
       turn: decision.turn,
@@ -211,7 +213,7 @@ async function serve(request: Request): Promise<void> {
   );
 
   startQuery(request, conversation, {
-    append,
+    systemPrompt,
     cwd,
     resume,
     turn: decision.turn,
@@ -219,12 +221,14 @@ async function serve(request: Request): Promise<void> {
   });
 }
 
-/** A request that is not the session's conversation: run it in a conversation of its own
- *  over a fresh session, deleted afterwards. Its tools are not served: no later call
- *  could deliver their results to it. */
-async function runSide(request: Request): Promise<void> {
+/** A request that is no session's conversation: a summary, an extension's one-off, or a
+ *  call made beside a running query. It runs in a conversation of its own over a session
+ *  written from its history and deleted afterwards, under its own system prompt rather
+ *  than Claude Code's. Its tools are not served: no later call could deliver their
+ *  results to it. */
+async function runOneOff(request: Request): Promise<void> {
   const { context, options } = request;
-  const append = forwardedPrompt(context.system);
+  const system = forwardedPrompt(context.system);
   const piSession = options?.sessionId;
   const cwd = sessionCwdFor(piSession);
   const start = turnStart(context.messages);
@@ -244,23 +248,27 @@ async function runSide(request: Request): Promise<void> {
   const conversation = ephemeralConversation(request.deps.runQuery, piSession);
 
   startQuery(unserved, conversation, {
-    append,
+    systemPrompt: system,
     cwd,
     resume,
     turn: context.messages.slice(start),
   });
 
   const done = await waitFor(conversation, (snapshot) => snapshot.matches("idle"));
-  const sessionId = done.context.ccSessionId ?? resume;
 
   conversation.stop();
 
-  if (sessionId !== undefined) discardSession(sessionId, cwd);
+  // The session written for it, and the one Claude Code reported (the same on a resume).
+  for (const sessionId of new Set([resume, done.context.ccSessionId])) {
+    if (sessionId !== undefined) discardSession(sessionId, cwd);
+  }
 }
 
+type SystemPrompt = NonNullable<Options["systemPrompt"]>;
+
 interface QueryStart {
-  /** The user's prompt sections, appended to Claude Code's own system prompt. */
-  append: string | undefined;
+  /** Claude Code's system prompt; none leaves the SDK's empty default. */
+  systemPrompt: SystemPrompt | undefined;
   cwd: string;
   /** The Claude Code session to resume, or none for a clean start. */
   resume: string | undefined;
@@ -282,39 +290,35 @@ function startQuery(request: Request, conversation: Conversation, start: QuerySt
     debug("provider: initial prompt push rejected:", error);
   });
 
-  const extraArgs: NonNullable<Options["extraArgs"]> = {
-    model: cliModel,
-    // Claude Code would otherwise load MCP servers from ~/.claude.json and .mcp.json;
-    // pi executes tools, so they are pure token overhead.
-    "strict-mcp-config": null,
-  };
-
-  // Some models default thinking display to "omitted" (empty thinking text in the stream).
-  if (effort !== undefined) extraArgs["thinking-display"] = "summarized";
-
   const mcpServers = toolServers(served, conversation);
 
   const queryOptions: Options = {
     cwd: start.cwd,
     env: childEnv(),
+    model: cliModel,
     tools: [],
     permissionMode: "bypassPermissions",
     includePartialMessages: true,
+    // Pi owns context files, skills and settings. No filesystem settings means no
+    // CLAUDE.md, rules, hooks or permissions of the user's own Claude Code setup; the
+    // login lives outside them.
+    settingSources: [],
+    skills: [],
+    // Claude Code would otherwise load MCP servers from ~/.claude.json and .mcp.json;
+    // pi executes tools, so they are pure token overhead.
+    strictMcpConfig: true,
     settings: {
       autoMemoryEnabled: false,
-      claudeMdExcludes: CLAUDE_MD_EXCLUDES,
       // The git-status block is the trailing suffix of the cached system block, so any
       // git transition (new file, staging, commit) would bust the prompt cache for the
       // whole conversation. It costs nothing here: the provider path runs no native tools.
       includeGitInstructions: false,
     },
-    systemPrompt: {
-      type: "preset",
-      preset: "claude_code",
-      ...(start.append === undefined ? {} : { append: start.append }),
-    },
-    extraArgs,
-    ...(effort === undefined ? {} : { effort }),
+    ...(start.systemPrompt === undefined ? {} : { systemPrompt: start.systemPrompt }),
+    // Some models default thinking display to "omitted" (empty thinking text in the
+    // stream). A raw flag: the typed option exists only inside a thinking mode, which
+    // would force one on every model.
+    ...(effort === undefined ? {} : { effort, extraArgs: { "thinking-display": "summarized" } }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
     ...(start.resume === undefined ? {} : { resume: start.resume }),
     ...cliDebugOptions("provider"),
@@ -323,7 +327,7 @@ function startQuery(request: Request, conversation: Conversation, start: QuerySt
   debug(
     "provider: query",
     `model=${cliModel} msgs=${context.messages.length} tools=${served.tools.length}`,
-    `resume=${start.resume?.slice(0, 8) ?? "none"} append=${start.append?.length ?? 0} chars`,
+    `resume=${start.resume?.slice(0, 8) ?? "none"}`,
   );
 
   conversation.send({
