@@ -2,7 +2,7 @@
 
 `claude-bridge` registers a `claude-bridge` provider whose models run through Claude Code via the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript). Requests use your Claude Code login and its subscription quota. Pi's tools are served to Claude Code over an in-process MCP server and run in pi, so tool calls appear in pi's TUI as usual.
 
-It is a port of [pi-claude-bridge](https://github.com/elidickinson/pi-claude-bridge); `UPSTREAM` records the synced commit, the divergences, and how to update.
+It started as a port of [pi-claude-bridge](https://github.com/elidickinson/pi-claude-bridge) v0.9.3 and is developed independently; it does not track that project.
 
 ## Requirements
 

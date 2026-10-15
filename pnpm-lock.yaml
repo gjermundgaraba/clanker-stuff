@@ -336,6 +336,9 @@ importers:
       cc-session-io:
         specifier: 0.4.0
         version: 0.4.0
+      xstate:
+        specifier: 6.0.0-alpha.66
+        version: 6.0.0-alpha.66
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -3244,6 +3247,10 @@ packages:
       utf-8-validate:
         optional: true
 
+  xstate@6.0.0-alpha.66:
+    resolution: {integrity: sha512-SfbhdplVpjX/D+LEWKmHcxLZFvIpIgS0b0ZTAEx/FKouNzEfIfEVQEXC/0t3vcjw0JQ55brbyBMN1uOI1ZDjEQ==}
+    hasBin: true
+
   yaml@2.9.0:
     resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
     engines: {node: '>= 14.6'}
@@ -5745,6 +5752,8 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.21.3: {}
+
+  xstate@6.0.0-alpha.66: {}
 
   yaml@2.9.0: {}
 
