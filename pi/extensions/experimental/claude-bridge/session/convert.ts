@@ -8,7 +8,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { ContentBlock, Message as SessionMessage } from "cc-session-io";
 
-import { debug } from "../log.js";
+import { acceptedImageType, IMAGE_MARKER } from "../images.js";
+import type { ImageMediaType } from "../images.js";
 import { sdkToolName } from "../tools.js";
 
 export const PROVIDER_ID = "claude-bridge";
@@ -49,28 +50,18 @@ export function messageContentToText(content: string | readonly LooseBlock[]): s
   return hasText ? parts.join("\n") : "";
 }
 
-const IMAGE_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
-
 /** A content block of a user turn, as Claude Code reads it in a prompt or a session. */
 export type UserBlock =
   | { type: "text"; text: string }
-  | {
-      type: "image";
-      source: { type: "base64"; media_type: (typeof IMAGE_MEDIA_TYPES)[number]; data: string };
-    };
+  | { type: "image"; source: { type: "base64"; media_type: ImageMediaType; data: string } };
 
-/** An image Claude accepts, or a marker where one was: data-less image blocks do occur,
- *  and the API rejects a media type outside its list. */
+/** An image Claude accepts, or a marker where one was. */
 function imageBlock(block: ImageContent): UserBlock {
-  const mediaType = IMAGE_MEDIA_TYPES.find((type) => type === block.mimeType);
+  const mediaType = acceptedImageType(block);
 
-  if (mediaType === undefined || block.data === "") {
-    debug(`image block (${block.mimeType || "no mimeType"}) replaced by a marker`);
-
-    return { type: "text", text: "[image]" };
-  }
-
-  return { type: "image", source: { type: "base64", media_type: mediaType, data: block.data } };
+  return mediaType === undefined
+    ? { type: "text", text: IMAGE_MARKER }
+    : { type: "image", source: { type: "base64", media_type: mediaType, data: block.data } };
 }
 
 /** A pi user message's content as blocks: its text, its images, and a marker for any

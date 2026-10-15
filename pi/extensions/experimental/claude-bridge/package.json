@@ -19,6 +19,7 @@
   "files": [
     "child.ts",
     "docs",
+    "images.ts",
     "index.ts",
     "json.ts",
     "log.ts",

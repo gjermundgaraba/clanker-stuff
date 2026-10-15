@@ -19,6 +19,7 @@ import type { JsonObject, JsonValue, ToolResultMessage } from "@earendil-works/p
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
+import { acceptedImageType, IMAGE_MARKER } from "./images.js";
 import { isJsonArray, isJsonObject } from "./json.js";
 
 // Claude Code stamps every tools/call with the id of the tool_use block it came from.
@@ -35,7 +36,6 @@ export type McpContent = (
 export interface McpResult {
   content: McpContent;
   isError?: boolean;
-  toolCallId?: string;
 }
 
 export function toolResultToMcpContent(content: ToolResultMessage["content"]): McpContent {
@@ -44,8 +44,14 @@ export function toolResultToMcpContent(content: ToolResultMessage["content"]): M
   for (const block of content) {
     if (block.type === "text") {
       if (block.text !== "") blocks.push({ type: "text", text: block.text });
-    } else if (block.data !== "" && block.mimeType !== "") {
-      blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
+    } else {
+      const mimeType = acceptedImageType(block);
+
+      blocks.push(
+        mimeType === undefined
+          ? { type: "text", text: IMAGE_MARKER }
+          : { type: "image", data: block.data, mimeType },
+      );
     }
   }
 
@@ -221,10 +227,8 @@ export function createToolServer(
       );
     }
 
-    // Narrowed: McpResult also carries our own `toolCallId` bookkeeping.
-    const { content, isError } = await tool.handler(toolCallId);
-
-    return isError === undefined ? { content } : { content, isError };
+    // An object literal: MCP's result type is open to extra fields, an interface is not.
+    return { ...(await tool.handler(toolCallId)) };
   });
 
   return { type: "sdk", name, instance: server };

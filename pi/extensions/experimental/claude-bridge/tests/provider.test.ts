@@ -30,6 +30,8 @@ const model = testModel();
 
 const SESSION = "pi-session";
 
+const CHILD = "pi-child";
+
 const READ = "mcp__custom-tools__read";
 
 const readTool = { name: "read", description: "Read a file", parameters: Type.Object({}) };
@@ -81,7 +83,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  sessions?.clear();
+  for (const id of [SESSION, CHILD]) sessions?.end(id);
   restoreEnv();
   await rm(configDir, { recursive: true, force: true });
   await rm(cwd, { recursive: true, force: true });
@@ -227,7 +229,7 @@ describe("a session's turns", () => {
 
     const a1 = await first.result();
 
-    call([user("child task")], { sessionId: "pi-child" });
+    call([user("child task")], { sessionId: CHILD });
 
     expect((await query(1)).params.options.resume).toBeUndefined();
 

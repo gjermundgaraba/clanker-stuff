@@ -72,11 +72,6 @@ export class Sessions {
       input: { run: this.run, notify: (message) => this.notify(piSessionId, message) },
     }).start();
   }
-
-  /** Stop every conversation. */
-  clear(): void {
-    for (const id of this.byId.keys()) this.end(id);
-  }
 }
 
 /** The conversation once a finished query has exited: until then Claude Code is still

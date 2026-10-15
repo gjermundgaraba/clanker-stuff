@@ -273,19 +273,6 @@ describe("MCP tool invocation", () => {
     expect(calls).toEqual([]);
   });
 
-  // toolCallId is the bridge's own pairing bookkeeping, not part of CallToolResult.
-  it("does not leak internal fields into the tool result", async () => {
-    const client = await connect([
-      toolDef("alpha", { type: "object", properties: {} }, (toolCallId) =>
-        Promise.resolve({ content: [{ type: "text", text: "ok" }], isError: false, toolCallId }),
-      ),
-    ]);
-
-    const result = await callTool(client, "alpha", "toolu_x");
-
-    expect(Object.keys(result).toSorted()).toEqual(["content", "isError"]);
-  });
-
   // A schema rejection here would skip the handler and strand the call: pi validates.
   it("invokes the handler even when the arguments do not match the schema", async () => {
     let called = false;
@@ -327,5 +314,18 @@ it("converts pi tool content to MCP content, never leaving it empty", () => {
   ]);
   expect(toolResultToMcpContent([{ type: "text", text: "" }])).toEqual([
     { type: "text", text: "" },
+  ]);
+});
+
+// In Claude Code's session it would fail this request and every later one.
+it("sends Claude Code a marker for an image it cannot take", () => {
+  expect(
+    toolResultToMcpContent([
+      { type: "image", data: "SUkq", mimeType: "image/tiff" },
+      { type: "image", data: "", mimeType: "image/png" },
+    ]),
+  ).toEqual([
+    { type: "text", text: "[image]" },
+    { type: "text", text: "[image]" },
   ]);
 });
