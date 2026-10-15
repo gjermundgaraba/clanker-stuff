@@ -102,7 +102,6 @@ const schemaValue = (schema, value, source) => {
     throw new TypeError(`invalid ${source}`);
   }
 
-  // oxlint-disable-next-line typescript/no-unsafe-return -- TypeBox's generic Static projection is unresolved here; Value.Check above proves exactly the caller-supplied schema without coercion.
   return value;
 };
 

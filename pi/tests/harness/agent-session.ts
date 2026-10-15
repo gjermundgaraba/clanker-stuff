@@ -368,7 +368,6 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
           throw new Error("No provider payload has been captured");
         }
 
-        // oxlint-disable-next-line typescript/no-unsafe-return -- TypeBox's unresolved Static<TSchema> conditional appears as any to the checker; Parse validates against the caller's schema before returning its derived type.
         return Value.Parse(schema, payload);
       },
       messages() {
@@ -378,7 +377,6 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
         await activeSession.prompt(text, promptOptions);
       },
       providerPayloads<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema>[] {
-        // oxlint-disable-next-line typescript/no-unsafe-return -- TypeBox's unresolved Static<TSchema> conditional appears as any to the checker; every payload is parsed against the caller's schema.
         return providerPayloads.map((payload) => Value.Parse(schema, payload));
       },
       resourceLoader: activeResourceLoader,
