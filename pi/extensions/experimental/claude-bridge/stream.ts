@@ -14,7 +14,8 @@ import type {
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { deleteSession } from "cc-session-io";
 
-import type { Bridge, BridgeQuery } from "./bridge.js";
+import type { Bridge } from "./bridge.js";
+import type { BridgeQuery } from "./child.js";
 import { childEnv, CLAUDE_MD_EXCLUDES, stopQuery } from "./child.js";
 import { cliDebugOptions, debug, diagDump, errorMessage } from "./log.js";
 import { claudeCodeModelId, effortForReasoning } from "./models.js";

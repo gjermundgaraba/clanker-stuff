@@ -3,61 +3,20 @@
 import { appendFileSync } from "node:fs";
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { SDKRateLimitInfo, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 
-import type { BridgeQuery } from "../bridge.js";
+import type { BridgeQuery } from "../child.js";
 
 import { debug } from "../log.js";
-import type { QueryContext, RateLimitRejection } from "./context.js";
+import type { QueryContext } from "./context.js";
 import { ensureTurnStarted, processAssistantMessage, processStreamEvent } from "./events.js";
-
-/** Failure text for an SDK result, or undefined when it succeeded. Claude Code reports
- *  API failures (429 capacity, overload, prompt-too-long) with `is_error` on an otherwise
- *  success-shaped result; the dedicated error subtypes carry `errors` instead. */
-export function resultErrorText(message: SDKResultMessage): string | undefined {
-  if (message.subtype === "success") {
-    return message.is_error ? message.result || "Claude Code reported an error" : undefined;
-  }
-
-  if (message.errors.length > 0) return message.errors.join("\n");
-
-  return `Claude Code failed: ${message.subtype}`;
-}
-
-/** Names a failure as a rate limit when a rejection preceded it.
- *
- *  Pi has no typed rate-limit error, so whatever reacts to one (fallback models, key
- *  rotation) pattern-matches `errorMessage`. Claude Code words a spent subscription as
- *  "You're out of extra usage · resets 6:30pm", which matches none of those patterns.
- *  Leading with "Claude quota exceeded — rate limit" keeps both phrases in a truncated
- *  render, and "quota exceeded" is on pi-ai's non-retryable list (winning over its
- *  retryable "rate limit"), so pi hands a window that resets in hours straight to
- *  fallback instead of retrying it. */
-export function describeRateLimitFailure(rejection: RateLimitRejection, failure: string): string {
-  const kind = rejection.rateLimitType === undefined ? "" : ` (${rejection.rateLimitType})`;
-
-  // resetsAt is Unix seconds (observed; the SDK leaves the unit undocumented).
-  const resets =
-    rejection.resetsAt === undefined
-      ? ""
-      : ` — resets ${new Date(rejection.resetsAt * 1000).toLocaleTimeString()}`;
-
-  return `Claude quota exceeded — rate limit${kind}${resets}: ${failure}`;
-}
-
-// The window Claude Code actually served, which can differ from the one pi registered
-// when the runtime entitlement does not match the docs.
-export function logServedContextWindow(
-  label: string,
-  message: SDKResultMessage,
-  model: Model<Api>,
-): void {
-  for (const [servedModel, usage] of Object.entries(message.modelUsage)) {
-    debug(
-      `${label}: served contextWindow=${usage.contextWindow} maxOutputTokens=${usage.maxOutputTokens} servedModel=${servedModel} registered=${model.contextWindow}`,
-    );
-  }
-}
+import {
+  describeRateLimitFailure,
+  logServedContextWindow,
+  rateLimitNotice,
+  rateLimitRejection,
+  resultErrorText,
+} from "./result.js";
 
 /** A rejection names the failure Claude Code sends next as a rate limit. */
 function noteRateLimitRejection(
@@ -65,19 +24,12 @@ function noteRateLimitRejection(
   info: SDKRateLimitInfo,
   notify: (message: string) => void,
 ): void {
-  if (info.status !== "rejected") return;
+  const rejection = rateLimitRejection(info);
 
-  c.rateLimitRejection = {
-    ...(info.rateLimitType === undefined ? {} : { rateLimitType: info.rateLimitType }),
-    ...(info.resetsAt === undefined ? {} : { resetsAt: info.resetsAt }),
-  };
+  if (rejection === undefined) return;
 
-  const resetsAt =
-    info.resetsAt === undefined ? "unknown" : new Date(info.resetsAt * 1000).toLocaleTimeString();
-
-  notify(
-    `Claude subscription rate limit reached (${info.rateLimitType ?? "unknown"}); resets at ${resetsAt}`,
-  );
+  c.rateLimitRejection = rejection;
+  notify(rateLimitNotice(rejection));
 }
 
 /** Iterates the SDK generator, pushing events to the current pi stream, until the query

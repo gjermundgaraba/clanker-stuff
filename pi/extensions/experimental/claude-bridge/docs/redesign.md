@@ -52,15 +52,17 @@ A rebuild keeps the session id, except right after a query was killed (abort, di
 `machine/conversation.ts`, grown from the spike:
 
 - `idle`: no query.
-- `active`: invokes the query child, the callback actor reading Claude Code's messages. Leaving `active` stops it, closes the query, and answers every waiting MCP handler.
+- `active`: invokes the query child, the callback actor reading Claude Code's messages. Leaving `active` stops it, closes the query, fails the prompt stream, and answers every waiting MCP handler.
   - `streaming`: has the pi stream. `stream_event` and `assistant` messages go through the translation (below) and are pushed to it. A tool call ends the stream and moves to `parked`.
-  - `parked`: no pi stream; MCP handlers and early results wait here. An `after` delay warns about a stuck handler.
-  - `delivering`: a steer was written to the prompt stream and its acknowledgement is pending. On acknowledgement it releases the results and moves to `streaming`; a rejected steer clears `sent` and still releases them.
-- Abort, a query error, a query that ends without a result, and a `result` message all leave `active` for `idle`.
-- Abort comes from pi's per-call `AbortSignal`s. The signal of the call that started the query is listened to for the whole of `active`, so Esc during tool execution (while `parked`, with no provider call open) still aborts; each `pi.deliver` call's signal is listened to as well. Leaving `active` removes the listeners.
-- A rate-limit rejection is remembered in context, names the next failure as a quota error, and notifies once.
+  - `parked`: no pi stream; MCP handlers and early results wait here, for as long as pi's tools run.
+  - `delivering`: a steer is being written to the prompt stream. On acknowledgement it releases the results, records the steer and moves to `streaming`; a rejected steer still releases them and is left out of `sent`. A delivery that leaves handlers waiting warns at once.
+  - `closing`: a `result` answered pi. Claude Code keeps running until it exits, so its session file is complete; a grace timeout kills it. The provider waits for `closing` to settle before deciding, since a busy conversation would make pi's next turn a side call.
+- Abort, discard, a query error, and a query that ends without a result leave `active` for `idle`.
+- Abort comes from pi's per-call `AbortSignal`s, each watched by a callback child of the states that serve the call: the starting call's signal in `streaming`, `parked` and `delivering` (so Esc during tool execution still aborts), a delivering call's signal in `streaming` and `delivering`. Not in `closing`: pi already has its answer.
+- A rate-limit rejection is remembered for the query, names its next failure as a quota error, and notifies once.
+- A pi request the current state cannot take ends its stream with an error rather than leaving pi waiting.
 
-Events: `pi.prompt`, `pi.deliver` (results, optional steer, new pi stream), `pi.abort`, `cc.message`, `cc.end`, `cc.error`, `cc.toolCall`, `steer.acked`, `steer.rejected`.
+Events: `pi.start`, `pi.deliver` (results, steer, new pi stream), `pi.discard`, `pi.abort`, `cc.message`, `cc.end`, `cc.error`, `cc.toolCall`, `steer.acked`, `steer.rejected`, `close.timeout`.
 
 ### Translation
 
@@ -99,8 +101,8 @@ Each step ends with `vp check` and `vp test --project unit` on the package, and 
 2. **Prompt projection.** Add `prompt.ts`, switch the stream to it, delete `prompt/` and the recorder handlers. Append each served tool's guidelines to its MCP description. Live smoke run.
 3. **Sync decision and fingerprints.** Add `sync.ts` with offline tests for the three live scenarios: append-only turns, a provider handoff whose other-provider turn includes a tool call , and a history after a compaction entry (expecting `rebuild reason=diverged`). Also cover a same-length rewrite, a shorter history, a missed steer, the continue prompt staying out of `sent`, and a side call while `active`.
 4. **Translation.** Extract `translate.ts` from `events.ts` and `consume.ts`, port their tests, fix finding 8.
-5. **Machine.** Grow the spike: `delivering`, translation wiring, the rate-limit rejection, signal-driven abort (including while `parked`) and error paths. Machine tests with fake queries and `SimulatedClock`.
-6. **Wiring.** Add `conversations.ts` and the new `provider.ts`; route the stream through the machine and the sync decision; delete the old core. Add `machine/` and new top-level files to `package.json` `files`.
+5. **Machine.** Grow the spike: `delivering`, `closing`, translation wiring, the rate-limit rejection, signal-driven abort (including while `parked`) and error paths. Machine tests with fake queries and `SimulatedClock`.
+6. **Wiring.** Add `conversations.ts` and the new `provider.ts`; route the stream through the machine and the sync decision, waiting out `closing` first and catching the first prompt push; delete the old core. Add `machine/` and new top-level files to `package.json` `files`.
 7. **Live acceptance.** Update `tests/live.ts` to parse the `sync:` lines and map the old assertions so their meaning holds: `clean-start` and a `first` rebuild become `rebuild reason=none`; a `preserved` rebuild becomes `rebuild reason=tail` for the provider handoff and `rebuild reason=diverged` after compaction; `Case 3` reuse becomes `resume`. Run the full live suite.
 
 ## Tests

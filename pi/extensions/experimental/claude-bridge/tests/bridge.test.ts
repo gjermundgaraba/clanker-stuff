@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { Bridge } from "../bridge.js";
-import type { BridgeQuery } from "../bridge.js";
+import type { BridgeQuery } from "../child.js";
 import { QueryContext } from "../query/context.js";
 import type { McpResult } from "../query/tool-results.js";
 import { discardRewrittenQuery } from "../stream.js";

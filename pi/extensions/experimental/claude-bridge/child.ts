@@ -1,6 +1,17 @@
 // What every Claude Code subprocess the bridge spawns runs with.
 
-import type { BridgeQuery } from "./bridge.js";
+import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+/** The part of the SDK's `Query` the bridge uses: its messages, and stopping it. */
+export interface BridgeQuery
+  extends AsyncIterable<SDKMessage>, Pick<Query, "interrupt" | "close"> {}
+
+export interface QueryParams {
+  prompt: string | AsyncIterable<SDKUserMessage>;
+  options: Options;
+}
+
+export type QueryFunction = (params: QueryParams) => BridgeQuery;
 
 /** Applied to every child, provider and summary alike, so a guard is added once.
  *  - ENABLE_CLAUDEAI_MCP_SERVERS=0: keep claude.ai-connected MCP servers out; pi serves

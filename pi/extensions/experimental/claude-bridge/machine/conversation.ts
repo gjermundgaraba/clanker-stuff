@@ -1,45 +1,118 @@
-// Spike: one pi session's Claude Code conversation as an XState v6 machine. Not wired
-// into the provider; it proves the orchestration and its types against the lint policy.
+// One pi session's Claude Code conversation: the query serving it, the pi stream each
+// provider call hands over, and the record of what Claude Code holds.
 //
 // The query runs as a child of `active`, so every exit from `active` (completion,
-// failure, abort) stops it and closes Claude Code, and a stopped child's late messages
-// are dropped by XState rather than by bookkeeping here.
+// failure, abort, discard) stops it and closes Claude Code, and a stopped child's late
+// messages are dropped by XState rather than by bookkeeping here. Abort listeners and the
+// steer push are children of the states they serve, for the same reason.
 
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { appendFileSync } from "node:fs";
+
+import type { Api, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createCallbackLogic, setup, types } from "xstate";
-import type { EventObject } from "xstate";
+import type { EventObject, SnapshotFrom, StateValue } from "xstate";
 
-import type { QueryFunction, QueryParams } from "../bridge.js";
-import { errorMessage } from "../log.js";
-
-/** Where one provider call's output goes: pi's stream for that call. */
-export interface TurnSink {
-  text(text: string): void;
-  toolUse(): void;
-  done(): void;
-  fail(message: string): void;
-}
-
-export interface ToolResult {
-  text: string;
-}
+import { stopQuery } from "../child.js";
+import type { QueryFunction, QueryParams } from "../child.js";
+import { debug, errorMessage } from "../log.js";
+import { toolResultToMcpContent } from "../mcp-server.js";
+import type { McpResult } from "../mcp-server.js";
+import type { PromptStream } from "../query/prompt-stream.js";
+import { userMessage } from "../query/prompt-stream.js";
+import {
+  describeRateLimitFailure,
+  logServedContextWindow,
+  rateLimitNotice,
+  rateLimitRejection,
+  resultErrorText,
+} from "../query/result.js";
+import type { RateLimitRejection } from "../query/result.js";
+import { fingerprint } from "../sync.js";
+import type { SyncState } from "../sync.js";
+import type { Turn } from "../translate.js";
+import { steerBlocks } from "../turn.js";
 
 /** The answer an MCP handler is waiting on. */
-export type ResolveToolCall = (result: ToolResult) => void;
+export type ResolveToolCall = (result: McpResult) => void;
+
+/** What one query was started with, kept for its lifetime. */
+export interface ActiveQuery {
+  params: QueryParams;
+  /** The query's stdin: steers go in while it runs, and a result closes it. */
+  promptStream: PromptStream;
+  /** The prompt and tools the query serves; a parked query only continues under them. */
+  promptKey: string;
+  model: Model<Api>;
+  /** The signal of the provider call that started the query. pi aborts it for the whole
+   *  agent run, including while a tool runs and no provider call is open. */
+  signal: AbortSignal | undefined;
+}
+
+export interface QueryStart extends ActiveQuery {
+  turn: Turn;
+  /** Fingerprints of the pi messages Claude Code holds once it reads the prompt. */
+  sent: readonly string[];
+}
+
+/** Results waiting for the steer ahead of them to reach Claude Code's stdin. */
+interface PendingDelivery {
+  results: ReadonlyMap<string, McpResult>;
+  steer: SDKUserMessage;
+  steerSent: readonly string[];
+}
+
+const NO_HANDLERS: ReadonlyMap<string, ResolveToolCall> = new Map();
+
+const NO_RESULTS: ReadonlyMap<string, McpResult> = new Map();
+
+const NO_CALLS: ReadonlySet<string> = new Set();
+
+const ENDED = "Claude Code query ended";
+
+/** How long Claude Code may take to exit after its result before it is killed. */
+export const CLOSE_GRACE_MS = 10_000;
+
+const CLOSE_TIMEOUT = "closeTimeout";
+
+// Handlers for what `closing` shares with the other `active` states live on `active`:
+// a transition out of a nested state may only target its own siblings.
+const isClosing = (value: StateValue): boolean =>
+  typeof value === "object" && value["active"] === "closing";
+
+const IDLE = {
+  query: null,
+  turn: null,
+  callSignal: undefined,
+  pending: null,
+  waiting: NO_CALLS,
+  handlers: NO_HANDLERS,
+  results: NO_RESULTS,
+} as const;
 
 interface QueryInput {
   run: QueryFunction;
   params: QueryParams;
 }
 
-// Reads Claude Code's messages into the conversation. Cleanup closes the query; XState
+// Reads Claude Code's messages into the conversation. Cleanup stops the query; XState
 // drops anything the read loop sends after that.
 const claudeQuery = createCallbackLogic<EventObject, QueryInput>(({ input, sendBack }) => {
   const query = input.run(input.params);
 
   void (async () => {
     try {
-      for await (const message of query) sendBack({ type: "cc.message", message });
+      for await (const message of query) {
+        // CLAUDE_BRIDGE_RECORD_STREAM=<path> appends every SDK message as a JSON line,
+        // for capturing replay fixtures of what Claude Code really emits.
+        const recordPath = process.env.CLAUDE_BRIDGE_RECORD_STREAM;
+
+        if (recordPath !== undefined && recordPath !== "") {
+          appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
+        }
+
+        sendBack({ type: "cc.message", message });
+      }
 
       sendBack({ type: "cc.end" });
     } catch (error) {
@@ -48,64 +121,213 @@ const claudeQuery = createCallbackLogic<EventObject, QueryInput>(({ input, sendB
   })();
 
   return () => {
-    query.close();
+    stopQuery(query);
   };
 });
 
-const NO_HANDLERS: ReadonlyMap<string, ResolveToolCall> = new Map();
+// pi's abort, for as long as the state that invoked this listens.
+const abortOn = createCallbackLogic<EventObject, AbortSignal | undefined>(
+  ({ input: signal, sendBack }) => {
+    if (signal === undefined) return undefined;
 
-const NO_RESULTS: ReadonlyMap<string, ToolResult> = new Map();
+    const onAbort = (): void => {
+      sendBack({ type: "pi.abort" });
+    };
 
-const IDLE = { params: null, sink: null, handlers: NO_HANDLERS, results: NO_RESULTS } as const;
+    if (signal.aborted) {
+      onAbort();
+
+      return undefined;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    return () => {
+      signal.removeEventListener("abort", onAbort);
+    };
+  },
+);
+
+interface SteerInput {
+  promptStream: PromptStream;
+  message: SDKUserMessage;
+}
+
+// The steer must reach stdin before the results it rides with: both travel over the
+// same FIFO, and Claude Code drains a steer at the tool boundary only if it was queued
+// before the result. The push resolves once the SDK wrote it (see prompt-stream.ts).
+const pushSteer = createCallbackLogic<EventObject, SteerInput>(({ input, sendBack }) => {
+  input.promptStream.push(input.message).then(
+    () => {
+      sendBack({ type: "steer.acked" });
+    },
+    (error: unknown) => {
+      sendBack({ type: "steer.rejected", message: errorMessage(error) });
+    },
+  );
+});
 
 const resolveAll = (handlers: ReadonlyMap<string, ResolveToolCall>, text: string): void => {
-  for (const resolve of handlers.values()) resolve({ text });
+  for (const resolve of handlers.values()) resolve({ content: [{ type: "text", text }] });
 };
+
+const toMcpResult = (message: ToolResultMessage): McpResult => ({
+  content: toolResultToMcpContent(message.content),
+  isError: message.isError,
+  toolCallId: message.toolCallId,
+});
+
+/** Hand each result to its waiting handler, or keep it for the handler still to come. */
+function release(
+  handlers: ReadonlyMap<string, ResolveToolCall>,
+  stored: ReadonlyMap<string, McpResult>,
+  delivered: ReadonlyMap<string, McpResult>,
+): {
+  handlers: ReadonlyMap<string, ResolveToolCall>;
+  results: ReadonlyMap<string, McpResult>;
+  answer: () => void;
+} {
+  const waiting = new Map(handlers);
+  const results = new Map(stored);
+  const answers: (() => void)[] = [];
+
+  for (const [id, result] of delivered) {
+    const resolve = waiting.get(id);
+
+    if (resolve === undefined) {
+      results.set(id, result);
+      continue;
+    }
+
+    waiting.delete(id);
+    answers.push(() => {
+      resolve(result);
+    });
+  }
+
+  return {
+    handlers: waiting,
+    results,
+    answer: () => {
+      for (const answer of answers) answer();
+    },
+  };
+}
+
+const stuckNotice = (count: number): string =>
+  `Claude bridge: ${count} tool handler(s) still waiting; provider may be stuck`;
 
 export const conversationMachine = setup({
   schemas: {
     context: types<{
       run: QueryFunction;
       notify: (message: string) => void;
-      params: QueryParams | null;
-      sink: TurnSink | null;
+      /** The Claude Code session the conversation resumes, once a query reported it. */
+      ccSessionId: string | undefined;
+      /** A query was killed: its process may still write to the session file, so the
+       *  next rebuild must take a fresh session id. */
+      rotate: boolean;
+      /** Fingerprints of the pi messages Claude Code holds, oldest first. */
+      sent: readonly string[];
+      /** A rejection names the next failure as a quota error. */
+      rateLimit: RateLimitRejection | null;
+      query: ActiveQuery | null;
+      /** The provider call being answered. */
+      turn: Turn | null;
+      /** The signal of the provider call that delivered results, when it differs. */
+      callSignal: AbortSignal | undefined;
+      pending: PendingDelivery | null;
+      /** The tool calls the parked query waits on. */
+      waiting: ReadonlySet<string>;
       /** MCP handlers parked on a tool call pi has not answered yet. */
       handlers: ReadonlyMap<string, ResolveToolCall>;
       /** Tool results pi delivered before Claude Code's handler asked for them. */
-      results: ReadonlyMap<string, ToolResult>;
+      results: ReadonlyMap<string, McpResult>;
     }>(),
     events: {
-      "pi.prompt": types<{ sink: TurnSink; params: QueryParams }>(),
-      "pi.toolResults": types<{ sink: TurnSink; results: ReadonlyMap<string, ToolResult> }>(),
+      "pi.start": types<QueryStart>(),
+      "pi.deliver": types<{
+        turn: Turn;
+        results: readonly ToolResultMessage[];
+        steer: readonly Message[];
+        signal: AbortSignal | undefined;
+      }>(),
+      /** pi's history moved on without the running query: stop it. */
+      "pi.discard": types<{}>(),
+      "pi.abort": types<{}>(),
       "cc.toolCall": types<{ id: string; resolve: ResolveToolCall }>(),
       "cc.message": types<{ message: SDKMessage }>(),
       "cc.end": types<{}>(),
       "cc.error": types<{ message: string }>(),
-      abort: types<{}>(),
+      "steer.acked": types<{}>(),
+      "steer.rejected": types<{ message: string }>(),
+      "close.timeout": types<{}>(),
     },
     input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
   },
   states: {
-    idle: { schemas: { context: types<{ params: null; sink: null }>() } },
+    idle: { schemas: { context: types<{ query: null; turn: null; pending: null }>() } },
     active: {
-      schemas: { context: types<{ params: QueryParams }>() },
+      schemas: { context: types<{ query: ActiveQuery }>() },
       states: {
-        streaming: { schemas: { context: types<{ sink: TurnSink }>() } },
-        parked: { schemas: { context: types<{ sink: null }>() } },
+        streaming: { schemas: { context: types<{ turn: Turn; pending: null }>() } },
+        parked: { schemas: { context: types<{ turn: null; pending: null }>() } },
+        delivering: { schemas: { context: types<{ turn: Turn; pending: PendingDelivery }>() } },
+        closing: { schemas: { context: types<{ turn: null; pending: null }>() } },
       },
     },
   },
-  actors: { claudeQuery },
-  delays: { stuckHandler: 30_000 },
+  actors: { claudeQuery, abortOn, pushSteer },
 }).createMachine({
-  context: ({ input }) => ({ run: input.run, notify: input.notify, ...IDLE }),
+  context: ({ input }) => ({
+    run: input.run,
+    notify: input.notify,
+    ccSessionId: undefined,
+    rotate: false,
+    sent: [],
+    rateLimit: null,
+    ...IDLE,
+  }),
   initial: "idle",
+  // A request the current state cannot take still holds a pi stream: end it, rather than
+  // leave pi waiting on a stream nothing ends. The provider's sync decision should make
+  // this unreachable.
+  on: {
+    "pi.start": ({ event, value }, enq) => {
+      enq(() => {
+        event.turn.fail(`claude-bridge: cannot start a query in state ${JSON.stringify(value)}`);
+      });
+
+      return {};
+    },
+    "pi.deliver": ({ event, value }, enq) => {
+      enq(() => {
+        event.turn.fail(`claude-bridge: no parked query in state ${JSON.stringify(value)}`);
+      });
+
+      return {};
+    },
+  },
   states: {
     idle: {
       on: {
-        "pi.prompt": ({ event }) => ({
+        "pi.start": ({ event }) => ({
           target: "active.streaming",
-          context: { params: event.params, sink: event.sink },
+          context: {
+            query: {
+              params: event.params,
+              promptStream: event.promptStream,
+              promptKey: event.promptKey,
+              model: event.model,
+              signal: event.signal,
+            },
+            turn: event.turn,
+            sent: event.sent,
+            rotate: false,
+            // A rejection that labelled no failure in its own query says nothing about
+            // the next one.
+            rateLimit: null,
+          },
         }),
       },
     },
@@ -113,12 +335,13 @@ export const conversationMachine = setup({
       invoke: {
         id: "query",
         src: "claudeQuery",
-        input: ({ context }) => ({ run: context.run, params: context.params }),
+        input: ({ context }) => ({ run: context.run, params: context.query.params }),
       },
-      // Leaving `active` stops the query: no handler may outlive it waiting on a reply.
+      // Leaving `active` stops the query: no handler or steer may outlive it waiting.
       exit: ({ context }, enq) => {
         enq(() => {
-          resolveAll(context.handlers, "Claude Code query ended");
+          resolveAll(context.handlers, ENDED);
+          context.query.promptStream.fail(new Error(ENDED));
         });
       },
       on: {
@@ -127,6 +350,8 @@ export const conversationMachine = setup({
           const result = context.results.get(event.id);
 
           if (result === undefined) {
+            debug(`conversation: tool call ${event.id} waits for pi`);
+
             return {
               context: { handlers: new Map(context.handlers).set(event.id, event.resolve) },
             };
@@ -142,99 +367,296 @@ export const conversationMachine = setup({
 
           return { context: { results } };
         },
-        // Reached from either child state: `streaming` passes results up unhandled.
+        // What the child states pass up: anything that is not the turn's content.
         "cc.message": ({ context, event }, enq) => {
-          if (event.message.type !== "result") return undefined;
+          const { message } = event;
+
+          if (message.type === "system" && message.subtype === "init") {
+            return { context: { ccSessionId: message.session_id } };
+          }
+
+          if (message.type === "rate_limit_event") {
+            debug("conversation: rate_limit_event", JSON.stringify(message.rate_limit_info));
+
+            const rejection = rateLimitRejection(message.rate_limit_info);
+
+            if (rejection === undefined) return {};
+
+            if (context.rateLimit === null) {
+              enq(() => {
+                context.notify(rateLimitNotice(rejection));
+              });
+            }
+
+            return { context: { rateLimit: rejection } };
+          }
+
+          if (message.type !== "result") {
+            if (message.type !== "user") debug(`conversation: ignored ${message.type} message`);
+
+            return {};
+          }
+
+          const { turn, query } = context;
+          const failure = resultErrorText(message);
 
           enq(() => {
-            context.sink?.done();
+            // Nothing else closes a streamed prompt's stdin, and Claude Code waits on it.
+            query.promptStream.end();
+            logServedContextWindow("result", message, query.model);
           });
 
-          return { target: "idle", context: IDLE };
+          if (failure !== undefined) {
+            // Consumed with the failure it caused.
+            const text =
+              context.rateLimit === null
+                ? failure
+                : describeRateLimitFailure(context.rateLimit, failure);
+
+            debug(`conversation: error result, subtype=${message.subtype}, error=${text}`);
+            enq(() => {
+              turn?.fail(text);
+            });
+
+            return { target: ".closing", context: { ...IDLE, query, sent: [], rateLimit: null } };
+          }
+
+          if (turn === null) return { target: ".closing", context: { ...IDLE, query } };
+
+          enq(() => {
+            if (message.subtype === "success") turn.result(message);
+
+            turn.finish();
+          });
+
+          return {
+            target: ".closing",
+            context: { ...IDLE, query, sent: [...context.sent, fingerprint(turn.output)] },
+          };
         },
-        "cc.error": ({ context, event }, enq) => {
+        // In `closing` the turn is already answered: an end is the expected exit.
+        "cc.end": ({ context, value }, enq) => {
+          if (isClosing(value)) return { target: "idle", context: IDLE };
+
           enq(() => {
-            context.sink?.fail(event.message);
+            context.turn?.fail("Claude Code ended the query without a result");
           });
 
-          return { target: "idle", context: IDLE };
+          return { target: "idle", context: { ...IDLE, sent: [] } };
         },
-        "cc.end": ({ context }, enq) => {
+        "cc.error": ({ context, event, value }, enq) => {
+          debug(`conversation: query failed: ${event.message}`);
+
+          // After its result, a failed exit may have cut the session file short.
+          if (isClosing(value)) return { target: "idle", context: { ...IDLE, sent: [] } };
+
           enq(() => {
-            context.sink?.fail("Claude Code ended the query without a result");
+            context.turn?.fail(event.message);
           });
 
-          return { target: "idle", context: IDLE };
+          return { target: "idle", context: { ...IDLE, sent: [], rotate: true } };
         },
-        abort: ({ context }, enq) => {
+        "close.timeout": ({ value }) => {
+          if (!isClosing(value)) return {};
+
+          debug("conversation: Claude Code did not exit after its result, killing it");
+
+          return { target: "idle", context: { ...IDLE, rotate: true } };
+        },
+        "pi.abort": ({ context }, enq) => {
+          debug("conversation: aborted");
           enq(() => {
-            context.sink?.fail("aborted");
+            context.turn?.fail("Operation aborted", "aborted");
           });
 
-          return { target: "idle", context: IDLE };
+          return { target: "idle", context: { ...IDLE, sent: [], rotate: true } };
+        },
+        "pi.discard": ({ context }, enq) => {
+          debug("conversation: discarding the running query");
+          enq(() => {
+            context.turn?.fail("claude-bridge: pi's history moved on without this query");
+          });
+
+          return { target: "idle", context: { ...IDLE, sent: [], rotate: true } };
         },
       },
       initial: "streaming",
       states: {
         streaming: {
+          invoke: [
+            { id: "abortStart", src: "abortOn", input: ({ context }) => context.query.signal },
+            { id: "abortCall", src: "abortOn", input: ({ context }) => context.callSignal },
+          ],
           on: {
-            "cc.message": ({ context, event }, enq) => {
+            "cc.message": ({ context, event }) => {
               const { message } = event;
+              const { turn } = context;
 
-              if (message.type !== "assistant") return undefined;
+              if (message.type === "stream_event") turn.streamEvent(message);
+              else if (message.type === "assistant") turn.assistantMessage(message);
+              else return undefined;
 
-              const blocks = message.message.content;
+              if (!turn.ended || turn.output.stopReason !== "toolUse") return {};
 
-              enq(() => {
-                for (const block of blocks) {
-                  if (block.type === "text") context.sink.text(block.text);
-                }
-              });
-
-              if (!blocks.some((block) => block.type === "tool_use")) return {};
-
-              enq(() => {
-                context.sink.toolUse();
-              });
-
-              return { target: "parked", context: { sink: null } };
+              // pi now runs the tools; their results come back through the next call.
+              return {
+                target: "parked",
+                context: {
+                  turn: null,
+                  callSignal: undefined,
+                  waiting: new Set(turn.toolCallIds),
+                  sent: [...context.sent, fingerprint(turn.output)],
+                },
+              };
             },
           },
         },
         parked: {
-          after: {
-            stuckHandler: ({ context }, enq) => {
-              enq(() => {
-                context.notify(
-                  `claude-bridge: ${context.handlers.size} tool call(s) still waiting`,
-                );
-              });
-            },
+          invoke: {
+            id: "abortStart",
+            src: "abortOn",
+            input: ({ context }) => context.query.signal,
           },
           on: {
-            "pi.toolResults": ({ context, event }, enq) => {
-              const handlers = new Map(context.handlers);
-              const results = new Map(context.results);
+            "pi.deliver": ({ context, event }, enq) => {
+              const delivered = new Map(
+                event.results.map((result) => [result.toolCallId, toMcpResult(result)]),
+              );
 
-              for (const [id, result] of event.results) {
-                const resolve = handlers.get(id);
+              const sent = [...context.sent, ...event.results.map(fingerprint)];
+              // A distinct signal only; pi usually aborts one signal for the whole run.
+              const callSignal = event.signal === context.query.signal ? undefined : event.signal;
+              const blocks = steerBlocks(event.steer);
 
-                if (resolve === undefined) {
-                  results.set(id, result);
-                  continue;
-                }
-
-                handlers.delete(id);
-                enq(() => {
-                  resolve(result);
-                });
+              if (blocks !== undefined) {
+                return {
+                  target: "delivering",
+                  context: {
+                    turn: event.turn,
+                    callSignal,
+                    sent,
+                    waiting: NO_CALLS,
+                    pending: {
+                      results: delivered,
+                      steer: userMessage(blocks, "next"),
+                      steerSent: event.steer.map(fingerprint),
+                    },
+                  },
+                };
               }
 
-              return { target: "streaming", context: { sink: event.sink, handlers, results } };
+              const { handlers, results, answer } = release(
+                context.handlers,
+                context.results,
+                delivered,
+              );
+
+              enq(() => {
+                answer();
+
+                if (handlers.size > 0) context.notify(stuckNotice(handlers.size));
+              });
+
+              return {
+                target: "streaming",
+                context: {
+                  turn: event.turn,
+                  callSignal,
+                  sent,
+                  waiting: NO_CALLS,
+                  handlers,
+                  results,
+                },
+              };
             },
+          },
+        },
+        delivering: {
+          invoke: [
+            { id: "abortStart", src: "abortOn", input: ({ context }) => context.query.signal },
+            { id: "abortCall", src: "abortOn", input: ({ context }) => context.callSignal },
+            {
+              id: "steer",
+              src: "pushSteer",
+              input: ({ context }) => ({
+                promptStream: context.query.promptStream,
+                message: context.pending.steer,
+              }),
+            },
+          ],
+          on: {
+            "steer.acked": ({ context }, enq) => {
+              const { handlers, results, answer } = release(
+                context.handlers,
+                context.results,
+                context.pending.results,
+              );
+
+              enq(() => {
+                answer();
+
+                if (handlers.size > 0) context.notify(stuckNotice(handlers.size));
+              });
+
+              return {
+                target: "streaming",
+                context: {
+                  pending: null,
+                  handlers,
+                  results,
+                  sent: [...context.sent, ...context.pending.steerSent],
+                },
+              };
+            },
+            // The steer is still in pi's history but never reached Claude Code. Leaving
+            // it out of `sent` makes the next request rebuild with it.
+            "steer.rejected": ({ context, event }, enq) => {
+              debug(`conversation: steer never reached Claude Code: ${event.message}`);
+
+              const { handlers, results, answer } = release(
+                context.handlers,
+                context.results,
+                context.pending.results,
+              );
+
+              enq(() => {
+                answer();
+
+                if (handlers.size > 0) context.notify(stuckNotice(handlers.size));
+              });
+
+              return { target: "streaming", context: { pending: null, handlers, results } };
+            },
+          },
+        },
+        // pi has its answer. Claude Code finishes writing its session file and exits once
+        // its stdin closes; stopping it sooner could cut that file short.
+        closing: {
+          entry: (_, enq) => {
+            enq.raise({ type: "close.timeout" }, { id: CLOSE_TIMEOUT, delay: CLOSE_GRACE_MS });
+          },
+          exit: (_, enq) => {
+            enq.cancel(CLOSE_TIMEOUT);
+          },
+          on: {
+            "cc.message": ({ event }) => (event.message.type === "result" ? {} : undefined),
           },
         },
       },
     },
   },
 });
+
+export type ConversationSnapshot = SnapshotFrom<typeof conversationMachine>;
+
+/** The conversation as the sync decision reads it. */
+export function syncState(snapshot: ConversationSnapshot): SyncState {
+  const { sent, query, waiting } = snapshot.context;
+  const parked = snapshot.matches({ active: "parked" }) && query !== null;
+
+  return {
+    sent,
+    busy: snapshot.matches("active"),
+    parked: parked ? { promptKey: query.promptKey, waiting } : undefined,
+  };
+}

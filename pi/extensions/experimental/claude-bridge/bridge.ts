@@ -2,25 +2,14 @@
 // loads the extension fresh gets clean state, exactly as separate module instances did.
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
+import type { BridgeQuery, QueryFunction } from "./child.js";
 import { debug } from "./log.js";
 import { QueryContext } from "./query/context.js";
 import type { McpResult } from "./query/tool-results.js";
 import { SessionMirrors } from "./session/mirror.js";
-
-/** The part of the SDK's `Query` the bridge uses: its messages, and stopping it. */
-export interface BridgeQuery
-  extends AsyncIterable<SDKMessage>, Pick<Query, "interrupt" | "close"> {}
-
-export interface QueryParams {
-  prompt: string | AsyncIterable<SDKUserMessage>;
-  options: Options;
-}
-
-export type QueryFunction = (params: QueryParams) => BridgeQuery;
 
 type NotifyLevel = Parameters<ExtensionUIContext["notify"]>[1];
 

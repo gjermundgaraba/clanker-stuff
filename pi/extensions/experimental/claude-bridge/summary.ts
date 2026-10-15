@@ -11,15 +11,15 @@ import type {
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 
-import type { Bridge, BridgeQuery } from "./bridge.js";
+import type { Bridge } from "./bridge.js";
+import type { BridgeQuery } from "./child.js";
 import { childEnv, stopQuery } from "./child.js";
 import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { claudeCodeModelId, effortForReasoning } from "./models.js";
 import { systemPromptText, toBridgeContext } from "./prompt.js";
-import { logServedContextWindow, resultErrorText } from "./query/consume.js";
-import { newAssistantOutput } from "./query/context.js";
-import { mapStopReason } from "./query/events.js";
+import { logServedContextWindow, resultErrorText } from "./query/result.js";
 import { sessionCwdFor, summarySessionFor } from "./session/cwd.js";
+import { mapStopReason, newAssistantOutput } from "./translate.js";
 import { extractUserPrompt } from "./turn.js";
 
 export function isolatedSummaryStream(

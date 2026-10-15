@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
 import { Bridge } from "../bridge.js";
-import type { BridgeQuery } from "../bridge.js";
+import type { BridgeQuery } from "../child.js";
 import { PI_PREAMBLE } from "../prompt.js";
 import { newAssistantOutput, QueryContext } from "../query/context.js";
 import { makePromptStream, userMessage } from "../query/prompt-stream.js";

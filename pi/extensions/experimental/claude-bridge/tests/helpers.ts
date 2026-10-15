@@ -5,7 +5,7 @@ import { normalizeContext } from "@earendil-works/pi-ai";
 import type { Api, Context, Model, TranscriptContext } from "@earendil-works/pi-ai";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
-import type { BridgeQuery, QueryFunction, QueryParams } from "../bridge.js";
+import type { BridgeQuery, QueryFunction, QueryParams } from "../child.js";
 
 export function testModel(id = "claude-haiku-5-5"): Model<Api> {
   return {

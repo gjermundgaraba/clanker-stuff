@@ -6,8 +6,8 @@ import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sd
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { BridgeQuery } from "../../bridge.js";
-import { consumeQuery, resultErrorText } from "../../query/consume.js";
+import type { BridgeQuery } from "../../child.js";
+import { consumeQuery } from "../../query/consume.js";
 import { QueryContext } from "../../query/context.js";
 import { finalizeCurrentStream } from "../../query/events.js";
 import { makePromptStream, userMessage } from "../../query/prompt-stream.js";
@@ -92,28 +92,6 @@ const RATE_LIMITED =
   "API Error: Server is temporarily limiting requests (not your usage limit): Rate limited";
 
 const apiFailure = (): SDKMessage => successResult(RATE_LIMITED, true);
-
-describe("resultErrorText", () => {
-  it("treats is_error on a success-shaped result as a failure", () => {
-    expect(resultErrorText(successResult(RATE_LIMITED, true))).toBe(RATE_LIMITED);
-  });
-
-  it("returns undefined for a genuine success", () => {
-    expect(resultErrorText(successResult("a summary"))).toBeUndefined();
-  });
-
-  it("joins errors[] for the dedicated error subtypes", () => {
-    expect(resultErrorText(errorResult("error_during_execution", ["boom", "bang"]))).toBe(
-      "boom\nbang",
-    );
-  });
-
-  // An empty message marks the turn errored with nothing to show the user.
-  it("never returns an empty message for a failure", () => {
-    expect(resultErrorText(successResult("", true))).toMatch(/\S/u);
-    expect(resultErrorText(errorResult("error_max_budget_usd", []))).toMatch(/\S/u);
-  });
-});
 
 // pi carries a failure only as errorMessage text, so whatever reacts to a rate limit
 // pattern-matches it. These mirror pi-subagents' fallback gate: one pattern from its

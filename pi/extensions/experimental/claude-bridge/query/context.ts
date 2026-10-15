@@ -7,11 +7,11 @@ import type {
   AssistantMessageEventStream,
   Model,
 } from "@earendil-works/pi-ai";
-import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 
-import type { BridgeQuery } from "../bridge.js";
+import type { BridgeQuery } from "../child.js";
 
 import type { PromptStream } from "./prompt-stream.js";
+import type { RateLimitRejection } from "./result.js";
 import type { McpResult } from "./tool-results.js";
 
 export interface PendingToolCall {
@@ -26,11 +26,6 @@ export type TurnBlock = AssistantMessage["content"][number];
 export interface OpenBlock {
   index: number;
   partialJson: string;
-}
-
-export interface RateLimitRejection {
-  rateLimitType?: SDKRateLimitInfo["rateLimitType"];
-  resetsAt?: number;
 }
 
 export function newAssistantOutput(
