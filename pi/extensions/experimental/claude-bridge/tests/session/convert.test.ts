@@ -354,7 +354,7 @@ describe("message structure", () => {
   });
 });
 
-// Every rebuild runs the conversion through repairToolPairing, once in the mirror and
+// Every rebuild runs the conversion through repairToolPairing, once in the rebuild and
 // once more inside Session.importMessages. It only pairs results in the user message
 // directly after their assistant message, replacing anything later with a synthetic
 // "[no tool result recorded]" error: that once destroyed the output of every parallel
@@ -700,7 +700,7 @@ describe("rebuilds extend the transcript instead of rewriting it", () => {
   });
 });
 
-// The mirror repairs before calling importMessages, which repairs again, so a second
+// The rebuild repairs before calling importMessages, which repairs again, so a second
 // pass has to be a no-op or every rebuild would differ from the transcript the debug
 // log reports.
 it("repairToolPairing is idempotent over a converted session", () => {

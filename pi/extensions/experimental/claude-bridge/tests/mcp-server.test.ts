@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createToolServer, jsonSchema } from "../mcp-server.js";
+import { createToolServer, jsonSchema, toolResultToMcpContent } from "../mcp-server.js";
 import type { McpToolDef } from "../mcp-server.js";
 
 const NESTED_TOOL_SCHEMA: JsonObject = {
@@ -300,4 +300,20 @@ describe("MCP tool invocation", () => {
     expect(called).toBe(true);
     expect(result).toEqual({ content: [{ type: "text", text: "ran" }] });
   });
+});
+
+it("converts pi tool content to MCP content, never leaving it empty", () => {
+  expect(
+    toolResultToMcpContent([
+      { type: "text", text: "see" },
+      { type: "text", text: "" },
+      { type: "image", data: "iVBOR", mimeType: "image/png" },
+    ]),
+  ).toEqual([
+    { type: "text", text: "see" },
+    { type: "image", data: "iVBOR", mimeType: "image/png" },
+  ]);
+  expect(toolResultToMcpContent([{ type: "text", text: "" }])).toEqual([
+    { type: "text", text: "" },
+  ]);
 });

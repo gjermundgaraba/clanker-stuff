@@ -1,183 +1,364 @@
-// Provider registration across extension evaluations, and the session lifecycle around
-// it. A subagent host can load the extension fresh for a child session while the first
-// evaluation's provider keeps serving.
+// The provider against scripted queries: which query each of pi's calls reaches, what it
+// resumes, and what the rebuilt session holds. The sync decision itself is covered in
+// sync.test.ts and the query's life in machine/conversation.test.ts.
 
-import { fauxProvider } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, SessionStartEvent } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { Bridge } from "../bridge.js";
-import { BridgeLifecycle, forwardRewrite } from "../provider.js";
-import { forgetSessionCwd, sessionCwdFor } from "../session/cwd.js";
+import type {
+  AssistantMessage,
+  Message,
+  SimpleStreamOptions,
+  ToolResultMessage,
+  UserMessage,
+} from "@earendil-works/pi-ai";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { openSession } from "cc-session-io";
+import { Type } from "typebox";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { patchEnv } from "../../../../tests/helpers/env.js";
+import { createTempDir } from "../../../../tests/helpers/fs.js";
+import { CONTINUE_AFTER_REWRITE_PROMPT, streamClaudeCode } from "../provider.js";
+import { PI_PREAMBLE } from "../prompt.js";
+import { forgetSessionCwd, rememberSessionCwd } from "../session/cwd.js";
 import { shared } from "../shared.js";
-import { fakeQueryFunction } from "./helpers.js";
+import { assistantMessage, init, successResult, textBlock } from "./fixtures/sdk.js";
+import { fakeQueryFunction, testModel, transcript } from "./helpers.js";
+import type { FakeQuery } from "./helpers.js";
 
-const PROVIDER_ID = "claude-bridge";
+const model = testModel();
 
-/** One extension evaluation: its own bridge and lifecycle, loaded into a pi host. */
-async function evaluation(sessionId = "pi-session") {
-  const bridge = new Bridge(fakeQueryFunction().run);
-  let lifecycle: BridgeLifecycle | undefined;
+const SESSION = "pi-session";
 
-  const host = createExtensionHost(
-    (pi: ExtensionAPI) => {
-      lifecycle = new BridgeLifecycle(pi, bridge);
-      lifecycle.registerProvider();
-    },
-    { sessionId },
-  );
+const READ = "mcp__custom-tools__read";
 
-  await host.ready;
+const readTool = { name: "read", description: "Read a file", parameters: Type.Object({}) };
 
-  if (lifecycle === undefined) throw new Error("the extension did not load");
+let clock = 0;
 
-  const loaded = lifecycle;
+const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: clock++ });
 
-  /** session_start with a model registry that has the provider registered, or not. */
-  const start = (registered: boolean, reason: SessionStartEvent["reason"] = "startup") => {
-    const existing = registered ? fauxProvider({ provider: PROVIDER_ID }).provider : undefined;
+const toolResult = (id: string, text: string): ToolResultMessage => ({
+  role: "toolResult",
+  toolCallId: id,
+  toolName: "read",
+  content: [{ type: "text", text }],
+  isError: false,
+  timestamp: clock++,
+});
 
-    const ctx = host.createContext({
-      modelRegistry: { getProvider: (id) => (id === PROVIDER_ID ? existing : undefined) },
+const toolCall = (id: string) =>
+  assistantMessage(`msg_${id}`, [{ type: "tool_use", id, name: READ, input: {} }]);
+
+let configDir: string;
+
+let cwd: string;
+
+let restoreEnv: () => void;
+
+beforeEach(async () => {
+  configDir = await createTempDir("claude-bridge-config-");
+  cwd = await createTempDir("claude-bridge-cwd-");
+  restoreEnv = patchEnv({ CLAUDE_CONFIG_DIR: configDir });
+  rememberSessionCwd(SESSION, cwd);
+});
+
+afterEach(async () => {
+  for (const conversation of shared().conversations.values()) conversation.stop();
+
+  shared().conversations.clear();
+  forgetSessionCwd(SESSION);
+  restoreEnv();
+  await rm(configDir, { recursive: true, force: true });
+  await rm(cwd, { recursive: true, force: true });
+});
+
+function bridge() {
+  const fake = fakeQueryFunction();
+  const deps = { runQuery: fake.run, toolGuidelines: () => new Map<string, string[]>() };
+
+  /** One provider call, as pi makes it for this session. */
+  const call = (
+    messages: Message[],
+    options: SimpleStreamOptions = {},
+    extra: { systemPrompt?: string; tools?: (typeof readTool)[] } = {},
+  ) =>
+    streamClaudeCode(
+      deps,
+      model,
+      transcript({
+        messages,
+        tools: extra.tools ?? [readTool],
+        ...(extra.systemPrompt === undefined ? {} : { systemPrompt: extra.systemPrompt }),
+      }),
+      { sessionId: SESSION, ...options },
+    );
+
+  /** The query a call started, once it has. */
+  const query = (index: number): Promise<FakeQuery> =>
+    vi.waitFor(() => {
+      const started = fake.queries[index];
+
+      if (started === undefined) throw new Error(`query ${index} has not started`);
+
+      return started;
     });
 
-    loaded.sessionStart({ type: "session_start", reason }, ctx);
-
-    return ctx;
-  };
-
-  const registered = () => host.getRegisteredProviderConfigs().get(PROVIDER_ID);
-
-  return { bridge, lifecycle: loaded, host, start, registered };
+  return { fake, call, query };
 }
 
-afterEach(() => {
-  const state = shared();
+/** The first message a query reads from its stdin: its prompt. */
+async function promptOf(query: FakeQuery): Promise<SDKUserMessage["message"]["content"]> {
+  const { prompt } = query.params;
 
-  state.activeStream = undefined;
-  state.markRebuildHooks.clear();
-  forgetSessionCwd("pi-session");
-});
+  if (typeof prompt === "string") throw new Error("expected a streamed prompt");
 
-describe("provider registration", () => {
-  it("registers at load in the first evaluation, putting the models in the picker", async () => {
-    const first = await evaluation();
-    const config = first.registered();
+  const first = await prompt[Symbol.asyncIterator]().next();
 
-    expect(config?.models?.length).toBeGreaterThan(0);
-    expect(config?.streamSimple).toBeDefined();
-    expect(shared().activeStream).toBe(config?.streamSimple);
+  if (first.done === true) throw new Error("the prompt stream ended empty");
+
+  return first.value.message.content;
+}
+
+/** Answer a query with text, and let Claude Code exit. */
+function answer(query: FakeQuery, text: string, sessionId = "cc-1"): void {
+  query.push(init(sessionId));
+  query.push(assistantMessage(`msg_${text}`, [textBlock(text)]));
+  query.push(successResult(text));
+  query.end();
+}
+
+const sessionContents = (sessionId: string) =>
+  openSession({ sessionId, projectPath: cwd }).messages.map((record) => record.message.content);
+
+describe("a session's turns", () => {
+  it("starts the first turn clean and resumes Claude Code's session for the next", async () => {
+    const { call, query, fake } = bridge();
+    const u1 = user("hi");
+    const first = call([u1]);
+    const q1 = await query(0);
+
+    expect(q1.params.options.resume).toBeUndefined();
+    expect(await promptOf(q1)).toEqual([{ type: "text", text: "hi" }]);
+
+    answer(q1, "hello");
+
+    const a1 = await first.result();
+    const u2 = user("again");
+    const second = call([u1, a1, u2]);
+    const q2 = await query(1);
+
+    expect(q2.params.options.resume).toBe("cc-1");
+    expect(await promptOf(q2)).toEqual([{ type: "text", text: "again" }]);
+
+    answer(q2, "hello again");
+
+    expect((await second.result()).content).toEqual([{ type: "text", text: "hello again" }]);
+    expect(fake.queries).toHaveLength(2);
   });
 
-  it("registers a later evaluation at session_start when its registry lacks the provider", async () => {
-    // The host gave the child its own registry: without a registration every
-    // claude-bridge model fails there with "Model not found".
-    const first = await evaluation();
-    const later = await evaluation();
+  // A queued follow-up arrives the moment pi has its answer, while Claude Code is still
+  // writing its session file: it must resume that session, not run beside it.
+  it("resumes a turn sent while the previous query is still exiting", async () => {
+    const { call, query } = bridge();
+    const u1 = user("hi");
+    const first = call([u1]);
+    const q1 = await query(0);
 
-    expect(later.registered()).toBeUndefined();
+    q1.push(init("cc-1"));
+    q1.push(successResult("hello"));
 
-    later.start(false);
+    const a1 = await first.result();
 
-    const config = later.registered();
+    call([u1, a1, user("follow-up")]);
+    q1.end();
 
-    expect(config?.streamSimple).toBeDefined();
-    expect(config?.streamSimple).not.toBe(first.registered()?.streamSimple);
-    // The first evaluation still owns the process-wide slot.
-    expect(shared().activeStream).toBe(first.registered()?.streamSimple);
+    expect((await query(1)).params.options.resume).toBe("cc-1");
   });
 
-  it("leaves a later evaluation unregistered when its registry already has the provider", async () => {
-    // The host passed the parent's registry down. Re-registering would replace the
-    // parent's stream with this evaluation's empty-state one.
-    await evaluation();
+  it("serves each pi session its own conversation", async () => {
+    const { call, query } = bridge();
+    const u1 = user("hi");
+    const first = call([u1]);
 
-    const later = await evaluation();
+    answer(await query(0), "hello", "cc-parent");
 
-    later.start(true);
-    later.start(true);
+    const a1 = await first.result();
 
-    expect(later.registered()).toBeUndefined();
-  });
+    call([user("child task")], { sessionId: "pi-child" });
 
-  it("gives up the slot at shutdown so a reloaded evaluation registers at load again", async () => {
-    const first = await evaluation();
+    expect((await query(1)).params.options.resume).toBeUndefined();
 
-    first.lifecycle.sessionShutdown(first.host.createContext());
+    call([u1, a1, user("again")]);
 
-    expect(shared().activeStream).toBeUndefined();
-
-    const reloaded = await evaluation();
-
-    expect(reloaded.registered()).toBeDefined();
-    expect(shared().activeStream).toBe(reloaded.registered()?.streamSimple);
-  });
-});
-
-describe("session lifecycle", () => {
-  const mirror = { sessionId: "cc-1", cursor: 1, cwd: "/tmp" };
-
-  it.each(["new", "resume", "fork"] as const)(
-    "forgets every Claude Code conversation on a %s session",
-    async (reason) => {
-      const { bridge, start } = await evaluation();
-
-      bridge.mirrors.set("pi-session", mirror);
-      bridge.mirrors.set("pi-child", mirror);
-      bridge.mirrors.rewritten.add("pi-child");
-
-      start(false, reason);
-
-      expect(bridge.mirrors.size).toBe(0);
-      expect(bridge.mirrors.rewritten.size).toBe(0);
-    },
-  );
-
-  it.each(["startup", "reload"] as const)(
-    "keeps the conversations on a %s session start",
-    async (reason) => {
-      const { bridge, start } = await evaluation();
-
-      bridge.mirrors.set("pi-session", mirror);
-
-      start(false, reason);
-
-      expect(bridge.mirrors.get("pi-session")).toEqual(mirror);
-    },
-  );
-
-  it("runs the session's queries in its cwd from start until shutdown", async () => {
-    const { lifecycle, host } = await evaluation();
-    const ctx = host.createContext({ cwd: "/projects/session-cwd" });
-
-    lifecycle.sessionStart({ type: "session_start", reason: "startup" }, ctx);
-
-    expect(sessionCwdFor("pi-session")).toBe("/projects/session-cwd");
-
-    lifecycle.sessionShutdown(ctx);
-
-    expect(sessionCwdFor("pi-session")).toBe(process.cwd());
-  });
-
-  it("forgets every conversation at shutdown", async () => {
-    const { bridge, lifecycle, host } = await evaluation();
-
-    bridge.mirrors.set("pi-session", mirror);
-    lifecycle.sessionShutdown(host.createContext());
-
-    expect(bridge.mirrors.size).toBe(0);
+    expect((await query(2)).params.options.resume).toBe("cc-parent");
   });
 });
 
-describe("forwardRewrite", () => {
-  it("reaches every evaluation's bridge, wherever the rewriting session is served", async () => {
-    const first = await evaluation();
-    const later = await evaluation();
+describe("the tool loop", () => {
+  it("delivers pi's tool result to the query parked on the call", async () => {
+    const { call, query, fake } = bridge();
+    const u1 = user("read a");
+    const first = call([u1]);
+    const q1 = await query(0);
+    const handler = (q1.params.options.mcpServers?.["custom-tools"] ?? null) !== null;
 
-    forwardRewrite("pi-child", "session_compact:threshold:willRetry=false");
+    expect(handler).toBe(true);
 
-    expect(first.bridge.mirrors.rewritten.has("pi-child")).toBe(true);
-    expect(later.bridge.mirrors.rewritten.has("pi-child")).toBe(true);
+    q1.push(toolCall("toolu_1"));
+
+    const a1 = await first.result();
+
+    expect(a1.stopReason).toBe("toolUse");
+
+    const second = call([u1, a1, toolResult("toolu_1", "contents")]);
+
+    q1.push(assistantMessage("msg_2", [textBlock("read it")]));
+    q1.push(successResult("read it"));
+    q1.end();
+
+    expect((await second.result()).content).toEqual([{ type: "text", text: "read it" }]);
+    // One query served the whole turn.
+    expect(fake.queries).toHaveLength(1);
   });
+
+  it("ends the turn without a query when pi reports the tool after an abort", async () => {
+    const { call, query, fake } = bridge();
+    const controller = new AbortController();
+    const u1 = user("read a");
+    const first = call([u1], { signal: controller.signal });
+    const q1 = await query(0);
+
+    q1.push(toolCall("toolu_1"));
+
+    const a1 = await first.result();
+
+    controller.abort();
+    await vi.waitFor(() => {
+      expect(q1.closed).toBe(true);
+    });
+
+    const after = await call([u1, a1, toolResult("toolu_1", "aborted")], {
+      signal: controller.signal,
+    }).result();
+
+    expect(after.stopReason).toBe("stop");
+    expect(fake.queries).toHaveLength(1);
+  });
+
+  // A side call (an extension's one-shot under the live session id) must not disturb the
+  // query parked on pi's tool, and cannot be handed tool results later.
+  it("runs a side call beside a parked query, with no tools and no session left behind", async () => {
+    const { call, query } = bridge();
+    const u1 = user("read a");
+    const first = call([u1]);
+    const q1 = await query(0);
+
+    q1.push(toolCall("toolu_1"));
+
+    const a1 = await first.result();
+    const side = call([user("summarize this for a status line")]);
+    const q2 = await query(1);
+
+    expect(q2.params.options.mcpServers).toBeUndefined();
+
+    answer(q2, "a status", "cc-side");
+    await side.result();
+
+    expect(q1.closed).toBe(false);
+
+    const second = call([u1, a1, toolResult("toolu_1", "contents")]);
+
+    q1.push(successResult("done"));
+    q1.end();
+
+    expect((await second.result()).content).toEqual([{ type: "text", text: "done" }]);
+  });
+});
+
+describe("a history Claude Code does not hold", () => {
+  it("rewrites the session with another provider's turns and resumes it", async () => {
+    const { call, query } = bridge();
+    const u1 = user("hi");
+    const first = call([u1]);
+
+    answer(await query(0), "hello");
+
+    const a1 = await first.result();
+
+    const faux: AssistantMessage = {
+      ...a1,
+      provider: "faux",
+      content: [{ type: "text", text: "faux" }],
+    };
+
+    const u2 = user("now you, faux");
+    const u3 = user("back to claude");
+
+    call([u1, a1, u2, faux, u3]);
+
+    const q2 = await query(1);
+
+    // Nothing else writes the file, so the session keeps its id.
+    expect(q2.params.options.resume).toBe("cc-1");
+    expect(sessionContents("cc-1")).toEqual([
+      "hi",
+      [{ type: "text", text: "hello" }],
+      "now you, faux",
+      [{ type: "text", text: "faux" }],
+    ]);
+    expect(await promptOf(q2)).toEqual([{ type: "text", text: "back to claude" }]);
+  });
+
+  // Delivering the result to the parked query would answer off the context pi just
+  // compacted away.
+  it("discards a parked query after compaction and continues the turn in a new session", async () => {
+    const { call, query } = bridge();
+    const u1 = user("read a");
+    const first = call([u1]);
+    const q1 = await query(0);
+
+    q1.push(init("cc-1"));
+    q1.push(toolCall("toolu_1"));
+
+    const a1 = await first.result();
+    const summary = user("<summary>the user asked to read a</summary>");
+
+    call([summary, a1, toolResult("toolu_1", "contents")]);
+
+    const q2 = await query(1);
+
+    expect(q1.closed).toBe(true);
+    // The killed process may still write to cc-1.
+    expect(q2.params.options.resume).toEqual(expect.any(String));
+    expect(q2.params.options.resume).not.toBe("cc-1");
+    expect(await promptOf(q2)).toEqual([{ type: "text", text: CONTINUE_AFTER_REWRITE_PROMPT }]);
+  });
+});
+
+it("fails the turn without a query when the gate refuses the prompt", async () => {
+  const { call, fake } = bridge();
+
+  const reply = await call(
+    [user("hi")],
+    {},
+    { systemPrompt: `${PI_PREAMBLE}, a harness.` },
+  ).result();
+
+  expect(reply.stopReason).toBe("error");
+  expect(reply.errorMessage).toMatch(/refusing to send this prompt/u);
+  expect(fake.queries).toHaveLength(0);
+});
+
+it("runs a summarizer call isolated, leaving the session's conversation alone", async () => {
+  const { call, query } = bridge();
+
+  call([user("Summarize the conversation.")], { cacheRetention: "none" }, { tools: [] });
+
+  const q = await query(0);
+
+  expect(q.params.options).toMatchObject({ persistSession: false });
+  expect(shared().conversations.has(SESSION)).toBe(false);
+  expect(existsSync(configDir)).toBe(true);
 });

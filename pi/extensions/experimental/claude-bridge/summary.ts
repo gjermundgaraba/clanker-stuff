@@ -11,8 +11,7 @@ import type {
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 
-import type { Bridge } from "./bridge.js";
-import type { BridgeQuery } from "./child.js";
+import type { BridgeQuery, QueryFunction } from "./child.js";
 import { childEnv, stopQuery } from "./child.js";
 import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { claudeCodeModelId, effortForReasoning } from "./models.js";
@@ -23,20 +22,20 @@ import { mapStopReason, newAssistantOutput } from "./translate.js";
 import { extractUserPrompt } from "./turn.js";
 
 export function isolatedSummaryStream(
-  bridge: Bridge,
+  runQuery: QueryFunction,
   model: Model<Api>,
   context: TranscriptContext,
   options: SimpleStreamOptions | undefined,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
 
-  void runIsolatedSummary(bridge, model, context, options, stream);
+  void runIsolatedSummary(runQuery, model, context, options, stream);
 
   return stream;
 }
 
 async function runIsolatedSummary(
-  bridge: Bridge,
+  runQuery: QueryFunction,
   model: Model<Api>,
   transcript: TranscriptContext,
   options: SimpleStreamOptions | undefined,
@@ -81,7 +80,7 @@ async function runIsolatedSummary(
       `compact summary: spawn model=${cliModel} registeredModel=${model.id} effort=${effort ?? "default"} promptLen=${promptText.length}`,
     );
 
-    sdkQuery = bridge.runQuery({
+    sdkQuery = runQuery({
       prompt: promptText,
       options: {
         cwd,

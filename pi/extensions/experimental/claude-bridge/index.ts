@@ -1,43 +1,55 @@
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { Bridge } from "./bridge.js";
-import { BridgeLifecycle, forwardRewrite } from "./provider.js";
-import { rememberSummarySession } from "./session/cwd.js";
+import type { QueryFunction } from "./child.js";
+import { endConversation, notifySession } from "./conversations.js";
+import { providerConfig } from "./provider.js";
+import { PROVIDER_ID } from "./session/convert.js";
+import { forgetSessionCwd, rememberSessionCwd, rememberSummarySession } from "./session/cwd.js";
+import { shared } from "./shared.js";
 
-export default function claudeBridge(pi: ExtensionAPI): void {
-  const bridge = new Bridge();
-  const lifecycle = new BridgeLifecycle(pi, bridge);
+/** The extension, with the Agent SDK's query() replaceable for tests. */
+export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) => void {
+  return (pi) => {
+    // The `claude-bridge` provider: Claude Code models served through the Agent SDK.
+    const config = providerConfig({
+      runQuery,
+      toolGuidelines: () =>
+        new Map(pi.getAllTools().map((tool) => [tool.name, tool.promptGuidelines ?? []])),
+    });
 
-  // The `claude-bridge` provider: Claude Code models served through the Agent SDK.
-  // Registered through the lifecycle rather than with a direct pi.registerProvider()
-  // because only the first evaluation in a process registers at load; later ones decide
-  // at session_start (see provider.ts).
-  lifecycle.registerProvider();
+    pi.registerProvider(PROVIDER_ID, config);
 
-  pi.on("session_start", (event, ctx) => {
-    lifecycle.sessionStart(event, ctx);
-  });
-  pi.on("session_shutdown", (_event, ctx) => {
-    lifecycle.sessionShutdown(ctx);
-  });
+    pi.on("session_start", (_event, ctx) => {
+      const sessionId = ctx.sessionManager.getSessionId();
 
-  // Summary calls run in the session's cwd; pi forwards the operation's signal to them.
-  pi.on("session_before_compact", (event, ctx) => {
-    rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
-  });
-  pi.on("session_before_tree", (event, ctx) => {
-    rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
-  });
+      rememberSessionCwd(sessionId, ctx.cwd);
+      shared().uis.set(sessionId, ctx.ui);
 
-  // History rewrites: the compacting or navigating session's Claude Code conversation
-  // must be rebuilt, and a query parked on it discarded.
-  pi.on("session_compact", (event, ctx) => {
-    forwardRewrite(
-      ctx.sessionManager.getSessionId(),
-      `session_compact:${event.reason}:willRetry=${event.willRetry}`,
-    );
-  });
-  pi.on("session_tree", (_event, ctx) => {
-    forwardRewrite(ctx.sessionManager.getSessionId(), "session_tree");
-  });
+      if (config.models?.length === 0) {
+        notifySession(
+          sessionId,
+          "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai",
+        );
+      }
+    });
+
+    pi.on("session_shutdown", (_event, ctx) => {
+      const sessionId = ctx.sessionManager.getSessionId();
+
+      endConversation(sessionId);
+      forgetSessionCwd(sessionId);
+      shared().uis.delete(sessionId);
+    });
+
+    // Summary calls run in the session's cwd; pi forwards the operation's signal to them.
+    pi.on("session_before_compact", (event, ctx) => {
+      rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
+    });
+    pi.on("session_before_tree", (event, ctx) => {
+      rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
+    });
+  };
 }
+
+export default createClaudeBridge(query);

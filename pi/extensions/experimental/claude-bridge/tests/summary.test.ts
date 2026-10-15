@@ -8,7 +8,6 @@ import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { createTempDir } from "../../../../tests/helpers/fs.js";
-import { Bridge } from "../bridge.js";
 import { forgetSessionCwd, rememberSessionCwd, rememberSummarySession } from "../session/cwd.js";
 import { isolatedSummaryStream } from "../summary.js";
 import { errorResult, successResult } from "./fixtures/sdk.js";
@@ -21,10 +20,9 @@ const SUMMARY_PROMPT = "You are a summarization assistant.";
 
 function summarize(options: SimpleStreamOptions = {}, prompt = "Summarize the conversation.") {
   const fake = fakeQueryFunction();
-  const bridge = new Bridge(fake.run);
 
   const stream = isolatedSummaryStream(
-    bridge,
+    fake.run,
     model,
     transcript({
       systemPrompt: SUMMARY_PROMPT,
@@ -79,7 +77,7 @@ describe("isolated summary query", () => {
     const fake = fakeQueryFunction();
 
     const stream = isolatedSummaryStream(
-      new Bridge(fake.run),
+      fake.run,
       fable,
       transcript({ messages: [{ role: "user", content: "Advise.", timestamp: 0 }] }),
       { cacheRetention: "none", reasoning: "max" },
@@ -206,10 +204,9 @@ describe("isolated summary failures", () => {
 
   it("refuses a request with history or tools instead of dropping them", async () => {
     const fake = fakeQueryFunction();
-    const bridge = new Bridge(fake.run);
 
     const withHistory = isolatedSummaryStream(
-      bridge,
+      fake.run,
       model,
       transcript({
         messages: [
@@ -221,7 +218,7 @@ describe("isolated summary failures", () => {
     );
 
     const withTools = isolatedSummaryStream(
-      bridge,
+      fake.run,
       model,
       transcript({
         messages: [{ role: "user", content: "now", timestamp: 0 }],

@@ -1,7 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import { newAssistantOutput } from "../../query/context.js";
+import { newAssistantOutput } from "../../translate.js";
 import { updateUsage } from "../../query/usage.js";
 
 import { testModel } from "../helpers.js";

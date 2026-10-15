@@ -1,7 +1,7 @@
 import type { ImageContent, Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import { newAssistantOutput } from "../query/context.js";
+import { newAssistantOutput } from "../translate.js";
 import { extractUserPrompt, extractUserPromptBlocks, steerBlocks, turnStart } from "../turn.js";
 
 import { testModel } from "./helpers.js";

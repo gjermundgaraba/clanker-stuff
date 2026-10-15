@@ -1,11 +1,10 @@
 // State shared by every evaluation of this extension in one process. Subagent hosts
-// can load the extension fresh for a child session, while the provider registered by
-// the first evaluation keeps serving every session; whatever that serving instance
-// must see from the others lives here.
+// can load the extension fresh for a child session, and pi calls whichever evaluation's
+// stream function registered last; whatever a stream must find lives here.
 
-import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
-export type MarkRebuildHook = (piSession: string | null, event: string) => void;
+import type { Conversation } from "./conversations.js";
 
 export interface SharedBridgeState {
   /** Pi session id → cwd. A host serving many sessions from one process has one
@@ -13,11 +12,10 @@ export interface SharedBridgeState {
   sessionCwds: Map<string, string>;
   /** Summary operation signal → pi session id; pi forwards the signal to every summary call. */
   summarySessions: WeakMap<AbortSignal, string>;
-  /** One per instance: a fresh instance forwards its session's history rewrites to the
-   *  instance that serves provider traffic. */
-  markRebuildHooks: Set<MarkRebuildHook>;
-  /** The stream function of the instance that registered the provider. */
-  activeStream: ((...args: never[]) => AssistantMessageEventStream) | undefined;
+  /** Pi session id → its Claude Code conversation. */
+  conversations: Map<string, Conversation>;
+  /** Pi session id → the UI its notices go to. */
+  uis: Map<string, ExtensionUIContext>;
 }
 
 declare global {
@@ -28,8 +26,8 @@ export function shared(): SharedBridgeState {
   globalThis.__clankerStuffClaudeBridge ??= {
     sessionCwds: new Map(),
     summarySessions: new WeakMap(),
-    markRebuildHooks: new Set(),
-    activeStream: undefined,
+    conversations: new Map(),
+    uis: new Map(),
   };
 
   return globalThis.__clankerStuffClaudeBridge;
