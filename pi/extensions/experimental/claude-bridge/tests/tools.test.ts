@@ -41,6 +41,21 @@ describe("served tool names", () => {
   });
 });
 
+// Pi lists tool guidelines in the system prompt the bridge does not forward.
+describe("served tool descriptions", () => {
+  it("carry each tool's prompt guidelines", () => {
+    const served = resolveServedTools(
+      [{ ...tool("task_start"), description: "Start a job." }, tool("read")],
+      new Map([["task_start", ["Do not poll task_list.", "  "]]]),
+    );
+
+    expect(served.tools.map(({ description }) => description)).toEqual([
+      "Start a job.\n\nGuidelines:\n- Do not poll task_list.",
+      "",
+    ]);
+  });
+});
+
 describe("mapToolArgs", () => {
   it("renames Claude Code's file_path to pi's path for read and write", () => {
     expect(mapToolArgs("read", { file_path: "/a", offset: 3 })).toEqual({ path: "/a", offset: 3 });

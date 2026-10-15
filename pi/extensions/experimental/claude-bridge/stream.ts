@@ -18,9 +18,7 @@ import type { Bridge, BridgeQuery } from "./bridge.js";
 import { childEnv, CLAUDE_MD_EXCLUDES, stopQuery } from "./child.js";
 import { cliDebugOptions, debug, diagDump, errorMessage } from "./log.js";
 import { claudeCodeModelId, effortForReasoning } from "./models.js";
-import { projectPromptCapture } from "./prompt/capture.js";
-import type { PromptCapture } from "./prompt/capture.js";
-import { toBridgeContext } from "./prompt/transcript.js";
+import { forwardedPrompt, toBridgeContext } from "./prompt.js";
 import { consumeQuery } from "./query/consume.js";
 import { newAssistantOutput, QueryContext } from "./query/context.js";
 import { claimCurrentPiStream, finalizeCurrentStream, markStreamComplete } from "./query/events.js";
@@ -125,7 +123,7 @@ function streamClaudeCode(
   options: SimpleStreamOptions | undefined,
 ): AssistantMessageEventStream {
   // Pi's compaction, branch-summary and bug-report calls use cacheRetention "none". Their
-  // prompts bypass the capture boundaries, so they run isolated, without session sync.
+  // prompts are one-off requests, so they run isolated, without session sync.
   if (options?.cacheRetention === "none") {
     debug("provider: one-off summarizer call (cacheRetention none) routed to isolated summary");
 
@@ -254,31 +252,17 @@ function startQuery(
     `provider: fresh query setup, isReentrant=${start.reentrant}, activeContexts=${bridge.activeQueries.size}`,
   );
 
-  const served = resolveServedTools(context.tools);
-  // Resolved first: a prompt that cannot be accounted for fails the query before anything
-  // is claimed, leaving no half-built query (and no claimed stream nobody ends). Built
-  // from what pi loaded for this run, so --no-context-files and --no-skills leave nothing
-  // to forward. The key comes from the transcript replay, not ctx.getSystemPrompt().
-  let capture: PromptCapture | undefined;
+  const served = resolveServedTools(context.tools, bridge.toolGuidelines());
+  // Resolved first: a prompt the gate refuses fails the query before anything is claimed,
+  // leaving no half-built query (and no claimed stream nobody ends).
   let systemPromptAppend: string | undefined;
 
   try {
-    capture = bridge.captures.resolveOrDerive(context.systemPrompt);
-    systemPromptAppend =
-      capture === undefined
-        ? undefined
-        : projectPromptCapture(
-            capture,
-            served.tools.some((tool) => tool.name === "read") ? "mcp" : "none",
-          );
+    systemPromptAppend = forwardedPrompt(context.system);
   } catch (error) {
     // Reported on the stream, as pi-ai's provider contract expects, so any caller sees a
     // failed turn rather than a synchronous exception.
-    diagDump("prompt_capture_unresolved", {
-      promptChars: context.systemPrompt?.length ?? 0,
-      knownKeys: bridge.captures.size,
-      error: errorMessage(error),
-    });
+    debug("provider: prompt refused", errorMessage(error));
 
     return failedStream(model, errorMessage(error));
   }
@@ -408,7 +392,7 @@ function startQuery(
     "provider: fresh query",
     `model=${cliModel} msgs=${context.messages.length} tools=${served.tools.length}`,
     `resume=${resumeSessionId?.slice(0, 8) ?? "none"} effort=${effort ?? "default"}`,
-    `ctxFiles=${capture?.contextFiles.length ?? 0}`,
+    `append=${systemPromptAppend?.length ?? 0} chars`,
     `prompt=${promptText.slice(0, 60)}${promptBlocks === undefined ? "" : " [+images]"}`,
   );
 

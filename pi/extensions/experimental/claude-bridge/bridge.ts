@@ -7,9 +7,6 @@ import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 import { debug } from "./log.js";
-import { sharedPromptCaptures } from "./prompt/capture.js";
-import type { PromptCaptureDiagnostic, PromptCaptures } from "./prompt/capture.js";
-import { PromptRecorder } from "./prompt/recorder.js";
 import { QueryContext } from "./query/context.js";
 import type { McpResult } from "./query/tool-results.js";
 import { SessionMirrors } from "./session/mirror.js";
@@ -27,25 +24,8 @@ export type QueryFunction = (params: QueryParams) => BridgeQuery;
 
 type NotifyLevel = Parameters<ExtensionUIContext["notify"]>[1];
 
-function logCaptureMiss({ systemPrompt, matches }: PromptCaptureDiagnostic): void {
-  const [first] = matches;
-
-  debug(
-    `prompt-capture: no match for ${systemPrompt.length}-char system prompt. ` +
-      (first === undefined
-        ? "no known captures to compare against."
-        : `closest known (${first.key.length}-char) shares its first ${first.firstDivergent} chars: ` +
-          JSON.stringify(
-            systemPrompt.slice(Math.max(0, first.firstDivergent - 40), first.firstDivergent + 60),
-          )) +
-      ` known keys=${matches.length}`,
-  );
-}
-
 export class Bridge {
   readonly mirrors = new SessionMirrors((message) => this.notify(message, "warning"));
-
-  readonly recorder: PromptRecorder;
 
   /** Contexts with a live query. Tool results route only to these. */
   readonly activeQueries = new Set<QueryContext>();
@@ -59,12 +39,10 @@ export class Bridge {
 
   private ui: ExtensionUIContext | undefined;
 
-  constructor(
-    readonly runQuery: QueryFunction = query,
-    readonly captures: PromptCaptures = sharedPromptCaptures(logCaptureMiss),
-  ) {
-    this.recorder = new PromptRecorder(captures);
-  }
+  /** Each pi tool's prompt guidelines by name, appended to its MCP description. */
+  toolGuidelines: () => ReadonlyMap<string, readonly string[]> = () => new Map();
+
+  constructor(readonly runQuery: QueryFunction = query) {}
 
   attachUi(ui: ExtensionUIContext): void {
     this.ui = ui;

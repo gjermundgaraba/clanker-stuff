@@ -29,17 +29,6 @@ export default function claudeBridge(pi: ExtensionAPI): void {
     rememberSummarySession(event.signal, ctx.sessionManager.getSessionId());
   });
 
-  // Prompt boundaries: what pi assembled, so only its portable parts reach Claude Code.
-  pi.on("before_agent_start", (event) => {
-    bridge.recorder.beforeAgentStart(event);
-  });
-  pi.on("agent_start", (_event, ctx) => {
-    bridge.recorder.agentStart(ctx);
-  });
-  pi.on("turn_start", (_event, ctx) => {
-    bridge.recorder.turnStart(ctx);
-  });
-
   // History rewrites: the compacting or navigating session's Claude Code conversation
   // must be rebuilt, and a query parked on it discarded.
   pi.on("session_compact", (event, ctx) => {

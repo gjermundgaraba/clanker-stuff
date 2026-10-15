@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { Bridge } from "../bridge.js";
-import { PromptCaptures } from "../prompt/capture.js";
 import { BridgeLifecycle, forwardRewrite } from "../provider.js";
 import { forgetSessionCwd, sessionCwdFor } from "../session/cwd.js";
 import { shared } from "../shared.js";
@@ -18,7 +17,7 @@ const PROVIDER_ID = "claude-bridge";
 
 /** One extension evaluation: its own bridge and lifecycle, loaded into a pi host. */
 async function evaluation(sessionId = "pi-session") {
-  const bridge = new Bridge(fakeQueryFunction().run, new PromptCaptures());
+  const bridge = new Bridge(fakeQueryFunction().run);
   let lifecycle: BridgeLifecycle | undefined;
 
   const host = createExtensionHost(

@@ -22,7 +22,7 @@ import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
 import { Bridge } from "../bridge.js";
 import type { BridgeQuery } from "../bridge.js";
-import { PI_PREAMBLE, PromptCaptures } from "../prompt/capture.js";
+import { PI_PREAMBLE } from "../prompt.js";
 import { newAssistantOutput, QueryContext } from "../query/context.js";
 import { makePromptStream, userMessage } from "../query/prompt-stream.js";
 import { deliverToolResults } from "../query/tool-results.js";
@@ -88,9 +88,9 @@ const settle = (): Promise<void> =>
 
 // --- the provider under test ---
 
-function provider(captures = new PromptCaptures()) {
+function provider() {
   const fake = fakeQueryFunction();
-  const bridge = new Bridge(fake.run, captures);
+  const bridge = new Bridge(fake.run);
   const stream = createProviderStream(bridge);
 
   const call = (
@@ -776,33 +776,18 @@ describe("a system prompt the bridge refuses", () => {
       sessionId: "pi-session",
     });
 
-  it("fails the turn when no capture accounts for the prompt", async () => {
+  it("fails the turn when the gate refuses the prompt", async () => {
     const p = provider();
-    const reply = await turn(p, "a system prompt no capture boundary recorded").result();
+    const reply = await turn(p, `${PI_PREAMBLE}, sent whole as a replaced prompt.`).result();
 
     expect(reply.stopReason).toBe("error");
-    expect(reply.errorMessage).toMatch(/prompt-capture: no capture/);
-    expect(p.fake.queries).toHaveLength(0);
-    expect(p.bridge.activeQueries.size).toBe(0);
-  });
-
-  it("fails the turn when the sendability guard refuses the capture", async () => {
-    const captures = new PromptCaptures();
-    const p = provider(captures);
-    const prompt = `${PI_PREAMBLE}, recorded with pi's harness in its custom prompt.`;
-
-    captures.record(prompt, { custom: prompt, contextFiles: [], skills: [] });
-
-    const reply = await turn(p, prompt).result();
-
-    expect(reply.stopReason).toBe("error");
-    expect(reply.errorMessage).toMatch(/prompt-capture: refusing to send this prompt/);
+    expect(reply.errorMessage).toMatch(/refusing to send this prompt/);
     expect(p.fake.queries).toHaveLength(0);
   });
 });
 
 describe("a one-off summarizer call", () => {
-  it("runs isolated from the session's conversation and prompt captures", async () => {
+  it("runs isolated from the session's conversation", async () => {
     // Compaction, branch and bug-report summaries use cacheRetention "none". Their prompt
     // was never captured, and they must not resume or write the live conversation.
     const p = provider();

@@ -1,6 +1,6 @@
 // One-off summarizer calls (compaction, branch summaries, bug-report summaries,
 // extension one-shots) run in their own Claude Code process with no session: they must
-// not touch the live conversation, and their prompts bypass prompt capture.
+// not touch the live conversation, and they send the caller's prompt as Claude Code's own.
 
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type {
@@ -15,7 +15,7 @@ import type { Bridge, BridgeQuery } from "./bridge.js";
 import { childEnv, stopQuery } from "./child.js";
 import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { claudeCodeModelId, effortForReasoning } from "./models.js";
-import { toBridgeContext } from "./prompt/transcript.js";
+import { systemPromptText, toBridgeContext } from "./prompt.js";
 import { logServedContextWindow, resultErrorText } from "./query/consume.js";
 import { newAssistantOutput } from "./query/context.js";
 import { mapStopReason } from "./query/events.js";
@@ -73,6 +73,7 @@ async function runIsolatedSummary(
 
     const cwd = sessionCwdFor(summarySessionFor(options?.signal) ?? options?.sessionId);
     const cliModel = claudeCodeModelId(model.id);
+    const systemPrompt = systemPromptText(context.system);
     // Honours the caller's reasoning level, as the provider path does.
     const effort = effortForReasoning(model, options?.reasoning);
 
@@ -91,7 +92,7 @@ async function runIsolatedSummary(
         settingSources: [],
         skills: [],
         persistSession: false,
-        ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
+        ...(systemPrompt === undefined ? {} : { systemPrompt }),
         model: cliModel,
         maxTurns: 1,
         ...(effort === undefined ? {} : { effort }),

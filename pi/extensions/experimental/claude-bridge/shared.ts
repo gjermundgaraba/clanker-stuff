@@ -5,13 +5,9 @@
 
 import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 
-import type { PromptCaptures } from "./prompt/capture.js";
-
 export type MarkRebuildHook = (piSession: string | null, event: string) => void;
 
 export interface SharedBridgeState {
-  /** What pi assembled per agent, resolved by whichever instance serves the query. */
-  promptCaptures: PromptCaptures | undefined;
   /** Pi session id → cwd. A host serving many sessions from one process has one
    *  process cwd, so Claude Code would otherwise load the host's project instructions. */
   sessionCwds: Map<string, string>;
@@ -30,7 +26,6 @@ declare global {
 
 export function shared(): SharedBridgeState {
   globalThis.__clankerStuffClaudeBridge ??= {
-    promptCaptures: undefined,
     sessionCwds: new Map(),
     summarySessions: new WeakMap(),
     markRebuildHooks: new Set(),

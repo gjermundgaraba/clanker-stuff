@@ -5,13 +5,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { Bridge } from "../bridge.js";
 import type { BridgeQuery } from "../bridge.js";
-import { PromptCaptures } from "../prompt/capture.js";
 import { QueryContext } from "../query/context.js";
 import type { McpResult } from "../query/tool-results.js";
 import { discardRewrittenQuery } from "../stream.js";
 import { createFakeQuery, fakeQueryFunction } from "./helpers.js";
 
-const newBridge = (): Bridge => new Bridge(fakeQueryFunction().run, new PromptCaptures());
+const newBridge = (): Bridge => new Bridge(fakeQueryFunction().run);
 
 /** A query parked mid-turn: Claude Code asked for a tool and is waiting on the answer. */
 function parkQuery(

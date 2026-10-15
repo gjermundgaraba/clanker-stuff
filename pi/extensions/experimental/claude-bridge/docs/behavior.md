@@ -16,18 +16,9 @@ The model picker follows pi-ai's Anthropic catalog. Models Claude Code serves at
 
 ## What reaches Claude Code
 
-Claude Code always runs its own `claude_code` preset prompt. The bridge appends pi's portable parts: project context files, skills (pointing at the bridged `read` tool), a custom prompt, appended instructions, and custom prompt sections from `systemPromptOptions.sections`. It never forwards pi's own harness text: a request carrying it, or both `docs/custom-provider.md` and `docs/packages.md`, is treated by Anthropic as a third-party app (a 400, or Extra Usage billing), so the bridge refuses such a turn with an error naming where it found the text.
+Claude Code always runs its own `claude_code` preset prompt. The bridge appends the sections of pi's system prompt that are yours: a custom prompt, appended instructions, project context files, skills, and extension sections from `systemPromptOptions.sections`, in pi's order. A prompt a `before_agent_start` handler replaced outright is forwarded whole. Pi's own sections (its preamble, tool list, rules, documentation routing and cwd) never are; each tool's prompt guidelines reach Claude in that tool's description instead.
 
-| Route                                                 | Reaches Claude Code                                               |
-| ----------------------------------------------------- | ----------------------------------------------------------------- |
-| `before_agent_start` → `message`                      | Yes, as prompt text in the user turn                              |
-| `context` editing the last user message               | Yes, as prompt text                                               |
-| `--append-system-prompt`                              | Yes, with the appended instructions                               |
-| `context_with_system` editing the system message      | Yes when it wraps pi's prompt; the turn fails when it replaces it |
-| `before_agent_start` → `systemPromptOptions.sections` | Yes, one `<name>` block per section                               |
-| `before_agent_start` → `systemPrompt`                 | No                                                                |
-
-System-prompt edits must wrap pi's prompt: replacing it leaves nothing to match, and the bridge fails the turn rather than send Claude Code a request without your context files, skills, and instructions.
+Anthropic treats a request carrying pi's preamble, or both `docs/custom-provider.md` and `docs/packages.md`, as a third-party app (a 400, or Extra Usage billing), so the bridge refuses such a turn with an error naming where it found the text, including the context files.
 
 Claude Code's own `CLAUDE.md`/`AGENTS.md` loading is excluded (pi already sends them), and so are its git-status block, auto-compaction (pi owns compaction), auto-memory, and MCP servers from `~/.claude.json`, `.mcp.json`, and claude.ai (pi serves the tools). `~/.claude/settings.json` hooks still run inside bridge turns; a hook can skip itself with `[ -n "$PI_CODING_AGENT" ] && exit 0`.
 

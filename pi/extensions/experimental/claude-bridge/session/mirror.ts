@@ -22,7 +22,7 @@ import { createSession, deleteSession, openSession, repairToolPairing } from "cc
 import type { Session } from "cc-session-io";
 
 import { debug, errorMessage, isDebugEnabled, debugLogPath, diagDump } from "../log.js";
-import { nonSystemMessages } from "../prompt/transcript.js";
+import { nonSystemMessages } from "../prompt.js";
 import { turnStart } from "../turn.js";
 import { collectCarriedAttachments, placeCarriedAttachments } from "./attachments.js";
 import type { CarriedAttachment } from "./attachments.js";

@@ -16,13 +16,31 @@ export interface ServedTools {
   toPi: Map<string, string>;
 }
 
-export function resolveServedTools(tools: readonly Tool[] | undefined): ServedTools {
+/** A tool's description followed by its prompt guidelines. Pi lists guidelines in its own
+ *  system prompt, which is not forwarded, so they travel with the tool they describe. */
+export function describeTool(description: string, guidelines: readonly string[] = []): string {
+  const bullets = guidelines.flatMap((guideline) =>
+    guideline.trim() === "" ? [] : [`- ${guideline.trim()}`],
+  );
+
+  return bullets.length === 0
+    ? description
+    : `${description}\n\nGuidelines:\n${bullets.join("\n")}`;
+}
+
+export function resolveServedTools(
+  tools: readonly Tool[] | undefined,
+  guidelines: ReadonlyMap<string, readonly string[]> = new Map(),
+): ServedTools {
   const served: ServedTools = { tools: [], toSdk: new Map(), toPi: new Map() };
 
   for (const tool of tools ?? []) {
     const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
 
-    served.tools.push(tool);
+    served.tools.push({
+      ...tool,
+      description: describeTool(tool.description, guidelines.get(tool.name)),
+    });
     served.toSdk.set(tool.name, sdkName);
     served.toSdk.set(tool.name.toLowerCase(), sdkName);
     served.toPi.set(sdkName, tool.name);

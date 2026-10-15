@@ -58,6 +58,8 @@ export class BridgeLifecycle {
       );
     }
 
+    bridge.toolGuidelines = () =>
+      new Map(pi.getAllTools().map((tool) => [tool.name, tool.promptGuidelines ?? []]));
     this.stream = createProviderStream(bridge);
     this.providerConfig = {
       baseUrl: PROVIDER_ID,
