@@ -484,6 +484,7 @@ it("runs Claude Code without the user's own Claude Code setup", async () => {
     settingSources: [],
     skills: [],
     strictMcpConfig: true,
+    verbatimPrompts: true,
     model: "claude-haiku-5-5[1m]",
   });
 });

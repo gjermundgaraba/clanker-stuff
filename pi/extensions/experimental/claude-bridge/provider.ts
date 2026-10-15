@@ -198,15 +198,12 @@ async function serve(request: Request): Promise<void> {
     return;
   }
 
-  const resume = rebuildSession(
-    {
-      priors: decision.priors,
-      cwd,
-      modelId: claudeCodeModelId(request.model.id),
-      previous: state.session,
-    },
-    (message) => notifySession(piSession, message),
-  );
+  const resume = rebuildSession({
+    priors: decision.priors,
+    cwd,
+    modelId: claudeCodeModelId(request.model.id),
+    previous: state.session,
+  });
 
   startQuery(request, conversation, { systemPrompt, cwd, resume, turn: decision.turn });
 }
@@ -224,15 +221,12 @@ async function runOneOff(request: Request): Promise<void> {
   const start = turnStart(context.messages);
   const unserved: Request = { ...request, served: resolveServedTools([]) };
 
-  const resume = rebuildSession(
-    {
-      priors: context.messages.slice(0, start),
-      cwd,
-      modelId: claudeCodeModelId(request.model.id),
-      previous: undefined,
-    },
-    (message) => notifySession(piSession, message),
-  );
+  const resume = rebuildSession({
+    priors: context.messages.slice(0, start),
+    cwd,
+    modelId: claudeCodeModelId(request.model.id),
+    previous: undefined,
+  });
 
   const conversation = ephemeralConversation(request.deps.runQuery, piSession);
 
@@ -294,6 +288,9 @@ function startQuery(request: Request, conversation: Conversation, start: QuerySt
     // Claude Code would otherwise load MCP servers from ~/.claude.json and .mcp.json;
     // pi executes tools, so they are pure token overhead.
     strictMcpConfig: true,
+    // Pi's text as written: no `@file` expansion, which would hand Claude Code context pi
+    // never sees, and no slash-command dispatch of a message that starts with "/".
+    verbatimPrompts: true,
     settings: {
       autoMemoryEnabled: false,
       // The git-status block is the trailing suffix of the cached system block, so any

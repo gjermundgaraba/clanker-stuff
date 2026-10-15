@@ -28,7 +28,7 @@ Each pi session runs on a Claude Code session file under `~/.claude/projects/` (
 
 One-off requests (compaction and branch summaries, an extension's call without a session, or a call made while a turn runs that does not continue it) run in a temporary Claude Code session of their own under the caller's system prompt, without pi's tools, and leave the running turn alone. A spent subscription window is reported once and fails the turn as a non-retryable quota error, so pi does not retry a window that resets in hours.
 
-Known limit: files Claude Code edits are not carried across a rebuild (the edit survives as a tool call and result, the post-edit snapshot does not; `@file` expansions are carried).
+Claude Code receives pi's messages as written: an `@file` mention is not expanded and a message starting with `/` is not a Claude Code command, as with any other pi provider.
 
 ## Debugging
 
