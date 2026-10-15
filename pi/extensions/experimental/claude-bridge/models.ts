@@ -1,0 +1,159 @@
+// The model picker follows pi-ai's Anthropic catalog: models appear and disappear
+// with it, with no per-model code here. Context windows follow measured Claude
+// Code behavior instead of the catalog, because the registered window must match
+// what the bridge actually requests or pi's status bar and compaction threshold
+// misreport.
+
+import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
+import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+
+/** Pi's chat-model registration entry, the only kind this provider registers. */
+export type ProviderChatModelConfig = Exclude<
+  ProviderModelConfig,
+  { type: "image" | "classifier" }
+>;
+
+const TWO_HUNDRED_K_CONTEXT = 200_000;
+
+const ONE_M_CONTEXT = 1_000_000;
+
+// pi-ai ships dated snapshot ids (claude-opus-4-5-20251101, ...) beside the bare
+// ids. They are never exposed.
+const isDatedAlias = (id: string): boolean => /-20\d{6}$/.test(id);
+
+// Flagship families first; unknown families sink below all known ones.
+const FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
+
+interface VersionRank {
+  family: string;
+  major: number;
+  minor: number;
+}
+
+// claude-opus-4-7 → opus 4.7.
+function versionRank(id: string): VersionRank {
+  const [, family = "", major, minor] = id.split("-");
+
+  return { family, major: Number(major) || 0, minor: Number(minor) || 0 };
+}
+
+function familyTier(id: string): number {
+  const tier = FAMILY_ORDER.indexOf(versionRank(id).family);
+
+  return tier === -1 ? FAMILY_ORDER.length : tier;
+}
+
+/** pi-ai's Anthropic models projected onto pi's provider registration, newest
+ *  generation first. Costs are zero: usage is billed to the Claude subscription. */
+export function buildModels(catalog: readonly Model<Api>[]): ProviderChatModelConfig[] {
+  return catalog
+    .filter((model) => !isDatedAlias(model.id))
+    .toSorted((a, b) => {
+      const tierDelta = familyTier(a.id) - familyTier(b.id);
+
+      if (tierDelta !== 0) return tierDelta;
+
+      const ra = versionRank(a.id);
+      const rb = versionRank(b.id);
+
+      if (ra.major !== rb.major) return rb.major - ra.major;
+
+      if (ra.minor !== rb.minor) return rb.minor - ra.minor;
+
+      return a.id.localeCompare(b.id);
+    })
+    .map((model) => ({
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      input: model.input,
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+      // Forwarded so pi-ai's per-model overrides reach the effort lookup.
+      ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    }));
+}
+
+export const catalogModels = (): ProviderChatModelConfig[] =>
+  buildModels(getBuiltinModels("anthropic"));
+
+export interface ClaudeCodeRuntimeModel {
+  cliModelId: string;
+  contextWindow: number;
+}
+
+// Measured Claude Agent SDK behavior:
+// - The `[1m]` suffix is the only reliable way to request 1M context; bare ids serve 200K.
+// - An unentitled `[1m]` id is rejected outright (400/429) and fails every turn, which is
+//   worse than 200K, so only measured-good ids get it. A new model serves 200K until
+//   someone measures it and adds it here.
+// - Opus 4.6 and Sonnet 4.6 serve 1M only on Max or with metered Extra Usage, so they
+//   stay at 200K.
+const MEASURED_ONE_M = new Set([
+  "claude-fable-5",
+  "claude-fable-5-1",
+  "claude-opus-5-5",
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-sonnet-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+]);
+
+export const resolveClaudeCodeRuntimeModel = (modelId: string): ClaudeCodeRuntimeModel =>
+  MEASURED_ONE_M.has(modelId)
+    ? { cliModelId: `${modelId}[1m]`, contextWindow: ONE_M_CONTEXT }
+    : { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT };
+
+export const claudeCodeModelId = (modelId: string): string =>
+  resolveClaudeCodeRuntimeModel(modelId).cliModelId;
+
+/** Registered metadata must match the window the bridge requests from Claude Code. */
+export function applyLongContext(
+  models: readonly ProviderChatModelConfig[],
+): ProviderChatModelConfig[] {
+  return models.map((model) => {
+    const { contextWindow } = resolveClaudeCodeRuntimeModel(model.id);
+
+    const name =
+      contextWindow > TWO_HUNDRED_K_CONTEXT && !/\b1M\b/i.test(model.name)
+        ? `${model.name} 1M`
+        : model.name;
+
+    return contextWindow === model.contextWindow && name === model.name
+      ? model
+      : { ...model, contextWindow, name };
+  });
+}
+
+const REASONING_TO_EFFORT: Record<ThinkingLevel, EffortLevel> = {
+  minimal: "low",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "max",
+  max: "max",
+};
+
+const EFFORT_LEVELS: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** Pi's reasoning level as a Claude Code effort. The model's own thinkingLevelMap wins:
+ *  pi-ai ships one for most Claude models, and a null entry marks the level unsupported,
+ *  so no effort is sent and Claude Code's default applies. A map value is trusted only
+ *  when it names an effort Claude Code accepts. */
+export function effortForReasoning(
+  model: Model<Api>,
+  reasoning: ThinkingLevel | undefined,
+): EffortLevel | undefined {
+  if (reasoning === undefined) return undefined;
+
+  const mapped = model.thinkingLevelMap?.[reasoning];
+
+  if (mapped === undefined) return REASONING_TO_EFFORT[reasoning];
+
+  return EFFORT_LEVELS.find((level) => level === mapped);
+}
