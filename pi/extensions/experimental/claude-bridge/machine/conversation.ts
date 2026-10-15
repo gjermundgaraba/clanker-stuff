@@ -255,6 +255,8 @@ export const conversationMachine = setup({
       "cc.error": types<{ message: string }>(),
       "steer.done": types<{ error: string | undefined }>(),
       "close.timeout": types<{}>(),
+      /** The turn ended on tool calls Claude was cut off in the middle of. */
+      "turn.truncated": types<{}>(),
     },
     input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
   },
@@ -464,6 +466,13 @@ export const conversationMachine = setup({
 
           return { target: "idle", context: { ...IDLE, held: [] } };
         },
+        // Claude Code may go on from the cut on its own, into a session pi will never see:
+        // stop it, and rebuild from pi's history next time.
+        "turn.truncated": () => {
+          debug("conversation: tool calls cut off at the output limit, stopping the query");
+
+          return { target: "idle", context: { ...IDLE, held: [] } };
+        },
         "pi.discard": ({ context }, enq) => {
           debug("conversation: discarding the running query");
           enq(() => {
@@ -481,7 +490,7 @@ export const conversationMachine = setup({
             { id: "abortCall", src: "abortOn", input: ({ context }) => context.callSignal },
           ],
           on: {
-            "cc.message": ({ context, event }) => {
+            "cc.message": ({ context, event }, enq) => {
               const { message } = event;
               const { turn } = context;
 
@@ -489,7 +498,13 @@ export const conversationMachine = setup({
               else if (message.type === "assistant") turn.assistantMessage(message);
               else return undefined;
 
-              if (!turn.ended || turn.output.stopReason !== "toolUse") return {};
+              if (!turn.ended) return {};
+
+              if (turn.output.stopReason !== "toolUse") {
+                enq.raise({ type: "turn.truncated" });
+
+                return {};
+              }
 
               // pi now runs the tools; their results come back through the next call.
               return {

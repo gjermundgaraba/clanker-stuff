@@ -15,6 +15,7 @@ import {
   blockStop,
   errorResult,
   inputJsonDelta,
+  messageDelta,
   messageStart,
   messageStop,
   recordedStream,
@@ -322,6 +323,66 @@ describe("a tool call whose content_block_stop never arrived", () => {
     expect(turn.toolCallIds).toEqual(["toolu_whole"]);
     expect(turn.output.stopReason).toBe("toolUse");
     expect(pi.events.at(-1)?.type).toBe("done");
+  });
+});
+
+// pi runs no tool call from a truncated response; a cut-off call's arguments are whatever
+// JSON survived, which would otherwise run as if complete.
+describe("a tool call cut off at the output limit", () => {
+  it("ends the turn as truncated, not on the call", () => {
+    const { turn, pi } = run(
+      [
+        messageStart("msg_1"),
+        toolUseStart(0, NOTIFY, "toolu_1"),
+        inputJsonDelta(0, '{"summary":"only the first'),
+        blockStop(0),
+        messageDelta("max_tokens"),
+        messageStop(),
+      ],
+      served("notify_parent"),
+    );
+
+    expect(turn.output.stopReason).toBe("length");
+    expect(pi.events.at(-1)).toMatchObject({ type: "done", reason: "length" });
+  });
+
+  it("ends the turn as truncated when the response arrived whole", () => {
+    const whole = assistantMessage("msg_1", [
+      { type: "tool_use", id: "toolu_1", name: NOTIFY, input: { summary: "only the first" } },
+    ]);
+
+    const { pi } = run(
+      [{ ...whole, message: { ...whole.message, stop_reason: "max_tokens" as const } }],
+      served("notify_parent"),
+    );
+
+    expect(pi.events.at(-1)).toMatchObject({ type: "done", reason: "length" });
+  });
+});
+
+describe("a turn that must answer in text", () => {
+  const textOnly = (messages: readonly SDKMessage[]) => {
+    const pi = recordingStream();
+    const turn = new Turn(model, pi.stream, served(), { requireText: true });
+
+    feed(turn, messages);
+
+    return pi;
+  };
+
+  // An empty summary would let compaction drop context with nothing in its place.
+  it("fails without text", () => {
+    expect(textOnly([successResult("  ")]).events.at(-1)).toMatchObject({
+      type: "error",
+      error: { errorMessage: "Claude Code returned no text" },
+    });
+  });
+
+  it("answers with text", () => {
+    expect(textOnly([successResult("the summary")]).events.at(-1)).toMatchObject({
+      type: "done",
+      reason: "stop",
+    });
   });
 });
 

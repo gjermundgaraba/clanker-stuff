@@ -460,6 +460,30 @@ describe("a one-off request", () => {
     });
   });
 
+  // Claude Code has no server for it and answers the call itself; pi must not run it.
+  it("hands pi no call for a tool it listed but the one-off does not serve", async () => {
+    const { call, query } = bridge();
+    const reply = call([user("Summarize.")], { cacheRetention: "none" });
+    const q = await query(0);
+
+    q.push(toolCall("toolu_1"));
+    answer(q, "the summary");
+
+    const result = await reply.result();
+
+    expect(result.stopReason).toBe("stop");
+    expect(result.content).toEqual([{ type: "text", text: "the summary" }]);
+  });
+
+  it("fails a one-off that returns no text", async () => {
+    const { call, query } = bridge();
+    const reply = call([user("Summarize.")], { cacheRetention: "none" });
+
+    answer(await query(0), "");
+
+    expect((await reply.result()).stopReason).toBe("error");
+  });
+
   it("passes the caller's reasoning level to Claude Code", async () => {
     const { call, query } = bridge();
 

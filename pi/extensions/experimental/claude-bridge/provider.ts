@@ -77,7 +77,8 @@ export function streamClaudeCode(
 ): AssistantMessageEventStream {
   const context = toBridgeContext(transcript);
   const served = resolveServedTools(context.tools, deps.toolGuidelines());
-  const turn = new Turn(model, createAssistantMessageEventStream(), served.names);
+  const stream = createAssistantMessageEventStream();
+  let turn: Turn | undefined;
 
   const key = queryKey(
     context,
@@ -85,13 +86,21 @@ export function streamClaudeCode(
     effortForReasoning(model, options?.reasoning),
   );
 
-  serve({ deps, model, context, options, served, turn, key }).catch((error: unknown) => {
+  const answer: Request["answer"] = (tools, turnOptions) => {
+    turn = new Turn(model, stream, tools.names, turnOptions);
+
+    return turn;
+  };
+
+  serve({ deps, model, context, options, served, key, answer }).catch((error: unknown) => {
     debug("provider: request failed", errorMessage(error));
 
-    if (!turn.ended) turn.fail(errorMessage(error));
+    const failing = turn ?? answer(resolveServedTools([]));
+
+    if (!failing.ended) failing.fail(errorMessage(error));
   });
 
-  return turn.stream;
+  return stream;
 }
 
 interface Request {
@@ -100,17 +109,18 @@ interface Request {
   context: BridgeContext;
   options: SimpleStreamOptions | undefined;
   served: ServedTools;
-  /** This call's answer: everything reaches pi through it. */
-  turn: Turn;
   /** What a query started for this call is fixed to (`queryKey`). */
   key: string;
+  /** This call's answer, once it is known which tools Claude Code may call in it:
+   *  everything reaches pi through it. */
+  answer: (tools: ServedTools, options?: { requireText?: boolean }) => Turn;
 }
 
 const describePlan = (decision: Plan): string =>
   decision.kind === "rebuild" ? `rebuild reason=${decision.reason}` : decision.kind;
 
 async function serve(request: Request): Promise<void> {
-  const { context, options, turn } = request;
+  const { context, options } = request;
   const piSession = options?.sessionId;
 
   // pi passes its session id on every agent turn, so a call without one is an
@@ -144,6 +154,16 @@ async function serve(request: Request): Promise<void> {
     );
   }
 
+  if (decision.kind === "side") {
+    await runOneOff(request);
+
+    return;
+  }
+
+  // The session's conversation serves the request's tools: a parked query takes results
+  // only under the key it started with, and the key covers its tools.
+  const turn = request.answer(request.served);
+
   if (decision.kind === "deliver") {
     conversation.send({
       type: "pi.deliver",
@@ -152,12 +172,6 @@ async function serve(request: Request): Promise<void> {
       steer: decision.steer,
       signal: options?.signal,
     });
-
-    return;
-  }
-
-  if (decision.kind === "side") {
-    await runOneOff(request);
 
     return;
   }
@@ -187,7 +201,7 @@ async function serve(request: Request): Promise<void> {
   const cwd = request.deps.sessions.cwd(piSession);
 
   if (decision.kind === "resume") {
-    startQuery(request, conversation, {
+    startQuery(request, turn, conversation, {
       systemPrompt,
       cwd,
       resume: decision.session,
@@ -204,7 +218,7 @@ async function serve(request: Request): Promise<void> {
     previous: state.session,
   });
 
-  startQuery(request, conversation, { systemPrompt, cwd, resume, turn: decision.turn });
+  startQuery(request, turn, conversation, { systemPrompt, cwd, resume, turn: decision.turn });
 }
 
 /** A request that is no session's conversation: a summary, an extension's one-off, or a
@@ -219,6 +233,7 @@ async function runOneOff(request: Request): Promise<void> {
   const cwd = request.deps.sessions.cwd(piSession);
   const start = turnStart(context.messages);
   const unserved: Request = { ...request, served: resolveServedTools([]) };
+  const turn = request.answer(unserved.served, { requireText: true });
 
   const resume = rebuildSession({
     priors: context.messages.slice(0, start),
@@ -229,7 +244,7 @@ async function runOneOff(request: Request): Promise<void> {
 
   const conversation = request.deps.sessions.ephemeral(piSession);
 
-  startQuery(unserved, conversation, {
+  startQuery(unserved, turn, conversation, {
     systemPrompt: system,
     cwd,
     resume,
@@ -258,8 +273,13 @@ interface QueryStart {
   turn: readonly Message[];
 }
 
-function startQuery(request: Request, conversation: Conversation, start: QueryStart): void {
-  const { model, context, options, served, turn } = request;
+function startQuery(
+  request: Request,
+  turn: Turn,
+  conversation: Conversation,
+  start: QueryStart,
+): void {
+  const { model, context, options, served } = request;
   const cliModel = claudeCodeModelId(model.id);
   const effort = effortForReasoning(model, options?.reasoning);
   // Always streamed rather than passed as a string: a parked input generator is what

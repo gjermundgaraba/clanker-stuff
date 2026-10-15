@@ -102,6 +102,8 @@ export class Turn {
     readonly stream: AssistantMessageEventStream,
     /** The pi names of the tools the query serves. */
     private readonly served: ReadonlySet<string>,
+    /** A one-off asks for text: a reply without any is a failure, not an answer. */
+    private readonly options: { requireText?: boolean } = {},
   ) {
     this.output = newAssistantOutput(model, "stop");
   }
@@ -126,36 +128,44 @@ export class Turn {
     if (!this.ended) this.stream.push(event);
   }
 
-  /** End the stream so pi can run the tool. Claude Code's MCP handler for the call then
-   *  holds the query until pi delivers the result through the next provider call. */
-  private endForToolUse(): void {
-    if (this.ended) return;
+  /** What a turn that did not fail ended on. Tool calls end it so pi can run them, and
+   *  Claude Code's MCP handler then holds the query until pi delivers the results through
+   *  the next provider call; but not when Claude was cut off at its output limit, since
+   *  pi runs no tool call from a truncated response. */
+  private outcome(): "stop" | "length" | "toolUse" | "error" {
+    if (this.output.stopReason === "length") return "length";
 
-    this.output.stopReason = "toolUse";
-    this.stream.push({ type: "done", reason: "toolUse", message: this.output });
-    this.stream.end();
-    this.ended = true;
+    if (this.sawToolCall) return "toolUse";
+
+    const hasText = this.blocks.some((block) => block.type === "text" && block.text.trim() !== "");
+
+    return this.options.requireText === true && !hasText ? "error" : "stop";
   }
 
-  /** End the stream with the turn's outcome: done, or the error recorded by `fail`. */
+  /** End the stream with the turn's outcome: the failure recorded by `fail`, or done. */
   finish(): void {
     if (this.ended) return;
 
-    debug(
-      `turn: finish stopReason=${this.output.stopReason} error=${this.output.errorMessage ?? "none"}`,
-    );
+    const { output } = this;
+
     this.start();
 
-    if (this.output.stopReason === "error" || this.output.stopReason === "aborted") {
-      this.stream.push({ type: "error", reason: this.output.stopReason, error: this.output });
+    if (output.stopReason === "error" || output.stopReason === "aborted") {
+      this.stream.push({ type: "error", reason: output.stopReason, error: output });
     } else {
-      this.stream.push({
-        type: "done",
-        reason: this.output.stopReason === "length" ? "length" : "stop",
-        message: this.output,
-      });
+      const outcome = this.outcome();
+
+      output.stopReason = outcome;
+
+      if (outcome === "error") {
+        output.errorMessage = "Claude Code returned no text";
+        this.stream.push({ type: "error", reason: "error", error: output });
+      } else {
+        this.stream.push({ type: "done", reason: outcome, message: output });
+      }
     }
 
+    debug(`turn: finish stopReason=${output.stopReason} error=${output.errorMessage ?? "none"}`);
     this.stream.end();
     this.ended = true;
   }
@@ -358,7 +368,7 @@ export class Turn {
         this.dropUnfinished(`message_stop for ${this.streamMessageId}`);
         this.streamOpen = false;
 
-        if (this.sawToolCall) this.endForToolUse();
+        if (this.sawToolCall) this.finish();
 
         return;
       }
@@ -456,7 +466,11 @@ export class Turn {
 
     recordUsage(output, assistant.usage, this.model);
 
-    if (this.sawToolCall) this.endForToolUse();
+    // Claude Code writes a stop reason only on a message's last block; a cut-off one says
+    // so here, with no message_delta to carry it.
+    if (mapStopReason(assistant.stop_reason) === "length") output.stopReason = "length";
+
+    if (this.sawToolCall) this.finish();
   }
 
   /** A successful result. Its text is the answer only when the turn produced none:

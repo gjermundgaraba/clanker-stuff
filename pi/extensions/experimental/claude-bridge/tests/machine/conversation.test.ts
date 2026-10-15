@@ -19,11 +19,16 @@ import { resolveServedTools } from "../../tools.js";
 import { Turn } from "../../translate.js";
 import {
   assistantMessage,
+  blockStop,
   init,
+  messageDelta,
+  messageStart,
+  messageStop,
   rateLimitEvent,
   recordingStream,
   successResult,
   textBlock,
+  toolUseStart,
 } from "../fixtures/sdk.js";
 import type { RecordingStream } from "../fixtures/sdk.js";
 import { fakeQueryFunction, testModel } from "../helpers.js";
@@ -458,6 +463,23 @@ describe("an abort", () => {
 
     expect(lastDone(pi).content).toEqual([{ type: "text", text: "fresh" }]);
   });
+});
+
+// Claude Code may continue from the cut on its own, into a session pi never sees.
+it("stops the query when its tool calls were cut off at the output limit", async () => {
+  const { query, settle, start, held } = conversation();
+  const { pi } = start();
+
+  query().push(messageStart("msg_1"));
+  query().push(toolUseStart(0, READ, "toolu_1"));
+  query().push(blockStop(0));
+  query().push(messageDelta("max_tokens"));
+  query().push(messageStop());
+  await settle("idle");
+
+  expect(lastEvent(pi)).toMatchObject({ type: "done", reason: "length" });
+  expect(query().closed).toBe(true);
+  expect(held()).toEqual([]);
 });
 
 it("discards a parked query pi's history moved on from", async () => {
