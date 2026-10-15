@@ -3,7 +3,7 @@
 // provider again, so they are scraped back off the context tail and released to the
 // handlers waiting for them.
 
-import type { Message, ToolResultMessage, Tool } from "@earendil-works/pi-ai";
+import type { Message, Tool } from "@earendil-works/pi-ai";
 import type {
   McpSdkServerConfigWithInstance,
   SDKUserMessage,
@@ -11,35 +11,11 @@ import type {
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 
 import { debug } from "../log.js";
-import { createToolServer, jsonSchema } from "../mcp-server.js";
+import { createToolServer, jsonSchema, toolResultToMcpContent } from "../mcp-server.js";
+import type { McpResult } from "../mcp-server.js";
 import { MCP_SERVER_NAME } from "../tools.js";
 import type { QueryContext } from "./context.js";
 import { userMessage } from "./prompt-stream.js";
-
-export type McpContent = (
-  | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string }
-)[];
-
-export interface McpResult {
-  content: McpContent;
-  isError?: boolean;
-  toolCallId?: string;
-}
-
-export function toolResultToMcpContent(content: ToolResultMessage["content"]): McpContent {
-  const blocks: McpContent = [];
-
-  for (const block of content) {
-    if (block.type === "text") {
-      if (block.text !== "") blocks.push({ type: "text", text: block.text });
-    } else if (block.data !== "" && block.mimeType !== "") {
-      blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
-    }
-  }
-
-  return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
-}
 
 /** This turn's tool results: walks back from the context tail to the nearest assistant
  *  message, past user messages pi injected mid-tool (steers and follow-ups). */
@@ -202,3 +178,5 @@ export async function deliverToolResults(
     );
   }
 }
+
+export type { McpResult } from "../mcp-server.js";

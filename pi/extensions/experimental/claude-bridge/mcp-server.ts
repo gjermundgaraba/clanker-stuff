@@ -15,18 +15,42 @@
 // breaks after an SDK update, check whether the SDK began inspecting the instance.
 
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
-import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
+import type { JsonObject, JsonValue, ToolResultMessage } from "@earendil-works/pi-ai";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import { isJsonArray, isJsonObject, toJsonValue } from "./json.js";
-import type { McpResult } from "./query/tool-results.js";
 
 // Claude Code stamps every tools/call with the id of the tool_use block it came from.
 // That is the only reliable pairing: call order need not match the order the blocks
 // were emitted. This is a Claude Code extension to MCP; if it ever stops sending it,
 // every call fails loudly rather than pairing results to the wrong call.
 const TOOL_USE_ID_META = "claudecode/toolUseId";
+
+export type McpContent = (
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
+)[];
+
+export interface McpResult {
+  content: McpContent;
+  isError?: boolean;
+  toolCallId?: string;
+}
+
+export function toolResultToMcpContent(content: ToolResultMessage["content"]): McpContent {
+  const blocks: McpContent = [];
+
+  for (const block of content) {
+    if (block.type === "text") {
+      if (block.text !== "") blocks.push({ type: "text", text: block.text });
+    } else if (block.data !== "" && block.mimeType !== "") {
+      blocks.push({ type: "image", data: block.data, mimeType: block.mimeType });
+    }
+  }
+
+  return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
+}
 
 export interface McpToolDef {
   name: string;

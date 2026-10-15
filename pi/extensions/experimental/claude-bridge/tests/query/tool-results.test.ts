@@ -22,10 +22,10 @@ import {
   buildMcpServers,
   deliverToolResults,
   extractAllToolResults,
-  toolResultToMcpContent,
 } from "../../query/tool-results.js";
 import type { McpResult } from "../../query/tool-results.js";
 import { drainForAbort } from "../../stream.js";
+import { toolResultToMcpContent } from "../../mcp-server.js";
 import { MCP_SERVER_NAME } from "../../tools.js";
 import { testModel } from "../helpers.js";
 
