@@ -2,42 +2,33 @@ import type { Tool } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mapToolArgs, piToolNameFor, resolveServedTools } from "../tools.js";
+import { mapToolArgs, piToolName, resolveServedTools, sdkToolName } from "../tools.js";
 
 const tool = (name: string): Tool => ({ name, description: "", parameters: Type.Object({}) });
 
 describe("served tool names", () => {
   it("serves every pi tool under the custom-tools MCP prefix", () => {
-    const served = resolveServedTools([tool("read"), tool("ask_user")]);
-
-    expect(served.toSdk.get("read")).toBe("mcp__custom-tools__read");
-    expect(served.toSdk.get("ask_user")).toBe("mcp__custom-tools__ask_user");
-    expect(served.tools.map(({ name }) => name)).toEqual(["read", "ask_user"]);
+    expect(sdkToolName("read")).toBe("mcp__custom-tools__read");
+    expect(resolveServedTools([tool("read"), tool("ask_user")]).names).toEqual(
+      new Set(["read", "ask_user"]),
+    );
   });
 
-  it("maps a served name back to the pi tool regardless of case", () => {
-    const { toPi } = resolveServedTools([tool("WebFetch")]);
+  it("maps a served name back to its pi tool", () => {
+    const { names } = resolveServedTools([tool("WebFetch")]);
 
-    expect(piToolNameFor("mcp__custom-tools__WebFetch", toPi)).toBe("WebFetch");
-    expect(piToolNameFor("mcp__custom-tools__webfetch", toPi)).toBe("WebFetch");
-    expect(piToolNameFor("MCP__CUSTOM-TOOLS__WEBFETCH", toPi)).toBe("WebFetch");
+    expect(piToolName("mcp__custom-tools__WebFetch", names)).toBe("WebFetch");
   });
 
-  // Claude Code answers an invented builtin itself; forwarding it would run a tool
-  // Claude Code never dispatched.
-  it("does not resolve a name the bridge does not serve", () => {
-    const { toPi } = resolveServedTools([tool("read")]);
+  // Claude Code answers an invented builtin, or a name in the wrong case, itself;
+  // forwarding it would run a tool Claude Code never dispatched.
+  it("does not resolve a name the bridge does not serve exactly", () => {
+    const { names } = resolveServedTools([tool("read")]);
 
-    expect(piToolNameFor("Bash", toPi)).toBeUndefined();
-    expect(piToolNameFor("read", toPi)).toBeUndefined();
-    expect(piToolNameFor("mcp__other-server__read", toPi)).toBeUndefined();
-  });
-
-  it("serves nothing without tools", () => {
-    const served = resolveServedTools(undefined);
-
-    expect(served.tools).toEqual([]);
-    expect(served.toPi.size).toBe(0);
+    expect(piToolName("Bash", names)).toBeUndefined();
+    expect(piToolName("read", names)).toBeUndefined();
+    expect(piToolName("mcp__other-server__read", names)).toBeUndefined();
+    expect(piToolName("mcp__custom-tools__Read", names)).toBeUndefined();
   });
 });
 

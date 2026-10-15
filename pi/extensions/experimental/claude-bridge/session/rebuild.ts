@@ -82,10 +82,9 @@ function readCarriedAttachments(sessionId: string, cwd: string): CarriedAttachme
 function importMessages(
   session: Session,
   messages: readonly Message[],
-  toSdk: ReadonlyMap<string, string>,
   carried: readonly CarriedAttachment[],
 ): void {
-  const { anthropicMessages, sanitizedIds, dropped } = convertPiMessages(messages, toSdk);
+  const { anthropicMessages, sanitizedIds, dropped } = convertPiMessages(messages);
 
   debug(
     `importMessages: ${messages.length} pi msgs → ${anthropicMessages.length} anthropic msgs:`,
@@ -151,7 +150,6 @@ export interface Rebuild {
   /** pi's history before the turn the query sends. */
   priors: readonly Message[];
   cwd: string;
-  toSdk: ReadonlyMap<string, string>;
   modelId: string;
   /** The session the conversation resumed until now, if any. Nothing resumes it again,
    *  so it is deleted. A killed Claude Code may still flush a record into it afterwards;
@@ -182,7 +180,7 @@ export function rebuildSession(
     ...(dir === undefined ? {} : { claudeDir: dir }),
   });
 
-  importMessages(session, priors, rebuild.toSdk, carried);
+  importMessages(session, priors, carried);
   session.save();
   // Records, not messages: carried `@file` attachments are records too.
   verify(session.jsonlPath, session.sessionId, session.records.length, cwd, warn);

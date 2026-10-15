@@ -1,9 +1,15 @@
 // Pi history → the Anthropic message shape Claude Code's session files hold.
 
-import type { ImageContent, Message as PiMessage, TextContent } from "@earendil-works/pi-ai";
+import type {
+  ImageContent,
+  Message as PiMessage,
+  TextContent,
+  UserMessage,
+} from "@earendil-works/pi-ai";
 import type { ContentBlock, Message as SessionMessage } from "cc-session-io";
 
-import { MCP_TOOL_PREFIX } from "../tools.js";
+import { debug } from "../log.js";
+import { sdkToolName } from "../tools.js";
 
 export const PROVIDER_ID = "claude-bridge";
 
@@ -17,27 +23,6 @@ export function sanitizeToolId(id: string, cache: Map<string, string>): string {
   cache.set(id, clean);
 
   return clean;
-}
-
-/** A pi tool name as a rebuilt transcript must call it. Every tool Claude can call is a
- *  pi tool served over MCP, named `mcp__custom-tools__<pi name>` by construction; the map
- *  is consulted first only for the served tool's exact casing. A name it lacks is a tool
- *  pi ran that is not served now (an extension since disabled), and naming it after a
- *  Claude Code builtin would tell the model a tool it cannot call was already used: the
- *  prompt condition behind the phantom-call deadlock that piToolNameFor also guards. */
-export function mapPiToolNameToSdk(name: string, toSdk: ReadonlyMap<string, string>): string {
-  if (name === "") return "";
-
-  const normalized = name.toLowerCase();
-
-  // Prefixing an already-converted name invents a tool nobody serves.
-  if (normalized.startsWith(MCP_TOOL_PREFIX)) {
-    throw new Error(
-      `mapPiToolNameToSdk: "${name}" is already an SDK tool name; pi history holds pi tool names`,
-    );
-  }
-
-  return toSdk.get(name) ?? toSdk.get(normalized) ?? `${MCP_TOOL_PREFIX}${name}`;
 }
 
 /** Any content block, including ones extensions add outside pi's types. */
@@ -64,10 +49,47 @@ export function messageContentToText(content: string | readonly LooseBlock[]): s
   return hasText ? parts.join("\n") : "";
 }
 
-const imageBlock = (block: ImageContent): ContentBlock => ({
-  type: "image",
-  source: { type: "base64", media_type: block.mimeType, data: block.data },
-});
+const IMAGE_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+
+/** A content block of a user turn, as Claude Code reads it in a prompt or a session. */
+export type UserBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: { type: "base64"; media_type: (typeof IMAGE_MEDIA_TYPES)[number]; data: string };
+    };
+
+/** An image Claude accepts, or a marker where one was: data-less image blocks do occur,
+ *  and the API rejects a media type outside its list. */
+function imageBlock(block: ImageContent): UserBlock {
+  const mediaType = IMAGE_MEDIA_TYPES.find((type) => type === block.mimeType);
+
+  if (mediaType === undefined || block.data === "") {
+    debug(`image block (${block.mimeType || "no mimeType"}) replaced by a marker`);
+
+    return { type: "text", text: "[image]" };
+  }
+
+  return { type: "image", source: { type: "base64", media_type: mediaType, data: block.data } };
+}
+
+/** A pi user message's content as blocks: its text, its images, and a marker for any
+ *  block outside pi's types, so the model sees something was there. The same for a
+ *  prompt, a steer and a rebuilt session. */
+export function userBlocks(content: UserMessage["content"]): UserBlock[] {
+  if (typeof content === "string") return content === "" ? [] : [{ type: "text", text: content }];
+
+  return content.flatMap((block): UserBlock[] => {
+    // Widened first: an extension's off-type block still gets its marker.
+    const blockType: string = block.type;
+
+    if (block.type === "text") return block.text === "" ? [] : [{ type: "text", text: block.text }];
+
+    if (block.type === "image") return [imageBlock(block)];
+
+    return [{ type: "text", text: `[${blockType}]` }];
+  });
+}
 
 // Tool results are flattened to text, which is how Claude Code stores most of them.
 // Images have no text form, so a result carrying one keeps the block array shape (what
@@ -75,29 +97,9 @@ const imageBlock = (block: ImageContent): ContentBlock => ({
 function toolResultContent(
   content: readonly (TextContent | ImageContent)[],
 ): string | ContentBlock[] {
-  if (
-    !content.some((block) => block.type === "image" && block.data !== "" && block.mimeType !== "")
-  ) {
-    return messageContentToText(content);
-  }
-
-  const blocks: ContentBlock[] = [];
-
-  for (const block of content) {
-    // Widened first: an extension's off-type block still gets the same marker
-    // messageContentToText leaves for it.
-    const blockType: string = block.type;
-
-    if (block.type === "text") {
-      if (block.text !== "") blocks.push({ type: "text", text: block.text });
-    } else if (block.type === "image") {
-      if (block.data !== "" && block.mimeType !== "") blocks.push(imageBlock(block));
-    } else {
-      blocks.push({ type: "text", text: `[${blockType}]` });
-    }
-  }
-
-  return blocks;
+  return content.some((block) => block.type === "image")
+    ? userBlocks([...content])
+    : messageContentToText(content);
 }
 
 /** What conversion discarded, for the debug trace: a stripped thinking block and one that
@@ -117,10 +119,7 @@ export interface ConvertedMessages {
 
 type ToolResultsMessage = SessionMessage & { content: ContentBlock[] };
 
-export function convertPiMessages(
-  messages: readonly PiMessage[],
-  toSdk: ReadonlyMap<string, string>,
-): ConvertedMessages {
+export function convertPiMessages(messages: readonly PiMessage[]): ConvertedMessages {
   const anthropicMessages: SessionMessage[] = [];
   const sanitizedIds = new Map<string, string>();
 
@@ -138,21 +137,18 @@ export function convertPiMessages(
 
   for (const message of messages) {
     if (message.role === "user") {
-      if (typeof message.content === "string") {
-        anthropicMessages.push({ role: "user", content: message.content || "[empty]" });
-      } else {
-        const parts: ContentBlock[] = [];
+      const blocks = userBlocks(message.content);
 
-        for (const block of message.content) {
-          if (block.type === "text") {
-            if (block.text !== "") parts.push({ type: "text", text: block.text });
-          } else if (block.data !== "" && block.mimeType !== "") {
-            parts.push(imageBlock(block));
-          }
-        }
-
-        anthropicMessages.push({ role: "user", content: parts.length > 0 ? parts : "[image]" });
-      }
+      // A string stays a string: that is how Claude Code stores a typed prompt.
+      anthropicMessages.push({
+        role: "user",
+        content:
+          typeof message.content === "string"
+            ? message.content || "[empty]"
+            : blocks.length > 0
+              ? blocks
+              : "[empty]",
+      });
     } else if (message.role === "assistant") {
       const blocks: ContentBlock[] = [];
 
@@ -178,7 +174,7 @@ export function convertPiMessages(
           blocks.push({
             type: "tool_use",
             id: sanitizeToolId(block.id, sanitizedIds),
-            name: mapPiToolNameToSdk(block.name, toSdk),
+            name: sdkToolName(block.name),
             input: block.arguments,
           });
         } else {

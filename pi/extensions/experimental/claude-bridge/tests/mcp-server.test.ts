@@ -8,7 +8,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createToolServer, jsonSchema, toolResultToMcpContent } from "../mcp-server.js";
+import { toJsonObject } from "../json.js";
+import { createToolServer, toolResultToMcpContent } from "../mcp-server.js";
 import type { McpToolDef } from "../mcp-server.js";
 
 const NESTED_TOOL_SCHEMA: JsonObject = {
@@ -73,25 +74,36 @@ async function listOne(inputSchema: JsonObject) {
 const callTool = (client: Client, name: string, toolUseId: string, args: JsonObject = {}) =>
   client.callTool({ name, arguments: args, _meta: { "claudecode/toolUseId": toolUseId } });
 
-describe("jsonSchema", () => {
-  // A scalar schema typechecks in pi but cannot go on the wire; advertising it as "no
-  // arguments" would surface much later as pi rejecting arguments Claude never sent.
-  it("rejects a non-object parameter schema, naming the tool", () => {
-    expect(() => jsonSchema("bad_tool", Type.String())).toThrow(
-      /^bad_tool: MCP tool parameters must be an object schema/,
+// What TypeBox actually emits for a union or intersection: a bare anyOf/allOf with no
+// root type. One such tool must not fail every turn.
+describe("MCP tool schemas TypeBox builds without a root object", () => {
+  const plain = (schema: unknown): JsonObject => toJsonObject(schema) ?? {};
+
+  it("flattens a TypeBox union into an object", async () => {
+    const listed = await listOne(
+      plain(Type.Union([Type.Object({ id: Type.String() }), Type.Object({ name: Type.String() })])),
     );
-    expect(() => jsonSchema("bad_tool", Type.Array(Type.String()))).toThrow(/^bad_tool: /);
+
+    expect(listed.inputSchema).toEqual({
+      type: "object",
+      properties: { id: { type: "string" }, name: { type: "string" } },
+    });
+    expect(listed.description).toBe(
+      "Input constraint: Provide parameters for at least one of: (id) or (name).\n\nd",
+    );
   });
 
-  it("copies a TypeBox object schema as plain JSON", () => {
-    const schema = jsonSchema("read", Type.Object({ path: Type.String() }));
+  it("keeps a TypeBox intersection's requirements", async () => {
+    const listed = await listOne(
+      plain(Type.Intersect([Type.Object({ a: Type.String() }), Type.Object({ b: Type.Number() })])),
+    );
 
-    expect(schema).toEqual({
-      type: "object",
-      properties: { path: { type: "string" } },
-      required: ["path"],
-    });
-    expect(Object.getOwnPropertySymbols(schema)).toEqual([]);
+    expect(listed.inputSchema).toMatchObject({ type: "object", required: ["a", "b"] });
+  });
+
+  // As pi's own Anthropic provider serves one; pi still validates calls against it.
+  it("serves a scalar schema as an object rather than failing", async () => {
+    expect((await listOne(plain(Type.String()))).inputSchema).toMatchObject({ type: "object" });
   });
 });
 

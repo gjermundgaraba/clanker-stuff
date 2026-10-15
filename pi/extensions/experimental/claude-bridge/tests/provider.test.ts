@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
-import { CONTINUE_AFTER_REWRITE_PROMPT, streamClaudeCode } from "../provider.js";
+import { CONTINUE_PROMPT, streamClaudeCode } from "../provider.js";
 import { PI_PREAMBLE } from "../prompt.js";
 import { forgetSessionCwd, rememberSessionCwd } from "../session/cwd.js";
 import { shared } from "../shared.js";
@@ -394,7 +394,7 @@ describe("a history Claude Code does not hold", () => {
     // The killed process may still write to cc-1.
     expect(q2.params.options.resume).toEqual(expect.any(String));
     expect(q2.params.options.resume).not.toBe("cc-1");
-    expect(await promptOf(q2)).toEqual([{ type: "text", text: CONTINUE_AFTER_REWRITE_PROMPT }]);
+    expect(await promptOf(q2)).toEqual([{ type: "text", text: CONTINUE_PROMPT }]);
   });
 });
 

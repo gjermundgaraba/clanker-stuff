@@ -8,12 +8,14 @@ export const MCP_SERVER_NAME = "custom-tools";
 
 export const MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 
+/** A pi tool's name as Claude Code calls it. */
+export const sdkToolName = (name: string): string => `${MCP_TOOL_PREFIX}${name}`;
+
 export interface ServedTools {
+  /** The tools, their descriptions carrying their guidelines. */
   tools: Tool[];
-  /** Pi name (and its lowercase form) → served MCP name. */
-  toSdk: Map<string, string>;
-  /** Served MCP name (and its lowercase form) → pi name. */
-  toPi: Map<string, string>;
+  /** Their pi names. */
+  names: ReadonlySet<string>;
 }
 
 /** A tool's description followed by its prompt guidelines. Pi lists guidelines in its own
@@ -32,34 +34,25 @@ export function resolveServedTools(
   tools: readonly Tool[] | undefined,
   guidelines: ReadonlyMap<string, readonly string[]> = new Map(),
 ): ServedTools {
-  const served: ServedTools = { tools: [], toSdk: new Map(), toPi: new Map() };
+  const served = (tools ?? []).map((tool) => ({
+    ...tool,
+    description: describeTool(tool.description, guidelines.get(tool.name)),
+  }));
 
-  for (const tool of tools ?? []) {
-    const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
-
-    served.tools.push({
-      ...tool,
-      description: describeTool(tool.description, guidelines.get(tool.name)),
-    });
-    served.toSdk.set(tool.name, sdkName);
-    served.toSdk.set(tool.name.toLowerCase(), sdkName);
-    served.toPi.set(sdkName, tool.name);
-    served.toPi.set(sdkName.toLowerCase(), tool.name);
-  }
-
-  return served;
+  return { tools: served, names: new Set(served.map((tool) => tool.name)) };
 }
 
-// Only pi tools served over MCP are legitimate. Any other name is the model inventing a
-// builtin (`bash`, `Edit`, an MCP server we don't serve). Claude Code answers those
-// itself with "No such tool available" and retries under a fresh tool_use id without
-// dispatching to our server, so such a call must not reach pi: forwarding one ran a tool
-// Claude Code never dispatched and left the retry's handler with no result to release
-// it, deadlocking both sides.
-export const piToolNameFor = (
-  name: string,
-  toPi: ReadonlyMap<string, string>,
-): string | undefined => toPi.get(name) ?? toPi.get(name.toLowerCase());
+// Only pi tools served over MCP are legitimate, called by their exact served name. Any
+// other name is the model inventing a builtin (`bash`, `Edit`, an MCP server we don't
+// serve). Claude Code answers those itself with "No such tool available" and retries
+// under a fresh tool_use id without dispatching to our server, so such a call must not
+// reach pi: forwarding one ran a tool Claude Code never dispatched and left the retry's
+// handler with no result to release it, deadlocking both sides.
+export function piToolName(name: string, served: ReadonlySet<string>): string | undefined {
+  const piName = name.startsWith(MCP_TOOL_PREFIX) ? name.slice(MCP_TOOL_PREFIX.length) : undefined;
+
+  return piName !== undefined && served.has(piName) ? piName : undefined;
+}
 
 // Claude Code parameter names that differ from pi's. Unlisted keys pass through, so new
 // pi parameters work automatically; pi's own prepareArguments hooks handle structure.

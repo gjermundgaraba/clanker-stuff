@@ -53,7 +53,7 @@ describe(rebuildSession, () => {
   });
 
   const rebuild = (priors: readonly Message[], previous?: string) =>
-    rebuildSession({ priors, cwd, toSdk: new Map(), modelId: MODEL, previous }, (message) => {
+    rebuildSession({ priors, cwd, modelId: MODEL, previous }, (message) => {
       warnings.push(message);
     });
 

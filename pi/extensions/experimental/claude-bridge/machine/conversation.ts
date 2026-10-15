@@ -28,7 +28,7 @@ import {
 import type { RateLimitRejection } from "../query/result.js";
 import type { SyncState } from "../sync.js";
 import type { Turn } from "../translate.js";
-import { steerBlocks } from "../turn.js";
+import { userTurnBlocks } from "../turn.js";
 
 /** The answer an MCP handler is waiting on. */
 export type ResolveToolCall = (result: McpResult) => void;
@@ -512,7 +512,7 @@ export const conversationMachine = setup({
           },
           on: {
             "pi.deliver": ({ context, event }) => {
-              const blocks = steerBlocks(event.steer);
+              const blocks = userTurnBlocks(event.steer);
 
               return {
                 target: "delivering",

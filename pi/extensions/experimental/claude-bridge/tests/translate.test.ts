@@ -33,10 +33,10 @@ import { testModel } from "./helpers.js";
 
 const model = testModel();
 
-const served = (...names: string[]): ReadonlyMap<string, string> =>
+const served = (...names: string[]): ReadonlySet<string> =>
   resolveServedTools(
     names.map((name) => ({ name, description: name, parameters: Type.Object({}) })),
-  ).toPi;
+  ).names;
 
 const BASH = "mcp__custom-tools__bash";
 
@@ -67,7 +67,7 @@ function feed(turn: Turn, messages: readonly SDKMessage[]): void {
   }
 }
 
-function open(toPi: ReadonlyMap<string, string> = served("read")): {
+function open(toPi: ReadonlySet<string> = served("read")): {
   turn: Turn;
   pi: RecordingStream;
 } {
@@ -78,7 +78,7 @@ function open(toPi: ReadonlyMap<string, string> = served("read")): {
 
 function run(
   messages: readonly SDKMessage[],
-  toPi?: ReadonlyMap<string, string>,
+  toPi?: ReadonlySet<string>,
 ): { turn: Turn; pi: RecordingStream } {
   const opened = open(toPi);
 
@@ -280,6 +280,22 @@ describe("a tool call whose content_block_stop never arrived", () => {
     expect(turn.toolCallIds).toEqual(["toolu_first"]);
     expect(turn.output.stopReason).toBe("toolUse");
     expect(turn.ended).toBe(true);
+  });
+
+  // pi renders a call's arguments as they stream.
+  it("parses the arguments streamed so far", () => {
+    const { turn } = run(
+      [
+        messageStart("msg_1"),
+        toolUseStart(0, NOTIFY, "toolu_1"),
+        inputJsonDelta(0, '{"summary":"Bo'),
+      ],
+      served("notify_parent"),
+    );
+
+    expect(turn.output.content.map(describeBlock)).toEqual([
+      ["toolCall", "toolu_1", { summary: "Bo" }],
+    ]);
   });
 
   // Negative control: refusing to dispatch anything at all passes every case above.
@@ -484,6 +500,17 @@ describe("a result's text", () => {
 
     expect(turn.output.content).toEqual([]);
   });
+
+  // A response that arrived whole had no message_delta to say it was cut off; pi refuses
+  // to keep a truncated summary only if it learns so.
+  it("reports a token limit it carries for a response that arrived whole", () => {
+    const { pi } = run([
+      assistantMessage("msg_1", [textBlock("half an ans")]),
+      { ...successResult("half an ans"), stop_reason: "max_tokens" },
+    ]);
+
+    expect(pi.events.at(-1)).toMatchObject({ type: "done", reason: "length" });
+  });
 });
 
 it("maps Claude Code's stop reasons onto pi's", () => {
@@ -497,7 +524,7 @@ it("maps Claude Code's stop reasons onto pi's", () => {
 // shapes nobody would hand-write, like `system/status` frames and the rate_limit_event
 // every turn carries. Re-record on an SDK bump and the diff is the contract change.
 describe("a recorded stream", () => {
-  const replay = (name: RecordedStream, toPi: ReadonlyMap<string, string> = served("read")) =>
+  const replay = (name: RecordedStream, toPi: ReadonlySet<string> = served("read")) =>
     run(recordedStream(name), toPi);
 
   it("of a text-only turn produces its text and a clean stop", () => {

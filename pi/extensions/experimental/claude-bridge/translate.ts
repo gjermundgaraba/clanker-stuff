@@ -6,6 +6,7 @@
 // A tool call ends the turn with `toolUse` so pi can run the tool, and the next provider
 // call opens a new turn.
 
+import { parseStreamingJson } from "@earendil-works/pi-ai";
 import type {
   Api,
   AssistantMessage,
@@ -23,7 +24,7 @@ import type {
 import { toJsonObject } from "./json.js";
 import { debug } from "./log.js";
 import { recordUsage } from "./query/usage.js";
-import { mapToolArgs, piToolNameFor } from "./tools.js";
+import { mapToolArgs, piToolName } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
 
@@ -71,15 +72,9 @@ export function mapStopReason(reason: string | null | undefined): "stop" | "leng
   }
 }
 
-function parsePartialJson(input: string, fallback: JsonObject): JsonObject {
-  if (input === "") return fallback;
-
-  try {
-    return toJsonObject(JSON.parse(input)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
+/** A tool call's arguments from the JSON streamed so far, partial objects included. */
+const streamedArguments = (json: string, fallback: JsonObject): JsonObject =>
+  json === "" ? fallback : (toJsonObject(parseStreamingJson(json)) ?? fallback);
 
 const describeBlock = (block: TurnBlock): string =>
   block.type === "toolCall" ? `toolCall[${block.id}]` : block.type;
@@ -105,7 +100,8 @@ export class Turn {
   constructor(
     private readonly model: Model<Api>,
     readonly stream: AssistantMessageEventStream,
-    private readonly toPi: ReadonlyMap<string, string>,
+    /** The pi names of the tools the query serves. */
+    private readonly served: ReadonlySet<string>,
   ) {
     this.output = newAssistantOutput(model, "stop");
   }
@@ -246,7 +242,7 @@ export class Turn {
         } else if (block.type === "thinking") {
           opened = { type: "thinking", thinking: "", thinkingSignature: "" };
         } else if (block.type === "tool_use") {
-          const name = piToolNameFor(block.name, this.toPi);
+          const name = piToolName(block.name, this.served);
 
           if (name === undefined) {
             debug(`turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`);
@@ -305,7 +301,7 @@ export class Turn {
           });
         } else if (delta.type === "input_json_delta" && block.type === "toolCall") {
           open.partialJson += delta.partial_json;
-          block.arguments = parsePartialJson(open.partialJson, block.arguments);
+          block.arguments = streamedArguments(open.partialJson, block.arguments);
           this.push({
             type: "toolcall_delta",
             contentIndex,
@@ -343,7 +339,7 @@ export class Turn {
           this.sawToolCall = true;
           block.arguments = mapToolArgs(
             block.name,
-            parsePartialJson(open.partialJson, block.arguments),
+            streamedArguments(open.partialJson, block.arguments),
           );
           this.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: output });
         }
@@ -430,7 +426,7 @@ export class Turn {
 
         this.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: output });
       } else if (block.type === "tool_use") {
-        const name = piToolNameFor(block.name, this.toPi);
+        const name = piToolName(block.name, this.served);
 
         if (name === undefined) {
           debug(`turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`);

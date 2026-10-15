@@ -28,13 +28,14 @@ import { conversationFor, ephemeralConversation, notifySession, settled } from "
 import type { Conversation } from "./conversations.js";
 import { cliDebugOptions, debug, diagDump, errorMessage } from "./log.js";
 import { syncState } from "./machine/conversation.js";
-import { createToolServer, jsonSchema } from "./mcp-server.js";
+import { createToolServer } from "./mcp-server.js";
 import {
   applyLongContext,
   catalogModels,
   claudeCodeModelId,
   effortForReasoning,
 } from "./models.js";
+import { toJsonObject } from "./json.js";
 import { forwardedPrompt, toBridgeContext } from "./prompt.js";
 import type { BridgeContext } from "./prompt.js";
 import { makePromptStream, userMessage } from "./query/prompt-stream.js";
@@ -42,22 +43,18 @@ import { PROVIDER_ID } from "./session/convert.js";
 import { sessionCwdFor } from "./session/cwd.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
 import { matchedPrefix, plan, queryKey } from "./sync.js";
-import type { Plan, RebuildReason } from "./sync.js";
+import type { Plan } from "./sync.js";
 import { MCP_SERVER_NAME, resolveServedTools } from "./tools.js";
 import type { ServedTools } from "./tools.js";
 import { Turn } from "./translate.js";
-import { steerBlocks, turnStart } from "./turn.js";
+import { turnStart, userTurnBlocks } from "./turn.js";
 
-/** The prompt a query opens with when pi's turn goes on from a tool result after its
- *  history was rewritten: query() cannot resume a session without a prompt. */
-export const CONTINUE_AFTER_REWRITE_PROMPT =
-  "[Your context was compacted. What precedes this is a summary plus the most recent messages, " +
-  "ending with the tool result you were waiting for. Continue the task from there.]";
-
-/** The same, when no query was parked on the result (a restart, a failed query). */
-export const CONTINUE_AFTER_RESUME_PROMPT =
-  "[Your session was interrupted and resumed. What precedes this ends with the tool result " +
-  "you were waiting for. Continue the task from there.]";
+/** The prompt a query opens with when pi's turn goes on from a tool result no query was
+ *  waiting on (a rewritten history, a restart, a failed query): query() cannot resume a
+ *  session without a prompt. */
+export const CONTINUE_PROMPT =
+  "[Your session was restarted from its history. What precedes this ends with the tool " +
+  "result you were waiting for. Continue the task from there.]";
 
 export interface ProviderDeps {
   runQuery: QueryFunction;
@@ -81,7 +78,7 @@ export function streamClaudeCode(
 ): AssistantMessageEventStream {
   const context = toBridgeContext(transcript);
   const served = resolveServedTools(context.tools, deps.toolGuidelines());
-  const turn = new Turn(model, createAssistantMessageEventStream(), served.toPi);
+  const turn = new Turn(model, createAssistantMessageEventStream(), served.names);
 
   const key = queryKey(
     context,
@@ -205,20 +202,13 @@ async function serve(request: Request): Promise<void> {
     {
       priors: decision.priors,
       cwd,
-      toSdk: request.served.toSdk,
       modelId: claudeCodeModelId(request.model.id),
       previous: state.session,
     },
     (message) => notifySession(piSession, message),
   );
 
-  startQuery(request, conversation, {
-    systemPrompt,
-    cwd,
-    resume,
-    turn: decision.turn,
-    reason: decision.reason,
-  });
+  startQuery(request, conversation, { systemPrompt, cwd, resume, turn: decision.turn });
 }
 
 /** A request that is no session's conversation: a summary, an extension's one-off, or a
@@ -238,7 +228,6 @@ async function runOneOff(request: Request): Promise<void> {
     {
       priors: context.messages.slice(0, start),
       cwd,
-      toSdk: unserved.served.toSdk,
       modelId: claudeCodeModelId(request.model.id),
       previous: undefined,
     },
@@ -274,8 +263,6 @@ interface QueryStart {
   resume: string | undefined;
   /** The messages the query sends as its prompt. */
   turn: readonly Message[];
-  /** Why the session was rebuilt, when it was. */
-  reason?: RebuildReason;
 }
 
 function startQuery(request: Request, conversation: Conversation, start: QueryStart): void {
@@ -346,17 +333,15 @@ function startQuery(request: Request, conversation: Conversation, start: QuerySt
 
 /** The query's prompt: the user turn, or word of why the turn goes on without one. */
 function firstMessage(context: BridgeContext, start: QueryStart): SDKUserMessage {
-  const blocks = steerBlocks(start.turn);
+  const blocks = userTurnBlocks(start.turn);
 
   if (blocks !== undefined) return userMessage(blocks);
 
-  return userMessage([{ type: "text", text: continuePrompt(context, start.reason) }]);
+  return userMessage([{ type: "text", text: continuePrompt(context) }]);
 }
 
-function continuePrompt(context: BridgeContext, reason: RebuildReason | undefined): string {
-  if (context.messages.at(-1)?.role === "toolResult") {
-    return reason === "diverged" ? CONTINUE_AFTER_REWRITE_PROMPT : CONTINUE_AFTER_RESUME_PROMPT;
-  }
+function continuePrompt(context: BridgeContext): string {
+  if (context.messages.at(-1)?.role === "toolResult") return CONTINUE_PROMPT;
 
   diagDump("empty_prompt", {
     contextLength: context.messages.length,
@@ -381,7 +366,7 @@ function toolServers(
     served.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: jsonSchema(tool.name, tool.parameters),
+      inputSchema: toJsonObject(tool.parameters) ?? {},
       handler: (toolCallId: string) =>
         new Promise((resolve) => {
           conversation.send({ type: "cc.toolCall", id: toolCallId, resolve });

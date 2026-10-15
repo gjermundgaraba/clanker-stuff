@@ -2,7 +2,7 @@ import type { ImageContent, Message, TextContent, UserMessage } from "@earendil-
 import { describe, expect, it } from "vite-plus/test";
 
 import { newAssistantOutput } from "../translate.js";
-import { extractUserPrompt, extractUserPromptBlocks, steerBlocks, turnStart } from "../turn.js";
+import { turnStart, userTurnBlocks } from "../turn.js";
 
 import { testModel } from "./helpers.js";
 
@@ -39,28 +39,13 @@ describe("turnStart", () => {
   });
 });
 
-describe("extractUserPrompt", () => {
-  it("joins the current turn's non-empty texts", () => {
-    const messages = [
+describe("userTurnBlocks", () => {
+  it("keeps the text and images of the trailing run of user messages", () => {
+    const blocks = userTurnBlocks([
       user("earlier"),
       assistant("answer"),
       user([text("describe this"), image("aW1hZ2U=")]),
       user(""),
-      user("(attachment preview)"),
-    ];
-
-    expect(extractUserPrompt(messages)).toBe("describe this\n(attachment preview)");
-  });
-
-  it("has no prompt when the last message is not a user one", () => {
-    expect(extractUserPrompt([user("q"), assistant("a")])).toBeUndefined();
-  });
-});
-
-describe("extractUserPromptBlocks", () => {
-  it("keeps images and text from the trailing run of user messages", () => {
-    const blocks = extractUserPromptBlocks([
-      user([text("describe this"), image("aW1hZ2U=")]),
       user("(attachment preview: [#image 1])"),
     ]);
 
@@ -71,41 +56,19 @@ describe("extractUserPromptBlocks", () => {
     ]);
   });
 
-  it("does not reach past the current user turn", () => {
-    const blocks = extractUserPromptBlocks([
-      user([image("b2xk")]),
-      assistant("done"),
-      user("next turn"),
-    ]);
-
-    expect(blocks).toBeUndefined();
-  });
-
-  // Data-less image blocks occur in the wild.
-  it("skips malformed image blocks instead of throwing", () => {
-    const blocks = extractUserPromptBlocks([user([text("look"), image(""), image("aW1hZ2U=")])]);
-
-    expect(blocks).toEqual([{ type: "text", text: "look" }, pngBlock("aW1hZ2U=")]);
-  });
-
-  it("skips images Claude cannot take and falls back to text without others", () => {
-    const messages = [user([text("look"), image("aW1hZ2U=", "image/tiff")])];
-
-    expect(extractUserPromptBlocks(messages)).toBeUndefined();
-    expect(steerBlocks(messages)).toEqual([{ type: "text", text: "look" }]);
-  });
-});
-
-describe("steerBlocks", () => {
-  it("keeps a steer's image", () => {
-    expect(steerBlocks([user([text("this one"), image("aW1hZ2U=")])])).toEqual([
-      { type: "text", text: "this one" },
-      pngBlock("aW1hZ2U="),
+  // Data-less image blocks occur in the wild, and the API rejects other media types.
+  it("marks an image Claude cannot take instead of sending it", () => {
+    expect(
+      userTurnBlocks([user([text("look"), image(""), image("aW1hZ2U=", "image/tiff")])]),
+    ).toEqual([
+      { type: "text", text: "look" },
+      { type: "text", text: "[image]" },
+      { type: "text", text: "[image]" },
     ]);
   });
 
-  it("has nothing to steer with for an empty or absent user turn", () => {
-    expect(steerBlocks([user("")])).toBeUndefined();
-    expect(steerBlocks([user("q"), assistant("a")])).toBeUndefined();
+  it("has nothing for an empty or absent user turn", () => {
+    expect(userTurnBlocks([user("")])).toBeUndefined();
+    expect(userTurnBlocks([user("q"), assistant("a")])).toBeUndefined();
   });
 });

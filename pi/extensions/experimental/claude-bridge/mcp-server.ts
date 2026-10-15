@@ -19,7 +19,7 @@ import type { JsonObject, JsonValue, ToolResultMessage } from "@earendil-works/p
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-import { isJsonArray, isJsonObject, toJsonValue } from "./json.js";
+import { isJsonArray, isJsonObject } from "./json.js";
 
 // Claude Code stamps every tools/call with the id of the tool_use block it came from.
 // That is the only reliable pairing: call order need not match the order the blocks
@@ -55,23 +55,9 @@ export function toolResultToMcpContent(content: ToolResultMessage["content"]): M
 export interface McpToolDef {
   name: string;
   description: string;
-  /** The tool's JSON Schema, decoded from pi's TypeBox parameters by `jsonSchema`. */
+  /** The tool's JSON Schema: pi's TypeBox parameters as plain JSON. */
   inputSchema: JsonObject;
   handler: (toolCallId: string) => Promise<McpResult>;
-}
-
-/** MCP requires an object schema. A scalar or array one typechecks in pi but cannot go
- *  on the wire; reporting it at startup names the culprit tool. */
-export function jsonSchema(toolName: string, parameters: unknown): JsonObject {
-  const schema = toJsonValue(parameters);
-
-  if (!isJsonObject(schema) || schema.type !== "object") {
-    throw new Error(
-      `${toolName}: MCP tool parameters must be an object schema, got ${JSON.stringify(schema)}`,
-    );
-  }
-
-  return schema;
 }
 
 // Claude Code drops an MCP tool outright when its input schema has a top-level
@@ -214,6 +200,9 @@ export function createToolServer(
         description: [note, tool.description]
           .filter((part) => part !== undefined && part !== "")
           .join("\n\n"),
+        // MCP requires an object schema. A union's flattening already is one; anything
+        // else is served as an object, the way pi's own Anthropic provider serves it,
+        // rather than failing every turn over one tool.
         inputSchema: { ...schema, type: "object" as const },
       };
     }),

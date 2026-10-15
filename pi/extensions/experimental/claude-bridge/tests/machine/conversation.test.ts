@@ -31,7 +31,7 @@ import type { FakeQuery } from "../helpers.js";
 
 const model = testModel();
 
-const { toPi } = resolveServedTools([
+const { names: served } = resolveServedTools([
   { name: "read", description: "Read a file", parameters: Type.Object({}) },
 ]);
 
@@ -87,7 +87,7 @@ function conversation(ignoresClose = false) {
   const turn = (): { turn: Turn; pi: RecordingStream } => {
     const pi = recordingStream();
 
-    return { turn: new Turn(model, pi.stream, toPi), pi };
+    return { turn: new Turn(model, pi.stream, served), pi };
   };
 
   /** Start a query for `prompt`, the way the provider does. */
@@ -235,7 +235,7 @@ it("fails the turn when the query cannot start", async () => {
 
   actor.send({
     type: "pi.start",
-    turn: new Turn(model, pi.stream, toPi),
+    turn: new Turn(model, pi.stream, served),
     params: { prompt: "read a", options: {} },
     promptStream: makePromptStream(),
     key: "key",

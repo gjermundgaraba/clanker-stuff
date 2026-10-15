@@ -27,10 +27,8 @@ import {
 
 const MCP = "mcp__custom-tools__";
 
-const convert = (
-  messages: readonly Message[],
-  toSdk: ReadonlyMap<string, string> = new Map(),
-): SessionMessage[] => convertPiMessages(messages, toSdk).anthropicMessages;
+const convert = (messages: readonly Message[]): SessionMessage[] =>
+  convertPiMessages(messages).anthropicMessages;
 
 const toolUse = (id: string, name: string, input: unknown = {}): ContentBlock => ({
   type: "tool_use",
@@ -228,18 +226,13 @@ describe("message structure", () => {
   });
 
   it("converts a mixed conversation, naming the call after the served tool", () => {
-    const served = new Map([["read", `${MCP}read`]]);
-
     expect(
-      convert(
-        [
-          user("read file.txt"),
-          assistant([toolCall("call1", "read", { path: "file.txt" })]),
-          toolResult("call1", "hello world"),
-          assistant([text("The file says hello world.")]),
-        ],
-        served,
-      ),
+      convert([
+        user("read file.txt"),
+        assistant([toolCall("call1", "read", { path: "file.txt" })]),
+        toolResult("call1", "hello world"),
+        assistant([text("The file says hello world.")]),
+      ]),
     ).toEqual([
       { role: "user", content: "read file.txt" },
       { role: "assistant", content: [toolUse("call1", `${MCP}read`, { path: "file.txt" })] },
@@ -262,41 +255,36 @@ describe("message structure", () => {
     ]);
   });
 
-  it("falls back to [image] when no user block survives", () => {
-    expect(convert([user([text("")])])).toEqual([{ role: "user", content: "[image]" }]);
+  it("replaces a user message with no content left with [empty]", () => {
+    expect(convert([user([text("")])])).toEqual([{ role: "user", content: "[empty]" }]);
+  });
+
+  // The same blocks a prompt gets: an image the API rejects would fail every later turn.
+  it("marks a user image Claude cannot take", () => {
+    expect(convert([user([text("look"), image("BASE64DATA", "image/tiff")])])).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look" },
+          { type: "text", text: "[image]" },
+        ],
+      },
+    ]);
   });
 
   // The query runs with `tools: []`, so no name in the transcript may look like a Claude
-  // Code builtin: that is what makes the model call one it cannot call. A tool missing
-  // from the map is one pi ran that is no longer served, not a builtin.
-  it("keeps unserved pi tools in the MCP namespace", () => {
-    const served = new Map([["read", `${MCP}read`]]);
-
-    const [message] = convert(
-      [assistant([toolCall("a", "read"), toolCall("b", "bash"), toolCall("c", "my_custom_tool")])],
-      served,
-    );
+  // Code builtin: that is what makes the model call one it cannot call. A tool pi ran
+  // that is no longer served is still a pi tool.
+  it("names every call in the MCP namespace, never after a Claude Code builtin", () => {
+    const [message] = convert([
+      assistant([toolCall("a", "read"), toolCall("b", "bash"), toolCall("c", "my_custom_tool")]),
+    ]);
 
     expect(message?.content).toEqual([
       toolUse("a", `${MCP}read`),
       toolUse("b", `${MCP}bash`),
       toolUse("c", `${MCP}my_custom_tool`),
     ]);
-  });
-
-  it("never names a call after a Claude Code builtin", () => {
-    const [message] = convert([assistant([toolCall("a", "read"), toolCall("b", "bash")])]);
-
-    expect(message?.content).toEqual([toolUse("a", `${MCP}read`), toolUse("b", `${MCP}bash`)]);
-  });
-
-  it("rejects an SDK name in pi history as a double mapping", () => {
-    const messages = [assistant([toolCall("a", `${MCP}bash`)])];
-
-    expect(() => convert(messages)).toThrow(/already an SDK tool name/);
-    expect(() => convert(messages, new Map([["bash", `${MCP}bash`]]))).toThrow(
-      /already an SDK tool name/,
-    );
   });
 
   it("joins text tool-result blocks with newlines", () => {
@@ -476,14 +464,11 @@ describe("aborted assistant turns", () => {
 
 describe("dropped-content accounting", () => {
   it("counts stripped thinking by provider and aborted turns", () => {
-    const { dropped } = convertPiMessages(
-      [
-        assistant([thinking("reasoning"), text("the answer")], "openrouter"),
-        assistant([]),
-        assistant([thinking("mine", "sig")]),
-      ],
-      new Map(),
-    );
+    const { dropped } = convertPiMessages([
+      assistant([thinking("reasoning"), text("the answer")], "openrouter"),
+      assistant([]),
+      assistant([thinking("mine", "sig")]),
+    ]);
 
     expect(dropped.thinking).toBe(1);
     expect([...dropped.providers]).toEqual(["openrouter"]);
@@ -492,10 +477,7 @@ describe("dropped-content accounting", () => {
   });
 
   it("reports nothing when everything converts", () => {
-    const { dropped } = convertPiMessages(
-      [user([text("hi")]), assistant([text("hello")])],
-      new Map(),
-    );
+    const { dropped } = convertPiMessages([user([text("hi")]), assistant([text("hello")])]);
 
     expect(dropped).toEqual({
       thinking: 0,
@@ -535,7 +517,7 @@ function stableRecord(record: JsonlRecord): string {
 
 /** The whole write path reduced to the record content the prompt cache is keyed on. */
 function transcript(messages: readonly Message[]): string[] {
-  const repaired = repairToolPairing(convertPiMessages(messages, new Map()).anthropicMessages);
+  const repaired = repairToolPairing(convertPiMessages(messages).anthropicMessages);
   const session = createSession({ projectPath: process.cwd() });
 
   if (repaired.length > 0) session.importMessages(repaired);
@@ -704,7 +686,7 @@ describe("rebuilds extend the transcript instead of rewriting it", () => {
 // pass has to be a no-op or every rebuild would differ from the transcript the debug
 // log reports.
 it("repairToolPairing is idempotent over a converted session", () => {
-  const once = repairToolPairing(convertPiMessages(corpus, new Map()).anthropicMessages);
+  const once = repairToolPairing(convertPiMessages(corpus).anthropicMessages);
 
   expect(repairToolPairing(once)).toEqual(once);
 });
@@ -713,9 +695,7 @@ it("repairToolPairing is idempotent over a converted session", () => {
 // pin the content too: a conversion that dropped every parallel result past the first
 // passed both invariants above.
 it("round-trips a real session with every tool result intact", () => {
-  const blocks = toolResultBlocks(
-    repairToolPairing(convertPiMessages(corpus, new Map()).anthropicMessages),
-  );
+  const blocks = toolResultBlocks(repairToolPairing(convertPiMessages(corpus).anthropicMessages));
 
   const expected = corpus.flatMap((message) =>
     message.role === "toolResult" ? [message.toolCallId] : [],
