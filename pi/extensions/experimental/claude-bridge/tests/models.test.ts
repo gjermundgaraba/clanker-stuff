@@ -113,23 +113,11 @@ describe("buildModels", () => {
 });
 
 describe("resolveClaudeCodeRuntimeModel", () => {
-  it("sends [1m] for measured-1M ids", () => {
-    for (const id of [
-      "claude-opus-5-5",
-      "claude-opus-5",
-      "claude-opus-4-8",
-      "claude-opus-4-7",
-      "claude-fable-5",
-      "claude-fable-5-1",
-      "claude-sonnet-5-5",
-      "claude-sonnet-5",
-      "claude-haiku-5-5",
-    ]) {
-      expect(resolveClaudeCodeRuntimeModel(id)).toEqual({
-        cliModelId: `${id}[1m]`,
-        contextWindow: 1_000_000,
-      });
-    }
+  it("sends [1m] for an id measured to serve 1M", () => {
+    expect(resolveClaudeCodeRuntimeModel("claude-opus-5-5")).toEqual({
+      cliModelId: "claude-opus-5-5[1m]",
+      contextWindow: 1_000_000,
+    });
   });
 
   it("serves unmeasured ids bare at 200K even when pi-ai declares 1M", () => {

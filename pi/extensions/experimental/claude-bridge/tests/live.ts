@@ -62,10 +62,12 @@ export function liveEnvironment(): { log: DebugLog; restore: () => void } {
     CLAUDE_BRIDGE_DEBUG_PATH: logPath,
   });
 
+  // Marks are byte offsets, so the log is sliced as bytes before it is decoded.
   const log: DebugLog = {
     path: logPath,
     mark: () => (existsSync(logPath) ? statSync(logPath).size : 0),
-    since: (mark) => (existsSync(logPath) ? readFileSync(logPath, "utf8").slice(mark) : ""),
+    since: (mark) =>
+      existsSync(logPath) ? readFileSync(logPath).subarray(mark).toString("utf8") : "",
   };
 
   return {

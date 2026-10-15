@@ -224,11 +224,11 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
 
       expect(expectAnswer(live.h).toLowerCase()).toContain("kiwi");
 
-      // No tool boundary to steer at, and the query's input has already ended.
+      // No tool boundary to steer at: the steer waits for the next turn.
       const written = log.since(mark);
 
-      expect(written).not.toContain("steer written to CC stdin");
-      expect(written).not.toContain("steer push rejected");
+      expect(written).not.toContain("steer written to Claude Code's stdin");
+      expect(written).not.toContain("steer never reached Claude Code");
     },
     LIVE_TIMEOUT,
   );

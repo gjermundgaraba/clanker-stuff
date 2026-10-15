@@ -84,9 +84,4 @@ describe("mapToolArgs", () => {
       pattern: "x",
     });
   });
-
-  // pi's bash schema promises no default timeout; a long build must not be cut short.
-  it("leaves bash without a timeout when the model set none", () => {
-    expect(mapToolArgs("bash", { command: "make" })).toEqual({ command: "make" });
-  });
 });

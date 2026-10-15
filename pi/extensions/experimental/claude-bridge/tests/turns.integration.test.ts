@@ -195,11 +195,11 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       expect(third.toLowerCase()).toContain("tamarind");
       expect(third.toLowerCase()).toContain("zeppelin");
 
-      // Returning after turns Claude Code missed rewrites the session under the same id.
+      // Returning after turns Claude Code missed writes a new session from pi's history.
       const [resumed] = syncLines(log.since(mark));
 
       expect(resumed).toEqual({ kind: "rebuild", reason: "tail" });
-      expect(sessionIds(log.since(mark)).at(-1)).toBe(importedSession);
+      expect(sessionIds(log.since(mark)).at(-1)).not.toBe(importedSession);
     },
     LIVE_TIMEOUT,
   );

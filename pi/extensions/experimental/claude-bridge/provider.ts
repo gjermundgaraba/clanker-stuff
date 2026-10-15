@@ -2,8 +2,8 @@
 //
 // Each call finds its pi session's conversation, decides from pi's history what the call
 // is (sync.ts), and hands it to the conversation machine: tool results to the query
-// parked on them, or a new query that resumes or rebuilds Claude Code's session. Streams
-// hold no state, so every evaluation registers and pi may call any of them.
+// parked on them, or a new query that resumes or rebuilds Claude Code's session. A
+// request that is no session's conversation runs as a one-off.
 
 import type {
   McpSdkServerConfigWithInstance,
@@ -23,9 +23,8 @@ import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { waitFor } from "xstate";
 
 import { childEnv } from "./child.js";
-import type { QueryFunction } from "./child.js";
-import { conversationFor, ephemeralConversation, notifySession, settled } from "./conversations.js";
-import type { Conversation } from "./conversations.js";
+import { settled } from "./sessions.js";
+import type { Conversation, Sessions } from "./sessions.js";
 import { cliDebugOptions, debug, diagDump, errorMessage } from "./log.js";
 import { syncState } from "./machine/conversation.js";
 import { createToolServer } from "./mcp-server.js";
@@ -40,7 +39,6 @@ import { forwardedPrompt, toBridgeContext } from "./prompt.js";
 import type { BridgeContext } from "./prompt.js";
 import { makePromptStream, userMessage } from "./query/prompt-stream.js";
 import { PROVIDER_ID } from "./session/convert.js";
-import { sessionCwdFor } from "./session/cwd.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
 import { matchedPrefix, plan, queryKey } from "./sync.js";
 import type { Plan } from "./sync.js";
@@ -57,7 +55,8 @@ export const CONTINUE_PROMPT =
   "result you were waiting for. Continue the task from there.]";
 
 export interface ProviderDeps {
-  runQuery: QueryFunction;
+  /** The pi sessions this load of the extension serves, and how it starts queries. */
+  sessions: Sessions;
   /** Each pi tool's prompt guidelines by name, appended to its MCP description. */
   toolGuidelines: () => ReadonlyMap<string, readonly string[]>;
 }
@@ -125,7 +124,7 @@ async function serve(request: Request): Promise<void> {
     return;
   }
 
-  const conversation = conversationFor(piSession, request.deps.runQuery);
+  const conversation = request.deps.sessions.conversation(piSession);
   const snapshot = await settled(conversation);
   const state = syncState(snapshot);
 
@@ -185,7 +184,7 @@ async function serve(request: Request): Promise<void> {
 
   if (snapshot.matches("active")) conversation.send({ type: "pi.discard" });
 
-  const cwd = sessionCwdFor(piSession);
+  const cwd = request.deps.sessions.cwd(piSession);
 
   if (decision.kind === "resume") {
     startQuery(request, conversation, {
@@ -217,7 +216,7 @@ async function runOneOff(request: Request): Promise<void> {
   const { context, options } = request;
   const system = forwardedPrompt(context.system);
   const piSession = options?.sessionId;
-  const cwd = sessionCwdFor(piSession);
+  const cwd = request.deps.sessions.cwd(piSession);
   const start = turnStart(context.messages);
   const unserved: Request = { ...request, served: resolveServedTools([]) };
 
@@ -228,7 +227,7 @@ async function runOneOff(request: Request): Promise<void> {
     previous: undefined,
   });
 
-  const conversation = ephemeralConversation(request.deps.runQuery, piSession);
+  const conversation = request.deps.sessions.ephemeral(piSession);
 
   startQuery(unserved, conversation, {
     systemPrompt: system,

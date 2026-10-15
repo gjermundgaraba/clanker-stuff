@@ -1,19 +1,21 @@
+import { appendFileSync } from "node:fs";
+
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { QueryFunction } from "./child.js";
-import { endConversation, notifySession } from "./conversations.js";
 import { providerConfig } from "./provider.js";
 import { PROVIDER_ID } from "./session/convert.js";
-import { forgetSessionCwd, rememberSessionCwd } from "./session/cwd.js";
-import { shared } from "./shared.js";
+import { Sessions } from "./sessions.js";
 
 /** The extension, with the Agent SDK's query() replaceable for tests. */
 export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) => void {
   return (pi) => {
+    const sessions = new Sessions(runQuery);
+
     // The `claude-bridge` provider: Claude Code models served through the Agent SDK.
     const config = providerConfig({
-      runQuery,
+      sessions,
       toolGuidelines: () =>
         new Map(pi.getAllTools().map((tool) => [tool.name, tool.promptGuidelines ?? []])),
     });
@@ -23,11 +25,10 @@ export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) 
     pi.on("session_start", (_event, ctx) => {
       const sessionId = ctx.sessionManager.getSessionId();
 
-      rememberSessionCwd(sessionId, ctx.cwd);
-      shared().uis.set(sessionId, ctx.ui);
+      sessions.start(sessionId, ctx.cwd, ctx.ui);
 
       if (config.models?.length === 0) {
-        notifySession(
+        sessions.notify(
           sessionId,
           "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai",
         );
@@ -35,13 +36,34 @@ export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) 
     });
 
     pi.on("session_shutdown", (_event, ctx) => {
-      const sessionId = ctx.sessionManager.getSessionId();
-
-      endConversation(sessionId);
-      forgetSessionCwd(sessionId);
-      shared().uis.delete(sessionId);
+      sessions.end(ctx.sessionManager.getSessionId());
     });
   };
 }
 
-export default createClaudeBridge(query);
+/** CLAUDE_BRIDGE_RECORD_STREAM=<path> appends every SDK message as a JSON line, for
+ *  capturing replay fixtures of what Claude Code really emits. */
+function recording(run: QueryFunction, recordPath: string): QueryFunction {
+  return (params) => {
+    const sdkQuery = run(params);
+
+    return {
+      interrupt: () => sdkQuery.interrupt(),
+      close: () => {
+        sdkQuery.close();
+      },
+      async *[Symbol.asyncIterator]() {
+        for await (const message of sdkQuery) {
+          appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
+          yield message;
+        }
+      },
+    };
+  };
+}
+
+const recordPath = process.env.CLAUDE_BRIDGE_RECORD_STREAM;
+
+export default createClaudeBridge(
+  recordPath === undefined || recordPath === "" ? query : recording(query, recordPath),
+);

@@ -18,7 +18,6 @@
   },
   "files": [
     "child.ts",
-    "conversations.ts",
     "docs",
     "index.ts",
     "json.ts",
@@ -30,7 +29,7 @@
     "provider.ts",
     "query",
     "session",
-    "shared.ts",
+    "sessions.ts",
     "sync.ts",
     "tools.ts",
     "translate.ts",

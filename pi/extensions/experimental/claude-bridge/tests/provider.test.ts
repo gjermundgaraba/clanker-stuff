@@ -21,8 +21,7 @@ import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
 import { CONTINUE_PROMPT, streamClaudeCode } from "../provider.js";
 import { PI_PREAMBLE } from "../prompt.js";
-import { forgetSessionCwd, rememberSessionCwd } from "../session/cwd.js";
-import { shared } from "../shared.js";
+import { Sessions } from "../sessions.js";
 import { assistantMessage, init, successResult, textBlock } from "./fixtures/sdk.js";
 import { fakeQueryFunction, testModel, transcript } from "./helpers.js";
 import type { FakeQuery } from "./helpers.js";
@@ -79,22 +78,24 @@ beforeEach(async () => {
   configDir = await createTempDir("claude-bridge-config-");
   cwd = await createTempDir("claude-bridge-cwd-");
   restoreEnv = patchEnv({ CLAUDE_CONFIG_DIR: configDir });
-  rememberSessionCwd(SESSION, cwd);
 });
 
 afterEach(async () => {
-  for (const conversation of shared().conversations.values()) conversation.stop();
-
-  shared().conversations.clear();
-  forgetSessionCwd(SESSION);
+  sessions?.clear();
   restoreEnv();
   await rm(configDir, { recursive: true, force: true });
   await rm(cwd, { recursive: true, force: true });
 });
 
+let sessions: Sessions | undefined;
+
 function bridge() {
   const fake = fakeQueryFunction();
-  const deps = { runQuery: fake.run, toolGuidelines: () => new Map<string, string[]>() };
+
+  sessions = new Sessions(fake.run);
+  sessions.start(SESSION, cwd);
+
+  const deps = { sessions, toolGuidelines: () => new Map<string, string[]>() };
 
   /** One provider call, as pi makes it for this session. The messages are copies, as
    *  pi's are once it has stored them: the bridge may not rely on its own objects. */
@@ -431,7 +432,6 @@ describe("a one-off request", () => {
     expect(q.params.options.systemPrompt).toBe(SUMMARY_PROMPT);
     expect(q.params.options.resume).toBeUndefined();
     expect(await promptOf(q)).toEqual([{ type: "text", text: "Summarize the conversation." }]);
-    expect(shared().conversations.has(SESSION)).toBe(false);
 
     answer(q, "the summary", "cc-summary");
 
