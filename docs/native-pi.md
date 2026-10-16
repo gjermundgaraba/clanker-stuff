@@ -1,6 +1,6 @@
 # Native Pi baseline
 
-The workspace pins Pi **1.2.0**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
+The workspace pins Pi **1.3.0**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
 
 ## Local adoption
 
@@ -19,6 +19,8 @@ Use a fresh session or an explicit textual handoff from a retired-provider sessi
 Current evaluation conversion consumes native execution events only. It does not reconstruct retired V8 cells or interpret arbitrary tool-result trace fields. Historical reporting reads stored trajectories without rewriting archived raw logs or metrics. Exact native operation totals require closed invocation capture and matched execution records; incomplete capture retains observed lower bounds. Bounded argument/summary omission alone does not invalidate a complete execution-event capture.
 
 Native Code Mode uses QuickJS/WASM and its own result/error/resource semantics, not the custom host's guarantees. An offline real-session probe on **0.99.2** confirmed that unawaited nested work can be aborted but outer results can finalize before delayed cleanup returns usage. This native limitation is accepted without a local patch or second runtime. Await nested calls; that guidance does not itself guarantee settlement under script failure/cancellation.
+
+Pi limits native Code Mode to two live workers across all sessions in one process, including subagents. Cancelled workers retain their slots until they exit; a script result or sandbox close can settle before that exit. At capacity, new scripts fail immediately and may be retried after a worker exits. This is separate from the subagent runtime limit; no local worker scheduler overrides it.
 
 Native OpenAI subscription requests omit server output-token caps. Local output limits are not generation or billing ceilings. No live inference or backend-acceptance test was performed for this retirement.
 

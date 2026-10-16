@@ -6,7 +6,7 @@
 // A tool call ends the turn with `toolUse` so pi can run the tool, and the next provider
 // call opens a new turn.
 
-import { parseStreamingJson } from "@earendil-works/pi-ai";
+import { parseStreamingJson, parseToolCallArguments } from "@earendil-works/pi-ai";
 import type {
   Api,
   AssistantMessage,
@@ -347,10 +347,12 @@ export class Turn {
           });
         } else {
           this.sawToolCall = true;
-          block.arguments = mapToolArgs(
-            block.name,
-            streamedArguments(open.partialJson, block.arguments),
-          );
+
+          if (open.partialJson !== "") {
+            Object.assign(block, parseToolCallArguments(open.partialJson));
+          }
+
+          block.arguments = mapToolArgs(block.name, block.arguments);
           this.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: output });
         }
 

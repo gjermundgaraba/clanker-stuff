@@ -2,6 +2,7 @@
 // Claude Code emits; hand-built ones cover what cannot be recorded on demand: a stall, a
 // cut inside a tool call, a hallucinated tool name, a failure report.
 
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { JsonObject } from "@earendil-works/pi-ai";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Type } from "typebox";
@@ -323,6 +324,75 @@ describe("a tool call whose content_block_stop never arrived", () => {
     expect(turn.toolCallIds).toEqual(["toolu_whole"]);
     expect(turn.output.stopReason).toBe("toolUse");
     expect(pi.events.at(-1)?.type).toBe("done");
+  });
+});
+
+describe("completed tool-call arguments", () => {
+  it.each(['{"summary":"kept","other":', "[]", "null"])(
+    "reports malformed final input instead of executing its parsed prefix: %s",
+    (json) => {
+      const { turn, pi } = run(
+        [
+          messageStart("msg_invalid"),
+          toolUseStart(0, NOTIFY, "toolu_invalid"),
+          inputJsonDelta(0, json),
+          blockStop(0),
+          messageStop(),
+        ],
+        served("notify_parent"),
+      );
+
+      const [call] = toolCalls(turn);
+
+      if (call === undefined) throw new Error("Missing completed tool call");
+
+      expect(call.arguments).toEqual({});
+      expect(call.argumentsError).toContain(`Received arguments:\n${json}`);
+      expect(pi.events.find((event) => event.type === "toolcall_end")).toMatchObject({
+        toolCall: call,
+      });
+      // Even a schema accepting {} must reject the malformed call before execution.
+      expect(() => {
+        validateToolArguments(
+          { name: "notify_parent", description: "", parameters: Type.Object({}) },
+          call,
+        );
+      }).toThrow(`Received arguments:\n${json}`);
+    },
+  );
+
+  it("repairs invalid escapes before mapping the complete arguments", () => {
+    const { turn } = run([
+      messageStart("msg_repaired"),
+      toolUseStart(0, READ, "toolu_repaired"),
+      inputJsonDelta(0, String.raw`{"file_path":"\usepackage","limit":7}`),
+      blockStop(0),
+      messageStop(),
+    ]);
+
+    const [call] = toolCalls(turn);
+
+    expect(call?.arguments).toEqual({ path: String.raw`\usepackage`, limit: 7 });
+    expect(call?.argumentsError).toBeUndefined();
+  });
+
+  it("keeps initial input when no JSON deltas arrive", () => {
+    const start = toolUseStart(0, READ, "toolu_initial");
+
+    start.event = {
+      type: "content_block_start",
+      index: 0,
+      content_block: {
+        type: "tool_use",
+        id: "toolu_initial",
+        name: READ,
+        input: { file_path: "initial.txt" },
+      },
+    };
+
+    const { turn } = run([messageStart("msg_initial"), start, blockStop(0), messageStop()]);
+
+    expect(toolCalls(turn)[0]?.arguments).toEqual({ path: "initial.txt" });
   });
 });
 
