@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { UsageControllerDependencies } from "./controller.js";
+import { completeUsageArgs } from "./command.js";
 import { createUsageRuntime } from "./runtime.js";
 
 export const createUsageExtension = (dependencies?: UsageControllerDependencies) =>
@@ -9,6 +10,7 @@ export const createUsageExtension = (dependencies?: UsageControllerDependencies)
 
     pi.registerCommand("usage", {
       description: "Show account usage for supported providers",
+      getArgumentCompletions: completeUsageArgs,
       handler: (args, ctx) => runtime.runCommand(args, ctx),
     });
 

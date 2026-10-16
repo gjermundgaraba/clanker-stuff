@@ -6,6 +6,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { fuzzyFilter } from "@earendil-works/pi-tui";
 import { resolve } from "node:path";
 import { Value } from "typebox/value";
 import type { Unread } from "./notices.js";
@@ -191,6 +192,14 @@ export class TaskRuntime {
     const ancestors = new Set(ctx.sessionManager.getBranch().map((e) => e.id));
     await this.supervisor.discard((task) => !ancestors.has(task.spec.origin));
     this.schedule();
+  }
+  /** Retained tasks for `/tasks <id>`, matched by name since nobody recalls an ID; the ID is inserted. */
+  completions(prefix: string) {
+    return fuzzyFilter(this.supervisor.list(), prefix, (task) => task.spec.name).map((task) => ({
+      label: inlineText(task.spec.name),
+      value: task.id,
+      description: `${task.outcome ?? "running"} · ${task.id}`,
+    }));
   }
   /** Observational: human reads never clear agent notices. */
   async command(args: string, ctx: ExtensionCommandContext): Promise<void> {

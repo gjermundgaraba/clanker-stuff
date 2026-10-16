@@ -67,6 +67,27 @@ describe("native statuses", () => {
   });
 });
 
+describe("task completions", () => {
+  it("matches tasks by name only, inserting the ID and showing the inline name, status and ID", async () => {
+    const { runtime, start } = await setup();
+    const watch = await start(RESULT, "lint\nwatch");
+    const build = await start(RESULT, "build");
+    await expect.poll(() => [watch.outcome, build.outcome]).toEqual(["result", "result"]);
+
+    const item = (task: typeof watch, label: string) => ({
+      label,
+      value: task.id,
+      description: `result · ${task.id}`,
+    });
+
+    expect(runtime.completions("")).toEqual([item(watch, "lint watch"), item(build, "build")]);
+    // Hex characters in the other task's ID must not match.
+    expect(runtime.completions("b")).toEqual([item(build, "build")]);
+    expect(runtime.completions("watch")).toEqual([item(watch, "lint watch")]);
+    expect(runtime.completions("zzz")).toEqual([]);
+  });
+});
+
 describe("idle delivery", () => {
   it("sends one host-authored notice per update once idle, clearing what it announced", async () => {
     const { host, state, start } = await setup();

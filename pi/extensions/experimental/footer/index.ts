@@ -13,6 +13,7 @@ export default function footerExtension(
 
   pi.registerCommand("footer", {
     description: "Edit the footer layout as JSON, or reset or inspect it",
+    getArgumentCompletions: host.completions,
     handler: (args, ctx) => host.command(args, ctx),
   });
 

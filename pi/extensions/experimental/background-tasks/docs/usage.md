@@ -30,7 +30,7 @@ A successful `task_inspect` or `task_stop` clears that task's pending notificati
 Commands:
 
 - `/tasks`: one line per task.
-- `/tasks <id>`: that task's line, diagnostic and log tails.
+- `/tasks <id>`: that task's line, diagnostic and log tails. Retained tasks autocomplete by name.
 
 These commands are read-only. Ask the agent to stop a job when needed.
 

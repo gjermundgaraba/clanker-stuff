@@ -23,6 +23,17 @@ vi.mock(import("../controller.js"), () => ({
 }));
 
 describe("usage registration", () => {
+  it("offers refresh for an empty or fuzzy argument and nothing for a non-match", async () => {
+    const host = createExtensionHost(extension);
+    await host.ready;
+    const complete = host.getRegisteredCommands().get("usage")?.getArgumentCompletions;
+    const values = async (prefix: string) => (await complete?.(prefix))?.map((item) => item.value);
+
+    expect(await values("")).toEqual(["refresh"]);
+    expect(await values(" rf")).toEqual(["refresh"]);
+    expect(await values("x")).toEqual([]);
+  });
+
   it("does not finish loading after shutdown", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();

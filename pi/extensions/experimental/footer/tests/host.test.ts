@@ -249,6 +249,16 @@ describe("footer host", () => {
     expect(footer.render()).toBe("▸ /tmp/project");
   });
 
+  it("offers reset and inspect, narrowed by a fuzzy argument", async () => {
+    const footer = await start();
+    const complete = footer.host.getRegisteredCommands().get("footer")?.getArgumentCompletions;
+    const values = async (prefix: string) => (await complete?.(prefix))?.map((item) => item.value);
+
+    expect(await values("")).toEqual(["reset", "inspect"]);
+    expect(await values("ins")).toEqual(["inspect"]);
+    expect(await values("x")).toEqual([]);
+  });
+
   it("resets the saved layout to the default", async () => {
     const footer = await start({ config: withRows([{ left: ["footer.cwd"], right: [] }]) });
 

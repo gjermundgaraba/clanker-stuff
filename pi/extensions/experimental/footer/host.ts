@@ -6,7 +6,7 @@ import type {
   ExtensionContext,
   ReadonlyFooterDataProvider,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { fuzzyFilter, stripTerminalSequences } from "@earendil-works/pi-tui";
 
 import {
   DEFAULT_CONFIG,
@@ -327,7 +327,16 @@ export const createFooterHost = (
     active.border?.release();
   };
 
+  const ARGS = [
+    { value: "reset", description: "Restore the default layout" },
+    { value: "inspect", description: "Show each widget's value, placement, and recent errors" },
+  ];
+
+  const USAGE = `Usage: /footer [${ARGS.map((arg) => arg.value).join("|")}]`;
+
   return {
+    completions: (prefix: string) =>
+      fuzzyFilter(ARGS, prefix, (arg) => arg.value).map((arg) => ({ label: arg.value, ...arg })),
     command: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const active = runtime;
 
@@ -357,7 +366,7 @@ export const createFooterHost = (
         }
 
         default: {
-          ctx.ui.notify("Usage: /footer [reset|inspect]", "info");
+          ctx.ui.notify(USAGE, "info");
         }
       }
     },

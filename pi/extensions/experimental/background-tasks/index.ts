@@ -7,6 +7,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   registerTaskTools(pi, runtime);
   pi.registerCommand("tasks", {
     description: "List background tasks, or show one task's status and log tails",
+    getArgumentCompletions: (prefix) => runtime.completions(prefix),
     handler: (args, ctx) => runtime.command(args, ctx),
   });
   pi.on("session_start", (_event, ctx) => runtime.startSession(ctx));

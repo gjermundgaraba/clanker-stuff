@@ -12,6 +12,7 @@ import { fetchZaiUsage } from "./adapters/zai.js";
 import { contextAuth } from "./auth.js";
 import type { GetAuth } from "./auth.js";
 import { UsageCache } from "./cache.js";
+import { parseUsageArgs } from "./command.js";
 import { formatDetail, formatProviderError, formatRefreshFailed } from "./format.js";
 import { defaultFetchJson } from "./http.js";
 import {
@@ -80,20 +81,6 @@ const defaultDependencies: UsageControllerDependencies = {
   fetchJson: defaultFetchJson,
   now: Date.now,
   getAuth: contextAuth,
-};
-
-const parseUsageArgs = (
-  args: string,
-): { ok: true; refresh: boolean } | { ok: false; message: string } => {
-  const command = args.trim();
-
-  if (command === "") {
-    return { ok: true, refresh: false };
-  }
-
-  return command === "refresh"
-    ? { ok: true, refresh: true }
-    : { message: "usage: expected /usage [refresh]", ok: false };
 };
 
 export const createUsageController = (
