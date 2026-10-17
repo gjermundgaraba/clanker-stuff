@@ -50,7 +50,7 @@ The first restates rule 6. The rest stay distinct from the rules: a project can 
 
 ## Dependencies
 
-[DEPENDENCIES.md](references/DEPENDENCIES.md) holds the dependency rules: peers and their ranges for a published library, exact pins for a published CLI, and the workspace's package-manager declaration, release-age gate, Vite+ toolchain pins and Actions pins, each with its standing, plus the upgrade order. Read it when adding or changing a dependency declaration, setting up a workspace, upgrading dependencies, or reviewing any of these. It is independent of the layout: a project can follow either without the other.
+[DEPENDENCIES.md](references/DEPENDENCIES.md) holds the dependency rules: peers and their ranges for a published library, exact pins for a published CLI, and the workspace's package-manager declaration, release-age gate, Vite+ toolchain pins, Actions pins, Node version and Dockerfiles, each with its standing, plus the upgrade order. Read it when adding or changing a dependency declaration, setting up a workspace, upgrading dependencies, or reviewing any of these. It is independent of the layout: a project can follow either without the other.
 
 ## Modes
 
