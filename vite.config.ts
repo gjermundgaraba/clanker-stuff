@@ -38,7 +38,7 @@ export default defineConfig({
       "check:tests": { command: "node ./scripts/check-tests.ts" },
       "check:skills": {
         command:
-          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/librarian/tests",
+          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/librarian/tests && python3 -B -m unittest discover -s skills/tui-ux-tester/scripts",
       },
       ready: {
         cache: false,
