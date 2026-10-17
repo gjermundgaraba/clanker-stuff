@@ -62,7 +62,8 @@ Use the tester skill's scripts (resolve its folder with `readlink -f`):
 2. **Brief the testers.** Fill in [the brief template](references/brief-template.md), with the
    probes in a file of their own. Measure
    every number you quote, including ones from the project note (older ones may be pane
-   rectangles), and try every key or behaviour you describe in each layout testers will use; if
+   rectangles), and try every key or behaviour you describe, including how to reach the state it
+   needs, in each layout testers will use; if
    it differs by layout, say so. Check settings that make the app start costly actions on its own,
    and state their values. Then launch both testers as
    [references/lifecycle.md](references/lifecycle.md) describes and wait for their reports.
@@ -87,7 +88,8 @@ Use the tester skill's scripts (resolve its folder with `readlink -f`):
    actions used of those allowed); what was fixed and verified, and how; what the testers found;
    the decisions the user needs to make; what wasn't done or verified; skill edits, separately
    from app changes. Report failures plainly, with secrets redacted.
-6. **Close out.** Quit the apps, close every tab you created, delete or reset the sandboxes, and
+6. **Close out.** Quit the apps, close every tab you created, copy anything costly the next
+   round can reuse (paid results) out of the sandboxes as a seed, delete or reset them, and
    update the project note: the commit or build tested (`git rev-parse HEAD`, plus `git diff
    --stat` if dirty), what was fixed, each decision with the user's answer, and what is open.
 

@@ -6,6 +6,12 @@ usage:
   python3 -I pane.py size <pane> full             close the spacers and give the pane the whole tab
   python3 -I pane.py capture <pane> <dir> <label> save a settled frame as <label>.ansi/.txt/.styles.txt
   python3 -I pane.py shot <pane> <out.png>        capture (same files, named after the PNG), then render it
+  python3 -I pane.py wait <pane> [--shown TEXT]... [--gone TEXT]... [--timeout SECONDS]
+                                                  wait until every --shown text is on screen and no
+                                                  --gone text is, then until the screen settles
+
+A settled frame isn't a ready app: a frame can hold still while a "loading" label is showing.
+Wait for the app's ready text and the absence of its loading markers before judging a state.
 
 Sizes come from the pane's terminal (stty), not from `herdr pane layout`, whose rectangle includes
 borders and keeps the split size while a pane is zoomed. Measure while the app runs: Herdr
@@ -142,6 +148,35 @@ def frame(pane):
     return last, False
 
 
+def ready(text, shown, gone):
+    """True when the screen text holds every `shown` string and none of the `gone` ones."""
+    return all(want in text for want in shown) and not any(unwanted in text for unwanted in gone)
+
+
+def wait(pane, args):
+    shown, gone, timeout = [], [], 120.0
+    while args:
+        flag, value, args = args[0], args[1] if len(args) > 1 else None, args[2:]
+        if value is None or flag not in ("--shown", "--gone", "--timeout"):
+            sys.exit(__doc__)
+        if flag == "--shown":
+            shown.append(value)
+        elif flag == "--gone":
+            gone.append(value)
+        else:
+            timeout = float(value)
+    deadline = time.monotonic() + timeout
+    while True:
+        text = herdr("pane", "read", pane, "--source", "visible")
+        if ready(text, shown, gone):
+            frame(pane)
+            print("ready")
+            return
+        if time.monotonic() > deadline:
+            sys.exit(f"pane.py: not ready after {timeout:g}s (shown {shown}, gone {gone})")
+        time.sleep(0.5)
+
+
 def capture(pane, folder, name):
     data, settled = frame(pane)
     cols, rows = measure(pane)
@@ -166,6 +201,8 @@ def main(argv):
         print(__doc__)
     elif argv[:1] == ["size"] and len(argv) >= 2:
         size(argv[1], argv[2:])
+    elif argv[:1] == ["wait"] and len(argv) >= 2:
+        wait(argv[1], argv[2:])
     elif argv[:1] == ["capture"] and len(argv) == 4:
         capture(*argv[1:])
     elif argv[:1] == ["shot"] and len(argv) == 3:

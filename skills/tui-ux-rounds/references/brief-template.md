@@ -21,8 +21,8 @@ safety rule.
 | <name-a> | Claude Code | <pane>     | <pane>                 | <dir>   | <target-a>        |
 | <name-b> | Codex       | <pane>     | <pane>                 | <dir>   | <target-b>        |
 
-Spend about <minutes: 10 for the new-user task plus about 4 per probe> minutes testing, then
-write what you have.
+Spend about <minutes: 10 for the new-user task plus about 4 per probe; add them up> minutes
+testing, then write what you have.
 
 ## The app
 
@@ -37,8 +37,9 @@ write what you have.
   79 columns: footers and titles drop text first.)
 - Areas to cover: <modes, tabs, popups>.
 - Sizes: the whole app tab, <breakpoints ±1 column, from the project note>, and 79×24.
-- What exists to look at: <for example which items already have results, and states that can't
-  be shown this round>.
+- What exists to look at: only what safety needs before the new-user task (which items are
+  safe to change). Put fixtures that would answer the new-user task (a clean result, the one
+  removable item) in `probes.md`, or the first pass is guided rather than blind.
 
 ## Safety rules
 
@@ -48,7 +49,9 @@ write what you have.
 | <write, such as an update>           | only in your sandbox, on your target                        | ONE         |
 | <costly action, such as a paid call> | only in your sandbox                                        | at most ONE |
 
-Limits count confirmed actions, not key presses: a key the app rejects doesn't count.
+Limits count confirmed actions, not key presses: a key the app rejects doesn't count. When one
+allowance has to cover the new-user task and probes, say how to spend it (one on X, one on Y),
+and leave one spare for reproducing a finding.
 
 - <Settings that make the app start costly actions on its own, their current values, and how
   they multiply (for example one per selected item). Don't change them.>

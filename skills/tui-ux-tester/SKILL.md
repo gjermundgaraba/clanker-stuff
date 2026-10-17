@@ -52,8 +52,8 @@ them. Palette colours (`cN`) come from the user's terminal theme, so don't judge
 them; truecolor (`#rrggbb`) you can. If a script lists dropped sequences, say so.
 
 - **Wait until the app is ready:** the brief's ready text is on screen and its loading marker or
-  first-run dialog is not. `herdr pane wait-output <app> --match` can match the command line you
-  just typed, so match text only the app draws, then capture to confirm. Check again after
+  first-run dialog is not: `pane.py wait <app> --shown <ready text> --gone <loading marker>`. A
+  settled frame alone isn't enough, since a loading label can hold still. Check again after
   switching modes.
 - **Sizes:** the whole tab (wide), the brief's breakpoints, and 79×24. Re-measure after closing a
   pane or zooming; reversing a resize doesn't restore the old size.
