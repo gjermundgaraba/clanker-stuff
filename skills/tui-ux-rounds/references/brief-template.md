@@ -32,8 +32,9 @@ testing, then write what you have.
   this build).
 - Run in your app pane (its shell is <shell>): `<command>; echo EXIT=<$? or $status>`.
   Help: `<command> --help`. Source, read-only: `<path, or "not available">`.
-- Ready when the screen shows `<text only the loaded app draws>` and no `<loading marker or
-  first-run dialog>`. <How to dismiss a first-run dialog, if any.> (Check the ready text at
+- Ready when the screen shows `<text only the loaded app draws>` and none of `<every busy
+  marker the app shows while loading, such as "loading" and "checking", or a first-run dialog>`.
+  Name them all: waiting for one to go can return while another is still on screen. <How to dismiss a first-run dialog, if any.> (Check the ready text at
   79 columns: footers and titles drop text first.)
 - Areas to cover: <modes, tabs, popups>.
 - Sizes: the whole app tab, <breakpoints ±1 column, from the project note>, and 79×24.
@@ -49,7 +50,8 @@ testing, then write what you have.
 | <write, such as an update>           | only in your sandbox, on your target                        | ONE         |
 | <costly action, such as a paid call> | only in your sandbox                                        | at most ONE |
 
-Limits count confirmed actions, not key presses: a key the app rejects doesn't count. When one
+Limits count confirmed actions, not key presses: a key the app rejects doesn't count, and a retry
+counts as another action. When one
 allowance has to cover the new-user task and probes, say how to spend it (one on X, one on Y),
 and leave one spare for reproducing a finding.
 
@@ -83,7 +85,9 @@ tester's report or earlier rounds' reports.
 - <feature>: what to try and what working looks like to a user. Give numbers as measured on this
   build and say how; say where a result appears when that isn't obvious; say when a key behaves
   differently in another layout, and whether a state is what shows right after an action or
-  only after a restart. Name terms precisely ("checked rows" or "the cursor", not "selection").
+  only after a restart. Name a lazy behaviour and where it shows first (a mark that appears
+  only after a tab is opened: say which package and tab), and ask for a quit and relaunch
+  wherever something should be remembered. Name terms precisely ("checked rows" or "the cursor", not "selection").
 - Report anything unexpected: the app exiting on its own, keys that stop responding, layout
   glitches.
 
