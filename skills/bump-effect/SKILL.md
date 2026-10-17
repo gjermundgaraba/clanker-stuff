@@ -53,7 +53,7 @@ Keep optional adoption distinct from the upgrade's required fixes. If implementa
 
 ## Implement and verify
 
-- Update the existing dependency authorities and regenerate the lockfile with the repository's package manager. Preserve its pin/range conventions and avoid unrelated dependency churn. Check the resolved graph for incompatible peers and unintended duplicate Effect baselines.
+- Update the existing dependency authorities and regenerate the lockfile with the repository's package manager. Preserve its pin/range conventions and avoid unrelated dependency churn. Where the repository has none of its own, follow the `effect-codebase` skill's dependency conventions (`references/DEPENDENCIES.md`) for peer ranges, CLI pins and release-age exclusions. Check the resolved graph for incompatible peers and unintended duplicate Effect baselines.
 - Fix affected imports, callers, types, and runtime behavior directly. Reassess version-specific patches, overrides, and workarounds; remove only those the target makes unnecessary. Do not mask incompatibility with casts, suppressed checks, or unverified peer overrides.
 - Update active baseline documentation, fixtures, and examples where affected. Preserve historical release references and use established generators for derived documentation or skills.
 - Add or adapt regression coverage for demonstrated compatibility defects and implemented behavior changes. Use the smallest test layer that proves the contract, including runtime tests where types cannot establish resource, interruption, or protocol behavior.

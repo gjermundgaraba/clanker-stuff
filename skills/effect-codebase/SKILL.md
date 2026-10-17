@@ -1,6 +1,6 @@
 ---
 name: effect-codebase
-description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, or assessing/adopting house style. Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
+description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, assessing/adopting house style, or setting or reviewing how packages declare, pin and upgrade dependencies (Effect peer ranges, catalogs, the pnpm release-age gate, Vite+ toolchain pins, GitHub Actions pins). Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
 metadata:
   upstream-source: "https://ratstack.sh/lore/structure-effect-by-domain"
   upstream-relationship: "reference"
@@ -29,7 +29,7 @@ metadata:
 
 # Effect codebase
 
-Design or review an Effect codebase's organization and project conventions. This skill owns two things: the by-domain layout (folders, where services, Layers, ports, and adapters live, and the order of a restructure) and the house style that goes with it (how operations, errors, tests, comments, and enforcement are handled). It does not teach Effect APIs: take mechanics from the project's pinned Effect version and its existing conventions.
+Design or review an Effect codebase's organization and project conventions. This skill owns three things: the by-domain layout (folders, where services, Layers, ports, and adapters live, and the order of a restructure), the house style that goes with it (how operations, errors, tests, comments, and enforcement are handled), and the dependency conventions (how a library, a CLI and the workspace declare, pin and upgrade their dependencies). It does not teach Effect APIs: take mechanics from the project's pinned Effect version and its existing conventions.
 
 ## Rules
 
@@ -47,6 +47,10 @@ Design or review an Effect codebase's organization and project conventions. This
 The source pairs the layout with nine practices: the service constructor and Layer in the service file, operations defined as contracts, context-carrying errors, Effect-aware tests with no manual runtime, property and model tests, lifecycle state machines, removable packages, no prose comments, and a lint fence. They are part of adopting the approach in full, and each fits only under stated conditions. [HOUSE_STYLE.md](references/HOUSE_STYLE.md) gives the conditions, the order, and what has gone wrong when each was applied literally.
 
 The first restates rule 6. The rest stay distinct from the rules: a project can follow the rules without any of them, and none is Effect idiom.
+
+## Dependencies
+
+[DEPENDENCIES.md](references/DEPENDENCIES.md) holds the dependency rules: peers and their ranges for a published library, exact pins for a published CLI, and the workspace's package-manager declaration, release-age gate, Vite+ toolchain pins and Actions pins, each with its standing, plus the upgrade order. Read it when adding or changing a dependency declaration, setting up a workspace, upgrading dependencies, or reviewing any of these. It is independent of the layout: a project can follow either without the other.
 
 ## Modes
 
