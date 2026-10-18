@@ -3,6 +3,7 @@ packages:
   - "pi/packages/*"
   - "pi/extensions/*"
   - "pi/extensions/experimental/*"
+  - "pi/lab/*"
   - "pi/evals/runtime"
   - "skills/*"
 

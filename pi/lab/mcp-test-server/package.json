@@ -1,0 +1,39 @@
+{
+  "name": "@clanker-stuff/mcp-test-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runs a local MCP server over stdio or HTTP for testing Pi's MCP features against a folder of dummy skills.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/lab/mcp-test-server"
+  },
+  "files": [
+    "cli.ts",
+    "http.ts",
+    "index.ts",
+    "pi.ts",
+    "skills.ts",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "yaml": "2.9.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}
