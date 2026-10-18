@@ -18,6 +18,7 @@ Collect these before forming findings, and report each with the method used to g
 - **Where technology enters**: the files that import a vendor SDK, a database driver, an HTTP client, a generated client, or a Node built-in, or that use browser globals. A transport or vendor client counts whoever wrote it. Do not count Effect itself, the UI framework the package is built on, a design system, or the repository's own contract package. List Effect's platform and driver packages separately.
 - **Imports between domains**: for each pair of top-level folders, the number of source files in one that import the other, noting where the imports are type-only. In a flat package, use the file-level import graph. Note any coupling that imports do not show.
 - **Tests**: where they live, and for each external dependency whether tests use the real thing or a substitute.
+- **Agent instructions**: whether `AGENTS.md` carries the Effect section from `SKILL.md` word for word. A missing or altered section is an observation, not a finding.
 
 ## Structure smells
 

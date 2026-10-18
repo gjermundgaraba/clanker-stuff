@@ -1,6 +1,6 @@
 ---
 name: effect-codebase
-description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, assessing/adopting house style, or setting or reviewing how packages declare, pin and upgrade dependencies (Effect peer ranges, catalogs, the pnpm release-age gate, Vite+ toolchain pins, GitHub Actions pins). Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
+description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, assessing/adopting house style, setting up an Effect repository's `AGENTS.md`, or setting or reviewing how packages declare, pin and upgrade dependencies (Effect peer ranges, catalogs, the pnpm release-age gate, Vite+ toolchain pins, GitHub Actions pins). Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
 metadata:
   upstream-source: "https://ratstack.sh/lore/structure-effect-by-domain"
   upstream-relationship: "reference"
@@ -78,6 +78,18 @@ The repository's own conventions outrank this skill: its lint and test policy, n
 **Move definitions; do not redesign them.** A restructure puts schemas and errors beside their domain. Changing what an error carries, splitting a catch-all error, or narrowing an operation's declared failures is a contract change with its own consequences, and belongs in a separate step.
 
 **Write the decision down.** When a project adopts this layout, record it where the repository keeps such decisions, usually the README or `AGENTS.md`: the domains, where ports and adapters live, where Layers are provided, and which house-style practices are in force. A structural choice that exists only in a conversation gets reopened by the next reviewer.
+
+## The Effect section in `AGENTS.md`
+
+Every Effect repository's `AGENTS.md` carries this section, word for word, outside any generated block such as Vite+'s. Match the heading to the file's top-level section level. Add it when the repository is set up, or when you find it missing, provided the installed `effect` ships `AGENTS.md`; check that `node_modules/effect/AGENTS.md` exists in at least one package. Standing: house choice.
+
+```md
+## Effect
+
+Before writing or reviewing Effect code, read `node_modules/effect/AGENTS.md` in the package you are changing and the examples it links under `ai-docs/`. They ship with the installed `effect`, so they match the APIs the code compiles against. For exact signatures, read that package's installed source and types in `node_modules/effect` and `node_modules/@effect/*`. Do not write Effect APIs from memory or from examples for another version.
+```
+
+Keep the paragraph verbatim so a grep finds every copy. Project rules go in their own sections, not in this one.
 
 ## Source
 
