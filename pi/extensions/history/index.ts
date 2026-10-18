@@ -7,7 +7,7 @@ export default function history(pi: ExtensionAPI): void {
 
   pi.registerShortcut("ctrl+r", {
     description: "Search prompt history",
-    handler: (ctx) => runtime.open(ctx),
+    handler: runtime.open,
   });
 
   pi.registerCommand("history-import", {
@@ -16,7 +16,7 @@ export default function history(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", (_event, ctx) => runtime.start(ctx));
-  pi.on("input", (event, ctx) => runtime.recordInput(event, ctx));
-  pi.on("user_bash", (event, ctx) => runtime.recordBash(event, ctx));
-  pi.on("session_shutdown", () => runtime.dispose());
+  pi.on("input", runtime.recordInput);
+  pi.on("user_bash", runtime.recordBash);
+  pi.on("session_shutdown", runtime.dispose);
 }

@@ -87,6 +87,7 @@ describe("history import", () => {
     );
     await writeFile(path.join(directory, "late-header.jsonl"), "{}\n" + session("must also skip"));
     await writeFile(path.join(directory, "empty.jsonl"), "{broken\nnull\n");
+    await writeFile(path.join(directory, "header-only.jsonl"), '{"type":"session"}\n');
     await mkdir(path.join(directory, "directory.jsonl"));
     const parses = vi.spyOn(JSON, "parse");
     const progress: string[] = [];
@@ -98,7 +99,7 @@ describe("history import", () => {
       abort.signal,
     );
 
-    expect(count).toBe(1);
+    expect(count).toBe(2);
     expect(
       parses.mock.calls.filter(([line]) => line === session("imported prompt").split("\n")[1]),
     ).toHaveLength(1);
@@ -106,7 +107,7 @@ describe("history import", () => {
       "later prompt",
       "imported prompt",
     ]);
-    expect(progress.at(-1)).toBe("importing history: 5/5 files");
+    expect(progress.at(-1)).toBe("importing history: 6/6 files");
   });
 
   it("keeps valid prompts before and after malformed supported messages", async () => {

@@ -45,6 +45,8 @@ describe("prompt history", () => {
     [`${skillBlock("pdf")}\n\nextract it as $pdf says`, "extract it as $pdf says"],
     [`${skillBlock("a, b")}\n\nuse $a and $b`, "use $a and $b"],
     [`${skillBlock("a, b")}\n\nuse $a and $bee`, "/skill:a, b use $a and $bee"],
+    [`${skillBlock("repo:pdf-tools_2")}\n\nuse $repo:pdf-tools_2:`, "use $repo:pdf-tools_2:"],
+    [`${skillBlock("pdf")}\n\nuse $pdf-tools`, "/skill:pdf use $pdf-tools"],
   ])("recovers the typed prompt from an expanded skill: %#", (content, typed) => {
     expect(historyItemFromEntry(userEntry("skill", null, content, 100))).toEqual({
       text: typed,
@@ -64,6 +66,23 @@ describe("prompt history", () => {
     expect(historyItemFromEntry({ message })).toBeUndefined();
   });
 
+  it.each([
+    [0, { text: "prompt", timestamp: 0 }],
+    [undefined, { text: "prompt", timestamp: 200 }],
+    [Number.NaN, undefined],
+    [Number.POSITIVE_INFINITY, undefined],
+  ])(
+    "uses the entry timestamp only when the message timestamp is absent: %s",
+    (timestamp, expected) => {
+      expect(
+        historyItemFromEntry({
+          message: { role: "user", content: "prompt", timestamp },
+          timestamp: new Date(200).toISOString(),
+        }),
+      ).toEqual(expected);
+    },
+  );
+
   it("skips invalid entries while preserving multiline text and timestamp fallback", () => {
     const prompt = {
       type: "message",
@@ -81,6 +100,7 @@ describe("prompt history", () => {
     const lines = [
       null,
       "",
+      { timestamp: new Date(200).toISOString() },
       prompt,
       {
         type: "message",

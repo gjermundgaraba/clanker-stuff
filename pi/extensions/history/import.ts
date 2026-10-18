@@ -29,8 +29,7 @@ const readSessionHistory = async (
 ): Promise<HistoryItem[] | undefined> => {
   const stream = createReadStream(file, { encoding: "utf8", signal });
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
-  const history: HistoryItem[] = [];
-  let hasHeader = false;
+  let history: HistoryItem[] | undefined;
 
   try {
     for await (const line of lines) {
@@ -45,13 +44,13 @@ const readSessionHistory = async (
 
       if (!entry) continue;
 
-      if (!hasHeader) {
+      if (history === undefined) {
         // Like Pi's discovery, require the first parsed entry to be a session header.
         if (!Value.Check(SessionHeaderSchema, entry)) {
           return undefined;
         }
 
-        hasHeader = true;
+        history = [];
         continue;
       }
 
@@ -60,7 +59,7 @@ const readSessionHistory = async (
       if (item) history.push(item);
     }
 
-    return hasHeader ? history : undefined;
+    return history;
   } catch {
     signal.throwIfAborted();
 
