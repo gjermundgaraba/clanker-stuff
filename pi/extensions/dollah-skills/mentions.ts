@@ -32,21 +32,12 @@ export const skillBlock = (skills: readonly LoadedSkill[]): string => {
   const name = skills.map((skill) => skill.name).join(", ");
   const location = skills.map((skill) => skill.location).join(", ");
 
-  const sections =
-    skills.length === 1
-      ? skills.map((skill) => skill.content)
-      : skills.map((skill) => `## ${skill.name}\n\n${skill.content}`);
+  const sections = skills.map((skill) =>
+    skills.length === 1 ? skill.content : `## ${skill.name}\n\n${skill.content}`,
+  );
 
   return `<skill name="${name}" location="${location}">\n${sections.join("\n\n")}\n</skill>`;
 };
-
-/** Names `$`-mentioned in typed text. */
-const mentionedNames = (text: string): Set<string> =>
-  new Set(
-    text
-      .matchAll(SKILL_MENTION)
-      .flatMap((match) => (match.groups?.name ? [match.groups.name] : [])),
-  );
 
 /** A skill `$` mentions can name: on disk, or from a provider extension. */
 interface LoadableSkill {
@@ -132,12 +123,13 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
         }
 
         const items = fuzzyFilter(getSkills(), query, (skill) => skill.name).map((skill) => {
-          const label = `$${skill.name}`;
           const value = `$${skill.name}`;
 
-          return skill.description !== undefined && skill.description.length > 0
-            ? { description: skill.description, label, value }
-            : { label, value };
+          return {
+            label: value,
+            value,
+            ...(skill.description ? { description: skill.description } : {}),
+          };
         });
 
         return items.length > 0 ? { items, prefix: `$${query}` } : null;
@@ -157,7 +149,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     text: string,
     ctx: ExtensionContext,
   ): Promise<LoadedSkill[]> => {
-    const names = mentionedNames(text);
+    const names = new Set(text.matchAll(SKILL_MENTION).map((match) => match[0].slice(1)));
     const loaded: LoadedSkill[] = [];
 
     for (const skill of getSkills().filter((candidate) => names.has(candidate.name))) {
