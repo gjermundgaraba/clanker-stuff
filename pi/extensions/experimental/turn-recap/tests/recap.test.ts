@@ -9,7 +9,7 @@ import { queuedStream, sampleUsage, unresponsiveStream } from "./fixtures.js";
 import type { ResponseStep } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 
-const setupStream = <Stream extends ReturnType<typeof queuedStream>>(stream: Stream) => {
+const setupStream = (stream: ReturnType<typeof queuedStream>) => {
   const model = fauxProvider({
     models: [{ id: "small", reasoning: true }],
     provider: "cheap",

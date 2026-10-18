@@ -22,13 +22,8 @@ const RecapConfigSchema = Type.Object(
   STRICT,
 );
 
-type RecapConfigFile = Static<typeof RecapConfigSchema>;
-
-export interface RecapConfig {
-  model: RecapConfigFile["model"];
-  /** Requested thinking level; an omitted file value means `off`. */
-  thinking: NonNullable<RecapConfigFile["thinking"]>;
-}
+/** Parsed configuration always has a thinking level; omission defaults to `off`. */
+export type RecapConfig = Required<Static<typeof RecapConfigSchema>>;
 
 export const getRecapConfigPath = (): string => getExtensionStoragePaths("turn-recap").configFile;
 

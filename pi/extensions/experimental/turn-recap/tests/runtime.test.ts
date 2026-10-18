@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
@@ -26,8 +26,6 @@ import {
 import type { ResponseStep } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
-
-const boundary = (outcome: TurnEndEvent["outcome"]) => ({ outcome });
 
 const setup = async (...responses: ResponseStep[]) => {
   const { configPath, directory } = await createRecapConfigFile();
@@ -294,7 +292,7 @@ describe("turn recap runtime", () => {
     async (outcome) => {
       const env = await setup();
       env.runtime.begin(env.ctx);
-      env.runtime.boundary(boundary(outcome), env.ctx);
+      env.runtime.boundary({ outcome }, env.ctx);
       await env.runtime.settled({ aborted: false }, env.ctx);
       expect(env.snapshots()[0]?.outcome).toBe(outcome);
       expect(env.card()).not.toContain("Generating");
@@ -320,7 +318,7 @@ describe("turn recap runtime", () => {
   it("takes Pi's abort over a last turn that completed", async () => {
     const env = await setup();
     env.runtime.begin(env.ctx);
-    env.runtime.boundary(boundary("completed"), env.ctx);
+    env.runtime.boundary({ outcome: "completed" }, env.ctx);
     await env.runtime.settled({ aborted: true }, env.ctx);
     expect(env.snapshots()[0]?.outcome).toBe("aborted");
   });
