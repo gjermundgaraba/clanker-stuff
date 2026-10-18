@@ -320,11 +320,9 @@ export function renderScrollablePage(
 ): FrameResult {
   const { footer, normalBudget } = frameChrome(options);
 
-  if (options.width < 24 || normalBudget < 8) return tooSmall(options);
+  if (options.width < 24) return tooSmall(options);
   const capacity = normalBudget - footer.length - 5;
-
-  if (capacity < 1) return tooSmall(options);
-  const viewportRows = Math.max(1, Math.min(capacity, options.body.length || 1));
+  const viewportRows = Math.max(1, Math.min(capacity, options.body.length));
 
   let scroll = Math.max(
     0,

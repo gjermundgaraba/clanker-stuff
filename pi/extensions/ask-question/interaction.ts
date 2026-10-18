@@ -6,11 +6,9 @@ import { Id, MAX_NOTE, MAX_TEXT, QuestionnaireSchema, validateQuestionnaire } fr
 const record = <T extends TSchema>(schema: T) =>
   Type.Record(Id, schema, { additionalProperties: false });
 
-const enumOf = <T extends string>(values: T[]) => Type.Unsafe<T>({ type: "string", enum: values });
+const Mode = Type.Enum(["blocking", "async"]);
 
-const Mode = enumOf(["blocking", "async"]);
-
-const Initiator = enumOf(["user", "agent"]);
+const Initiator = Type.Enum(["user", "agent"]);
 
 const Fields = Type.Object(
   {

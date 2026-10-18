@@ -217,7 +217,7 @@ describe("compact questionnaire transcript", () => {
       const text = JSON.stringify(receipt);
       const result = { content: [{ type: "text" as const, text }], details: undefined };
 
-      const rendered = renderResult(result, { expanded: true, isPartial: false }, theme, context)
+      const rendered = renderResult(result, { expanded: false, isPartial: false }, theme, context)
         .render(2000)
         .join("\n");
 

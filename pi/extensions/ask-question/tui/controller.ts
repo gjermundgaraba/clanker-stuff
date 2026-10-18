@@ -9,7 +9,7 @@ import type {
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { Action, Draft, Interaction } from "../interaction.js";
-import { collectAnswers, revisedSubmission } from "../interaction.js";
+import { revisedSubmission } from "../interaction.js";
 import { MAX_NOTE, MAX_TEXT } from "../request.js";
 import type { Question } from "../request.js";
 import { answered } from "../summary.js";
@@ -330,7 +330,6 @@ export class QuestionnaireView {
       }
 
       if (action === "confirm" || action === "key:k") {
-        collectAnswers(this.item);
         this.change({ type: "submit" });
 
         try {

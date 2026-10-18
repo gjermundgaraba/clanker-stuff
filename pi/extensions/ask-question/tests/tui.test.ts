@@ -496,6 +496,25 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
+  it("keeps an invalid submission editable until its required answers are supplied", () => {
+    const e = setup();
+
+    try {
+      const before = structuredClone(e.item);
+      e.press("r", "\r");
+      expect(e.item).toEqual(before);
+      expect(e.view.render(80).join("\n")).toContain("Answer required: Choice");
+      expect(e.send).not.toHaveBeenCalled();
+      expect(e.done).not.toHaveBeenCalled();
+
+      e.press("1", "1", "\r");
+      expect(e.item.submissions).toHaveLength(1);
+      expect(e.send).toHaveBeenCalledWith(1);
+      expect(e.done).toHaveBeenCalledWith("submitted");
+    } finally {
+      e.view.dispose();
+    }
+  });
   it("preserves distinct option notes across deselection and adds an overall note", () => {
     const e = setup(true);
 
