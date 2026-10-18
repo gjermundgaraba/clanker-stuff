@@ -2,7 +2,6 @@ import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { canRequestPriority } from "../models.js";
 
 describe("best-effort native priority gate", () => {
@@ -30,52 +29,39 @@ describe("best-effort native priority gate", () => {
       throw new Error("Missing native subscription OAuth metadata");
 
     for (const model of [...models, { ...first, id: "future-native-model" }]) {
-      const host = createExtensionHost(() => {}, { model });
-      await host.ready;
-
       const registry = {
         find: () => model,
         isUsingOAuth: () => true,
         getProvider: (provider: string) => runtime.getProvider(provider),
       };
 
-      const ctx = host.createContext({ modelRegistry: registry });
+      const ctx = { model, modelRegistry: registry };
 
       expect(canRequestPriority(ctx), model.id).toBe(true);
       expect(
-        canRequestPriority(
-          host.createContext({
-            modelRegistry: { ...registry, isUsingOAuth: () => false },
-          }),
-        ),
+        canRequestPriority({ ...ctx, modelRegistry: { ...registry, isUsingOAuth: () => false } }),
       ).toBe(false);
       expect(
-        canRequestPriority(
-          host.createContext({
-            modelRegistry: { ...registry, getProvider: () => undefined },
-          }),
-        ),
+        canRequestPriority({
+          ...ctx,
+          modelRegistry: { ...registry, getProvider: () => undefined },
+        }),
       ).toBe(false);
       expect(
-        canRequestPriority(
-          host.createContext({
-            modelRegistry: { ...registry, find: () => undefined },
-          }),
-        ),
+        canRequestPriority({ ...ctx, modelRegistry: { ...registry, find: () => undefined } }),
       ).toBe(false);
 
       expect(
-        canRequestPriority(
-          host.createContext({
-            modelRegistry: {
-              ...registry,
-              getProvider: () => ({
-                ...native,
-                auth: { ...native.auth, oauth: { ...oauth, isSubscription: false } },
-              }),
-            },
-          }),
-        ),
+        canRequestPriority({
+          ...ctx,
+          modelRegistry: {
+            ...registry,
+            getProvider: () => ({
+              ...native,
+              auth: { ...native.auth, oauth: { ...oauth, isSubscription: false } },
+            }),
+          },
+        }),
       ).toBe(false);
 
       for (const changed of [
@@ -84,15 +70,9 @@ describe("best-effort native priority gate", () => {
         { ...model, baseUrl: "https://custom.invalid/v1" },
         { ...model, baseUrl: "https://api.openai.com/v1/" },
       ]) {
+        expect(canRequestPriority({ ...ctx, model: changed })).toBe(false);
         expect(
-          canRequestPriority(host.createContext({ model: changed, modelRegistry: registry })),
-        ).toBe(false);
-        expect(
-          canRequestPriority(
-            host.createContext({
-              modelRegistry: { ...registry, find: () => changed },
-            }),
-          ),
+          canRequestPriority({ ...ctx, modelRegistry: { ...registry, find: () => changed } }),
         ).toBe(false);
       }
     }

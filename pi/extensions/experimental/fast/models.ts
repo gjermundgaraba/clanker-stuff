@@ -1,8 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const canRequestPriority = (
-  ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
-): boolean => {
+export const canRequestPriority = (ctx: {
+  model: ExtensionContext["model"];
+  modelRegistry: Pick<ExtensionContext["modelRegistry"], "find" | "isUsingOAuth" | "getProvider">;
+}): boolean => {
   const selected = ctx.model;
 
   if (
