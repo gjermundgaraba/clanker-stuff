@@ -49,7 +49,9 @@ Use the tester skill's scripts (resolve its folder with `readlink -f`):
 - Drive it with `herdr pane send-keys` as the tester skill describes (quote keys; space is
   `space`).
 - Check wide (a whole tab), one column either side of each breakpoint in the project note, and
-  79×24.
+  79×24. In a sizing loop, stop when `pane.py size` fails: the pane keeps its old size, and
+  captures labelled with the size you asked for would lie. Your shell may not be bash (fish
+  rejects `set --`); run loops with `bash -c`.
 
 ## A round
 
