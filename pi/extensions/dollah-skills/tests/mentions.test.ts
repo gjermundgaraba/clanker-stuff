@@ -1,84 +1,129 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { SKILL_PROVIDER_CHANNEL } from "@clanker-stuff/pi-skill-providers";
+import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
 import {
   CustomEditor,
   createSyntheticSourceInfo,
   parseSkillBlock,
 } from "@earendil-works/pi-coding-agent";
+import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import type { ExtensionHostOptions } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
-import { SKILL_PROVIDER_CHANNEL } from "@clanker-stuff/pi-skill-providers";
-import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
+import { skillBlock } from "../mentions.js";
+import type { LoadedSkill } from "../mentions.js";
 
-const sourceInfo = (filePath: string) =>
-  createSyntheticSourceInfo(filePath, {
+const command = (
+  name: string,
+  description: string,
+  source: SlashCommandInfo["source"],
+  filePath = "<test>",
+): SlashCommandInfo => ({
+  name,
+  description,
+  source,
+  sourceInfo: createSyntheticSourceInfo(filePath, {
     origin: "top-level",
     scope: "project",
     source: "test",
-  });
-
-const createMentionHost = (commands: ExtensionHostOptions["commands"] = []) =>
-  createExtensionHost(extension, { commands });
+  }),
+});
 
 const createSkillHost = () =>
-  createMentionHost(
-    (
-      [
-        ["alpha", "Alpha instructions"],
-        ["beta", "Beta instructions"],
-        ["plugin:deploy", "Plugin deploy instructions"],
-      ] as const
-    ).map(([name, description]) => ({
-      name: `skill:${name}`,
-      description,
-      source: "skill" as const,
-      sourceInfo: sourceInfo("<test>"),
-    })),
-  );
+  createExtensionHost(extension, {
+    commands: [
+      command("skill:alpha", "Alpha instructions", "skill"),
+      command("skill:beta", "Beta instructions", "skill"),
+      command("skill:plugin:deploy", "Plugin deploy instructions", "skill"),
+    ],
+  });
 
-const writeSkills = async (entries: readonly (readonly [name: string, body: string])[]) => {
+/** Skill files on disk, registered in catalog order, plus any other commands Pi would know. */
+const writeSkills = async (
+  entries: readonly (readonly [name: string, body: string])[],
+  commands: readonly SlashCommandInfo[] = [],
+) => {
   const directory = await mkdtemp(path.join(tmpdir(), "dollah-skills-"));
   onTestFinished(() => rm(directory, { force: true, recursive: true }));
 
-  const skills = await Promise.all(
+  const skills: LoadedSkill[] = await Promise.all(
     entries.map(async ([name, body]) => {
-      const filePath = path.join(directory, `${name.replace(":", "-")}"&<.md`);
-      await writeFile(filePath, `---\nname: ${name}\n---\n${body}\n`);
+      const baseDir = path.join(directory, name.replace(":", "-"));
+      const location = path.join(baseDir, "SKILL.md");
+      await mkdir(baseDir);
+      await writeFile(location, `---\nname: ${name}\n---\n${body}\n`);
 
-      return {
-        name,
-        filePath,
-        block: `<skill name="${name}" location="${filePath.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;")}">\nReferences are relative to ${directory}.\n\n${body}\n</skill>`,
-      };
+      return { content: `References are relative to ${baseDir}.\n\n${body}`, location, name };
     }),
   );
 
-  const blocks = new Map(skills.map(({ name, block }) => [name, block]));
+  const host = createExtensionHost(extension, {
+    commands: [
+      ...skills.map((skill) =>
+        command(`skill:${skill.name}`, `${skill.name} skill`, "skill", skill.location),
+      ),
+      ...commands,
+    ],
+  });
 
-  const host = createMentionHost(
-    skills.map(({ name, filePath }) => ({
-      name: `skill:${name}`,
-      description: `${name} skill`,
-      source: "skill" as const,
-      sourceInfo: sourceInfo(filePath),
-    })),
-  );
+  const remove = async (name: string) => {
+    const skill = skills.find((candidate) => candidate.name === name);
 
-  return { host, block: (name: string) => blocks.get(name) ?? "", skills };
+    if (!skill) throw new Error(`No fixture skill named ${name}`);
+    await rm(skill.location);
+  };
+
+  return {
+    host,
+    loaded: (...names: string[]) => skills.filter((skill) => names.includes(skill.name)),
+    remove,
+  };
 };
 
+const alpha: LoadedSkill = {
+  content: "References are relative to /skills/alpha.\n\nAlpha instructions.",
+  location: "/skills/alpha/SKILL.md",
+  name: "alpha",
+};
+
+const beta: LoadedSkill = {
+  content: "References are relative to /skills/beta.\n\nBeta instructions.",
+  location: "/skills/beta/SKILL.md",
+  name: "beta",
+};
+
+/** A skill a provider serves, as the block it hands over and the parts the merged block keeps. */
+const provided = (name: string): LoadedSkill => ({
+  content: `References are relative to mcp://${name}.\n\nProvided ${name}.`,
+  location: `mcp://${name}`,
+  name,
+});
+
 describe("skill mentions", () => {
+  it("writes Pi's own block for one skill and one merged block for several", () => {
+    expect(skillBlock([alpha])).toBe(
+      '<skill name="alpha" location="/skills/alpha/SKILL.md">\nReferences are relative to /skills/alpha.\n\nAlpha instructions.\n</skill>',
+    );
+    expect(skillBlock([alpha, beta])).toBe(
+      '<skill name="alpha, beta" location="/skills/alpha/SKILL.md, /skills/beta/SKILL.md">\n## alpha\n\nReferences are relative to /skills/alpha.\n\nAlpha instructions.\n\n## beta\n\nReferences are relative to /skills/beta.\n\nBeta instructions.\n</skill>',
+    );
+    // Pi's parser drives its collapsed rendering and must read the merged block as one.
+    expect(parseSkillBlock(`${skillBlock([alpha, beta])}\n\nUse $alpha and $beta`)).toMatchObject({
+      name: "alpha, beta",
+      userMessage: "Use $alpha and $beta",
+    });
+  });
+
   it.each([false, true])(
-    "expands each input once in catalog order, foreign editor=%s",
+    "puts the mentioned skills first in catalog order and leaves text and images intact, foreign editor=%s",
     async (foreign) => {
-      const { block, host } = await writeSkills([
-        ["alpha", "Alpha instructions."],
+      const { host, loaded } = await writeSkills([
+        ["alpha", "Alpha instructions; see $beta."],
         ["beta", "Beta instructions."],
         ["plugin:deploy", "Deploy instructions."],
         ["review", "Review instructions."],
@@ -91,104 +136,75 @@ describe("skill mentions", () => {
       await host.emitSessionStart(ctx);
 
       const text =
-        "Use $beta, then $alpha twice: $alpha, $plugin:deploy and $review: ignore $missing.";
+        "Use $review, then $alpha twice: $alpha, $plugin:deploy and $review: ignore $missing.";
 
-      const result = await host.emitInput({ source: "interactive", text, type: "input" }, ctx);
+      const image = { data: "aGk=", mimeType: "image/png", type: "image" as const };
 
+      const result = await host.emitInput(
+        { images: [image], source: "interactive", text, type: "input" },
+        ctx,
+      );
+
+      // alpha's body mentions beta, but only typed text loads skills. Images pass through.
       expect(result).toStrictEqual({
         action: "transform",
-        text: `${text}\n\n${[block("alpha"), block("beta"), block("plugin:deploy"), block("review")].join("\n\n")}`,
+        images: [image],
+        text: `${skillBlock(loaded("alpha", "plugin:deploy", "review"))}\n\n${text}`,
       });
       expect(host.getSentMessages()).toStrictEqual([]);
-      expect(host.getNotifications()).toStrictEqual([
-        { message: "Loaded skills: $alpha, $beta, $plugin:deploy, $review", type: "info" },
-      ]);
-      const parsed = parseSkillBlock(block("alpha"));
-
-      expect(parsed?.name).toBe("alpha");
-      expect(parsed?.location).toContain("&quot;&amp;&lt;");
-      expect(parsed?.content).toContain("Alpha instructions.");
+      expect(host.getNotifications()).toStrictEqual([]);
     },
   );
 
-  it("loads no mentions found inside a skill body and leaves a leading native command intact", async () => {
-    const { block, host } = await writeSkills([
-      ["alpha", "Alpha instructions; see $beta."],
-      ["beta", "Beta instructions."],
-    ]);
+  it("leaves input that invokes a command, template or skill to Pi, but not a leading path", async () => {
+    const { host, loaded } = await writeSkills(
+      [["alpha", "Alpha instructions."]],
+      [command("review", "Review template", "prompt")],
+    );
 
-    expect(
-      await host.emitInput({ source: "interactive", text: "Use $alpha", type: "input" }),
-    ).toStrictEqual({
+    for (const text of ["/skill:alpha use $alpha", "/review $alpha"]) {
+      expect(await host.emitInput({ source: "interactive", text, type: "input" })).toStrictEqual({
+        action: "continue",
+      });
+    }
+
+    const text = "/tmp/app.ts crashes, $alpha";
+
+    expect(await host.emitInput({ source: "interactive", text, type: "input" })).toStrictEqual({
       action: "transform",
-      text: `Use $alpha\n\n${block("alpha")}`,
-    });
-    expect(
-      await host.emitInput({
-        source: "interactive",
-        text: "/skill:alpha use $alpha",
-        type: "input",
-      }),
-    ).toStrictEqual({ action: "continue" });
-    expect(
-      await host.emitInput({
-        source: "interactive",
-        text: "/skill:alpha use $beta",
-        type: "input",
-      }),
-    ).toStrictEqual({
-      action: "transform",
-      text: `/skill:alpha use $beta\n\n${block("beta")}`,
+      text: `${skillBlock(loaded("alpha"))}\n\n${text}`,
     });
   });
 
-  it.each(["steer", "followUp"] as const)(
-    "expands %s input just like idle input",
-    async (streamingBehavior) => {
-      const { block, host } = await writeSkills([["alpha", "Alpha instructions."]]);
-      expect(
-        await host.emitInput({
-          source: "interactive",
-          streamingBehavior,
-          text: "Use $alpha",
-          type: "input",
-        }),
-      ).toStrictEqual({ action: "transform", text: `Use $alpha\n\n${block("alpha")}` });
-      expect(host.getNotifications()).toStrictEqual([
-        { message: "Loaded skills: $alpha", type: "info" },
-      ]);
-    },
-  );
-
-  it("reports an unreadable skill and still includes the other requested skills", async () => {
-    const { block, host, skills } = await writeSkills([
+  it("reports an unreadable skill, keeps the others, and leaves input alone when none load", async () => {
+    const { host, loaded, remove } = await writeSkills([
       ["alpha", "Alpha instructions."],
       ["beta", "Beta instructions."],
     ]);
 
-    // writeSkills preserves the two explicit fixture entries, with alpha first.
-    await rm(skills[0]!.filePath);
+    await remove("alpha");
 
-    const result = await host.emitInput({
-      source: "interactive",
-      text: "Use $alpha and $beta",
-      type: "input",
-    });
-
-    expect(result).toStrictEqual({
+    expect(
+      await host.emitInput({ source: "interactive", text: "Use $alpha and $beta", type: "input" }),
+    ).toStrictEqual({
       action: "transform",
-      text: `Use $alpha and $beta\n\n${block("beta")}`,
+      text: `${skillBlock(loaded("beta"))}\n\nUse $alpha and $beta`,
     });
-    expect(host.getNotifications()[0]).toMatchObject({ type: "warning" });
+
+    await remove("beta");
+
+    expect(
+      await host.emitInput({ source: "interactive", text: "Use $beta", type: "input" }),
+    ).toStrictEqual({ action: "continue" });
+    expect(host.getNotifications().map((notification) => notification.type)).toStrictEqual([
+      "warning",
+      "warning",
+    ]);
     expect(host.getNotifications()[0]?.message).toContain("Failed to load skill alpha:");
-    expect(host.getNotifications()[1]).toStrictEqual({
-      type: "info",
-      message: "Loaded skills: $beta",
-    });
   });
 
   it("loads skills other extensions provide one at a time, after local skills of the same name", async () => {
-    const { block, host } = await writeSkills([["alpha", "Alpha instructions."]]);
+    const { host, loaded } = await writeSkills([["alpha", "Alpha instructions."]]);
     const loads: string[] = [];
     let loading = 0;
 
@@ -201,14 +217,17 @@ describe("skill mentions", () => {
         await Promise.resolve();
         loading -= 1;
 
-        return name === "docs:broken"
-          ? { error: "not approved" }
-          : { block: `<skill name="${name}">` };
+        if (name === "docs:broken") return { error: "not approved" };
+
+        if (name === "docs:odd") return { block: `<skill name="${name}">` };
+
+        return { block: skillBlock([provided(name)]) };
       },
       skills: () => [
         { description: "Shadowed by the local skill", name: "alpha" },
         { description: "Refunds", name: "docs:refunds" },
         { description: "Broken", name: "docs:broken" },
+        { description: "Odd", name: "docs:odd" },
         { description: "Billing refunds", name: "docs:refunds-1a2b3c4d" },
       ],
     };
@@ -217,17 +236,25 @@ describe("skill mentions", () => {
     host.events.emit(SKILL_PROVIDER_CHANNEL, provider);
     host.events.emit(SKILL_PROVIDER_CHANNEL, { id: "not-a-provider" });
 
-    const text = "Use $alpha, $docs:refunds, $docs:broken and $docs:refunds-1a2b3c4d.";
+    const text = "Use $alpha, $docs:refunds, $docs:broken, $docs:odd and $docs:refunds-1a2b3c4d.";
     const result = await host.emitInput({ source: "interactive", text, type: "input" });
 
     expect(result).toStrictEqual({
       action: "transform",
-      text: `${text}\n\n${[block("alpha"), '<skill name="docs:refunds">', '<skill name="docs:refunds-1a2b3c4d">'].join("\n\n")}`,
+      text: `${skillBlock([...loaded("alpha"), provided("docs:refunds"), provided("docs:refunds-1a2b3c4d")])}\n\n${text}`,
     });
-    expect(loads).toStrictEqual(["docs:refunds", "docs:broken", "docs:refunds-1a2b3c4d"]);
+    expect(loads).toStrictEqual([
+      "docs:refunds",
+      "docs:broken",
+      "docs:odd",
+      "docs:refunds-1a2b3c4d",
+    ]);
     expect(host.getNotifications()).toStrictEqual([
       { message: "Failed to load skill docs:broken: not approved", type: "warning" },
-      { message: "Loaded skills: $alpha, $docs:refunds, $docs:refunds-1a2b3c4d", type: "info" },
+      {
+        message: "Failed to load skill docs:odd: the provider returned no skill block",
+        type: "warning",
+      },
     ]);
 
     const completion = await host

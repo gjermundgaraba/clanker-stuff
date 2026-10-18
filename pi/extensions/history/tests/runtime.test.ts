@@ -162,6 +162,16 @@ describe("history runtime", () => {
     expect(ctx.ui.getEditorText()).toBe("other alpha");
   });
 
+  it("records the prompt as typed when an earlier handler expanded skills into it", async () => {
+    const { ctx, host, prompt } = await createHarness();
+    await prompt(
+      '<skill name="a, b" location="/skills/a/SKILL.md, /skills/b/SKILL.md">\nReferences are relative to /skills/a.\n\nInstructions.\n</skill>\n\nuse $a and $b',
+    );
+
+    await search(host, ["use", "\r"]);
+    expect(ctx.ui.getEditorText()).toBe("use $a and $b");
+  });
+
   it("reloads only after another process writes", async () => {
     const first = await createHarness();
     const second = await createHarness();

@@ -10,7 +10,8 @@ pi install npm:@clanker-stuff/dollah-skills
 
 ## Usage
 
-Type `$` to complete and highlight a loaded skill name; submitting appends its `SKILL.md` instructions to that user message, including queued messages. Skill bodies are recorded in history, like native `/skill:name`, and mentions inside them do not load other skills.
+- Type `$` to complete and highlight a loaded skill name; submitting puts the mentioned skills ahead of your text in Pi's native `/skill:name` block, shown as one collapsible `[skill]` block.
+- Input that starts with a registered command, template or skill is left to Pi.
 
 ## Requirements
 

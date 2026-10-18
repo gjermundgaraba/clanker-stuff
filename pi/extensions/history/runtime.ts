@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
 
+import { typedPrompt } from "./history.js";
 import type { HistoryItem } from "./history.js";
 import { importPersistentHistory } from "./import.js";
 import {
@@ -147,8 +148,9 @@ export const createHistoryRuntime = () => {
     }
   };
 
+  /** An earlier input handler may already have expanded skills into the text; keep what was typed. */
   const recordInput = (event: InputEvent, ctx: ExtensionContext) => {
-    if (event.source === "interactive") record(event.text, ctx.ui);
+    if (event.source === "interactive") record(typedPrompt(event.text), ctx.ui);
   };
 
   const recordBash = (event: UserBashEvent, ctx: ExtensionContext) => {

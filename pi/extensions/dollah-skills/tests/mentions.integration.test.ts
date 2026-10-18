@@ -9,25 +9,36 @@ import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import type { AgentSessionHarnessOptions } from "../../../tests/harness/agent-session.js";
 import extension from "../index.js";
+import { skillBlock } from "../mentions.js";
+import type { LoadedSkill } from "../mentions.js";
 
 const PayloadSchema = Type.Object({ messages: Type.Array(Type.Unknown()) });
+
+const BODIES = {
+  alpha: "Alpha instructions; see $beta.",
+  beta: "Beta instructions.",
+} as const;
 
 const setup = async (options: AgentSessionHarnessOptions = {}) => {
   const directory = await mkdtemp(path.join(tmpdir(), "dollah-skills-session-"));
   onTestFinished(() => rm(directory, { force: true, recursive: true }));
 
-  const skillPaths = await Promise.all(
-    (
-      [
-        ["alpha", "Alpha instructions; see $beta."],
-        ["beta", "Beta instructions."],
-      ] as const
-    ).map(async ([name, body]) => {
-      const filePath = path.join(directory, name, "SKILL.md");
-      await mkdir(path.dirname(filePath));
-      await writeFile(filePath, `---\nname: ${name}\ndescription: ${name} skill\n---\n${body}\n`);
+  const skill = (name: keyof typeof BODIES): LoadedSkill => ({
+    content: `References are relative to ${path.join(directory, name)}.\n\n${BODIES[name]}`,
+    location: path.join(directory, name, "SKILL.md"),
+    name,
+  });
 
-      return filePath;
+  const skillPaths = await Promise.all(
+    (["alpha", "beta"] as const).map(async (name) => {
+      const { location } = skill(name);
+      await mkdir(path.dirname(location));
+      await writeFile(
+        location,
+        `---\nname: ${name}\ndescription: ${name} skill\n---\n${BODIES[name]}\n`,
+      );
+
+      return location;
     }),
   );
 
@@ -42,28 +53,39 @@ const setup = async (options: AgentSessionHarnessOptions = {}) => {
     harness.cleanup();
   });
 
-  return harness;
+  /** Conversation messages after the system prompt. */
+  const conversation = () => harness.messages().filter((message) => message.role !== "system");
+
+  return { ...harness, conversation, skill };
 };
 
+const userMessage = (text: string) => ({ content: [{ text, type: "text" }], role: "user" });
+
 describe("skill mentions in a session", () => {
-  it("records the expanded skill with the user input sent to the provider", async () => {
+  it("records the skill block ahead of the typed text as the user message Pi sends", async () => {
     const harness = await setup();
     harness.setResponses([fauxAssistantMessage("done")]);
     await harness.prompt("Use $beta:");
-    const user = harness.messages().find((message) => message.role === "user");
 
-    expect(JSON.stringify(user)).toContain("Beta instructions.");
-    expect(JSON.stringify(harness.lastProviderPayload(PayloadSchema).messages)).toContain(
-      "Beta instructions.",
-    );
-  });
-
-  it("loads nothing that an expanded /skill file mentions", async () => {
-    const harness = await setup();
-    harness.setResponses([fauxAssistantMessage("done")]);
-    await harness.prompt("/skill:alpha use $alpha");
+    expect(harness.conversation()).toStrictEqual([
+      expect.objectContaining(userMessage(`${skillBlock([harness.skill("beta")])}\n\nUse $beta:`)),
+      expect.objectContaining({ role: "assistant" }),
+    ]);
     const sent = JSON.stringify(harness.lastProviderPayload(PayloadSchema).messages);
 
+    expect(sent).toContain("Beta instructions.");
+    expect(sent).toContain("Use $beta:");
+  });
+
+  it("leaves a registered command to Pi, mentions included", async () => {
+    const harness = await setup();
+    harness.setResponses([fauxAssistantMessage("done")]);
+    await harness.prompt("/skill:alpha use $beta");
+    const sent = JSON.stringify(harness.lastProviderPayload(PayloadSchema).messages);
+
+    expect(harness.conversation()[0]).toMatchObject(
+      userMessage(`${skillBlock([harness.skill("alpha")])}\n\nuse $beta`),
+    );
     expect(sent).toContain("see $beta");
     expect(sent).not.toContain("Beta instructions.");
   });
@@ -94,10 +116,10 @@ describe("skill mentions in a session", () => {
 
         expect(payloads).toHaveLength(2);
         expect(JSON.stringify(payloads[0])).not.toContain("Beta instructions.");
-        expect(JSON.stringify(payloads[1])).toContain("Use $beta and $gamma");
         expect(JSON.stringify(payloads[1])).toContain("Beta instructions.");
-        const user = harness.messages().findLast((message) => message.role === "user");
-        expect(JSON.stringify(user)).toContain("Beta instructions.");
+        expect(harness.conversation().findLast((message) => message.role === "user")).toMatchObject(
+          userMessage(`${skillBlock([harness.skill("beta")])}\n\nUse $beta and $gamma`),
+        );
       } finally {
         release.resolve();
       }
@@ -126,11 +148,7 @@ describe("skill mentions in a session", () => {
       await entered.promise;
       expect(harness.session.isIdle).toBe(true);
       await harness.session.sendCustomMessage(
-        {
-          customType: "test.wake",
-          content: "An unrelated wake",
-          display: false,
-        },
+        { content: "An unrelated wake", customType: "test.wake", display: false },
         { triggerTurn: true },
       );
       release.resolve();
@@ -141,6 +159,9 @@ describe("skill mentions in a session", () => {
       expect(JSON.stringify(payloads[0])).not.toContain("Alpha instructions;");
       expect(JSON.stringify(payloads[1])).toContain("Alpha instructions;");
       expect(JSON.stringify(payloads[1])).not.toContain("Beta instructions.");
+      expect(harness.conversation().findLast((message) => message.role === "user")).toMatchObject(
+        userMessage(`${skillBlock([harness.skill("alpha")])}\n\nUse $alpha`),
+      );
     } finally {
       release.resolve();
     }

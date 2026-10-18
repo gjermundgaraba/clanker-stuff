@@ -41,9 +41,10 @@ describe("prompt history", () => {
   it.each([
     [skillBlock("pdf"), "/skill:pdf"],
     [`${skillBlock("pdf")}\n\nextract report.pdf`, "/skill:pdf extract report.pdf"],
-    [`${skillBlock("pdf")}\n\nextract it as $pdf says`, "/skill:pdf extract it as $pdf says"],
-    // Earlier dollah-skills versions prepended one block per $mention to the typed text.
-    [`${skillBlock("a")}\n\n${skillBlock("b")}\n\nuse $a and $b`, "/skill:a use $a and $b"],
+    // Typed text that mentions every skill in its block reloads them itself (dollah-skills).
+    [`${skillBlock("pdf")}\n\nextract it as $pdf says`, "extract it as $pdf says"],
+    [`${skillBlock("a, b")}\n\nuse $a and $b`, "use $a and $b"],
+    [`${skillBlock("a, b")}\n\nuse $a and $bee`, "/skill:a, b use $a and $bee"],
   ])("recovers the typed prompt from an expanded skill: %#", (content, typed) => {
     expect(historyItemFromEntry(userEntry("skill", null, content, 100))).toEqual({
       text: typed,

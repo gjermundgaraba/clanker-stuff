@@ -37,28 +37,29 @@ const EntryWireSchema = Type.Object({
 
 type EntryWire = Static<typeof EntryWireSchema>;
 
-/** Drops the further skill blocks earlier dollah-skills versions prepended, one per `$name` mention. */
-const afterSkillBlocks = (text: string): string => {
-  const skill = parseSkillBlock(text);
-
-  if (!skill) return text;
-
-  return skill.userMessage === undefined ? "" : afterSkillBlocks(skill.userMessage);
-};
+/** A `$name` mention, the syntax dollah-skills loads skills from. */
+const SKILL_MENTION = /\$(?<name>[A-Za-z0-9_:-]*[A-Za-z0-9_-])/gu;
 
 /**
- * Sessions store skill invocations expanded. Recover a re-runnable prompt: Pi's
- * `/skill:name args`. A message from earlier dollah-skills versions keeps its first skill as
- * `/skill:name`; the rest stay as the `$name` mentions in its text.
+ * Sessions store skill invocations expanded. Recover a re-runnable prompt. Typed text that mentions
+ * every skill its block names reloads them itself, so it is the prompt as written; any other block
+ * came from Pi's `/skill:name args`. A dollah-skills block names several skills as `a, b`.
  */
-const typedPrompt = (text: string): string => {
+export const typedPrompt = (text: string): string => {
   const skill = parseSkillBlock(text);
 
   if (!skill) return text;
+  const typed = skill.userMessage ?? "";
 
-  const args = skill.userMessage === undefined ? "" : afterSkillBlocks(skill.userMessage);
+  const mentioned = new Set(
+    typed
+      .matchAll(SKILL_MENTION)
+      .flatMap((match) => (match.groups?.name ? [match.groups.name] : [])),
+  );
 
-  return args === "" ? `/skill:${skill.name}` : `/skill:${skill.name} ${args}`;
+  if (skill.name.split(", ").every((name) => mentioned.has(name))) return typed;
+
+  return typed === "" ? `/skill:${skill.name}` : `/skill:${skill.name} ${typed}`;
 };
 
 const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
