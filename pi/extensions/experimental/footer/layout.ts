@@ -74,26 +74,47 @@ const truncate = (text: string, width: number, direction: Truncation): string =>
     : `…${sliceByColumn(text, sourceWidth - (width - 1), width - 1, true)}`;
 };
 
+interface Placed extends LiveWidget {
+  id: string;
+  side: "left" | "right";
+}
+
 /** Capped equal allocation: narrow widgets keep their width, wide ones share the rest. */
-const allocateWidths = (widths: readonly number[], budget: number): number[] => {
-  if (widths.reduce((total, width) => total + width, 0) <= budget) return [...widths];
+const allocateWidths = (
+  items: readonly Placed[],
+  budget: number,
+): { item: Placed; natural: number; width: number }[] => {
+  const allocated = items.map((item) => {
+    const natural = visibleWidth(item.text);
+
+    return { item, natural, width: natural };
+  });
+
+  if (allocated.reduce((total, { width }) => total + width, 0) <= budget) return allocated;
 
   let low = 0;
-  let high = Math.max(0, ...widths);
+  let high = Math.max(0, ...allocated.map(({ natural }) => natural));
 
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
 
-    if (widths.reduce((total, width) => total + Math.min(width, middle), 0) <= budget) low = middle;
+    if (allocated.reduce((total, { natural }) => total + Math.min(natural, middle), 0) <= budget)
+      low = middle;
     else high = middle - 1;
   }
 
-  const allocated = widths.map((width) => Math.min(width, low));
-  let remaining = budget - allocated.reduce((total, width) => total + width, 0);
+  let remaining = budget;
 
-  for (let index = 0; index < widths.length && remaining > 0; index += 1) {
-    if ((allocated[index] ?? 0) < (widths[index] ?? 0)) {
-      allocated[index] = (allocated[index] ?? 0) + 1;
+  for (const entry of allocated) {
+    entry.width = Math.min(entry.natural, low);
+    remaining -= entry.width;
+  }
+
+  for (const entry of allocated) {
+    if (remaining === 0) break;
+
+    if (entry.width < entry.natural) {
+      entry.width += 1;
       remaining -= 1;
     }
   }
@@ -101,34 +122,30 @@ const allocateWidths = (widths: readonly number[], budget: number): number[] => 
   return allocated;
 };
 
-interface Placed extends LiveWidget {
-  id: string;
-  side: "left" | "right";
-}
-
 const fitRow = (
   items: readonly Placed[],
   width: number,
   separator: string,
 ): { line: string; truncated: string[] } => {
-  const count = (side: Placed["side"]) => items.filter((item) => item.side === side).length;
-  const left = count("left");
-  const right = count("right");
+  const left = items.filter((item) => item.side === "left").length;
+  const right = items.length - left;
   const gap = left > 0 && right > 0 ? 1 : 0;
   const fixed = (Math.max(0, left - 1) + Math.max(0, right - 1)) * visibleWidth(separator) + gap;
-  const natural = items.map((item) => visibleWidth(item.text));
-  const budgets = allocateWidths(natural, Math.max(0, width - fixed));
 
-  const fitted = items.map((item, index) =>
-    truncate(
-      item.text,
-      budgets[index] ?? 0,
-      item.truncate ?? (item.side === "left" ? "end" : "start"),
-    ),
+  const fitted = allocateWidths(items, Math.max(0, width - fixed)).map(
+    ({ item, natural, width: budget }) => ({
+      id: item.id,
+      side: item.side,
+      text: truncate(item.text, budget, item.truncate ?? (item.side === "left" ? "end" : "start")),
+      truncated: budget < natural,
+    }),
   );
 
   const join = (side: Placed["side"]) =>
-    fitted.filter((text, index) => items[index]?.side === side && text.length > 0).join(separator);
+    fitted
+      .filter((item) => item.side === side && item.text.length > 0)
+      .map(({ text }) => text)
+      .join(separator);
 
   const leftText = join("left");
   const rightText = join("right");
@@ -140,9 +157,7 @@ const fitRow = (
 
   return {
     line: truncateToWidth(`${leftText}${" ".repeat(padding)}${rightText}`, width, ""),
-    truncated: items
-      .filter((_item, index) => (budgets[index] ?? 0) < (natural[index] ?? 0))
-      .map(({ id }) => id),
+    truncated: fitted.filter((item) => item.truncated).map(({ id }) => id),
   };
 };
 
@@ -213,9 +228,10 @@ export const renderBorder = (
   let used = 0;
 
   for (const entry of entries) {
-    const size = visibleWidth(entry) + (selected.length > 0 ? 3 : 0);
+    const entryWidth = visibleWidth(entry);
+    const size = entryWidth + (selected.length > 0 ? 3 : 0);
 
-    if (size > (selected.length > 0 ? 3 : 0) && used + size <= budget) {
+    if (entryWidth > 0 && used + size <= budget) {
       used += size;
       selected.push(entry);
     }

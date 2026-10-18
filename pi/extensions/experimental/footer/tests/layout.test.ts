@@ -62,6 +62,27 @@ describe(layoutFooter, () => {
     ).toStrictEqual(["…/c/d"]);
   });
 
+  it.each([
+    [4, "", ["a", "b", "c"]],
+    [5, "…", ["a", "b", "c"]],
+    [13, "ok · abc… …ef", ["b", "c"]],
+    [14, "ok · abc… …def", ["b", "c"]],
+    [18, "ok · abcdef abcdef", []],
+  ])(
+    "shares %i columns without shrinking short widgets unnecessarily",
+    (width, line, truncated) => {
+      const result = layoutFooter(
+        config([{ left: ["a", "b"], right: ["c"] }]),
+        live({ a: "ok", b: "abcdef", c: "abcdef" }),
+        width,
+        theme,
+      );
+
+      expect(plain(result.lines)).toStrictEqual([line]);
+      expect(result.truncated).toStrictEqual(truncated);
+    },
+  );
+
   it("reports which widgets were truncated", () => {
     const { truncated } = layoutFooter(
       config([{ left: ["short", "long"], right: [] }]),

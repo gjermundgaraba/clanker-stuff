@@ -49,10 +49,11 @@ const describe = (error: unknown): string =>
 const placement = (config: FooterConfig, id: string): string => {
   if (config.hidden.includes(id)) return "hidden";
 
-  const row = config.rows.findIndex(({ left, right }) => left.includes(id) || right.includes(id));
+  for (const [index, row] of config.rows.entries()) {
+    if (row.left.includes(id)) return `row ${index + 1} left`;
 
-  if (row !== -1)
-    return `row ${row + 1} ${config.rows[row]?.left.includes(id) === true ? "left" : "right"}`;
+    if (row.right.includes(id)) return `row ${index + 1} right`;
+  }
 
   if (config.border.includes(id)) return "border";
 
@@ -132,9 +133,6 @@ export const createFooterHost = (
     ];
   };
 
-  const statuses = (active: Runtime): Map<string, LiveWidget> =>
-    statusWidgets(active.footerData?.getExtensionStatuses() ?? new Map<string, string>());
-
   const liveWidgets = (active: Runtime, theme: FooterTheme): Map<string, LiveWidget> => {
     const live = new Map<string, LiveWidget>();
 
@@ -146,7 +144,10 @@ export const createFooterHost = (
       );
     }
 
-    for (const [id, widget] of statuses(active)) live.set(id, widget);
+    for (const [id, widget] of statusWidgets(
+      active.footerData?.getExtensionStatuses() ?? new Map<string, string>(),
+    ))
+      live.set(id, widget);
 
     return live;
   };
@@ -194,9 +195,7 @@ export const createFooterHost = (
       });
 
       return {
-        dispose() {
-          unsubscribe();
-        },
+        dispose: unsubscribe,
         invalidate() {},
         render(width: number): string[] {
           if (runtime !== active) return [];
@@ -245,14 +244,6 @@ export const createFooterHost = (
     active.border = { host, release };
   };
 
-  const apply = (active: Runtime, config: FooterConfig): void => {
-    active.config = config;
-    active.loadError = undefined;
-    syncBorder(active);
-    refreshGit(active);
-    active.requestRender();
-  };
-
   const save = async (
     active: Runtime,
     ctx: ExtensionCommandContext,
@@ -268,7 +259,11 @@ export const createFooterHost = (
 
     if (runtime !== active) return;
 
-    apply(active, config);
+    active.config = config;
+    active.loadError = undefined;
+    syncBorder(active);
+    refreshGit(active);
+    active.requestRender();
     const [warning] = configWarnings(active);
     ctx.ui.notify(warning ?? `Saved ${store.path}`, warning === undefined ? "info" : "warning");
   };

@@ -14,18 +14,12 @@ export default function footerExtension(
   pi.registerCommand("footer", {
     description: "Edit the footer layout as JSON, or reset or inspect it",
     getArgumentCompletions: host.completions,
-    handler: (args, ctx) => host.command(args, ctx),
+    handler: host.command,
   });
 
   pi.on("session_start", (_event, ctx) => host.start(ctx));
   // Built-in widgets are computed while rendering; these only cover what Pi does not re-render.
-  pi.on("model_select", () => {
-    host.requestRender();
-  });
-  pi.on("turn_end", () => {
-    host.refreshGit();
-  });
-  pi.on("session_shutdown", () => {
-    host.shutdown();
-  });
+  pi.on("model_select", host.requestRender);
+  pi.on("turn_end", host.refreshGit);
+  pi.on("session_shutdown", host.shutdown);
 }
