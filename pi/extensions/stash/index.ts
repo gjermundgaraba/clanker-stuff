@@ -9,7 +9,7 @@ export default function stashExtension(pi: ExtensionAPI): void {
 
   pi.registerShortcut("ctrl+s", {
     description: "Stash current editor text, or pop the latest stash when empty",
-    handler: (ctx) => stash.toggle(ctx),
+    handler: stash.toggle,
   });
 
   pi.registerCommand("pop-stash", {
@@ -17,6 +17,6 @@ export default function stashExtension(pi: ExtensionAPI): void {
     handler: (_args, ctx) => stash.pop(ctx),
   });
 
-  pi.on("input", (event, ctx) => stash.restore(event, ctx));
-  pi.on("session_shutdown", () => stash.dispose());
+  pi.on("input", stash.restore);
+  pi.on("session_shutdown", stash.dispose);
 }

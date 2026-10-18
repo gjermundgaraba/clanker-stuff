@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
@@ -25,13 +25,6 @@ const StashStoreSchema = Type.Object({ entries: Type.Array(Type.String()) });
 describe("stash", () => {
   const envRestorers: (() => void)[] = [];
   let agentDir: string;
-
-  const useAgentDir = async () => {
-    const directory = await createTempDir("stash-agent-");
-    envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: directory }));
-
-    return directory;
-  };
 
   const readStore = async (directory: string, cwd: string) =>
     Value.Parse(
@@ -79,15 +72,14 @@ describe("stash", () => {
   };
 
   beforeEach(async () => {
-    agentDir = await useAgentDir();
+    agentDir = await createTempDir("stash-agent-");
+    envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: agentDir }));
   });
 
   afterEach(() => {
     for (const restore of envRestorers.splice(0).toReversed()) {
       restore();
     }
-
-    vi.restoreAllMocks();
   });
 
   it("stashing clears the editor and confirms", async () => {
@@ -211,11 +203,15 @@ describe("stash", () => {
     harness.ctx.ui.setEditorText("draft message");
 
     const saving = harness.host.runShortcut("ctrl+s", harness.ctx);
-    await harness.host.emitSessionShutdown(harness.ctx);
-    await saving;
 
-    const store = await readStore(agentDir, cwd);
-    expect(store.entries).toStrictEqual(["draft message"]);
+    try {
+      await harness.host.emitSessionShutdown(harness.ctx);
+
+      const store = await readStore(agentDir, cwd);
+      expect(store.entries).toStrictEqual(["draft message"]);
+    } finally {
+      await saving;
+    }
   });
 
   it("does not stash blank editor text", async () => {

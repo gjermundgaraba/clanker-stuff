@@ -34,25 +34,12 @@ const readStore = async (filePath: string): Promise<string[]> => {
 
 /** A per-project stack of stashed drafts; the newest is restored after the next submitted prompt. */
 export const createStash = () => {
-  const stack: string[] = [];
+  let stack: string[] = [];
   let pendingSave = Promise.resolve();
-
-  const load = async (ctx: ExtensionContext) => {
-    try {
-      stack.splice(
-        0,
-        stack.length,
-        ...(await readStore(getStorePath(ctx.cwd))).slice(-MAX_STASHES),
-      );
-    } catch {
-      stack.splice(0);
-      ctx.ui.notify("Failed to load persisted stash.", "warning");
-    }
-  };
 
   const save = async (ctx: ExtensionContext) => {
     const filePath = getStorePath(ctx.cwd);
-    const content = `${JSON.stringify({ entries: [...stack] }, null, 2)}\n`;
+    const content = `${JSON.stringify({ entries: stack }, null, 2)}\n`;
 
     // Atomic replacement: an interrupted write must not leave a truncated store.
     pendingSave = withFileMutationQueue(filePath, async () => {
@@ -79,37 +66,38 @@ export const createStash = () => {
     await save(ctx);
   };
 
-  const toggle = async (ctx: ExtensionContext) => {
-    const text = ctx.ui.getEditorText();
-
-    if (!text.trim()) {
-      await pop(ctx);
-
-      return;
-    }
-
-    stack.push(text);
-    stack.splice(0, Math.max(0, stack.length - MAX_STASHES));
-    ctx.ui.setEditorText("");
-    ctx.ui.notify(`Stashed (${stack.length}).`, "info");
-    await save(ctx);
-  };
-
-  const popCommand = async (ctx: ExtensionContext) => {
-    if (!ctx.hasUI) throw new Error("pop-stash requires interactive UI");
-    await pop(ctx);
-  };
-
-  const restore = async (event: InputEvent, ctx: ExtensionContext) => {
-    if (event.source !== "interactive" || ctx.mode !== "tui" || stack.length === 0) return;
-    await pop(ctx);
-  };
-
   return {
     dispose: () => pendingSave,
-    pop: popCommand,
-    restore,
-    start: load,
-    toggle,
+    pop: async (ctx: ExtensionContext) => {
+      if (!ctx.hasUI) throw new Error("pop-stash requires interactive UI");
+      await pop(ctx);
+    },
+    restore: async (event: InputEvent, ctx: ExtensionContext) => {
+      if (event.source !== "interactive" || ctx.mode !== "tui" || stack.length === 0) return;
+      await pop(ctx);
+    },
+    start: async (ctx: ExtensionContext) => {
+      try {
+        stack = (await readStore(getStorePath(ctx.cwd))).slice(-MAX_STASHES);
+      } catch {
+        stack = [];
+        ctx.ui.notify("Failed to load persisted stash.", "warning");
+      }
+    },
+    toggle: async (ctx: ExtensionContext) => {
+      const text = ctx.ui.getEditorText();
+
+      if (!text.trim()) {
+        await pop(ctx);
+
+        return;
+      }
+
+      stack.push(text);
+      stack.splice(0, Math.max(0, stack.length - MAX_STASHES));
+      ctx.ui.setEditorText("");
+      ctx.ui.notify(`Stashed (${stack.length}).`, "info");
+      await save(ctx);
+    },
   };
 };
