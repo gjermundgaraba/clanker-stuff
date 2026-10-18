@@ -28,7 +28,6 @@ interface Edits {
 }
 
 export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () => void {
-  let release: (() => void) | undefined;
   let dispose: (() => void) | undefined;
 
   const unmount = host.onMount((editor) => {
@@ -107,15 +106,15 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       const oldMode = state.mode;
 
       const extent = oldMode.startsWith("visual")
-        ? selectionExtent(view(), selection(view(), state), oldMode === "visual-line")
+        ? selectionExtent(before, selection(before, state), oldMode === "visual-line")
         : undefined;
 
-      const result = execute(view(), state, command);
+      const result = execute(before, state, command);
 
       if (!result) return;
 
       if (result.yank) {
-        let text = document.expand(document.text().slice(result.yank.start, result.yank.end));
+        let text = document.expand(before.text.slice(result.yank.start, result.yank.end));
 
         if (result.yank.linewise && !text.endsWith("\n")) text += "\n";
         state.register = { text, linewise: result.yank.linewise };
@@ -343,7 +342,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       return true;
     };
 
-    release = host.contribute("editing", {
+    const release = host.contribute("editing", {
       input,
       changed,
       submitted: reset,
@@ -354,9 +353,11 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         return [{ ...range, end: Math.max(range.end, range.start + 1), selected: true }];
       },
     });
+
     dispose = () => {
       parser.reset();
       document.cancelCompletion();
+      release();
     };
 
     publish("insert");
@@ -365,7 +366,6 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
   return () => {
     unmount();
     dispose?.();
-    release?.();
   };
 }
 

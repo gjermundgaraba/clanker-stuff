@@ -57,12 +57,12 @@ export function line(text: string, at: number): Range {
 export function normalCursor(view: View, at: number): number {
   const bounded = Math.max(0, Math.min(view.text.length, at));
   const row = line(view.text, bounded);
-  const cell = units(view).find((u) => u.start <= bounded && bounded < u.end);
+  const cells = units(view);
 
   if (bounded === row.end && row.end > row.start)
-    return units(view).findLast((u) => u.end <= row.end)?.start ?? row.start;
+    return cells.findLast((u) => u.end <= row.end)?.start ?? row.start;
 
-  return cell?.start ?? bounded;
+  return cells.find((u) => u.start <= bounded && bounded < u.end)?.start ?? bounded;
 }
 
 export function next(view: View, at: number) {

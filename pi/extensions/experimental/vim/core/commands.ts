@@ -65,12 +65,7 @@ export function execute(view: View, state: State, command: Command): Result | un
   const wholeLines = visual && "XDCS".includes(command.key);
   const synonym = shorthand.get(command.key);
 
-  if (synonym) {
-    command = { ...command, key: synonym[0] };
-
-    if (visual) delete command.motion;
-    else command.motion = synonym[1];
-  }
+  if (synonym) command = { ...command, key: synonym[0], motion: synonym[1] };
 
   const { key } = command;
 
@@ -235,17 +230,17 @@ export function execute(view: View, state: State, command: Command): Result | un
     rest = range?.start ?? cursor;
   } else if (command.motion) {
     // Vim's cw changes through the current word, not its following whitespace.
-    const changed =
-      key === "c" && /[wW]/u.test(command.motion) && !/^\s/u.test(text.slice(cursor))
-        ? { ...command, motion: command.motion === "w" ? "e" : "E" }
-        : command;
+    const changeWord =
+      key === "c" && /[wW]/u.test(command.motion) && !/^\s/u.test(text.slice(cursor));
 
-    const word =
-      changed !== command ? objectRange(view, command.motion, false, command.count) : undefined;
+    const word = changeWord ? objectRange(view, command.motion, false, command.count) : undefined;
 
     const target = word
       ? { at: previous(view, word.end), inclusive: true, linewise: false }
-      : motion(view, changed);
+      : motion(
+          view,
+          changeWord ? { ...command, motion: command.motion === "w" ? "e" : "E" } : command,
+        );
 
     if (!target) return undefined;
     linewise = target.linewise;
