@@ -268,6 +268,9 @@ importers:
       '@clanker-stuff/editor':
         specifier: workspace:^
         version: link:../../packages/editor
+      '@clanker-stuff/pi-skill-providers':
+        specifier: workspace:^
+        version: link:../../packages/skill-providers
       '@earendil-works/pi-coding-agent':
         specifier: 1.3.0
         version: 1.3.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@smithy/signature-v4@5.7.3)(ws@8.21.3)(zod@4.4.3)
@@ -744,6 +747,19 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 1.3.0
         version: 1.3.0
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.2.0(@types/node@26.6.4)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.2.0(@opentelemetry/api@1.9.0)(@types/node@26.6.4)(@vitest/ui@5.0.4)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
+
+  pi/packages/skill-providers:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 1.3.0
+        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))(@smithy/signature-v4@5.7.3)(ws@8.21.3)(zod@4.6.5)
+    devDependencies:
       vite:
         specifier: 'catalog:'
         version: '@voidzero-dev/vite-plus-core@1.2.0(@types/node@26.6.4)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'

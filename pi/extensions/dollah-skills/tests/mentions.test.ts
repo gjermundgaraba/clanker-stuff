@@ -13,6 +13,8 @@ import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import type { ExtensionHostOptions } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
+import { SKILL_PROVIDER_CHANNEL } from "@clanker-stuff/pi-skill-providers";
+import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
 
 const sourceInfo = (filePath: string) =>
   createSyntheticSourceInfo(filePath, {
@@ -183,6 +185,56 @@ describe("skill mentions", () => {
       type: "info",
       message: "Loaded skills: $beta",
     });
+  });
+
+  it("loads skills other extensions provide one at a time, after local skills of the same name", async () => {
+    const { block, host } = await writeSkills([["alpha", "Alpha instructions."]]);
+    const loads: string[] = [];
+    let loading = 0;
+
+    const provider: SkillProvider = {
+      id: "test",
+      async load(name) {
+        loading += 1;
+        expect(loading).toBe(1);
+        loads.push(name);
+        await Promise.resolve();
+        loading -= 1;
+
+        return name === "docs:broken"
+          ? { error: "not approved" }
+          : { block: `<skill name="${name}">` };
+      },
+      skills: () => [
+        { description: "Shadowed by the local skill", name: "alpha" },
+        { description: "Refunds", name: "docs:refunds" },
+        { description: "Broken", name: "docs:broken" },
+        { description: "Billing refunds", name: "docs:refunds-1a2b3c4d" },
+      ],
+    };
+
+    await host.emitSessionStart();
+    host.events.emit(SKILL_PROVIDER_CHANNEL, provider);
+    host.events.emit(SKILL_PROVIDER_CHANNEL, { id: "not-a-provider" });
+
+    const text = "Use $alpha, $docs:refunds, $docs:broken and $docs:refunds-1a2b3c4d.";
+    const result = await host.emitInput({ source: "interactive", text, type: "input" });
+
+    expect(result).toStrictEqual({
+      action: "transform",
+      text: `${text}\n\n${[block("alpha"), '<skill name="docs:refunds">', '<skill name="docs:refunds-1a2b3c4d">'].join("\n\n")}`,
+    });
+    expect(loads).toStrictEqual(["docs:refunds", "docs:broken", "docs:refunds-1a2b3c4d"]);
+    expect(host.getNotifications()).toStrictEqual([
+      { message: "Failed to load skill docs:broken: not approved", type: "warning" },
+      { message: "Loaded skills: $alpha, $docs:refunds, $docs:refunds-1a2b3c4d", type: "info" },
+    ]);
+
+    const completion = await host
+      .getAutocompleteProvider(new CombinedAutocompleteProvider([], process.cwd()))
+      .getSuggestions(["Use $docs:ref"], 0, 13, { signal: new AbortController().signal });
+
+    expect(completion?.items.map((item) => item.value)).toContain("$docs:refunds");
   });
 
   it.each([false, true])("completes loaded skill names, foreign editor=%s", async (foreign) => {
