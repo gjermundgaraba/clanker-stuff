@@ -21,7 +21,8 @@ panes inside agent sessions, so don't rely on them.
 ```sh
 herdr pane run <app> "<app command>"
 herdr pane send-keys <app> "j"             # j k down up space tab shift+tab enter esc "?" "/" ctrl+d …
-herdr pane send-text <app> $'\e[6~'        # PgDn ($'\e[5~' PgUp); Herdr has no key names for these
+herdr pane send-text <app> $'\e[6~'        # PgDn; PgUp $'\e[5~', Home $'\e[H', End $'\e[F', Delete $'\e[3~':
+                                           # Herdr has no key names for these
 herdr pane send-text <app> "query"         # typing into inputs
 ```
 
@@ -71,6 +72,7 @@ Start with the brief's new-user goal before its probes, and note where you hesit
 - Feedback while loading or working, after an action finishes, and for errors and empty states.
 - Navigation: tabs, popups (help, settings, confirmations), filters, selection, scrolling.
 - Layout at each size: wrapping, truncation, alignment, and columns appearing or disappearing.
+  Resize with a menu or popup open too, near the screen's bottom edge: stale positions crash apps.
 - Visual finish: palette coherence, contrast, use of bold and dim, spacing, borders, icons.
 - Wording: plain language, consistent terms, honest empty states.
 - Stability: crashes, the app exiting on its own, keys that stop responding, rendering glitches.

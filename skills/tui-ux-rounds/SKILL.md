@@ -30,6 +30,7 @@ not create unasked. It doesn't authorise closing tabs you didn't create.
   nothing runs in it. Point the app's own state and config into the sandbox where the app allows
   it, and switch off background network actions (auto-fetch, update checks). A copied directory
   doesn't isolate global state, credentials or the network; the project note says what still leaks.
+  A seed saved from a used copy carries its state, including paths into that copy: empty it first.
 - **App tab.** Build, then run the app in its own tab (`herdr tab create --workspace
   "$HERDR_WORKSPACE_ID" --label <app>-ui --no-focus --cwd <sandbox>`; reuse one left from an earlier round). Launch it as `<cmd>; echo
   EXIT=$?` (fish: `$status`) so an unexpected exit leaves a trace, and relaunch after every build.
