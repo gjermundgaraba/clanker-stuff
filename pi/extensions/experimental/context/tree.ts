@@ -22,9 +22,6 @@ const group = (
   children,
 });
 
-const largestFirst = (parts: readonly ContextPart[]): ContextPart[] =>
-  [...parts].sort((a, b) => b.estimatedTokens - a.estimatedTokens);
-
 export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
   if (snapshot.kind === "tools")
     return [
@@ -57,7 +54,9 @@ export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
     group(
       "tools",
       "Tool declarations",
-      largestFirst(snapshot.tools).map((part, index) => leaf(part, `tools-${index}`)),
+      snapshot.tools
+        .toSorted((a, b) => b.estimatedTokens - a.estimatedTokens)
+        .map((part, index) => leaf(part, `tools-${index}`)),
       snapshot.recorded
         ? undefined
         : "No request has recorded tool declarations yet. Run a turn, then reopen /context.",

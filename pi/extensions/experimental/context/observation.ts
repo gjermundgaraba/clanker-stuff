@@ -47,7 +47,6 @@ export function observeRequest(payload: unknown): ObservedRequest {
       truncated: false,
     };
 
-  let format: BodyFormat = "json";
   const bytes = Buffer.from(body, "utf8");
   const truncated = bytes.length > MAX_REQUEST_BYTES;
 
@@ -58,8 +57,7 @@ export function observeRequest(payload: unknown): ObservedRequest {
       new TextDecoder().decode(bytes.subarray(0, MAX_REQUEST_BYTES - Buffer.byteLength(suffix)), {
         stream: true,
       }) + suffix;
-    format = "text";
   }
 
-  return { capturedAt: Date.now(), body, format, truncated };
+  return { capturedAt: Date.now(), body, format: truncated ? "text" : "json", truncated };
 }

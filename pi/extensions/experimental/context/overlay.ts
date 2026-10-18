@@ -319,35 +319,33 @@ export class ContextOverlay implements Component, Focusable {
     );
     this.scroll = followSelection(this.selected, this.scroll, bodyHeight, this.rows.length);
 
-    const body =
-      this.rows.length === 0
-        ? [
-            `${PAD}${this.theme.fg("muted", this.search.getValue() ? "No matches" : "Run a turn, then reopen /context.")}`,
-          ]
-        : renderTreeRows(
-            this.theme,
-            this.rows.slice(this.scroll, this.scroll + bodyHeight),
-            this.selected - this.scroll,
-            treeWidth,
-            this.countWidth,
-            this.snapshot.kind === "state",
-          );
-
-    let position = "";
     const selectedRow = this.rows[this.selected];
-    const showPreview = (this.detail || previewWidth > 0) && selectedRow !== undefined;
 
-    if (showPreview) {
-      const preview = this.renderPreview(
-        selectedRow,
-        this.detail ? innerWidth : previewWidth,
-        layout,
-      );
+    const preview =
+      (this.detail || previewWidth > 0) && selectedRow !== undefined
+        ? this.renderPreview(selectedRow, this.detail ? innerWidth : previewWidth, layout)
+        : undefined;
 
-      if (this.detail) {
-        body.splice(0, body.length, ...preview.lines);
-        position = preview.position;
-      } else {
+    let body: string[];
+
+    if (this.detail && preview) {
+      body = preview.lines;
+    } else {
+      body =
+        this.rows.length === 0
+          ? [
+              `${PAD}${this.theme.fg("muted", this.search.getValue() ? "No matches" : "Run a turn, then reopen /context.")}`,
+            ]
+          : renderTreeRows(
+              this.theme,
+              this.rows.slice(this.scroll, this.scroll + bodyHeight),
+              this.selected - this.scroll,
+              treeWidth,
+              this.countWidth,
+              this.snapshot.kind === "state",
+            );
+
+      if (preview) {
         const divider = this.theme.fg(this.previewFocused ? "borderAccent" : "borderMuted", "│");
 
         for (let index = 0; index < bodyHeight; index += 1) {
@@ -379,7 +377,7 @@ export class ContextOverlay implements Component, Focusable {
     ].filter((item) => item.show);
 
     const query = this.search.getValue();
-    const right = this.detail ? position : query ? `/${query}` : "";
+    const right = this.detail ? (preview?.position ?? "") : query ? `/${query}` : "";
 
     const footer = this.editing
       ? this.search.render(innerWidth - PAD.length).join("")
@@ -391,7 +389,7 @@ export class ContextOverlay implements Component, Focusable {
       layout,
       body,
       footer,
-      showPreview && !this.detail && this.previewFocused,
+      preview !== undefined && !this.detail && this.previewFocused,
     );
   }
 }

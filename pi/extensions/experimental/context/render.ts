@@ -35,11 +35,7 @@ const ROW_BAR_WIDTH = 8;
 
 const ROW_BAR_MIN_TREE_WIDTH = 40;
 
-export const fit = (text: string, width: number): string => {
-  const clipped = truncateToWidth(text, width, "…");
-
-  return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
-};
+export const fit = (text: string, width: number): string => truncateToWidth(text, width, "…", true);
 
 const count = (value: number): string => value.toLocaleString("en-US");
 
