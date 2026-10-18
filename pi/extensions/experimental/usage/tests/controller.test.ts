@@ -36,24 +36,22 @@ const successfulFetchJson: FetchJson = okFetch({
   seven_day: { utilization: 66 },
 });
 
-const client = { fetchJson: successfulFetchJson };
-
-let fetchJson = vi.spyOn(client, "fetchJson");
-
 const stubDependencies = (
   nowRef: { value: number },
   radiusBillingUrl: string | null = "https://radius.pi.dev/v1/billing",
 ) => {
-  fetchJson = vi.spyOn(client, "fetchJson");
-  fetchJson.mockReset();
-  fetchJson.mockImplementation(successfulFetchJson);
+  const client = { fetchJson: successfulFetchJson };
+  const fetchJson = vi.spyOn(client, "fetchJson");
 
-  return createUsageExtension({
-    fetchJson: client.fetchJson,
-    now: () => nowRef.value,
-    getAuth: () => oauth,
-    radiusBillingUrl: () => radiusBillingUrl ?? undefined,
-  });
+  return {
+    fetchJson,
+    extension: createUsageExtension({
+      fetchJson: client.fetchJson,
+      now: () => nowRef.value,
+      getAuth: () => oauth,
+      radiusBillingUrl: () => radiusBillingUrl ?? undefined,
+    }),
+  };
 };
 
 describe("usage controller", () => {
@@ -302,7 +300,7 @@ describe("usage controller", () => {
   });
 
   it("publishes the active usage as a native status and clears it on shutdown", async () => {
-    const extension = stubDependencies({ value: 1000 });
+    const { extension } = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: claudeModel });
     const context = host.createContext({ model: claudeModel });
 
@@ -315,7 +313,11 @@ describe("usage controller", () => {
   });
 
   it("renders Radius balance usage from the effective gateway", async () => {
-    const extension = stubDependencies({ value: 1000 }, "https://gateway.example/v1/billing");
+    const { extension, fetchJson } = stubDependencies(
+      { value: 1000 },
+      "https://gateway.example/v1/billing",
+    );
+
     fetchJson.mockImplementation(
       okFetch({
         balance: { available: 43.26, credit_balance: 46.51, reserved: 3.25 },
@@ -339,7 +341,7 @@ describe("usage controller", () => {
   });
 
   it("does not send a Radius credential without an unambiguous gateway", async () => {
-    const extension = stubDependencies({ value: 1000 }, null);
+    const { extension, fetchJson } = stubDependencies({ value: 1000 }, null);
     const host = createExtensionHost(extension, { model: radiusModel });
     const context = host.createContext({ model: radiusModel });
 
@@ -352,7 +354,7 @@ describe("usage controller", () => {
   });
 
   it("does not fetch usage automatically outside TUI mode", async () => {
-    const extension = stubDependencies({ value: 1000 });
+    const { extension, fetchJson } = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: claudeModel });
     const context = host.createContext({ mode: "rpc", model: claudeModel });
 
@@ -364,7 +366,7 @@ describe("usage controller", () => {
   });
 
   it("does not let a stale command refresh overwrite a model switch", async () => {
-    const extension = stubDependencies({ value: 1000 });
+    const { extension, fetchJson } = stubDependencies({ value: 1000 });
 
     const radius = Promise.withResolvers<{
       json: unknown;
@@ -436,7 +438,7 @@ describe("usage controller", () => {
 
   it("publishes loading, error, ready, and stale status text", async () => {
     const nowRef = { value: 1000 };
-    const extension = stubDependencies(nowRef);
+    const { extension, fetchJson } = stubDependencies(nowRef);
     let requests = 0;
     fetchJson.mockImplementation(async (url, schema, options) => {
       requests += 1;

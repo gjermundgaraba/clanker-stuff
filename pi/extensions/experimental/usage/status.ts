@@ -1,8 +1,7 @@
 import { percentTone } from "@clanker-stuff/pi-tones";
-import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
-import { formatCredits, formatResetDuration, formatUsd } from "./format.js";
+import { formatCredits, formatProviderLabel, formatResetDuration, formatUsd } from "./format.js";
 import { providerDisplayName } from "./providers.js";
 import type { SupportedProvider, UsageSnapshot, UsageWindow } from "./providers.js";
 
@@ -34,11 +33,6 @@ const selectQuotaWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => 
 
   return selected;
 };
-
-const providerLabel = (snapshot: UsageSnapshot): string =>
-  snapshot.planLabel !== undefined && snapshot.planLabel.length > 0
-    ? `${providerDisplayName(snapshot.provider)} (${inlineText(snapshot.planLabel)})`
-    : providerDisplayName(snapshot.provider);
 
 const metricText = (snapshot: UsageSnapshot, now: number, theme: Pick<Theme, "fg">): string => {
   const window = selectQuotaWindow(snapshot);
@@ -85,7 +79,7 @@ export const statusText = (
     case "ready":
     case "stale":
       return [
-        theme.fg("muted", `${providerLabel(presentation.snapshot)} `),
+        theme.fg("muted", `${formatProviderLabel(presentation.snapshot)} `),
         metricText(presentation.snapshot, now, theme),
         presentation.kind === "stale" ? theme.fg("warning", " !") : "",
       ].join("");

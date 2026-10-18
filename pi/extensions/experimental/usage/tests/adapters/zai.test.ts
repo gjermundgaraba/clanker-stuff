@@ -149,6 +149,27 @@ describe("zai usage", () => {
     expect(result.ok && result.snapshot.quotaWindows[0]?.remainingPercent).toBe(70);
   });
 
+  it.each([undefined, ""])("omits a missing or empty plan level (%s)", (level) => {
+    const result = mapZaiQuotaPayload(
+      {
+        data: {
+          ...(level === undefined ? {} : { level }),
+          limits: [{ percentage: 30, type: "CREDIT_LIMIT", unit: 3 }],
+        },
+      },
+      NOW,
+    );
+
+    expect(result).toStrictEqual({
+      ok: true,
+      snapshot: {
+        fetchedAt: NOW,
+        provider: "zai",
+        quotaWindows: [{ id: "5h", label: "5h", remainingPercent: 70 }],
+      },
+    });
+  });
+
   it("surfaces the error envelope returned with HTTP 200", () => {
     const result = mapZaiQuotaPayload({ code: 401, msg: "token expired or incorrect" }, NOW);
     expect(result).toStrictEqual({

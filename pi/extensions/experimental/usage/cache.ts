@@ -75,8 +75,6 @@ export class UsageCache {
 
       if (result.ok) {
         this.success.set(provider, result.snapshot);
-
-        return result;
       }
 
       return result;

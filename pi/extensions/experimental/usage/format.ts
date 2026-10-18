@@ -5,7 +5,6 @@ import type {
   SupportedProvider,
   UsageAccounting,
   UsageSnapshot,
-  UsageWindow,
   UsageWindowId,
 } from "./providers.js";
 
@@ -21,9 +20,6 @@ const USD_FORMAT = new Intl.NumberFormat("en-US", {
 });
 
 const CREDIT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-
-const orderWindows = (windows: UsageWindow[]): UsageWindow[] =>
-  windows.toSorted((left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id]);
 
 export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()): string => {
   const resetMs = Date.parse(resetsAt);
@@ -85,18 +81,19 @@ const accountingLines = (accounting: UsageAccounting, nowMs: number): string[] =
         `month spend  ${formatUsd(accounting.currentMonthSpend)}  ends in ${formatResetDuration(accounting.periodEndsAt, nowMs)}`,
       ];
 
+export const formatProviderLabel = (snapshot: UsageSnapshot): string =>
+  snapshot.planLabel !== undefined && snapshot.planLabel.length > 0
+    ? `${providerDisplayName(snapshot.provider)} (${inlineText(snapshot.planLabel)})`
+    : providerDisplayName(snapshot.provider);
+
 export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()): string => {
-  const lines: string[] = [];
-  const title = providerDisplayName(snapshot.provider);
+  const lines = [formatProviderLabel(snapshot)];
 
-  const plan =
-    snapshot.planLabel === undefined || snapshot.planLabel.length === 0
-      ? ""
-      : ` (${inlineText(snapshot.planLabel)})`;
+  const windows = snapshot.quotaWindows.toSorted(
+    (left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id],
+  );
 
-  lines.push(`${title}${plan}`);
-
-  for (const window of orderWindows(snapshot.quotaWindows)) {
+  for (const window of windows) {
     const reset =
       window.resetsAt === undefined || window.resetsAt.length === 0
         ? "resets unknown"

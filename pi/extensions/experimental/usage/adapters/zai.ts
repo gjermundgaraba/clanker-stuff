@@ -106,11 +106,12 @@ export const mapZaiQuotaPayload = (
 
   const planLabel = planLabelFromLevel(payload.data?.level);
 
-  return usageResult(
-    planLabel === undefined
-      ? { fetchedAt: nowMs, provider: "zai", quotaWindows: windows }
-      : { fetchedAt: nowMs, planLabel, provider: "zai", quotaWindows: windows },
-  );
+  return usageResult({
+    fetchedAt: nowMs,
+    ...(planLabel === undefined ? {} : { planLabel }),
+    provider: "zai",
+    quotaWindows: windows,
+  });
 };
 
 export const fetchZaiUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>

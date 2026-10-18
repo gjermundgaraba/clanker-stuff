@@ -87,9 +87,6 @@ export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefine
   return makeUsageWindow("week", 100 - usagePercent, resetsAt);
 };
 
-const mapXaiPrepaidBalance = (payload: XaiPayload): number | undefined =>
-  moneyValue(payload.config.prepaidBalance);
-
 export const mapXaiUsagePayloads = (
   monthlyPayload: XaiPayload | undefined,
   weeklyPayload: XaiPayload | undefined,
@@ -100,8 +97,7 @@ export const mapXaiUsagePayloads = (
     weeklyPayload === undefined ? undefined : mapXaiWeeklyPayload(weeklyPayload),
   ].filter(isDefined);
 
-  const prepaidBalance =
-    weeklyPayload === undefined ? undefined : mapXaiPrepaidBalance(weeklyPayload);
+  const prepaidBalance = moneyValue(weeklyPayload?.config.prepaidBalance);
 
   return usageResult({
     ...(prepaidBalance === undefined
