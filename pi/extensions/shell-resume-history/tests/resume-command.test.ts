@@ -22,10 +22,6 @@ import {
 const hasCommand = (command: string) =>
   spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0;
 
-const resumeSession = (sessionManager: SessionManager) => ({
-  getSessionFile: () => sessionManager.getSessionFile(),
-});
-
 describe("resume command", () => {
   let tempRoot: string | undefined;
   let restoreEnv: (() => void) | undefined;
@@ -41,7 +37,7 @@ describe("resume command", () => {
       PI_CODING_AGENT_DIR: agentDir,
     });
 
-    return { agentDir, cwd, inbox };
+    return { cwd, inbox, tempRoot };
   };
 
   afterEach(async () => {
@@ -62,7 +58,7 @@ describe("resume command", () => {
 
     const ctx = host.createContext({
       cwd,
-      sessionManager: resumeSession(sessionManager),
+      sessionManager,
     });
 
     await host.emitSessionShutdown(ctx);
@@ -77,8 +73,8 @@ describe("resume command", () => {
   });
 
   it("resumes the session file in its own directory from any shell directory", async () => {
-    const { cwd } = await setup();
-    const sessionDir = path.join(tempRoot ?? "", "custom pi's sessions");
+    const { cwd, tempRoot } = await setup();
+    const sessionDir = path.join(tempRoot, "custom pi's sessions");
     const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
     sessionManager.appendMessage(fauxAssistantMessage("test"));
     const command = formatResumeCommand(sessionManager);
@@ -93,19 +89,18 @@ describe("resume command", () => {
     const [flag, sessionFile] = args.trimEnd().split("\n");
     expect(flag).toBe("--session");
     expect(sessionFile).toBe(sessionManager.getSessionFile());
-    expect(SessionManager.open(sessionFile ?? "").getCwd()).toBe(cwd);
+    assert(sessionFile);
+    expect(SessionManager.open(sessionFile).getCwd()).toBe(cwd);
   });
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
-    const { cwd, inbox } = await setup();
-    const sessionDir = path.join(tempRoot ?? "", "sessions");
+    const { cwd, inbox, tempRoot } = await setup();
+    const sessionDir = path.join(tempRoot, "sessions");
     const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
     sessionManager.appendMessage(fauxAssistantMessage("test"));
     const sessionFile = sessionManager.getSessionFile();
 
-    if (sessionFile === undefined) {
-      throw new Error("Expected a persisted test session");
-    }
+    assert(sessionFile, "Expected a persisted test session");
 
     const host = createExtensionHost(() => {});
 
@@ -122,7 +117,7 @@ describe("resume command", () => {
 
     const ctx = host.createContext({
       cwd,
-      sessionManager: resumeSession(sessionManager),
+      sessionManager,
     });
 
     await recordResumeCommand("quit", ctx);
