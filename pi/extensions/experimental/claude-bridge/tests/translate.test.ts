@@ -42,8 +42,6 @@ const served = (...names: string[]): ReadonlySet<string> =>
 
 const BASH = "mcp__custom-tools__bash";
 
-// notify_parent rather than bash where arguments matter, so the block lifecycle under
-// test does not depend on any tool's argument mapping.
 const NOTIFY = "mcp__custom-tools__notify_parent";
 
 const READ = "mcp__custom-tools__read";
@@ -328,6 +326,47 @@ describe("a tool call whose content_block_stop never arrived", () => {
 });
 
 describe("completed tool-call arguments", () => {
+  it.each(["streamed", "whole"])(
+    "preserves a custom tool's declared parameters in a %s response",
+    (mode) => {
+      const tool = {
+        name: "read",
+        description: "Read a field from a file.",
+        parameters: Type.Object({
+          file_path: Type.String(),
+          path: Type.String(),
+        }),
+      };
+
+      const input = { file_path: "config.json", path: "settings.theme" };
+
+      const messages =
+        mode === "streamed"
+          ? [
+              messageStart("msg_custom"),
+              toolUseStart(0, READ, "toolu_custom"),
+              inputJsonDelta(0, JSON.stringify(input)),
+              blockStop(0),
+              messageStop(),
+            ]
+          : [
+              assistantMessage("msg_custom", [
+                { type: "tool_use", name: READ, id: "toolu_custom", input },
+              ]),
+            ];
+
+      const { turn } = run(messages, resolveServedTools([tool]).names);
+      const [call] = toolCalls(turn);
+
+      if (call === undefined) throw new Error("Missing completed tool call");
+
+      expect(call.arguments).toEqual(input);
+      expect(() => {
+        validateToolArguments(tool, call);
+      }).not.toThrow();
+    },
+  );
+
   it.each(['{"summary":"kept","other":', "[]", "null"])(
     "reports malformed final input instead of executing its parsed prefix: %s",
     (json) => {
@@ -361,11 +400,11 @@ describe("completed tool-call arguments", () => {
     },
   );
 
-  it("repairs invalid escapes before mapping the complete arguments", () => {
+  it("repairs invalid escapes in complete arguments", () => {
     const { turn } = run([
       messageStart("msg_repaired"),
       toolUseStart(0, READ, "toolu_repaired"),
-      inputJsonDelta(0, String.raw`{"file_path":"\usepackage","limit":7}`),
+      inputJsonDelta(0, String.raw`{"path":"\usepackage","limit":7}`),
       blockStop(0),
       messageStop(),
     ]);
@@ -386,7 +425,7 @@ describe("completed tool-call arguments", () => {
         type: "tool_use",
         id: "toolu_initial",
         name: READ,
-        input: { file_path: "initial.txt" },
+        input: { path: "initial.txt" },
       },
     };
 

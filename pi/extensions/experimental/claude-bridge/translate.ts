@@ -24,7 +24,7 @@ import type {
 import { toJsonObject } from "./json.js";
 import { debug } from "./log.js";
 import { recordUsage } from "./query/usage.js";
-import { mapToolArgs, piToolName } from "./tools.js";
+import { piToolName } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
 
@@ -352,7 +352,6 @@ export class Turn {
             Object.assign(block, parseToolCallArguments(open.partialJson));
           }
 
-          block.arguments = mapToolArgs(block.name, block.arguments);
           this.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: output });
         }
 
@@ -452,7 +451,7 @@ export class Turn {
           type: "toolCall",
           id: block.id,
           name,
-          arguments: mapToolArgs(name, toJsonObject(block.input) ?? {}),
+          arguments: toJsonObject(block.input) ?? {},
         };
 
         this.blocks.push(toolCall);

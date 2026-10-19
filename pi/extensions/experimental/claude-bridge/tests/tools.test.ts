@@ -2,7 +2,7 @@ import type { Tool } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mapToolArgs, piToolName, resolveServedTools, sdkToolName } from "../tools.js";
+import { piToolName, resolveServedTools, sdkToolName } from "../tools.js";
 
 const tool = (name: string): Tool => ({ name, description: "", parameters: Type.Object({}) });
 
@@ -44,44 +44,5 @@ describe("served tool descriptions", () => {
       "Start a job.\n\nGuidelines:\n- Do not poll task_list.",
       "",
     ]);
-  });
-});
-
-describe("mapToolArgs", () => {
-  it("renames Claude Code's file_path to pi's path for read and write", () => {
-    expect(mapToolArgs("read", { file_path: "/a", offset: 3 })).toEqual({ path: "/a", offset: 3 });
-    expect(mapToolArgs("Write", { file_path: "/a", content: "x" })).toEqual({
-      path: "/a",
-      content: "x",
-    });
-  });
-
-  it("renames edit's string arguments to pi's text ones", () => {
-    expect(mapToolArgs("edit", { file_path: "/a", old_string: "x", new_string: "y" })).toEqual({
-      path: "/a",
-      oldText: "x",
-      newText: "y",
-    });
-    expect(mapToolArgs("Edit", { path: "/a", old_text: "x", new_text: "y" })).toEqual({
-      path: "/a",
-      oldText: "x",
-      newText: "y",
-    });
-  });
-
-  it("keeps the first of two aliases for the same pi key", () => {
-    expect(mapToolArgs("edit", { path: "/first", file_path: "/second" })).toEqual({
-      path: "/first",
-    });
-    expect(mapToolArgs("edit", { old_string: "first", oldText: "second" })).toEqual({
-      oldText: "first",
-    });
-  });
-
-  it("passes other tools' arguments through untouched", () => {
-    expect(mapToolArgs("grep", { file_path: "/a", pattern: "x" })).toEqual({
-      file_path: "/a",
-      pattern: "x",
-    });
   });
 });
