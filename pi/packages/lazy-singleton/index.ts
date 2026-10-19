@@ -1,5 +1,3 @@
-type Dispose<T> = (value: T) => Promise<void> | void;
-
 export const createLazySingleton = <T extends object>(
   create: (signal: AbortSignal) => Promise<T>,
   onLoad?: (value: T) => void,
@@ -32,7 +30,7 @@ export const createLazySingleton = <T extends object>(
         onLoad?.(value);
       }
 
-      return lifetime.signal.aborted ? undefined : current;
+      return current;
     } catch (error) {
       if (lifetime.signal.aborted) {
         return undefined;
@@ -46,30 +44,21 @@ export const createLazySingleton = <T extends object>(
     }
   };
 
-  const stop = (dispose?: Dispose<T>): Promise<void> => {
-    if (stopping !== undefined) {
-      return stopping;
-    }
+  const stop = (dispose?: (value: T) => Promise<void> | void): Promise<void> =>
+    (stopping ??= (async () => {
+      lifetime.abort();
+      let loaded: T | undefined;
 
-    let loaded = current;
-    const attempt = pending;
-    lifetime.abort();
-    stopping = (async () => {
-      if (loaded === undefined && attempt !== undefined) {
-        try {
-          loaded = await attempt;
-        } catch {
-          return;
-        }
+      try {
+        loaded = current ?? (await pending);
+      } catch {
+        return;
       }
 
       if (loaded !== undefined) {
         await dispose?.(loaded);
       }
-    })();
-
-    return stopping;
-  };
+    })());
 
   return {
     get: (): T | undefined => current,
