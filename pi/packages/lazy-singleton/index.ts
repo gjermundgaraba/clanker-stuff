@@ -51,12 +51,10 @@ export const createLazySingleton = <T extends object>(
       return stopping;
     }
 
-    const value = current;
+    let loaded = current;
     const attempt = pending;
     lifetime.abort();
     stopping = (async () => {
-      let loaded = value;
-
       if (loaded === undefined && attempt !== undefined) {
         try {
           loaded = await attempt;

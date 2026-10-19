@@ -11,7 +11,7 @@ export const createUsageExtension = (dependencies?: UsageControllerDependencies)
     pi.registerCommand("usage", {
       description: "Show account usage for supported providers",
       getArgumentCompletions: completeUsageArgs,
-      handler: (args, ctx) => runtime.runCommand(args, ctx),
+      handler: runtime.runCommand,
     });
 
     pi.on("session_start", (_event, ctx) => {

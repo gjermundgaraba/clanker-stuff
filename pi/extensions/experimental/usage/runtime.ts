@@ -1,16 +1,13 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { createUsageController } from "./controller.js";
 import type { UsageControllerDependencies } from "./controller.js";
-
-type UsageController = ReturnType<typeof createUsageController>;
 
 export const createUsageRuntime = (dependencies?: UsageControllerDependencies) => {
   let pendingStart: ExtensionContext | undefined;
   let startupLoad: ReturnType<typeof setImmediate> | undefined;
 
-  const usage = createLazySingleton<UsageController>(
+  const usage = createLazySingleton(
     async (signal) => {
       const { createUsageController } = await import("./controller.js");
       signal.throwIfAborted();

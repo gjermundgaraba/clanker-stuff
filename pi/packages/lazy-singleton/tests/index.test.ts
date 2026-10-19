@@ -14,17 +14,10 @@ describe("lazy singleton", () => {
     loading.resolve({ id: "loaded" });
 
     const [firstValue, secondValue] = await Promise.all([first, second]);
-    expect({
-      createCalls: create.mock.calls.length,
-      firstValue,
-      onLoadCalls: onLoad.mock.calls,
-      secondValue,
-    }).toStrictEqual({
-      createCalls: 1,
-      firstValue: { id: "loaded" },
-      onLoadCalls: [[{ id: "loaded" }]],
-      secondValue: { id: "loaded" },
-    });
+    expect(create).toHaveBeenCalledOnce();
+    expect(firstValue).toStrictEqual({ id: "loaded" });
+    expect(secondValue).toBe(firstValue);
+    expect(onLoad).toHaveBeenCalledExactlyOnceWith(firstValue);
     await expect(singleton.load()).resolves.toBe(firstValue);
   });
 
@@ -46,20 +39,28 @@ describe("lazy singleton", () => {
   it("stops terminally and disposes an in-flight result once", async () => {
     const loading = Promise.withResolvers<{ id: string }>();
 
-    const dispose = vi.fn<(value: { id: string }) => Promise<void>>(
-      async () => await Promise.resolve(),
-    );
+    const disposal = Promise.withResolvers<void>();
+    const dispose = vi.fn<(value: { id: string }) => Promise<void>>(() => disposal.promise);
+    const stopped = vi.fn<() => void>();
+    const value = { id: "loaded" };
 
     const singleton = createLazySingleton(() => loading.promise);
 
     const load = singleton.load();
     const firstStop = singleton.stop(dispose);
     const secondStop = singleton.stop(dispose);
-    loading.resolve({ id: "loaded" });
+    expect(secondStop).toBe(firstStop);
+    const completion = firstStop.then(stopped);
+    loading.resolve(value);
 
     await expect(load).resolves.toBeUndefined();
-    await Promise.all([firstStop, secondStop]);
+    expect(dispose).toHaveBeenCalledWith(value);
+    expect(stopped).not.toHaveBeenCalled();
+
+    disposal.resolve();
+    await completion;
+    expect(stopped).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledExactlyOnceWith(value);
     await expect(singleton.load()).resolves.toBeUndefined();
-    expect(dispose).toHaveBeenCalledOnce();
   });
 });
