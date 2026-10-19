@@ -72,10 +72,10 @@ describe("command runtime", () => {
     await Promise.resolve();
     const [child] = pending;
     assert.ok(child);
-    expect(child.cancel).toHaveBeenCalledOnce();
+    expect(child.options.signal.aborted).toBeTruthy();
     expect(shutdownFinished).toBeFalsy();
 
-    child.resolve({ kind: "cancelled" });
+    child.resolve(signaled("SIGTERM"));
     await shutdown;
     expect(shutdownFinished).toBeTruthy();
     expect(host.getSentUserMessages()).toHaveLength(0);
@@ -97,15 +97,15 @@ describe("command runtime", () => {
 
     const shutdown = host.emitSessionShutdown(ctx);
     await Promise.resolve();
-    expect(completed.cancel).not.toHaveBeenCalled();
-    expect(active.cancel).toHaveBeenCalledOnce();
+    expect(completed.options.signal.aborted).toBeFalsy();
+    expect(active.options.signal.aborted).toBeTruthy();
 
-    active.resolve({ kind: "cancelled" });
+    active.resolve(signaled("SIGTERM"));
     await shutdown;
     expect(host.getSentUserMessages()).toHaveLength(1);
   });
 
-  it("does not cancel an active process twice across repeated shutdowns", async () => {
+  it("keeps repeated shutdowns quiet while the cancelled process exits", async () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
 
@@ -116,10 +116,9 @@ describe("command runtime", () => {
 
     const [child] = pending;
     assert.ok(child);
-    expect(child.signal.aborted).toBeTruthy();
-    expect(child.cancel).toHaveBeenCalledOnce();
+    expect(child.options.signal.aborted).toBeTruthy();
 
-    child.resolve({ kind: "cancelled" });
+    child.resolve(signaled("SIGTERM"));
     await Promise.all([firstShutdown, secondShutdown]);
     expect(host.getNotifications()).toStrictEqual([
       { message: "Plannotator code review opened.", type: "info" },
@@ -139,7 +138,7 @@ describe("command runtime", () => {
 
       const [child] = pending;
       assert.ok(child);
-      expect(child.cancel).toHaveBeenCalledOnce();
+      expect(child.options.signal.aborted).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }

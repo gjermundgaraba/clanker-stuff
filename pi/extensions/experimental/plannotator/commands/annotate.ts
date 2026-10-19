@@ -1,12 +1,13 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import { parseAnnotationOutcome } from "../annotations.js";
+import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
+import { parseArguments } from "../command-runtime.js";
 
 export const createAnnotateHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-    const tokens = runtime.parseArguments(args, ctx);
+    const tokens = parseArguments(args, ctx);
 
     if (tokens === undefined) {
       return;
@@ -27,25 +28,13 @@ export const createAnnotateHandler =
     runtime.launch(["annotate", ...tokens, "--json"], ctx, {
       failureLabel: "Plannotator annotation",
       onOutput(stdout) {
-        const outcome = parseAnnotationOutcome(stdout);
+        const feedback = readAnnotationFeedback(stdout, ctx, {
+          approved: "Plannotator annotation approved.",
+          dismissed: "Plannotator annotation closed.",
+          empty: "Plannotator annotation closed without feedback.",
+        });
 
-        if (outcome.decision === "approved") {
-          ctx.ui.notify("Plannotator annotation approved.", "info");
-
-          return;
-        }
-
-        if (outcome.decision === "dismissed") {
-          ctx.ui.notify("Plannotator annotation closed.", "info");
-
-          return;
-        }
-
-        const feedback = outcome.feedback.trim();
-
-        if (feedback.length === 0) {
-          ctx.ui.notify("Plannotator annotation closed without feedback.", "info");
-
+        if (feedback === undefined) {
           return;
         }
 

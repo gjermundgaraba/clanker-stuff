@@ -1,5 +1,4 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { Mock } from "vite-plus/test";
 import { expect, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -8,38 +7,19 @@ import extension from "../index.js";
 
 export interface PendingProcess {
   args: string[];
-  cancel: Mock<() => void>;
   options: CliStartOptions;
   reject: (error: Error) => void;
   resolve: (result: CliCompletion) => void;
-  signal: AbortSignal;
 }
 
 export const createStarter = () => {
   const pending: PendingProcess[] = [];
 
-  const starter = vi.fn<CliStarter>((args, options) => {
+  const starter = vi.fn<CliStarter>(async (args, options) => {
     const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
-    const controller = new AbortController();
+    pending.push({ args: [...args], options: { ...options }, reject, resolve });
 
-    const process = {
-      args: [...args],
-      cancel: vi.fn<() => void>(() => {
-        controller.abort();
-      }),
-      options: { ...options },
-      reject,
-      resolve,
-      signal: controller.signal,
-    };
-
-    pending.push(process);
-
-    return {
-      cancel: process.cancel,
-      completion,
-      signal: controller.signal,
-    };
+    return await completion;
   });
 
   return { pending, starter };

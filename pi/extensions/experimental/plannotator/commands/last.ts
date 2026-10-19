@@ -1,7 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import { parseAnnotationOutcome } from "../annotations.js";
+import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
+import { parseArguments } from "../command-runtime.js";
 
 const getLastAssistantText = (ctx: ExtensionCommandContext): string | undefined => {
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
@@ -39,7 +40,7 @@ const anchorFeedback = (feedback: string, message: string): string => {
 export const createLastHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-    const tokens = runtime.parseArguments(args, ctx);
+    const tokens = parseArguments(args, ctx);
 
     if (tokens === undefined) {
       return;
@@ -56,25 +57,13 @@ export const createLastHandler =
     runtime.launch(["annotate-last", "--stdin", "--json", ...tokens], ctx, {
       failureLabel: "Plannotator message annotation",
       onOutput(stdout) {
-        const outcome = parseAnnotationOutcome(stdout);
+        const feedback = readAnnotationFeedback(stdout, ctx, {
+          approved: "Plannotator message approved.",
+          dismissed: "Plannotator message annotation closed.",
+          empty: "Plannotator message annotation closed without feedback.",
+        });
 
-        if (outcome.decision === "approved") {
-          ctx.ui.notify("Plannotator message approved.", "info");
-
-          return;
-        }
-
-        if (outcome.decision === "dismissed") {
-          ctx.ui.notify("Plannotator message annotation closed.", "info");
-
-          return;
-        }
-
-        const feedback = outcome.feedback.trim();
-
-        if (feedback.length === 0) {
-          ctx.ui.notify("Plannotator message annotation closed without feedback.", "info");
-
+        if (feedback === undefined) {
           return;
         }
 

@@ -1,13 +1,14 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CommandRuntime } from "../command-runtime.js";
+import { parseArguments } from "../command-runtime.js";
 
-export const REVIEW_CLOSED_SENTINEL = "Review session closed without feedback.";
+const REVIEW_CLOSED_SENTINEL = "Review session closed without feedback.";
 
 export const createReviewHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-    const tokens = runtime.parseArguments(args, ctx);
+    const tokens = parseArguments(args, ctx);
 
     if (tokens === undefined) {
       return;

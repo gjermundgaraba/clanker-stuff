@@ -5,7 +5,6 @@ import extension from "../index.js";
 
 const runtime = vi.hoisted(() => ({
   launch: vi.fn<() => void>(),
-  parseArguments: vi.fn<() => string[]>(() => []),
   shutdown: vi.fn<() => Promise<void>>(async () => await Promise.resolve()),
 }));
 
@@ -18,7 +17,7 @@ vi.mock(import("../command-runtime.js"), () => ({
 
     return runtime;
   },
-  startPlannotatorCli: vi.fn<() => never>(),
+  parseArguments: vi.fn<() => string[]>(() => []),
 }));
 
 describe("plannotator registration", () => {

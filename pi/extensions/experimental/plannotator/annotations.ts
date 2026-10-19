@@ -1,5 +1,5 @@
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 const AnnotationOutcomeSchema = Type.Union([
@@ -11,20 +11,43 @@ const AnnotationOutcomeSchema = Type.Union([
   }),
 ]);
 
-export type AnnotationOutcome = Static<typeof AnnotationOutcomeSchema>;
+interface AnnotationNotices {
+  approved: string;
+  dismissed: string;
+  empty: string;
+}
 
-export const parseAnnotationOutcome = (stdout: string): AnnotationOutcome => {
-  let value: unknown;
+/** Returns trimmed feedback to send, or notifies why there is none. */
+export const readAnnotationFeedback = (
+  stdout: string,
+  ctx: ExtensionCommandContext,
+  notices: AnnotationNotices,
+): string | undefined => {
+  let outcome: unknown;
 
   try {
-    value = JSON.parse(stdout.trim());
+    outcome = JSON.parse(stdout.trim());
   } catch {
     throw new Error("Plannotator returned malformed annotation JSON");
   }
 
-  if (!Value.Check(AnnotationOutcomeSchema, value)) {
+  if (!Value.Check(AnnotationOutcomeSchema, outcome)) {
     throw new Error("Plannotator returned an invalid annotation decision");
   }
 
-  return value;
+  if (outcome.decision !== "annotated") {
+    ctx.ui.notify(notices[outcome.decision], "info");
+
+    return undefined;
+  }
+
+  const feedback = outcome.feedback.trim();
+
+  if (feedback.length === 0) {
+    ctx.ui.notify(notices.empty, "info");
+
+    return undefined;
+  }
+
+  return feedback;
 };

@@ -13,7 +13,7 @@ export const createPlannotatorHost = (pi: ExtensionAPI, starter?: CliStarter) =>
 
     signal.throwIfAborted();
 
-    const runtime = command.createCommandRuntime(starter ?? command.startPlannotatorCli);
+    const runtime = command.createCommandRuntime(starter);
 
     return {
       annotate: annotate.createAnnotateHandler(pi, runtime),

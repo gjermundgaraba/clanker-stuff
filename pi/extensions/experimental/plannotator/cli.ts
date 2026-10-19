@@ -6,32 +6,25 @@ export type CliCompletion =
       kind: "exited";
       stdout: string;
     }
-  | { kind: "cancelled" }
   | { kind: "signaled"; signal: NodeJS.Signals };
-
-export interface CliProcess {
-  cancel: () => void;
-  completion: Promise<CliCompletion>;
-  readonly signal: AbortSignal;
-}
 
 export interface CliStartOptions {
   cwd: string;
-  env?: NodeJS.ProcessEnv;
-  onStderr?: (chunk: string) => void;
-  stdin?: string;
+  onStderr: (chunk: string) => void;
+  signal: AbortSignal;
+  stdin?: string | undefined;
 }
 
-export type CliStarter = (args: string[], options: CliStartOptions) => CliProcess;
+export type CliStarter = (args: string[], options: CliStartOptions) => Promise<CliCompletion>;
 
-export const startCli = (
-  executable: string,
-  args: string[],
-  options: CliStartOptions,
-): CliProcess => {
-  const child = spawn(executable, args, {
+export const startPlannotatorCli: CliStarter = (args, options) => {
+  const child = spawn("plannotator", args, {
     cwd: options.cwd,
-    env: options.env,
+    env: {
+      ...process.env,
+      PLANNOTATOR_CWD: options.cwd,
+      PLANNOTATOR_ORIGIN: "pi",
+    },
     shell: false,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -39,7 +32,6 @@ export const startCli = (
   child.stdout.setEncoding("utf-8");
   child.stderr.setEncoding("utf-8");
 
-  const controller = new AbortController();
   let stdout = "";
   let killTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -66,33 +58,21 @@ export const startCli = (
     killTimer.unref();
   };
 
-  controller.signal.addEventListener("abort", terminate, { once: true });
+  options.signal.addEventListener("abort", terminate, { once: true });
 
   const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
   child.stdout.on("data", (chunk: string) => {
     stdout += chunk;
   });
-  child.stderr.on("data", (chunk: string) => {
-    options.onStderr?.(chunk);
-  });
+  child.stderr.on("data", options.onStderr);
   child.once("error", reject);
   child.stdin.once("error", reject);
   child.once("spawn", () => {
     child.stdin.end(options.stdin);
   });
   child.once("close", (code, signal) => {
-    controller.signal.removeEventListener("abort", terminate);
-
-    if (killTimer !== undefined) {
-      clearTimeout(killTimer);
-      killTimer = undefined;
-    }
-
-    if (controller.signal.aborted) {
-      resolve({ kind: "cancelled" });
-
-      return;
-    }
+    options.signal.removeEventListener("abort", terminate);
+    clearTimeout(killTimer);
 
     if (code !== null) {
       resolve({ code, kind: "exited", stdout });
@@ -106,16 +86,8 @@ export const startCli = (
       return;
     }
 
-    reject(new Error(`${executable} closed without an exit code or signal`));
+    reject(new Error("plannotator closed without an exit code or signal"));
   });
 
-  return {
-    cancel() {
-      if (!controller.signal.aborted) {
-        controller.abort();
-      }
-    },
-    completion,
-    signal: controller.signal,
-  };
+  return completion;
 };

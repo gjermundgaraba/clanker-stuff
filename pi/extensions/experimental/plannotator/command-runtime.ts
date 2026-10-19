@@ -2,8 +2,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import type { CliProcess, CliStarter } from "./cli.js";
-import { startCli } from "./cli.js";
+import type { CliCompletion, CliStarter } from "./cli.js";
+import { startPlannotatorCli } from "./cli.js";
 
 const SHUTDOWN_TIMEOUT_MS = 2500;
 
@@ -16,7 +16,6 @@ interface LaunchOptions {
 
 export interface CommandRuntime {
   launch: (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions) => void;
-  parseArguments: (args: string, ctx: ExtensionCommandContext) => string[] | undefined;
   shutdown: () => Promise<void>;
 }
 
@@ -91,33 +90,26 @@ const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown
   ctx.ui.notify(`${label}: ${message}`, "error");
 };
 
-export const startPlannotatorCli: CliStarter = (args, options) =>
-  startCli("plannotator", args, {
-    ...options,
-    env: {
-      ...process.env,
-      ...options.env,
-      PLANNOTATOR_CWD: options.cwd,
-      PLANNOTATOR_ORIGIN: "pi",
-    },
-  });
+export const parseArguments = (
+  args: string,
+  ctx: ExtensionCommandContext,
+): string[] | undefined => {
+  try {
+    return tokenizeArguments(args);
+  } catch (error) {
+    notifyError(ctx, "Invalid Plannotator arguments", error);
 
-export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
-  const activeRuns = new Map<CliProcess, Promise<void>>();
+    return undefined;
+  }
+};
+
+export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli): CommandRuntime => {
+  const activeRuns = new Map<AbortController, Promise<void>>();
 
   const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
     let pendingStderr = "";
 
-    const streamStderrLines = (chunk: string, flush = false): void => {
-      pendingStderr += chunk;
-      const lines = pendingStderr.split("\n");
-      pendingStderr = lines.pop() ?? "";
-
-      if (flush && pendingStderr !== "") {
-        lines.push(pendingStderr);
-        pendingStderr = "";
-      }
-
+    const notifyLines = (lines: string[]): void => {
       for (const line of lines) {
         const message = line.trim();
 
@@ -127,13 +119,26 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
       }
     };
 
-    let cliProcess: CliProcess;
+    const streamStderr = (chunk: string): void => {
+      const lines = (pendingStderr + chunk).split("\n");
+      pendingStderr = lines.pop() ?? "";
+      notifyLines(lines);
+    };
+
+    const flushStderr = (): void => {
+      notifyLines([pendingStderr]);
+      pendingStderr = "";
+    };
+
+    const controller = new AbortController();
+    let completion: Promise<CliCompletion>;
 
     try {
-      cliProcess = starter(args, {
+      completion = starter(args, {
         cwd: ctx.cwd,
-        onStderr: streamStderrLines,
-        ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
+        onStderr: streamStderr,
+        signal: controller.signal,
+        stdin: options.stdin,
       });
     } catch (error) {
       notifyError(ctx, options.failureLabel, error);
@@ -143,55 +148,44 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
 
     const settleRun = async (): Promise<void> => {
       try {
-        const completion = await cliProcess.completion;
+        const result = await completion;
 
-        if (cliProcess.signal.aborted || completion.kind === "cancelled") {
+        if (controller.signal.aborted) {
           return;
         }
 
-        if (completion.kind === "signaled") {
-          throw new Error(`terminated by ${completion.signal}`);
+        flushStderr();
+
+        if (result.kind === "signaled") {
+          throw new Error(`terminated by ${result.signal}`);
         }
 
-        if (completion.code !== 0) {
-          throw new Error(`exited with code ${completion.code}`);
+        if (result.code !== 0) {
+          throw new Error(`exited with code ${result.code}`);
         }
 
-        streamStderrLines("", true);
-        options.onOutput(completion.stdout);
+        options.onOutput(result.stdout);
       } catch (error) {
-        if (!cliProcess.signal.aborted) {
+        if (!controller.signal.aborted) {
           // Stderr was shown as it arrived, so a failure only adds how the CLI ended.
-          streamStderrLines("", true);
+          flushStderr();
           notifyError(ctx, options.failureLabel, error);
         }
       } finally {
-        activeRuns.delete(cliProcess);
+        activeRuns.delete(controller);
       }
     };
 
-    activeRuns.set(cliProcess, settleRun());
+    activeRuns.set(controller, settleRun());
 
     ctx.ui.notify(options.openedMessage, "info");
-  };
-
-  const parseArguments = (args: string, ctx: ExtensionCommandContext): string[] | undefined => {
-    try {
-      return tokenizeArguments(args);
-    } catch (error) {
-      notifyError(ctx, "Invalid Plannotator arguments", error);
-
-      return undefined;
-    }
   };
 
   const shutdown = async (): Promise<void> => {
     const runs = [...activeRuns];
 
-    for (const [cliProcess] of runs) {
-      if (!cliProcess.signal.aborted) {
-        cliProcess.cancel();
-      }
+    for (const [controller] of runs) {
+      controller.abort();
     }
 
     await Promise.race([
@@ -200,5 +194,5 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
     ]);
   };
 
-  return { launch, parseArguments, shutdown };
+  return { launch, shutdown };
 };
