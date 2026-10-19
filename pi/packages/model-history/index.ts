@@ -16,11 +16,7 @@ export function inspectModelHistory(branch: readonly SessionEntry[]): ModelHisto
     lastPhysicalAttempt: undefined,
   };
 
-  for (
-    let index = branch.length - 1;
-    index >= 0 && (!history.lastSuccessfulResponse || !history.lastPhysicalAttempt);
-    index--
-  ) {
+  for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index];
 
     if (entry?.type !== "message") continue;
@@ -31,8 +27,10 @@ export function inspectModelHistory(branch: readonly SessionEntry[]): ModelHisto
 
     history.lastPhysicalAttempt ??= message;
 
-    if (["stop", "toolUse", "length"].includes(message.stopReason))
-      history.lastSuccessfulResponse ??= message;
+    if (["stop", "toolUse", "length"].includes(message.stopReason)) {
+      history.lastSuccessfulResponse = message;
+      break;
+    }
   }
 
   return history;

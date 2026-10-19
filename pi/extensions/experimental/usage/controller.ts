@@ -41,27 +41,21 @@ export interface UsageControllerDependencies {
 export const resolveRadiusBillingUrl = (
   baseUrls: readonly (string | undefined)[],
 ): string | undefined => {
-  const candidates = baseUrls.filter((value): value is string => value !== undefined);
+  const distinct = new Set<string>();
 
-  if (candidates.length === 0) {
-    return undefined;
-  }
+  for (const baseUrl of baseUrls) {
+    if (baseUrl === undefined) continue;
 
-  const normalized = candidates.map((value) => {
     try {
-      const url = new URL("/v1/billing", value);
+      const url = new URL("/v1/billing", baseUrl);
 
-      return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+      if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+
+      distinct.add(url.toString());
     } catch {
       return undefined;
     }
-  });
-
-  if (normalized.some((value) => value === undefined)) {
-    return undefined;
   }
-
-  const distinct = new Set(normalized);
 
   return distinct.size === 1 ? distinct.values().next().value : undefined;
 };

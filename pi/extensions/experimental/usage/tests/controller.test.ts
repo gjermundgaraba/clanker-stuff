@@ -299,6 +299,19 @@ describe("usage controller", () => {
     expect(resolveRadiusBillingUrl(["not a URL"])).toBeUndefined();
   });
 
+  it.each([
+    { name: "empty catalog", baseUrls: [] },
+    { name: "missing URL", baseUrls: [undefined] },
+    { name: "non-HTTP URL", baseUrls: ["ftp://gateway.example/v1"] },
+    { name: "valid and malformed URLs", baseUrls: ["https://gateway.example/v1", "not a URL"] },
+    {
+      name: "valid and non-HTTP URLs",
+      baseUrls: ["https://gateway.example/v1", "ftp://gateway.example/v1"],
+    },
+  ])("rejects missing or unsafe Radius gateways ($name)", ({ baseUrls }) => {
+    expect(resolveRadiusBillingUrl(baseUrls)).toBeUndefined();
+  });
+
   it("publishes the active usage as a native status and clears it on shutdown", async () => {
     const { extension } = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: claudeModel });
