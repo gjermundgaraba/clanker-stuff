@@ -231,7 +231,7 @@ describe("root delivery", () => {
         expect(harness.session.getLastAssistantText()).toBe(
           enabled ? "root reviewed late mail" : "root final before mail",
         );
-        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+        await delay(200);
         expect(requests.root).toBe(enabled ? 3 : 2);
         expect(wakeEntries(harness)).toHaveLength(0);
         expect(mailEntries(harness)).toHaveLength(1);
@@ -275,7 +275,7 @@ describe("root delivery", () => {
       );
 
       await harness.prompt("Delegate.");
-      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+      await delay(200);
       expect(harness.session.getLastAssistantText()).toBe("root naturally reviewed mail");
       expect(requests).toStrictEqual({ child: 1, root: 3 });
       expect(wakeEntries(harness)).toHaveLength(0);
@@ -334,7 +334,7 @@ describe("root delivery", () => {
       );
 
       await harness.prompt("Delegate.");
-      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+      await delay(200);
       expect(harness.session.getLastAssistantText()).toBe("root followed its context policy");
       expect(requests).toStrictEqual({ child: 1, root: 3 });
       expect(wakeEntries(harness)).toHaveLength(0);
