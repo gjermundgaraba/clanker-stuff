@@ -3,7 +3,7 @@ import type { PendingProcess } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { tokenizeArguments } from "../command-runtime.js";
-import { exited, setup, signaled } from "./helpers.js";
+import { exited, setup, signaled, waitForMessages } from "./helpers.js";
 
 describe("command runtime", () => {
   it("tokenizes quotes and escapes", () => {
@@ -82,6 +82,27 @@ describe("command runtime", () => {
     expect(host.getNotifications()).toStrictEqual([
       { message: "Plannotator code review opened.", type: "info" },
     ]);
+  });
+
+  it("removes completed runs while retaining other active processes for shutdown", async () => {
+    const { ctx, host, pending } = setup();
+    await host.runCommand("plannotator-review", "", ctx);
+    await host.runCommand("plannotator-review", "--git", ctx);
+    const [completed, active] = pending;
+    assert.ok(completed);
+    assert.ok(active);
+
+    completed.resolve(exited("Review feedback"));
+    await waitForMessages(host, 1);
+
+    const shutdown = host.emitSessionShutdown(ctx);
+    await Promise.resolve();
+    expect(completed.cancel).not.toHaveBeenCalled();
+    expect(active.cancel).toHaveBeenCalledOnce();
+
+    active.resolve({ kind: "cancelled" });
+    await shutdown;
+    expect(host.getSentUserMessages()).toHaveLength(1);
   });
 
   it("does not cancel an active process twice across repeated shutdowns", async () => {

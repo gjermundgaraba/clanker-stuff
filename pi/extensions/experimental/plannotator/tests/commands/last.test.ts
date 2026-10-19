@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import { assistantEntry, exited, setup, userEntry, waitForMessages } from "../helpers.js";
@@ -14,6 +12,18 @@ describe("plannotator-last", () => {
       args: ["annotate-last", "--stdin", "--json", "--gate"],
       options: { cwd: "/work/project", stdin: "Original answer" },
     });
+  });
+
+  it("skips blank responses and other branches when finding assistant text", async () => {
+    const assistant = assistantEntry("assistant", null, "  Original answer\n");
+    const user = userEntry("user", assistant.id, "Another request");
+    const blank = assistantEntry("blank", user.id, " \n ");
+    const otherBranch = assistantEntry("other-branch", assistant.id, "Unrelated answer");
+    const { ctx, host, pending } = setup([assistant, user, blank, otherBranch], blank.id);
+
+    await host.runCommand("plannotator-last", "", ctx);
+
+    expect(pending[0]?.options.stdin).toBe("Original answer");
   });
 
   it("does not start last-message annotation without an assistant message", async () => {
@@ -38,7 +48,8 @@ describe("plannotator-last", () => {
     assert.ok(child);
     child.resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Clarify it." })));
     await waitForMessages(host, 1);
-    const content = Value.Parse(Type.String(), host.getSentUserMessages()[0]?.content);
+    const content = host.getSentUserMessages()[0]?.content;
+    assert.equal(typeof content, "string");
     expect(content).toContain("> Original answer");
     expect(content).toContain("User feedback:\nClarify it.");
   });

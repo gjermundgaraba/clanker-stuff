@@ -1,33 +1,21 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import { parseAnnotationOutcome } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
 
-type SessionMessage = Extract<SessionEntry, { type: "message" }>["message"];
-
-const getAssistantText = (message: SessionMessage): string | undefined => {
-  if (message.role !== "assistant") {
-    return undefined;
-  }
-
-  const text = message.content
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
-
-  return text.length > 0 ? text : undefined;
-};
-
 const getLastAssistantText = (ctx: ExtensionCommandContext): string | undefined => {
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
-    const text = entry.type === "message" ? getAssistantText(entry.message) : undefined;
+    if (entry.type !== "message" || entry.message.role !== "assistant") {
+      continue;
+    }
 
-    if (text !== undefined) {
+    const text = entry.message.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+
+    if (text.length > 0) {
       return text;
     }
   }

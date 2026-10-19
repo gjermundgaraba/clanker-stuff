@@ -7,11 +7,6 @@ import { startCli } from "./cli.js";
 
 const SHUTDOWN_TIMEOUT_MS = 2500;
 
-interface ActiveRun {
-  process: CliProcess;
-  settled: Promise<void>;
-}
-
 interface LaunchOptions {
   failureLabel: string;
   onOutput: (stdout: string) => void;
@@ -91,11 +86,9 @@ export const tokenizeArguments = (input: string): string[] => {
   return tokens;
 };
 
-const errorMessage = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
-
 const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
-  ctx.ui.notify(`${label}: ${errorMessage(cause)}`, "error");
+  const message = cause instanceof Error ? cause.message : String(cause);
+  ctx.ui.notify(`${label}: ${message}`, "error");
 };
 
 export const startPlannotatorCli: CliStarter = (args, options) =>
@@ -110,7 +103,7 @@ export const startPlannotatorCli: CliStarter = (args, options) =>
   });
 
 export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
-  const activeRuns = new Set<ActiveRun>();
+  const activeRuns = new Map<CliProcess, Promise<void>>();
 
   const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
     let pendingStderr = "";
@@ -148,13 +141,6 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
       return;
     }
 
-    const run: ActiveRun = {
-      process: cliProcess,
-      settled: Promise.resolve(),
-    };
-
-    activeRuns.add(run);
-
     const settleRun = async (): Promise<void> => {
       try {
         const completion = await cliProcess.completion;
@@ -180,11 +166,11 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
           notifyError(ctx, options.failureLabel, error);
         }
       } finally {
-        activeRuns.delete(run);
+        activeRuns.delete(cliProcess);
       }
     };
 
-    run.settled = settleRun();
+    activeRuns.set(cliProcess, settleRun());
 
     ctx.ui.notify(options.openedMessage, "info");
   };
@@ -202,14 +188,14 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
   const shutdown = async (): Promise<void> => {
     const runs = [...activeRuns];
 
-    for (const run of runs) {
-      if (!run.process.signal.aborted) {
-        run.process.cancel();
+    for (const [cliProcess] of runs) {
+      if (!cliProcess.signal.aborted) {
+        cliProcess.cancel();
       }
     }
 
     await Promise.race([
-      Promise.allSettled(runs.map((run) => run.settled)),
+      Promise.allSettled(runs.map(([, settled]) => settled)),
       delay(SHUTDOWN_TIMEOUT_MS, undefined, { ref: false }),
     ]);
   };
