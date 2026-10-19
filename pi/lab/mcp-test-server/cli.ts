@@ -22,7 +22,8 @@ if (values.help) {
     .write(`Usage: node cli.ts [--http <port>] [--host <host>] [--skills <dir> | --no-skills]
 
 Serves MCP over stdio, or over streamable HTTP at /mcp with --http.
---skills   folder of skills to serve (default: the bundled dummy skills)
+--host       address to listen on with --http (default: 127.0.0.1)
+--skills     folder of skills to serve (default: the bundled dummy skills)
 --no-skills  do not offer the skills extension
 `);
   process.exit(0);

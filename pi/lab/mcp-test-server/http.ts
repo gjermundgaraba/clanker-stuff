@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import type { Server } from "node:http";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import {
   createMcpHandler,
@@ -18,7 +18,7 @@ import type { McpServerFactory } from "@modelcontextprotocol/server";
 export const serveHttp = async (
   factory: McpServerFactory,
   options: { host: string; port: number },
-): Promise<Server> => {
+): Promise<void> => {
   const handler = createMcpHandler(factory);
 
   const server = createServer((req, res) => {
@@ -41,11 +41,10 @@ export const serveHttp = async (
       const method = req.method ?? "GET";
 
       const request = new Request(url, {
+        body: method === "GET" || method === "HEAD" ? null : Readable.toWeb(req),
+        duplex: "half",
         headers,
         method,
-        ...(method === "GET" || method === "HEAD"
-          ? {}
-          : { body: Readable.toWeb(req), duplex: "half" }),
       });
 
       const response =
@@ -55,8 +54,8 @@ export const serveHttp = async (
 
       res.writeHead(response.status, Object.fromEntries(response.headers));
 
-      if (response.body) for await (const chunk of response.body) res.write(chunk);
-      res.end();
+      if (response.body) await pipeline(response.body, res);
+      else res.end();
     })().catch((error: unknown) => {
       if (!res.headersSent) res.writeHead(500);
       res.end(error instanceof Error ? error.message : String(error));
@@ -64,6 +63,4 @@ export const serveHttp = async (
   });
 
   await new Promise<void>((resolve) => server.listen(options.port, options.host, resolve));
-
-  return server;
 };
