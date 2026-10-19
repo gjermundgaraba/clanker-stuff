@@ -1,15 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { collectSkillProviders } from "@clanker-stuff/pi-skill-providers";
+import { collectSkillProviders, skillBlock } from "@clanker-stuff/pi-skill-providers";
+import type { LoadedSkill } from "@clanker-stuff/pi-skill-providers";
 import type {
   ExtensionAPI,
   ExtensionContext,
   InputEvent,
   InputEventResult,
-  ParsedSkillBlock,
 } from "@earendil-works/pi-coding-agent";
-import { parseSkillBlock, stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 
 import { SKILL_MENTION, installSkillMentionEditor } from "./editor.js";
@@ -19,25 +19,6 @@ const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
 const SKILL_NAME = /^[A-Za-z0-9_:-]*[A-Za-z0-9_-]$/u;
 
 const SKILL_COMMAND_PREFIX = "skill:";
-
-/** The parts of a Pi skill block: its tag attributes and what `/skill:name` writes between the tags. */
-export type LoadedSkill = Pick<ParsedSkillBlock, "content" | "location" | "name">;
-
-/**
- * The block Pi writes for `/skill:name`, which its chat view collapses when it leads a user message.
- * One skill reproduces its block exactly. Several share one block, each under its own heading,
- * because Pi collapses only a single leading block.
- */
-export const skillBlock = (skills: readonly LoadedSkill[]): string => {
-  const name = skills.map((skill) => skill.name).join(", ");
-  const location = skills.map((skill) => skill.location).join(", ");
-
-  const sections = skills.map((skill) =>
-    skills.length === 1 ? skill.content : `## ${skill.name}\n\n${skill.content}`,
-  );
-
-  return `<skill name="${name}" location="${location}">\n${sections.join("\n\n")}\n</skill>`;
-};
 
 /** A skill `$` mentions can name: on disk, or from a provider extension. */
 interface LoadableSkill {
@@ -80,16 +61,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
         .filter((skill) => SKILL_NAME.test(skill.name) && !localNames.has(skill.name))
         .map((skill) => ({
           description: skill.description,
-          // A provider hands over a whole block; the merged block needs its parts.
-          load: async (ctx: ExtensionContext) => {
-            const result = await provider.load(skill.name, ctx);
-
-            if ("error" in result) return result;
-
-            return (
-              parseSkillBlock(result.block) ?? { error: "the provider returned no skill block" }
-            );
-          },
+          load: (ctx: ExtensionContext) => provider.load(skill.name, ctx),
           name: skill.name,
         })),
     );

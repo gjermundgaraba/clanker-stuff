@@ -10,8 +10,4 @@ npm install @clanker-stuff/pi-skill-providers
 
 ## Usage
 
-```ts
-import { SKILL_PROVIDER_CHANNEL } from "@clanker-stuff/pi-skill-providers";
-
-pi.on("session_start", () => pi.events.emit(SKILL_PROVIDER_CHANNEL, provider));
-```
+Announce a `SkillProvider` on `SKILL_PROVIDER_CHANNEL` through `pi.events` at every `session_start`; its `load()` returns `{ name, location, content }` or `{ error }`, and `skillBlock()` formats loaded skills for Pi.

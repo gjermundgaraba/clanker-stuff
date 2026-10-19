@@ -2,21 +2,15 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { SKILL_PROVIDER_CHANNEL } from "@clanker-stuff/pi-skill-providers";
-import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
-import {
-  CustomEditor,
-  createSyntheticSourceInfo,
-  parseSkillBlock,
-} from "@earendil-works/pi-coding-agent";
+import { SKILL_PROVIDER_CHANNEL, skillBlock } from "@clanker-stuff/pi-skill-providers";
+import type { LoadedSkill, SkillProvider } from "@clanker-stuff/pi-skill-providers";
+import { CustomEditor, createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
-import { skillBlock } from "../mentions.js";
-import type { LoadedSkill } from "../mentions.js";
 
 const command = (
   name: string,
@@ -85,19 +79,7 @@ const writeSkills = async (
   };
 };
 
-const alpha: LoadedSkill = {
-  content: "References are relative to /skills/alpha.\n\nAlpha instructions.",
-  location: "/skills/alpha/SKILL.md",
-  name: "alpha",
-};
-
-const beta: LoadedSkill = {
-  content: "References are relative to /skills/beta.\n\nBeta instructions.",
-  location: "/skills/beta/SKILL.md",
-  name: "beta",
-};
-
-/** A skill a provider serves, as the block it hands over and the parts the merged block keeps. */
+/** Loaded content from a provider, including its relative-path guidance. */
 const provided = (name: string): LoadedSkill => ({
   content: `References are relative to mcp://${name}.\n\nProvided ${name}.`,
   location: `mcp://${name}`,
@@ -105,20 +87,6 @@ const provided = (name: string): LoadedSkill => ({
 });
 
 describe("skill mentions", () => {
-  it("writes Pi's own block for one skill and one merged block for several", () => {
-    expect(skillBlock([alpha])).toBe(
-      '<skill name="alpha" location="/skills/alpha/SKILL.md">\nReferences are relative to /skills/alpha.\n\nAlpha instructions.\n</skill>',
-    );
-    expect(skillBlock([alpha, beta])).toBe(
-      '<skill name="alpha, beta" location="/skills/alpha/SKILL.md, /skills/beta/SKILL.md">\n## alpha\n\nReferences are relative to /skills/alpha.\n\nAlpha instructions.\n\n## beta\n\nReferences are relative to /skills/beta.\n\nBeta instructions.\n</skill>',
-    );
-    // Pi's parser drives its collapsed rendering and must read the merged block as one.
-    expect(parseSkillBlock(`${skillBlock([alpha, beta])}\n\nUse $alpha and $beta`)).toMatchObject({
-      name: "alpha, beta",
-      userMessage: "Use $alpha and $beta",
-    });
-  });
-
   it.each([false, true])(
     "puts the mentioned skills first in catalog order and leaves text and images intact, foreign editor=%s",
     async (foreign) => {
@@ -219,9 +187,9 @@ describe("skill mentions", () => {
 
         if (name === "docs:broken") return { error: "not approved" };
 
-        if (name === "docs:odd") return { block: `<skill name="${name}">` };
+        if (name === "docs:odd") return { ...provided(name), location: "" };
 
-        return { block: skillBlock([provided(name)]) };
+        return provided(name);
       },
       skills: () => [
         { description: "Shadowed by the local skill", name: "alpha" },
@@ -252,7 +220,7 @@ describe("skill mentions", () => {
     expect(host.getNotifications()).toStrictEqual([
       { message: "Failed to load skill docs:broken: not approved", type: "warning" },
       {
-        message: "Failed to load skill docs:odd: the provider returned no skill block",
+        message: "Failed to load skill docs:odd: the provider returned invalid skill content",
         type: "warning",
       },
     ]);

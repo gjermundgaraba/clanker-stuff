@@ -4,7 +4,8 @@ import type {
   InputEvent,
   InputEventResult,
 } from "@earendil-works/pi-coding-agent";
-import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
+import { skillBlock } from "@clanker-stuff/pi-skill-providers";
+import type { LoadedSkill, SkillProvider } from "@clanker-stuff/pi-skill-providers";
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
@@ -21,27 +22,20 @@ const COMMAND_PREFIX = /^\s*\/(?<query>\S*)$/u;
 const completionDescription = (skill: CatalogSkill): string =>
   `[MCP ${skill.server}] ${inlineText(skill.entry.description)}`;
 
-/**
- * Load a skill as Pi's skill block, through the same approval and checks as a model load. The
- * interactive UI shows the block as a skill invocation.
- */
-const loadSkillBlock = async (
+/** Load skill content through the same approval and checks as a model load. */
+const loadSkill = async (
   skills: McpSkills,
   skill: CatalogSkill,
   ctx: ExtensionContext,
-): Promise<{ block: string } | { error: string }> => {
+): Promise<LoadedSkill | { error: string }> => {
   const loaded = await skills.load(ctx, skill, ctx.signal);
 
   if ("error" in loaded) return loaded;
 
   return {
-    block: [
-      `<skill name="${skill.name}" location="${skill.path}">`,
-      skillOrigin(skill),
-      "",
-      stripFrontmatter(loaded.bytes.toString("utf8")).trim(),
-      "</skill>",
-    ].join("\n"),
+    content: `${skillOrigin(skill)}\n\n${stripFrontmatter(loaded.bytes.toString("utf8")).trim()}`,
+    location: skill.path,
+    name: skill.name,
   };
 };
 
@@ -62,7 +56,7 @@ export const expandSkillCommand = async (
 
   if (!skill) return undefined;
 
-  const loaded = await loadSkillBlock(skills, skill, ctx);
+  const loaded = await loadSkill(skills, skill, ctx);
 
   if ("error" in loaded) {
     ctx.ui.notify(loaded.error, "error");
@@ -71,8 +65,9 @@ export const expandSkillCommand = async (
   }
 
   const args = match?.groups?.args?.trim();
+  const block = skillBlock([loaded]);
 
-  return { action: "transform", text: args ? `${loaded.block}\n\n${args}` : loaded.block };
+  return { action: "transform", text: args ? `${block}\n\n${args}` : block };
 };
 
 /** MCP skills for `$` mentions in dollah-skills, loaded the same way as `/skill:`. */
@@ -82,7 +77,7 @@ export const createMentionProvider = (skills: McpSkills): SkillProvider => ({
     const skill = skills.catalog().find((candidate) => candidate.name === name);
 
     return skill
-      ? await loadSkillBlock(skills, skill, ctx)
+      ? await loadSkill(skills, skill, ctx)
       : { error: `there is no MCP skill named ${name}` };
   },
   skills: () =>

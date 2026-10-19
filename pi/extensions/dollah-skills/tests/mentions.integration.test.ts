@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { skillBlock } from "@clanker-stuff/pi-skill-providers";
+import type { LoadedSkill } from "@clanker-stuff/pi-skill-providers";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
@@ -9,8 +11,6 @@ import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import type { AgentSessionHarnessOptions } from "../../../tests/harness/agent-session.js";
 import extension from "../index.js";
-import { skillBlock } from "../mentions.js";
-import type { LoadedSkill } from "../mentions.js";
 
 const PayloadSchema = Type.Object({ messages: Type.Array(Type.Unknown()) });
 

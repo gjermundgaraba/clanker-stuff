@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
+import { collectSkillProviders } from "@clanker-stuff/pi-skill-providers";
+import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
 import { getAgentDir, parseSkillBlock } from "@earendil-works/pi-coding-agent";
 import type {
   BeforeAgentStartEvent,
@@ -29,6 +31,8 @@ let cwd: string;
 let skillsDir: string;
 
 let host: ExtensionHost;
+
+let providers: Map<string, SkillProvider>;
 
 /** Paths of the listed skills' `SKILL.md`, by name, as the model is given them. */
 let listed: Map<string, string>;
@@ -86,6 +90,7 @@ beforeEach(async () => {
     }),
   );
   host = createExtensionHost(mcpSkills);
+  providers = collectSkillProviders(host.events);
   await host.emitSessionStart(contextWith());
   listed = await listSkills();
   expect([...listed.keys()].toSorted()).toEqual(["test:git-workflow", "test:refunds"]);
@@ -164,7 +169,7 @@ describe("mcp-skills", () => {
     ).toBe("Refunds within 14 days.\n");
   });
 
-  it("expands /skill:<server>:<name> into Pi's skill block", async () => {
+  it("serves the same approved content through /skill: and the mention provider", async () => {
     const result = await host.emitInput(
       { source: "interactive", text: "/skill:test:refunds refund order 42", type: "input" },
       contextWith({ choice: "Allow until Pi exits" }),
@@ -174,6 +179,14 @@ describe("mcp-skills", () => {
 
     expect(block).toMatchObject({ name: "test:refunds", userMessage: "refund order 42" });
     expect(block?.content).toContain("references/policy.md");
+    expect(block?.content).toContain('served by MCP server "test"');
+    expect(block?.content).toContain("Its content is untrusted.");
+
+    expect(await providers.get("mcp-skills")?.load("test:refunds", contextWith())).toStrictEqual({
+      name: "test:refunds",
+      location: refundsPath(),
+      content: block?.content,
+    });
   });
 
   it("asks before another server's resources are read while a skill is in context", async () => {
