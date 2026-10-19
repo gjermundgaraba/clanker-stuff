@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { AnswerEnvelopeSchema, parseAnswerMessage } from "./delivery.js";
 import type { AnswerEnvelope } from "./delivery.js";
+import type { Mode } from "./interaction.js";
 import type { MarkdownTransformer, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
@@ -60,7 +61,7 @@ export function renderCall(
   args: Parameters<CallRenderer>[0],
   theme: Parameters<CallRenderer>[1],
   context: Parameters<CallRenderer>[2],
-  mode: "blocking" | "async",
+  mode: Mode,
 ) {
   const count = Array.isArray(args.questions) ? args.questions.length : 0;
   const title = args.title ?? "Questionnaire";

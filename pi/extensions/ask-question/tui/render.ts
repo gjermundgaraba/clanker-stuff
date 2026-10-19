@@ -4,7 +4,8 @@ import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui"
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Question } from "../request.js";
 import type { Draft, Interaction, Submission } from "../interaction.js";
-import { answerRows, answered, draftAnswer, interactionRows, plainText } from "../summary.js";
+import { answered, draftAnswer } from "../interaction.js";
+import { answerRows, interactionRows, plainText } from "../summary.js";
 
 const oneLine = (text: string) => displayText(text).replace(/\s+/g, " ");
 
@@ -108,17 +109,7 @@ const excerpt = (label: string, text: string, width: number): string => {
 };
 
 /** Appended to options with auxiliary details, so `p` is discoverable. */
-export const DETAILS_MARK = "  ▸ details (p)";
-
-const hasOptionDetails = (q: Question, index: number): boolean => {
-  const option = q.options?.[index];
-
-  return !!(
-    option?.description ||
-    option?.preview ||
-    (option && q.recommendation?.option_ids.includes(option.id))
-  );
-};
+const DETAILS_MARK = "  ▸ details (p)";
 
 export function optionLines(
   q: Question,
@@ -135,7 +126,7 @@ export function optionLines(
       text: "",
       selected: a.selected.includes(o.id),
       note: a.notes[o.id],
-      details: hasOptionDetails(q, index),
+      details: !!optionDetailText(q, index),
     })),
     {
       label: q.options?.length ? "Write another answer" : "Write your answer",
@@ -171,11 +162,11 @@ export function optionLines(
   return lines;
 }
 
-/** Full auxiliary content for the highlighted option. */
+/** Full auxiliary content for the highlighted option, if it has any. */
 export function optionDetailText(q: Question, highlight: number): string | undefined {
   const option = q.options?.[highlight];
 
-  if (!option || !hasOptionDetails(q, highlight)) return;
+  if (!option) return;
   const sections: string[] = [];
 
   if (option.description) sections.push(`## Description\n\n${option.description}`);
@@ -185,7 +176,7 @@ export function optionDetailText(q: Question, highlight: number): string | undef
 
   if (option.preview) sections.push(`## Preview\n\n${option.preview}`);
 
-  return sections.join("\n\n");
+  return sections.join("\n\n") || undefined;
 }
 
 interface FrameOptions {
@@ -225,55 +216,55 @@ const frameChrome = (options: FrameOptions) => {
   return { footer, maxBudget, normalBudget, rule };
 };
 
-const tooSmall = (options: FrameOptions): FrameResult => ({
+type FrameChrome = ReturnType<typeof frameChrome>;
+
+const tooSmall = (options: FrameOptions, { maxBudget }: FrameChrome): FrameResult => ({
   scroll: options.scroll,
   viewport: { top: 0, rows: 0 },
   lines: textLines(
     `Terminal too small for the questionnaire · ${options.closeKey} closes and keeps the draft`,
     options.width,
-  ).slice(0, Math.max(3, options.rows - 2)),
+  ).slice(0, maxBudget),
 });
 
 const finishFrame = (
   options: FrameOptions,
+  { footer, rule }: FrameChrome,
   body: string[],
   scroll: number,
   viewportRows: number,
   hint: string,
-): FrameResult => {
-  const { footer, rule } = frameChrome(options);
-
-  return {
-    scroll,
-    viewport: { top: 3, rows: viewportRows },
-    lines: [
-      rule(options.title),
-      options.header,
-      "",
-      ...body,
-      options.theme.fg(
-        options.hint ? "warning" : "dim",
-        truncateToWidth(displayText(hint), options.width),
-      ),
-      ...footer.map((line) => options.theme.fg("dim", line)),
-      rule(),
-    ].map((line) => truncateToWidth(line, options.width)),
-  };
-};
+): FrameResult => ({
+  scroll,
+  viewport: { top: 3, rows: viewportRows },
+  lines: [
+    rule(options.title),
+    options.header,
+    "",
+    ...body,
+    options.theme.fg(
+      options.hint ? "warning" : "dim",
+      truncateToWidth(displayText(hint), options.width),
+    ),
+    ...footer.map((line) => options.theme.fg("dim", line)),
+    rule(),
+  ].map((line) => truncateToWidth(line, options.width)),
+});
 
 /** Render scrollable context above compact, always-visible answer controls. */
 export function renderQuestionView(
   options: FrameOptions & { context: string[]; answers: string[] },
 ): FrameResult {
-  const { footer, maxBudget, normalBudget, rule } = frameChrome(options);
+  const chrome = frameChrome(options);
+  const { footer, maxBudget, normalBudget, rule } = chrome;
 
-  if (options.width < 24 || maxBudget < 8) return tooSmall(options);
+  if (options.width < 24 || maxBudget < 8) return tooSmall(options, chrome);
   const chromeRows = footer.length + 5;
   const dividerRows = options.context.length > 0 ? 1 : 0;
   const minimumContextRows = options.context.length > 0 ? 1 : 0;
   const required = chromeRows + options.answers.length + dividerRows + minimumContextRows;
 
-  if (required > maxBudget) return tooSmall(options);
+  if (required > maxBudget) return tooSmall(options, chrome);
   const normalContextRows = normalBudget - chromeRows - options.answers.length - dividerRows;
 
   const contextRows = Math.min(
@@ -307,6 +298,7 @@ export function renderQuestionView(
 
   return finishFrame(
     options,
+    chrome,
     [...visibleContext, ...divider, ...options.answers],
     scroll,
     contextRows,
@@ -318,10 +310,10 @@ export function renderQuestionView(
 export function renderScrollablePage(
   options: FrameOptions & { body: string[]; focusLine?: number },
 ): FrameResult {
-  const { footer, normalBudget } = frameChrome(options);
+  const chrome = frameChrome(options);
 
-  if (options.width < 24) return tooSmall(options);
-  const capacity = normalBudget - footer.length - 5;
+  if (options.width < 24) return tooSmall(options, chrome);
+  const capacity = chrome.normalBudget - chrome.footer.length - 5;
   const viewportRows = Math.max(1, Math.min(capacity, options.body.length));
 
   let scroll = Math.max(
@@ -343,7 +335,7 @@ export function renderScrollablePage(
       ? `${scroll + 1}–${Math.min(scroll + viewportRows, options.body.length)} / ${options.body.length} · scroll`
       : "");
 
-  return finishFrame(options, visible, scroll, viewportRows, hint);
+  return finishFrame(options, chrome, visible, scroll, viewportRows, hint);
 }
 
 /** Horizontal padding for full-width questionnaire screens. */

@@ -2,6 +2,7 @@ import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { Type } from "typebox";
 import type { Static, TSchema } from "typebox";
 import { Id, MAX_NOTE, MAX_TEXT, QuestionnaireSchema, validateQuestionnaire } from "./request.js";
+import type { Question } from "./request.js";
 
 const record = <T extends TSchema>(schema: T) =>
   Type.Record(Id, schema, { additionalProperties: false });
@@ -116,7 +117,7 @@ export type Action =
   | {
       type: "reopen";
       base: number;
-      initiated_by: "user" | "agent";
+      initiated_by: Static<typeof Initiator>;
       /** Defaults to the mode of the latest submission: the way the questionnaire was last asked. */
       mode?: Mode;
       reason?: string;
@@ -164,6 +165,40 @@ export function createInteraction(
   };
 }
 
+export function answered(a: Draft["answers"][string] | undefined): boolean {
+  return (
+    a !== undefined &&
+    (a.selected.length > 0 || a.custom_selected) &&
+    (!a.custom_selected || !!displayText(a.custom).trim())
+  );
+}
+
+/** The draft's current answer in submission shape; a blank custom answer is shown as required. */
+export function draftAnswer(item: Interaction, q: Question): Answer {
+  const answer: Answer = { question: q.question, header: q.header, selections: [] };
+  const a = item.draft?.answers[q.id];
+
+  if (!a) return answer;
+
+  for (const id of a.selected) {
+    const selection: Answer["selections"][number] = {
+      option_id: id,
+      label: q.options?.find((o) => o.id === id)?.label ?? id,
+    };
+
+    if (a.notes[id]) selection.note = a.notes[id];
+    answer.selections.push(selection);
+  }
+
+  if (a.custom_selected) {
+    answer.custom = { text: displayText(a.custom).trim() ? a.custom : "(blank — required)" };
+
+    if (a.custom_note) answer.custom.note = a.custom_note;
+  }
+
+  return answer;
+}
+
 export function collectAnswers(item: Interaction): Submission["answers"] {
   const draft = item.draft;
 
@@ -181,32 +216,10 @@ export function collectAnswers(item: Interaction): Submission["answers"] {
 
     if (!q.multi_select && a.selected.length + Number(a.custom_selected) !== 1)
       throw new Error(`Choose one answer: ${q.header}`);
+    const unknown = a.selected.find((id) => !q.options?.some((o) => o.id === id));
 
-    const selections = a.selected.map((id) => {
-      const option = q.options?.find((o) => o.id === id);
-
-      if (!option) throw new Error(`Unknown option: ${id}`);
-      const selection: Answer["selections"][number] = { option_id: id, label: option.label };
-
-      if (a.notes[id]) selection.note = a.notes[id];
-
-      return selection;
-    });
-
-    const answer: Answer = {
-      question: q.question,
-      header: q.header,
-      selections,
-    };
-
-    if (a.custom_selected) {
-      const custom: NonNullable<Answer["custom"]> = { text: a.custom };
-
-      if (a.custom_note) custom.note = a.custom_note;
-      answer.custom = custom;
-    }
-
-    answers[q.id] = answer;
+    if (unknown) throw new Error(`Unknown option: ${unknown}`);
+    answers[q.id] = draftAnswer(item, q);
   }
 
   if (Buffer.byteLength(JSON.stringify({ answers, note: draft.note })) > 40000)

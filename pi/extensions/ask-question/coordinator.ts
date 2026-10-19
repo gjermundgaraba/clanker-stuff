@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { recordRequest, recordState, replay } from "./journal.js";
 import { awaitingUser, createInteraction, transition } from "./interaction.js";
 import type { Action, Interaction, Mode } from "./interaction.js";
-import { answerEnvelope, answerMessage, answerResult } from "./delivery.js";
+import { answerEnvelope, answerMessage, jsonResult } from "./delivery.js";
 import { createPromptQueue } from "./prompts.js";
 import type { Revision } from "./request.js";
 import { showQuestionnaire } from "./tui/controller.js";
@@ -58,8 +58,7 @@ export class Coordinator {
 
     for (const listener of this.listeners) listener();
   }
-  private save(item: Interaction, created = false): Interaction {
-    if (created) recordRequest(this.pi, item);
+  private save(item: Interaction): Interaction {
     recordState(this.pi, item);
     this.items.set(item.id, item);
     this.update();
@@ -83,7 +82,8 @@ export class Coordinator {
     const linked = created.request.linked_interaction_id;
 
     if (linked) this.get(linked);
-    const item = this.save(created, true);
+    recordRequest(this.pi, created);
+    const item = this.save(created);
 
     return this.deliver(item, mode, "New questionnaire", signal, ctx);
   }
@@ -115,9 +115,8 @@ export class Coordinator {
   ) {
     if (mode === "async") {
       ctx.ui.notify(`${notice} · ${item.request.title ?? item.id} · /answers to review`, "info");
-      const details = { accepted: true, status: "pending", interaction_id: item.id };
 
-      return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+      return jsonResult({ accepted: true, status: "pending", interaction_id: item.id });
     }
 
     const lifetime = this.lifetime.signal;
@@ -132,20 +131,17 @@ export class Coordinator {
         // Recorded before returning: the tool result is the answer's only delivery.
         const sent = this.mutate(item.id, { type: "sent", revision }, lifetime);
 
-        return answerResult(answerEnvelope(sent, sent.submissions.at(-1)!));
+        return jsonResult(answerEnvelope(sent, sent.submissions.at(-1)!));
       }
 
       if (result === "cancelled" || result === "closed") ctx.abort();
 
-      const details = {
-        interaction_id: item.id,
-        status: result === "cancelled" ? "cancelled" : "closed",
-        aborted_run: true,
-      };
-
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(details) }],
-        details,
+        ...jsonResult({
+          interaction_id: item.id,
+          status: result === "cancelled" ? "cancelled" : "closed",
+          aborted_run: true,
+        }),
         terminate: true,
       };
     } finally {

@@ -9,10 +9,9 @@ import type {
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { Action, Draft, Interaction } from "../interaction.js";
-import { revisedSubmission } from "../interaction.js";
+import { answered, revisedSubmission } from "../interaction.js";
 import { MAX_NOTE, MAX_TEXT } from "../request.js";
 import type { Question } from "../request.js";
-import { answered } from "../summary.js";
 import {
   Viewport,
   diffText,
@@ -42,9 +41,10 @@ export interface FormPort {
   report(cause: unknown): void;
 }
 
+/** The edited field, as the action that saves it without its text. */
 type Field =
-  | { kind: "custom"; question: string; option?: never }
-  | { kind: "note"; question?: string; option?: string };
+  | { type: "custom"; question: string }
+  | { type: "note"; question?: string; option?: string };
 
 export class QuestionnaireView {
   private item: Interaction;
@@ -53,7 +53,7 @@ export class QuestionnaireView {
   private readonly viewport = new Viewport();
   private readonly markdown = new Map<string, Markdown>();
   private detail: { title: string; text: string; markdown: boolean } | undefined;
-  private editor: { component: Editor; field: Field; initial: string } | undefined;
+  private editor: { component: Editor; field: Field; initial: string; limit: number } | undefined;
   private hint = "";
   private armedCancel = false;
   private finished = false;
@@ -116,16 +116,7 @@ export class QuestionnaireView {
     const text = editing.component.getText();
 
     if (!force && text === editing.initial) return;
-    const field = editing.field;
-
-    if (field.kind === "custom") this.change({ type: "custom", question: field.question, text });
-    else
-      this.change({
-        type: "note",
-        ...(field.question !== undefined ? { question: field.question } : {}),
-        ...(field.option !== undefined ? { option: field.option } : {}),
-        text,
-      });
+    this.change({ ...editing.field, text });
     editing.initial = text;
   }
   private edit(field: Field, value: string): void {
@@ -145,13 +136,13 @@ export class QuestionnaireView {
     // Completion and newline are handled with the injected app manager, not Editor's global manager.
     component.onSubmit = () => {};
 
-    const limit = field.kind === "custom" ? MAX_TEXT : MAX_NOTE;
+    const limit = field.type === "custom" ? MAX_TEXT : MAX_NOTE;
     component.onChange = () => {
       const length = component.getText().length;
       this.hint = length > limit ? `${length}/${limit} · over the limit, shorten to save` : "";
     };
 
-    this.editor = { component, field, initial: value };
+    this.editor = { component, field, initial: value, limit };
     this.hint = "";
     this.viewport.scroll = 0;
   }
@@ -174,7 +165,7 @@ export class QuestionnaireView {
 
     if (!option) {
       if (toggle && q.multi_select) this.change({ type: "toggle_custom", question: q.id });
-      else this.edit({ kind: "custom", question: q.id }, draft.custom);
+      else this.edit({ type: "custom", question: q.id }, draft.custom);
 
       return;
     }
@@ -204,16 +195,15 @@ export class QuestionnaireView {
   }
   private processInput(data: string): void {
     if (this.editor) {
-      const { component, field } = this.editor;
+      const { component, field, limit } = this.editor;
 
       if (this.keys.matches(data, "tui.input.newLine")) {
         component.insertTextAtCursor("\n");
       } else if (this.keys.matches(data, "tui.input.submit")) {
         try {
           // A written answer is selected by saving it, even when its text is unchanged.
-          this.saveField(field.kind === "custom");
+          this.saveField(field.type === "custom");
         } catch (error) {
-          const limit = field.kind === "custom" ? MAX_TEXT : MAX_NOTE;
           this.hint = `${component.getText().length}/${limit} · ${error instanceof Error ? error.message : String(error)}`;
 
           return;
@@ -222,7 +212,7 @@ export class QuestionnaireView {
         this.editor = undefined;
         this.viewport.scroll = 0;
 
-        if (field.kind === "custom") this.afterWritten(field.question);
+        if (field.type === "custom") this.afterWritten(field.question);
       } else if (this.keys.matches(data, "tui.select.cancel")) {
         this.editor = undefined;
         this.hint = "";
@@ -297,7 +287,7 @@ export class QuestionnaireView {
     }
 
     if (action === "key:g") {
-      this.edit({ kind: "note" }, this.item.draft?.note ?? "");
+      this.edit({ type: "note" }, this.item.draft?.note ?? "");
 
       return;
     }
@@ -332,17 +322,17 @@ export class QuestionnaireView {
       if (action === "confirm" || action === "key:k") {
         this.change({ type: "submit" });
 
-        try {
-          if (this.port.blocking) return;
-
-          if (action === "key:k")
-            this.port.notify("Answers saved, not sent · /answers to send them");
-          else this.port.send(this.item.submissions.at(-1)!.revision);
-        } catch (error) {
-          this.port.report(error); // The immutable submission remains available in the inbox.
-        } finally {
-          this.finish("submitted");
+        if (!this.port.blocking) {
+          try {
+            if (action === "key:k")
+              this.port.notify("Answers saved, not sent · /answers to send them");
+            else this.port.send(this.item.submissions.at(-1)!.revision);
+          } catch (error) {
+            this.port.report(error); // The immutable submission remains available in the inbox.
+          }
         }
+
+        this.finish("submitted");
       }
 
       return;
@@ -374,7 +364,7 @@ export class QuestionnaireView {
 
       if (!a) throw new Error("No editable question");
       this.edit(
-        { kind: "note", question: q.id, ...(option ? { option: option.id } : {}) },
+        { type: "note", question: q.id, ...(option ? { option: option.id } : {}) },
         option ? (a.notes[option.id] ?? "") : a.custom_note,
       );
 
@@ -441,8 +431,7 @@ export class QuestionnaireView {
     if (this.editor) {
       const lines = this.editor.component.render(width);
       const cursor = lines.findIndex((line) => line.includes(CURSOR_MARKER));
-      const limit = this.editor.field.kind === "custom" ? MAX_TEXT : MAX_NOTE;
-      const label = this.editorLabel(q);
+      const label = this.editorLabel(this.editor.field, q);
       const body = [this.theme.bold(label), "", ...lines];
 
       return renderScrollablePage({
@@ -452,7 +441,7 @@ export class QuestionnaireView {
         footer: `${keyLabel(this.keys, "tui.input.submit")} Save · ${close} Discard\n${keyLabel(this.keys, "tui.input.newLine")} Newline`,
         hint:
           this.hint ||
-          `${this.editor.component.getText().length}/${limit}${body.length > 3 ? ` · ${scrollKeys} Scroll` : ""}`,
+          `${this.editor.component.getText().length}/${this.editor.limit}${body.length > 3 ? ` · ${scrollKeys} Scroll` : ""}`,
         ...(cursor < 0 ? {} : { focusLine: cursor + 2 }),
       });
     }
@@ -526,12 +515,10 @@ export class QuestionnaireView {
 
     return lines;
   }
-  private editorLabel(q: Question | undefined): string {
-    const field = this.editor?.field;
+  private editorLabel(field: Field, q: Question | undefined): string {
+    if (field.question === undefined) return "Questionnaire note";
 
-    if (!field || field.question === undefined) return "Questionnaire note";
-
-    if (field.kind === "custom") return q?.question ?? "Written answer";
+    if (field.type === "custom") return q?.question ?? "Written answer";
     const option = q?.options?.find((candidate) => candidate.id === field.option);
 
     return option ? `Note · ${option.label}` : "Written-answer note";

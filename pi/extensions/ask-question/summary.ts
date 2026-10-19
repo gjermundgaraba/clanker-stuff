@@ -1,5 +1,5 @@
-import type { Answer, Draft, Interaction, Submission } from "./interaction.js";
-import { revisedSubmission } from "./interaction.js";
+import type { Answer, Interaction, Submission } from "./interaction.js";
+import { draftAnswer, revisedSubmission } from "./interaction.js";
 import type { Question } from "./request.js";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 
@@ -10,40 +10,6 @@ export type Row =
   | { kind: "answer"; text: string; note?: string }
   | { kind: "missing" }
   | { kind: "note"; text: string };
-
-export function answered(a: Draft["answers"][string] | undefined): boolean {
-  return (
-    a !== undefined &&
-    (a.selected.length > 0 || a.custom_selected) &&
-    (!a.custom_selected || !!displayText(a.custom).trim())
-  );
-}
-
-/** The draft's current answer in submission shape; a blank custom answer is shown as required. */
-export function draftAnswer(item: Interaction, q: Question): Answer {
-  const answer: Answer = { question: q.question, header: q.header, selections: [] };
-  const a = item.draft?.answers[q.id];
-
-  if (!a) return answer;
-
-  for (const id of a.selected) {
-    const selection: Answer["selections"][number] = {
-      option_id: id,
-      label: q.options?.find((o) => o.id === id)?.label ?? id,
-    };
-
-    if (a.notes[id]) selection.note = a.notes[id];
-    answer.selections.push(selection);
-  }
-
-  if (a.custom_selected) {
-    answer.custom = { text: displayText(a.custom).trim() ? a.custom : "(blank — required)" };
-
-    if (a.custom_note) answer.custom.note = a.custom_note;
-  }
-
-  return answer;
-}
 
 export function answerRows(answer: Answer | undefined): Row[] {
   const rows: Row[] = [];
@@ -98,21 +64,20 @@ export function changedHeaders(
   return changes;
 }
 
+/** Changes from the revision a submission supersedes; undefined for a first revision. */
+export function submissionChanges(item: Interaction, submission: Submission): string[] | undefined {
+  const previous = item.submissions.find((s) => s.revision === submission.revision - 1);
+
+  return previous
+    ? changedHeaders(item.request.questions, previous, submission.answers, submission.note)
+    : undefined;
+}
+
 /** Rows for a submission, or for the current draft when no submission is given. */
 export function interactionRows(item: Interaction, submission?: Submission): Row[] {
+  if (submission)
+    return submissionRows(submission.answers, submission.note, submissionChanges(item, submission));
   const questions = item.request.questions;
-
-  if (submission) {
-    const previous = item.submissions.find((s) => s.revision === submission.revision - 1);
-
-    return submissionRows(
-      submission.answers,
-      submission.note,
-      previous
-        ? changedHeaders(questions, previous, submission.answers, submission.note)
-        : undefined,
-    );
-  }
 
   const answers = Object.fromEntries(questions.map((q) => [q.id, draftAnswer(item, q)]));
   const note = item.draft?.note ?? "";

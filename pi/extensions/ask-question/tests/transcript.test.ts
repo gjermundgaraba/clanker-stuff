@@ -5,7 +5,7 @@ import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import { toolRenderContext } from "../../../tests/harness/tool-rendering.js";
 import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
-import { answerEnvelope, answerMessage, answerResult } from "../delivery.js";
+import { answerEnvelope, answerMessage, jsonResult } from "../delivery.js";
 import {
   renderCall,
   renderResult,
@@ -155,7 +155,7 @@ describe("compact questionnaire transcript", () => {
     item = transition(item, { type: "submit" });
     const submission = item.submissions[0];
     assert(submission);
-    const result = answerResult(answerEnvelope(item, submission));
+    const result = jsonResult(answerEnvelope(item, submission));
     const before = JSON.stringify(result);
 
     const collapsed = renderResult(result, { expanded: false, isPartial: false }, theme, context)

@@ -3,7 +3,7 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import { submittedFields } from "./interaction.js";
 import type { Interaction, Submission } from "./interaction.js";
-import { changedHeaders } from "./summary.js";
+import { submissionChanges } from "./summary.js";
 
 export const AnswerEnvelopeSchema = Type.Object(
   {
@@ -20,9 +20,7 @@ export type AnswerEnvelope = Static<typeof AnswerEnvelopeSchema>;
 
 /** The model-facing answer: the immutable submission, never its delivery bookkeeping. */
 export function answerEnvelope(item: Interaction, submission: Submission): AnswerEnvelope {
-  const previous = item.submissions.find((s) => s.revision === submission.revision - 1);
-
-  const envelope: AnswerEnvelope = {
+  return {
     type: "questionnaire_answer",
     interaction_id: item.id,
     ...(item.request.title === undefined ? {} : { title: item.request.title }),
@@ -34,12 +32,8 @@ export function answerEnvelope(item: Interaction, submission: Submission): Answe
     mode: submission.mode,
     answers: submission.answers,
     note: submission.note,
-    changed: previous
-      ? changedHeaders(item.request.questions, previous, submission.answers, submission.note)
-      : [],
+    changed: submissionChanges(item, submission) ?? [],
   };
-
-  return envelope;
 }
 
 export function answerSummary(envelope: AnswerEnvelope): string {
@@ -79,9 +73,7 @@ export function parseAnswerMessage(text: string): AnswerEnvelope | undefined {
     : undefined;
 }
 
-export function answerResult(envelope: AnswerEnvelope) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
-    details: envelope,
-  };
+/** A tool result whose text is its details as JSON. */
+export function jsonResult<T>(details: T) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
 }
