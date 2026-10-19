@@ -34,6 +34,8 @@ interface Contributions {
 class SharedEditor extends CustomEditor {
   /** Undefined when Pi's private editor layout is unsupported: document features are skipped. */
   readonly document: DocumentAdapter | undefined;
+  /** Why Pi's private editor layout could not be connected, if it could not. */
+  readonly unsupported: string | undefined;
   private kind: Kind = "input";
   private before: DocumentView | undefined;
 
@@ -43,15 +45,14 @@ class SharedEditor extends CustomEditor {
     readonly keys: KeybindingsManager,
     private readonly contributions: Contributions,
     private readonly uiTheme: () => Theme,
-    unsupported: (reason: string) => void,
   ) {
     super(tui, theme, keys, { embedWorkingStatus: true });
 
     try {
       this.document = connect(this);
     } catch (error) {
-      // Border, working status, history and change observation still use only public editor APIs.
-      unsupported(error instanceof Error ? error.message : String(error));
+      // Border, working status and history still use only public editor APIs.
+      this.unsupported = error instanceof Error ? error.message : String(error);
     }
 
     let change: typeof this.onChange;
@@ -60,7 +61,7 @@ class SharedEditor extends CustomEditor {
     Object.defineProperty(this, "onChange", {
       configurable: true,
       get: () => (text: string) => {
-        if (this.kind !== "internal") this.contributions.editing?.changed(this.kind, this.before);
+        if (this.kind !== "internal") this.editing?.changed(this.kind, this.before);
 
         if (this.before) this.before = this.document?.view();
         change?.(text);
@@ -120,25 +121,21 @@ class SharedEditor extends CustomEditor {
     this.withChange("insert", () => super.insertTextAtCursor(text));
   }
   // The modal engine is the only caller and is inactive without a document.
-  restoreView(view: DocumentView) {
+  private internalEdit(action: (document: DocumentAdapter) => void) {
     const document = this.document;
 
     if (!document) return;
     this.withChange("internal", () => {
-      document.restoreView(view);
+      action(document);
       this.onChange?.(this.getText());
     });
     this.tui.requestRender();
   }
+  restoreView(view: DocumentView) {
+    this.internalEdit((document) => document.restoreView(view));
+  }
   edit(start: number, end: number, insertion: string, cursor: number) {
-    const document = this.document;
-
-    if (!document) return;
-    this.withChange("internal", () => {
-      document.replace(start, end, insertion, cursor);
-      this.onChange?.(this.getText());
-    });
-    this.tui.requestRender();
+    this.internalEdit((document) => document.replace(start, end, insertion, cursor));
   }
   refresh() {
     this.tui.requestRender();
@@ -149,22 +146,22 @@ class SharedEditor extends CustomEditor {
     return this.contributions.border?.render(line, width, this.borderColor) ?? line;
   }
   override render(width: number) {
-    const native = super.render(width);
+    let rows = super.render(width);
     const document = this.document;
 
-    const spans = document
-      ? [
-          ...(this.contributions.foreground?.(document.text()) ?? []),
-          ...(this.editing?.selection() ?? []),
-        ]
-      : [];
+    if (document) {
+      const text = document.text();
 
-    const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
+      const spans = [
+        ...(this.contributions.foreground?.(text) ?? []),
+        ...(this.editing?.selection() ?? []),
+      ];
 
-    const rows =
-      document && spans.length
-        ? decorateRows(native, document.text(), padding, document, spans, this.uiTheme())
-        : native;
+      if (spans.length) {
+        const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
+        rows = decorateRows(rows, text, padding, document.layout(), spans, this.uiTheme());
+      }
+    }
 
     return rows.map((row) => truncateToWidth(row, width, ""));
   }
@@ -172,8 +169,6 @@ class SharedEditor extends CustomEditor {
 
 export class EditorHost {
   editor: SharedEditor | undefined;
-  /** Why Pi's private editor layout could not be connected, if it could not. */
-  unsupported: string | undefined;
   private readonly contributions: Contributions = {};
   private history: string[] = [];
   private readonly mounts = new Set<(editor: SharedEditor) => void>();
@@ -181,10 +176,7 @@ export class EditorHost {
   create(tui: TUI, theme: EditorTheme, keys: KeybindingsManager) {
     if (this.editor) return this.editor;
 
-    const editor = new SharedEditor(tui, theme, keys, this.contributions, this.theme, (reason) => {
-      this.unsupported = reason;
-    });
-
+    const editor = new SharedEditor(tui, theme, keys, this.contributions, this.theme);
     this.editor = editor;
 
     for (const entry of this.history) editor.addToHistory(entry);
@@ -239,13 +231,13 @@ export function acquireEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost
   const ui = ctx.ui;
   let host = currentEditorHost(ctx);
 
-  if (!host && ui.getEditorComponent()) {
-    ui.setStatus("shared-editor", "Custom editor: shared editing features unavailable");
-
-    return undefined;
-  }
-
   if (!host) {
+    if (ui.getEditorComponent()) {
+      ui.setStatus("shared-editor", "Custom editor: shared editing features unavailable");
+
+      return undefined;
+    }
+
     const installed = new EditorHost(() => ui.theme);
     host = installed;
     const next: OwnedFactory = (tui, theme, keys) => installed.create(tui, theme, keys);
@@ -257,7 +249,7 @@ export function acquireEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost
     installed.editor?.setText(draft);
   }
 
-  ui.setStatus("shared-editor", host.unsupported);
+  ui.setStatus("shared-editor", host.editor?.unsupported);
 
   return host;
 }

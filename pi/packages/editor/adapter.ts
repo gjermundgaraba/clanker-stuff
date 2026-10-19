@@ -6,12 +6,6 @@ interface Position {
   cursorCol: number;
 }
 
-interface NativeSnapshot {
-  state: Position;
-  pastes: Map<number, string>;
-  pasteCounter: number;
-}
-
 export interface DocumentView {
   readonly text: string;
   readonly cursor: number;
@@ -24,32 +18,10 @@ export interface DocumentView {
 
 const markers = /\[paste #(\d+)(?: [^\]\n]*)?\]/g;
 
-function cursorOffset(state: Position) {
-  return (
-    state.lines.slice(0, state.cursorLine).reduce((n, line) => n + line.length + 1, 0) +
-    state.cursorCol
-  );
-}
-
-function documentView({ state, pastes }: NativeSnapshot): DocumentView {
-  const text = state.lines.join("\n");
-
-  return {
-    text,
-    cursor: cursorOffset(state),
-    atoms: text
-      .matchAll(markers)
-      .filter((match) => pastes.has(Number(match[1])))
-      .map((match) => ({
-        start: match.index,
-        end: match.index + match[0].length,
-        content: pastes.get(Number(match[1]))!,
-      }))
-      .toArray(),
-  };
-}
-
-interface NativeEditor extends NativeSnapshot {
+interface NativeEditor {
+  state: Position;
+  pastes: Map<number, string>;
+  pasteCounter: number;
   killRing: {
     push(text: string, options: { prepend: boolean; accumulate?: boolean }): void;
     peek(): string | undefined;
@@ -95,8 +67,28 @@ export function connect(editor: CustomEditor) {
   const native = nativeEditor(editor);
   const text = () => native.state.lines.join("\n");
 
-  const view = () => documentView(native);
-  const cursor = () => cursorOffset(native.state);
+  const cursor = () =>
+    native.state.lines
+      .slice(0, native.state.cursorLine)
+      .reduce((n, line) => n + line.length + 1, native.state.cursorCol);
+
+  const view = (): DocumentView => {
+    const value = text();
+
+    return {
+      text: value,
+      cursor: cursor(),
+      atoms: value
+        .matchAll(markers)
+        .filter((match) => native.pastes.has(Number(match[1])))
+        .map((match) => ({
+          start: match.index,
+          end: match.index + match[0].length,
+          content: native.pastes.get(Number(match[1]))!,
+        }))
+        .toArray(),
+    };
+  };
 
   const move = (offset: number) => {
     const value = text();

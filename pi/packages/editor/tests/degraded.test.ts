@@ -43,7 +43,14 @@ it("keeps public editor features when Pi's private layout is unsupported", () =>
   const host = acquireEditorHost(ctx)!;
   const editor = host.editor!;
   host.seedHistory(["older", "recalled"]);
-  const editing = { input: vi.fn(() => true), changed() {}, submitted() {}, selection: () => [] };
+
+  const editing = {
+    input: vi.fn(() => true),
+    changed: vi.fn(),
+    submitted() {},
+    selection: () => [],
+  };
+
   host.contribute("editing", editing);
   host.contribute("foreground", () => [{ start: 0, end: 1, foreground: "accent" }]);
   host.contribute("border", { render: (line) => line.replace("busy", "BUSY") });
@@ -58,6 +65,7 @@ it("keeps public editor features when Pi's private layout is unsupported", () =>
   expect(editor.getText()).toBe("recalled");
   // Decorations and the modal engine need the document adapter.
   expect(editing.input).not.toHaveBeenCalled();
+  expect(editing.changed).not.toHaveBeenCalled();
   expect(stripTerminalSequences(editor.render(30)[1]!).trimEnd()).toBe("recalled");
   expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(
     "shared-editor",

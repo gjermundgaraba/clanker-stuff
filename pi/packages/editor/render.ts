@@ -19,11 +19,10 @@ export function decorateRows(
   rows: string[],
   text: string,
   padding: number,
-  adapter: DocumentAdapter,
+  layout: ReturnType<DocumentAdapter["layout"]>,
   spans: Decoration[],
   theme: Theme,
 ): string[] {
-  const layout = adapter.layout();
   const offsets = [0];
 
   for (const line of text.split("\n")) offsets.push(offsets.at(-1)! + line.length + 1);

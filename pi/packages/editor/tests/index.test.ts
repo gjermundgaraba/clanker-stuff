@@ -5,7 +5,7 @@ import {
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
-import { acquireEditorHost, currentEditorHost, EditorHost } from "../index.js";
+import { acquireEditorHost, currentEditorHost } from "../index.js";
 import {
   CURSOR_MARKER,
   renderFakeCursor,
@@ -13,9 +13,9 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
-function setup() {
+function setup(uiTheme = createIdentityTheme()) {
   const fixture = createExtensionHost(() => {});
-  const ctx = fixture.createContext();
+  const ctx = fixture.createContext({ ui: { theme: uiTheme } });
   const host = acquireEditorHost(ctx)!;
 
   const theme = {
@@ -177,30 +177,12 @@ it("restores a document checkpoint after native payload IDs are reused", () => {
 });
 
 it("keeps a focused editor's cursor marker whole and out of decoration offsets", () => {
-  const identity = (text: string) => text;
-
-  const host = new EditorHost(() =>
+  const { host, editor } = setup(
     Object.assign(createIdentityTheme(), {
       fg: (_color: string, text: string) => `<${text}>`,
     }),
   );
 
-  const editor = host.create(
-    createMockTui(),
-    {
-      borderColor: identity,
-      selectList: {
-        selectedPrefix: identity,
-        selectedText: identity,
-        description: identity,
-        scrollInfo: identity,
-        noMatch: identity,
-      },
-    },
-    createKeybindings(),
-  );
-
-  editor.render(40);
   editor.setText("this is a test");
   editor.handleInput("\x1b[D"); // cursor on the final "t"
   host.contribute("foreground", () => [{ start: 10, end: 14, foreground: "accent" }]);
