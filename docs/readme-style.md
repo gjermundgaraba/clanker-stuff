@@ -2,15 +2,7 @@
 
 Publishable Pi package `README.md` files are short installation pages. The root `README.md` catalogs every supported host. Private workspace packages may document their local installation contract instead.
 
-## Goals
-
-Each package README should answer three questions:
-
-1. What does this package add to pi?
-2. How do I install it?
-3. How do I start using it?
-
-Keep these answers stable, concise, and uniform across packages.
+Each package README should explain what it adds to pi, how to install it, and how to start using it. Keep these answers stable, concise, and uniform across packages.
 
 ## Canonical metadata
 
@@ -41,7 +33,7 @@ pi install npm:<package.json name>
 <One physical prose line or up to three short bullets.>
 ````
 
-The title, summary, `Install` heading, installation command, and `Usage` heading are required. The title must use the package directory name, not the scoped npm name.
+The title uses the package directory name, not the scoped npm name.
 
 Usage must be exactly one physical prose line or one to three `- ` bullet lines. Code blocks, numbered lists, and mixed prose/list content are not allowed. Identify the extension's automatic behavior, primary tool, shortcut, or slash command, and include only the first action a user needs.
 
@@ -74,8 +66,6 @@ The root `README.md` should contain:
 8. A `Skills` section linking to the reusable catalog and distinguishing it from repository-local and package-owned skills.
 9. A one-line `Development` section naming the Node.js requirement and validation command.
 10. A `License` section linking to the root license.
-
-List only publishable packages that declare pi extensions in the extension table.
 
 ## Deeper documentation
 

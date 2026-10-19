@@ -80,8 +80,7 @@ fake domain name, a schema that establishes no new invariant, or a cast.
 ## Runtime typeof
 
 `no-runtime-typeof` is disabled. Ordinary `typeof` checks and TypeScript narrowing
-need no suppression or one-use predicate wrapper. A schema that merely replaces
-`typeof` establishes no additional guarantee.
+need no suppression or one-use predicate wrapper.
 
 - Keep owner-derived types inside the application and decode external data at
   its actual boundary. Do not scatter partial interpretations of the same input.

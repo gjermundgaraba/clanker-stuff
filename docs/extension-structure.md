@@ -65,7 +65,7 @@ Keep `index.ts` below 120 nonblank lines. If registration alone exceeds that, gr
 
 ## Modules and directories
 
-Each source module owns one primary concept. Supporting types, constants, and private helpers stay with that concept. Shared state stays in the module that owns it; create a controller only when multiple registered capabilities need to coordinate the same mutable state.
+Each source module owns one primary concept, including its supporting types, constants, private helpers, and state. Create a controller only when multiple registered capabilities need to coordinate the same mutable state.
 
 Names are relative to their package and containing directory. Use the shortest name that is unambiguous there:
 
@@ -75,7 +75,7 @@ Names are relative to their package and containing directory. Use the shortest n
 
 Create a subdirectory only for at least three closely related modules, such as `adapters/`, `dialog/`, `media/`, or `profiles/`. Do not create one-file directories or empty standard skeletons. Keep runtime source no more than two directories deep unless an asset's native layout requires more.
 
-Types live with the concept that owns them. Use a specifically named protocol module only for a contract shared by multiple modules or extensions; do not create generic `types.ts`, `helpers.ts`, `common.ts`, or barrel modules.
+Use a specifically named protocol module only for a contract shared by multiple modules or extensions; do not create generic `types.ts`, `helpers.ts`, `common.ts`, or barrel modules.
 
 For example:
 
