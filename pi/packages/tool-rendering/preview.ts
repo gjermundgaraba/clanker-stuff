@@ -10,31 +10,28 @@ export function preview(
   edge: "head" | "tail" = "head",
 ): Component {
   let child: Component | undefined;
-  let cachedWidth: number | undefined;
-  let rows: string[] = [];
+  let cache: { width: number; rows: string[] } | undefined;
 
   return {
     invalidate() {
       child = undefined;
-      cachedWidth = undefined;
+      cache = undefined;
     },
     render(width) {
-      if (cachedWidth === width) return rows;
+      if (cache?.width === width) return cache.rows;
       child ??= create();
-      const all = child.render(width);
+      let rows = child.render(width);
 
-      if (expanded || all.length <= limit) rows = all;
-      else {
+      if (!expanded && rows.length > limit) {
         const tail = edge === "tail";
-        const hint = `… ${all.length - limit} ${tail ? "earlier " : "more "}lines · ${keyHint("app.tools.expand", "to expand")}`;
-        rows = tail ? [hint, ...all.slice(-limit)] : [...all.slice(0, limit), hint];
+        const hint = `… ${rows.length - limit} ${tail ? "earlier" : "more"} lines · ${keyHint("app.tools.expand", "to expand")}`;
+        rows = tail ? [hint, ...rows.slice(-limit)] : [...rows.slice(0, limit), hint];
       }
 
       // A wide glyph can exceed a one-column Text layout. Guard only emitted rows.
-      rows = rows.map((row) => truncateToWidth(row, width, ""));
-      cachedWidth = width;
+      cache = { width, rows: rows.map((row) => truncateToWidth(row, width, "")) };
 
-      return rows;
+      return cache.rows;
     },
   };
 }
