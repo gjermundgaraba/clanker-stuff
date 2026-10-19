@@ -47,11 +47,7 @@ export const queryKey = (
     model,
     effort ?? null,
     systemText(context.system) ?? null,
-    (context.tools ?? []).map(({ name, description, parameters }) => [
-      name,
-      description,
-      parameters,
-    ]),
+    context.tools.map(({ name, description, parameters }) => [name, description, parameters]),
   ]);
 
 /** The conversation as the decision needs it. */
@@ -64,7 +60,7 @@ export interface SyncState {
   /** A query is running (streaming or parked at a tool call). */
   busy: boolean;
   /** The query parked at a tool call: what it is fixed to and the calls it waits on. */
-  parked?: { key: string; waiting: ReadonlySet<string> } | undefined;
+  parked: { key: string; waiting: ReadonlySet<string> } | undefined;
 }
 
 /** One provider request as the decision reads it. */
@@ -147,15 +143,15 @@ export function plan(state: SyncState, request: SyncRequest): Plan {
 
   // The results the parked query waits on make this its conversation's next step; whether
   // the query can take them is another matter.
-  const delivered =
-    state.parked === undefined ? undefined : trailingDelivery(history, state.parked.waiting);
+  const { parked } = state;
+  const delivered = parked === undefined ? undefined : trailingDelivery(history, parked.waiting);
 
-  if (state.parked !== undefined && delivered !== undefined) {
+  if (parked !== undefined && delivered !== undefined) {
     if (!continues) return rebuild("diverged");
 
     if (delivered.at !== state.held.length) return rebuild("tail");
 
-    if (request.key !== state.parked.key) return rebuild("changed");
+    if (request.key !== parked.key) return rebuild("changed");
 
     return { kind: "deliver", results: delivered.results, steer: delivered.steer };
   }

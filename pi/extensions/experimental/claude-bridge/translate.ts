@@ -39,7 +39,6 @@ export function newAssistantOutput(
   model: Model<Api>,
   stopReason: AssistantMessage["stopReason"],
   text = "",
-  errorMessage?: string,
 ): AssistantMessage {
   return {
     role: "assistant",
@@ -56,7 +55,6 @@ export function newAssistantOutput(
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     },
     stopReason,
-    ...(errorMessage === undefined ? {} : { errorMessage }),
     timestamp: Date.now(),
   };
 }
@@ -87,7 +85,6 @@ export class Turn {
 
   private started = false;
   private sawStreamEvent = false;
-  private sawToolCall = false;
   /** API message id from the last message_start, and whether its message_stop arrived.
    *  An `assistant` message under another id while the stream is open is Claude Code's
    *  non-streaming fallback for a stalled stream. */
@@ -110,6 +107,11 @@ export class Turn {
 
   private get blocks(): TurnBlock[] {
     return this.output.content;
+  }
+
+  /** The turn has a completed tool call; an open one may still be cut off and dropped. */
+  private get hasToolCall(): boolean {
+    return this.blocks.some((block) => block.type === "toolCall" && !this.openBlocks.has(block));
   }
 
   /** Ids of the tool calls this turn handed to pi. */
@@ -135,7 +137,7 @@ export class Turn {
   private outcome(): "stop" | "length" | "toolUse" | "error" {
     if (this.output.stopReason === "length") return "length";
 
-    if (this.sawToolCall) return "toolUse";
+    if (this.hasToolCall) return "toolUse";
 
     const hasText = this.blocks.some((block) => block.type === "text" && block.text.trim() !== "");
 
@@ -199,8 +201,6 @@ export class Turn {
     }
 
     if (dropped.length > 0) debug(`turn: ${why}; dropped unfinished ${dropped.join(",")}`);
-
-    this.sawToolCall = this.blocks.some((block) => block.type === "toolCall");
   }
 
   /** Remove the blocks of a stream Claude Code abandoned mid-message: a thinking block
@@ -214,7 +214,6 @@ export class Turn {
     debug(
       `turn: ${why}; dropped ${dropped.length} blocks from ${this.streamMessageId} types=${dropped.map((block) => block.type).join(",")}`,
     );
-    this.sawToolCall = this.blocks.some((block) => block.type === "toolCall");
     this.streamOpen = false;
   }
 
@@ -346,8 +345,6 @@ export class Turn {
             partial: output,
           });
         } else {
-          this.sawToolCall = true;
-
           if (open.partialJson !== "") {
             Object.assign(block, parseToolCallArguments(open.partialJson));
           }
@@ -369,7 +366,7 @@ export class Turn {
         this.dropUnfinished(`message_stop for ${this.streamMessageId}`);
         this.streamOpen = false;
 
-        if (this.sawToolCall) this.finish();
+        if (this.hasToolCall) this.finish();
 
         return;
       }
@@ -445,7 +442,6 @@ export class Turn {
         }
 
         this.start();
-        this.sawToolCall = true;
 
         const toolCall: ToolCall = {
           type: "toolCall",
@@ -471,7 +467,7 @@ export class Turn {
     // so here, with no message_delta to carry it.
     if (mapStopReason(assistant.stop_reason) === "length") output.stopReason = "length";
 
-    if (this.sawToolCall) this.finish();
+    if (this.hasToolCall) this.finish();
   }
 
   /** A successful result. Its text is the answer only when the turn produced none:

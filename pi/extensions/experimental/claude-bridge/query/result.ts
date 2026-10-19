@@ -23,6 +23,9 @@ export function resultErrorText(message: SDKResultMessage): string | undefined {
   return `Claude Code failed: ${message.subtype}`;
 }
 
+// resetsAt is Unix seconds (observed; the SDK leaves the unit undocumented).
+const resetTime = (resetsAt: number): string => new Date(resetsAt * 1000).toLocaleTimeString();
+
 /** Names a failure as a rate limit when a rejection preceded it.
  *
  *  Pi has no typed rate-limit error, so whatever reacts to one (fallback models, key
@@ -35,11 +38,8 @@ export function resultErrorText(message: SDKResultMessage): string | undefined {
 export function describeRateLimitFailure(rejection: RateLimitRejection, failure: string): string {
   const kind = rejection.rateLimitType === undefined ? "" : ` (${rejection.rateLimitType})`;
 
-  // resetsAt is Unix seconds (observed; the SDK leaves the unit undocumented).
   const resets =
-    rejection.resetsAt === undefined
-      ? ""
-      : ` — resets ${new Date(rejection.resetsAt * 1000).toLocaleTimeString()}`;
+    rejection.resetsAt === undefined ? "" : ` — resets ${resetTime(rejection.resetsAt)}`;
 
   return `Claude quota exceeded — rate limit${kind}${resets}: ${failure}`;
 }
@@ -56,24 +56,17 @@ export function rateLimitRejection(info: SDKRateLimitInfo): RateLimitRejection |
 
 /** The notice a rejection raises once. */
 export function rateLimitNotice(rejection: RateLimitRejection): string {
-  const resetsAt =
-    rejection.resetsAt === undefined
-      ? "unknown"
-      : new Date(rejection.resetsAt * 1000).toLocaleTimeString();
+  const resetsAt = rejection.resetsAt === undefined ? "unknown" : resetTime(rejection.resetsAt);
 
   return `Claude subscription rate limit reached (${rejection.rateLimitType ?? "unknown"}); resets at ${resetsAt}`;
 }
 
 // The window Claude Code actually served, which can differ from the one pi registered
 // when the runtime entitlement does not match the docs.
-export function logServedContextWindow(
-  label: string,
-  message: SDKResultMessage,
-  model: Model<Api>,
-): void {
+export function logServedContextWindow(message: SDKResultMessage, model: Model<Api>): void {
   for (const [servedModel, usage] of Object.entries(message.modelUsage)) {
     debug(
-      `${label}: served contextWindow=${usage.contextWindow} maxOutputTokens=${usage.maxOutputTokens} servedModel=${servedModel} registered=${model.contextWindow}`,
+      `result: served contextWindow=${usage.contextWindow} maxOutputTokens=${usage.maxOutputTokens} servedModel=${servedModel} registered=${model.contextWindow}`,
     );
   }
 }

@@ -353,11 +353,9 @@ function firstMessage(context: BridgeContext, start: QueryStart): SDKUserMessage
 
   if (blocks !== undefined) return userMessage(blocks);
 
-  return userMessage([{ type: "text", text: continuePrompt(context) }]);
-}
-
-function continuePrompt(context: BridgeContext): string {
-  if (context.messages.at(-1)?.role === "toolResult") return CONTINUE_PROMPT;
+  if (context.messages.at(-1)?.role === "toolResult") {
+    return userMessage([{ type: "text", text: CONTINUE_PROMPT }]);
+  }
 
   diagDump("empty_prompt", {
     contextLength: context.messages.length,
@@ -366,7 +364,7 @@ function continuePrompt(context: BridgeContext): string {
   });
 
   // So the SDK does not send an empty text block.
-  return "[continue]";
+  return userMessage([{ type: "text", text: "[continue]" }]);
 }
 
 // pi's tools over MCP. A handler holds Claude Code's tools/call until the conversation

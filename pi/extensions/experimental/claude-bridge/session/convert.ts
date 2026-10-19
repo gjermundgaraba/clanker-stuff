@@ -14,7 +14,7 @@ import { sdkToolName } from "../tools.js";
 
 export const PROVIDER_ID = "claude-bridge";
 
-export function sanitizeToolId(id: string, cache: Map<string, string>): string {
+function sanitizeToolId(id: string, cache: Map<string, string>): string {
   const existing = cache.get(id);
 
   if (existing !== undefined) return existing;
@@ -27,14 +27,12 @@ export function sanitizeToolId(id: string, cache: Map<string, string>): string {
 }
 
 /** Any content block, including ones extensions add outside pi's types. */
-export interface LooseBlock {
+interface LooseBlock {
   type: string;
   text?: string;
 }
 
-export function messageContentToText(content: string | readonly LooseBlock[]): string {
-  if (typeof content === "string") return content;
-
+function messageContentToText(content: readonly LooseBlock[]): string {
   const parts: string[] = [];
   let hasText = false;
 

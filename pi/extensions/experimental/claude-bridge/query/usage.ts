@@ -16,7 +16,7 @@ export interface SdkUsage {
   output_tokens_details?: { thinking_tokens?: number | null } | null;
 }
 
-export interface UsageReport {
+interface UsageReport {
   /** Cache-read share of the prompt as a whole percentage; 0 for an empty prompt. */
   cachePct: number;
   /** Thinking tokens carried by this frame, absent when it carried none. */

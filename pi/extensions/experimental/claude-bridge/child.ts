@@ -32,8 +32,8 @@ export const childEnv = (): NodeJS.ProcessEnv => ({ ...process.env, ...CHILD_ENV
 /** Stop a query now: interrupt() asks the CLI to stop gracefully and close() kills it.
  *  Both are needed, since interrupt alone lets the current API call finish. Neither may
  *  throw out of an abort path. */
-export function stopQuery(query: BridgeQuery | null | undefined): void {
-  if (query == null) return;
+export function stopQuery(query: BridgeQuery | undefined): void {
+  if (query === undefined) return;
 
   void query.interrupt().catch(() => {});
 

@@ -80,7 +80,7 @@ export function buildModels(catalog: readonly Model<Api>[]): ProviderChatModelCo
 export const catalogModels = (): ProviderChatModelConfig[] =>
   buildModels(getBuiltinModels("anthropic"));
 
-export interface ClaudeCodeRuntimeModel {
+interface ClaudeCodeRuntimeModel {
   cliModelId: string;
   contextWindow: number;
 }

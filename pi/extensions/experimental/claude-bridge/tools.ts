@@ -20,7 +20,7 @@ export interface ServedTools {
 
 /** A tool's description followed by its prompt guidelines. Pi lists guidelines in its own
  *  system prompt, which is not forwarded, so they travel with the tool they describe. */
-export function describeTool(description: string, guidelines: readonly string[] = []): string {
+function describeTool(description: string, guidelines: readonly string[] = []): string {
   const bullets = guidelines.flatMap((guideline) =>
     guideline.trim() === "" ? [] : [`- ${guideline.trim()}`],
   );
@@ -31,10 +31,10 @@ export function describeTool(description: string, guidelines: readonly string[] 
 }
 
 export function resolveServedTools(
-  tools: readonly Tool[] | undefined,
+  tools: readonly Tool[],
   guidelines: ReadonlyMap<string, readonly string[]> = new Map(),
 ): ServedTools {
-  const served = (tools ?? []).map((tool) => ({
+  const served = tools.map((tool) => ({
     ...tool,
     description: describeTool(tool.description, guidelines.get(tool.name)),
   }));

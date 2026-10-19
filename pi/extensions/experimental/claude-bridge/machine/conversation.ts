@@ -398,7 +398,7 @@ export const conversationMachine = setup({
           enq(() => {
             // Nothing else closes a streamed prompt's stdin, and Claude Code waits on it.
             query.promptStream.end();
-            logServedContextWindow("result", message, query.model);
+            logServedContextWindow(message, query.model);
           });
 
           if (failure !== undefined) {
@@ -439,12 +439,10 @@ export const conversationMachine = setup({
 
           return { target: "idle", context: { ...IDLE, held: [] } };
         },
-        "cc.error": ({ context, event, value }, enq) => {
+        // In `closing` there is no turn left to fail, but a failed exit after the result
+        // may still have cut the session file short.
+        "cc.error": ({ context, event }, enq) => {
           debug(`conversation: query failed: ${event.message}`);
-
-          // After its result, a failed exit may have cut the session file short.
-          if (isClosing(value)) return { target: "idle", context: { ...IDLE, held: [] } };
-
           enq(() => {
             context.turn?.fail(event.message);
           });

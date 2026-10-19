@@ -152,7 +152,7 @@ describe(toBridgeContext, () => {
     );
 
     expect(context.messages).toEqual([{ role: "user", content: "hi", timestamp: 0 }]);
-    expect(context.tools?.map(({ name }) => name)).toEqual(["read"]);
+    expect(context.tools.map(({ name }) => name)).toEqual(["read"]);
     expect(systemText(context.system)).toBe("Summarize.");
   });
 });

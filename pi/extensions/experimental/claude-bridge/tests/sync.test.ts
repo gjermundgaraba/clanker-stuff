@@ -80,6 +80,7 @@ const holding = (held: readonly Message[], extra: Partial<SyncState> = {}): Sync
   held,
   session: "cc-1",
   busy: false,
+  parked: undefined,
   ...extra,
 });
 

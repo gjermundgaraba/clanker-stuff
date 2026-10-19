@@ -7,12 +7,12 @@ import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 
-export const EXTENSION_ID = "claude-bridge";
+const EXTENSION_ID = "claude-bridge";
 
 // Unique per module evaluation: shows whether subagents share module state.
 const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
-export const isDebugEnabled = (): boolean => process.env.CLAUDE_BRIDGE_DEBUG === "1";
+const isDebugEnabled = (): boolean => process.env.CLAUDE_BRIDGE_DEBUG === "1";
 
 /** Paths resolve per call so tests can swap the environment mid-process. */
 export function debugLogPath(): string {
@@ -51,7 +51,7 @@ export function diagDump(
   debug(`DIAG ${label}`, data);
 }
 
-export interface CliDebugOptions {
+interface CliDebugOptions {
   debug?: boolean;
   debugFile?: string;
   stderr?: (data: string) => void;

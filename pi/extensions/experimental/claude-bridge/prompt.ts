@@ -18,23 +18,18 @@ import { debugLogPath } from "./log.js";
 export interface BridgeContext {
   messages: Message[];
   system?: SystemMessage;
-  tools?: Tool[];
-}
-
-/** `messages` without the prompt-state system messages. */
-export function nonSystemMessages(messages: readonly Message[]): Message[] {
-  return messages.filter((message) => message.role !== "system");
+  tools: Tool[];
 }
 
 export function toBridgeContext(transcript: TranscriptContext): BridgeContext {
   const { messages } = transcript;
   const system = getCurrentSystemMessage(messages);
-  const tools = getCurrentTools(messages);
 
   return {
-    messages: nonSystemMessages(messages),
+    // Without the prompt-state system messages.
+    messages: messages.filter((message) => message.role !== "system"),
     ...(system === undefined ? {} : { system }),
-    ...(tools.length > 0 ? { tools } : {}),
+    tools: getCurrentTools(messages),
   };
 }
 
