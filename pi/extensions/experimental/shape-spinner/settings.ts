@@ -1,24 +1,45 @@
+import { fileURLToPath } from "node:url";
+
+import { FRAME_INTERVAL_MS, manifest } from "@clanker-stuff/pi-shape-glyphs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
 import type { Component, SettingItem, TuiMouseEvent } from "@earendil-works/pi-tui";
 
-/** The spinner's preview loop. */
-export interface Preview {
-  readonly label: string;
-  readonly meta: string;
-  readonly frames: readonly string[];
-}
+import { colors, motions, shapes, styleFor } from "./config.js";
+import type { Config } from "./config.js";
 
-export interface SettingsView {
-  readonly intervalMs: number;
-  readonly footer: readonly string[];
-  readonly items: SettingItem[];
-  readonly onChange: (id: string, value: string) => void;
-  readonly preview: () => Preview;
-}
+const loops = [
+  manifest.rubik,
+  ...Object.values(manifest.animations).flatMap((byColor) =>
+    Object.values(byColor).flatMap((byBackground) => Object.values(byBackground)),
+  ),
+];
 
-const MAX_VISIBLE = 10;
+const codepoints = loops.flatMap((animation) => [...animation.frames, animation.still]);
+
+const range = [Math.min(...codepoints), Math.max(...codepoints)]
+  .map((cp) => `U+${cp.toString(16).toUpperCase()}`)
+  .join("-");
+
+const mapping = `font-codepoint-map = ${range}=${manifest.family}`;
+
+const fontPath = fileURLToPath(new URL("./assets/ShapeSpinner.ttf", import.meta.url));
+
+/** Apply a SettingsList value, ignoring values that the setting does not offer. */
+export const updateSetting = (config: Config, id: string, value: string): void => {
+  switch (id) {
+    case "motion":
+      config.motion = motions.find((motion) => motion === value) ?? config.motion;
+      break;
+    case "shape":
+      config.shape = shapes.find((shape) => shape === value) ?? config.shape;
+      break;
+    case "color":
+      config.color = colors.find((color) => color === value) ?? config.color;
+      break;
+  }
+};
 
 /** Animates the configured spinner at its real frame rate. */
 class SpinnerPreview implements Component {
@@ -26,15 +47,15 @@ class SpinnerPreview implements Component {
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(
-    public preview: Preview,
-    intervalMs: number,
+    private readonly config: Config,
+    public frames: readonly string[],
     private readonly accent: (text: string) => string,
     requestRender: () => void,
   ) {
     this.timer = setInterval(() => {
       this.tick += 1;
       requestRender();
-    }, intervalMs);
+    }, FRAME_INTERVAL_MS);
   }
 
   dispose(): void {
@@ -46,9 +67,10 @@ class SpinnerPreview implements Component {
   }
 
   render(): string[] {
-    const { label, frames, meta } = this.preview;
+    const { shape, color } = this.config;
+    const frame = this.frames[this.tick % this.frames.length] ?? "";
 
-    return [` ${this.accent(`${label}  `)}${frames[this.tick % frames.length] ?? ""} ${meta}`];
+    return [` ${this.accent("Working  ")}${frame} ${shape} · ${color}`];
   }
 }
 
@@ -56,24 +78,54 @@ class SpinnerPreview implements Component {
  * Opens the shape spinner settings as an overlay, so the live editor with its
  * restyled border spinners stays visible around the dialog while editing.
  */
-export const openSettings = async (ctx: ExtensionContext, view: SettingsView): Promise<void> => {
+export const openSettings = async (
+  ctx: ExtensionContext,
+  config: Config,
+  onChange: () => void,
+): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, _keybindings, done) => {
       // The preview timer re-renders every frame, so edits need no render request of their own.
       const preview = new SpinnerPreview(
-        view.preview(),
-        view.intervalMs,
+        config,
+        styleFor(config, ctx.ui.theme.appearance).frames,
         (text) => theme.fg("accent", text),
         () => tui.requestRender(),
       );
 
+      const items: SettingItem[] = [
+        {
+          currentValue: config.motion,
+          description: "animated plays the loop; static rests on the closing pose.",
+          id: "motion",
+          label: "Motion",
+          values: [...motions],
+        },
+        {
+          currentValue: config.shape,
+          description:
+            "rubik is the colored puzzle; the others are wireframes inked for your theme's light or dark background.",
+          id: "shape",
+          label: "Shape",
+          values: [...shapes],
+        },
+        {
+          currentValue: config.color,
+          description: "Ink for the wireframe; the colored puzzle keeps its sticker colors.",
+          id: "color",
+          label: "Color",
+          values: [...colors],
+        },
+      ];
+
       const list = new SettingsList(
-        view.items,
-        MAX_VISIBLE,
+        items,
+        10,
         getSettingsListTheme(),
         (id, value) => {
-          view.onChange(id, value);
-          preview.preview = view.preview();
+          updateSetting(config, id, value);
+          onChange();
+          preview.frames = styleFor(config, ctx.ui.theme.appearance).frames;
         },
         () => done(null),
       );
@@ -84,7 +136,8 @@ export const openSettings = async (ctx: ExtensionContext, view: SettingsView): P
       container.addChild(new Spacer());
       container.addChild(list);
 
-      for (const line of view.footer) container.addChild(new Text(theme.fg("dim", line), 1, 0));
+      for (const line of [`Ghostty: ${mapping}`, `Font: ${fontPath}`])
+        container.addChild(new Text(theme.fg("dim", line), 1, 0));
 
       return {
         dispose: () => preview.dispose(),

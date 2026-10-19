@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { manifest, RUBIK, wireframe } from "@clanker-stuff/pi-shape-glyphs";
@@ -14,14 +14,24 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCustomUiDriver, createIdentityTheme } from "../../../../tests/harness/tui.js";
-import { colors, configPath, defaultConfig, loadConfig, saveConfig, shapes } from "../config.js";
+import {
+  colors,
+  configPath,
+  defaultConfig,
+  loadConfig,
+  saveConfig,
+  shapes,
+  styleFor,
+} from "../config.js";
 import type { Config } from "../config.js";
 import extension from "../index.js";
-import { settingRows, styleFor } from "../spinner.js";
+import { updateSetting } from "../settings.js";
 
 type Loop = typeof manifest.rubik;
 
 const down = "\u001B[B";
+
+const up = "\u001B[A";
 
 const space = " ";
 
@@ -78,21 +88,6 @@ const openDialog = async (
   };
 };
 
-/** Apply dialog values to a config through the same rows the dialog edits. */
-const edit = (config: Config, values: Record<string, string>): Config => {
-  const rows = settingRows(config);
-
-  for (const [id, value] of Object.entries(values)) {
-    const row = rows.find((candidate) => candidate.id === id);
-    assert(row !== undefined, `unknown row ${id}`);
-    assert(row.values.includes(value), `row ${id} does not offer ${value}`);
-    row.set(value);
-    expect(row.get()).toBe(value);
-  }
-
-  return config;
-};
-
 describe("shape spinner", () => {
   it("only sets Pi's working indicator, at startup and for each run", async () => {
     const { ctx, host, setWorkingIndicator } = setup();
@@ -130,29 +125,49 @@ describe("shape spinner", () => {
   });
 
   it("rests on the closing pose in static motion", () => {
-    const config = edit(defaultConfig(), { motion: "static", shape: "cube" });
+    const config: Config = { ...defaultConfig(), motion: "static", shape: "cube" };
 
     expect(styleFor(config, "dark")).toStrictEqual(resting(wireframe("cube", "cyan", "dark")));
   });
 
-  it("keeps the puzzle's stickers but remembers the color for the next wireframe", () => {
-    const config = edit(defaultConfig(), { color: "red", shape: "rubik" });
+  it("keeps the puzzle's stickers but remembers the color for the next wireframe", async () => {
+    const { context, driver, host, setWorkingIndicator } = setup();
+    await saveConfig({ color: "red", motion: "animated", shape: "rubik" });
+    const ctx = context("light");
+    await host.emitSessionStart(ctx);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(RUBIK));
 
-    expect(styleFor(config, "light")).toStrictEqual(looped(RUBIK));
-    edit(config, { shape: "cube" });
-    expect(styleFor(config, "dark")).toStrictEqual(looped(wireframe("cube", "red", "dark")));
+    const dialog = await openDialog(host, driver, ctx);
+    dialog.press(down, down, space);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(RUBIK));
+    expect(dialog.render()).toContain("rubik · orange");
+
+    dialog.press(up, space, space);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(
+      looped(wireframe("cube", "orange", "light")),
+    );
+    expect(dialog.render()).toContain("cube · orange");
+    await dialog.close();
+    await expect(loadConfig()).resolves.toStrictEqual({
+      color: "orange",
+      motion: "animated",
+      shape: "cube",
+    });
   });
 
-  it("ignores values a row does not offer", () => {
+  it.each([
+    ["shape", "dodecahedron"],
+    ["motion", "bouncy"],
+    ["color", "ultraviolet"],
+    ["unknown", "static"],
+  ])("ignores unsupported setting %s=%s", (id, value) => {
     const config = defaultConfig();
-    settingRows(config)
-      .find((row) => row.id === "shape")
-      ?.set("dodecahedron");
+    updateSetting(config, id, value);
     expect(config).toStrictEqual(defaultConfig());
   });
 
   it("round-trips the config file and falls back to defaults on invalid content", async () => {
-    const config = edit(defaultConfig(), { color: "red", shape: "cube" });
+    const config: Config = { ...defaultConfig(), color: "red", shape: "cube" };
     await saveConfig(config);
     await expect(loadConfig()).resolves.toStrictEqual(config);
     writeFileSync(configPath(), JSON.stringify({ ...config, motion: "bouncy" }));
@@ -172,6 +187,7 @@ describe("shape spinner", () => {
       resting(wireframe("cube", "cyan", "dark")),
     );
     expect(dialog.render()).toContain(`${wireframe("cube", "cyan", "dark").still} cube · cyan`);
+    expect(existsSync(configPath())).toBe(false);
     await dialog.close();
 
     const reloaded = createExtensionHost(extension);
@@ -202,6 +218,28 @@ describe("shape spinner", () => {
     expect(setWorkingIndicator).not.toHaveBeenCalled();
 
     await dialog.close();
+    expect(existsSync(configPath())).toBe(false);
+  });
+
+  it("advances the preview at the playback rate and stops its timer on close", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const { ctx, driver, host } = setup();
+      const dialog = await openDialog(host, driver, ctx);
+      const frames = wireframe("orb", "cyan", "dark").frames;
+      const before = dialog.render();
+      const index = frames.findIndex((frame) => before.includes(frame));
+      expect(index).toBeGreaterThanOrEqual(0);
+      vi.advanceTimersByTime(400);
+      expect(dialog.render()).toContain(frames[(index + 20) % frames.length]);
+      expect(vi.getTimerCount()).toBe(1);
+
+      await dialog.close();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("bundles complete loops and distinct resting poses in its own PUA bank", () => {

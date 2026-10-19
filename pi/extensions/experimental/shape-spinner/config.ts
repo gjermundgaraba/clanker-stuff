@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { FRAME_INTERVAL_MS, RUBIK, wireframe } from "@clanker-stuff/pi-shape-glyphs";
+import type { ThemeAppearance } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -31,6 +33,20 @@ export const ConfigSchema = Type.Object(
 export type Config = Static<typeof ConfigSchema>;
 
 export const defaultConfig = (): Config => ({ color: "cyan", motion: "animated", shape: "orb" });
+
+/** Pi's working indicator for a look, with wireframe ink for the theme's background. */
+export const styleFor = (
+  config: Config,
+  appearance: ThemeAppearance,
+): { frames: string[]; intervalMs: number } => {
+  const animation =
+    config.shape === "rubik" ? RUBIK : wireframe(config.shape, config.color, appearance);
+
+  return {
+    frames: config.motion === "static" ? [animation.still] : [...animation.frames],
+    intervalMs: FRAME_INTERVAL_MS,
+  };
+};
 
 export const configPath = () => getExtensionStoragePaths("shape-spinner").configFile;
 
