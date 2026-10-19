@@ -14,7 +14,10 @@ export default function stashExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("pop-stash", {
     description: "Pop the most recent stashed editor text",
-    handler: (_args, ctx) => stash.pop(ctx),
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) throw new Error("pop-stash requires interactive UI");
+      await stash.pop(ctx);
+    },
   });
 
   pi.on("input", stash.restore);

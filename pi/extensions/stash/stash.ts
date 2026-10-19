@@ -18,20 +18,6 @@ const getStorePath = (cwd: string) =>
     `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`,
   );
 
-const readStore = async (filePath: string): Promise<string[]> => {
-  try {
-    const data: unknown = JSON.parse(await readFile(filePath, "utf-8"));
-
-    return Value.Check(StashFileSchema, data) ? data.entries : [];
-  } catch (error) {
-    if (error instanceof SyntaxError) return [];
-
-    if (error instanceof Object && "code" in error && error.code === "ENOENT") return [];
-
-    throw error;
-  }
-};
-
 /** A per-project stack of stashed drafts; the newest is restored after the next submitted prompt. */
 export const createStash = () => {
   let stack: string[] = [];
@@ -68,19 +54,23 @@ export const createStash = () => {
 
   return {
     dispose: () => pendingSave,
-    pop: async (ctx: ExtensionContext) => {
-      if (!ctx.hasUI) throw new Error("pop-stash requires interactive UI");
-      await pop(ctx);
-    },
+    pop,
     restore: async (event: InputEvent, ctx: ExtensionContext) => {
       if (event.source !== "interactive" || ctx.mode !== "tui" || stack.length === 0) return;
       await pop(ctx);
     },
     start: async (ctx: ExtensionContext) => {
       try {
-        stack = (await readStore(getStorePath(ctx.cwd))).slice(-MAX_STASHES);
-      } catch {
+        const data: unknown = JSON.parse(await readFile(getStorePath(ctx.cwd), "utf-8"));
+
+        stack = Value.Check(StashFileSchema, data) ? data.entries.slice(-MAX_STASHES) : [];
+      } catch (error) {
         stack = [];
+
+        if (error instanceof SyntaxError) return;
+
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+
         ctx.ui.notify("Failed to load persisted stash.", "warning");
       }
     },
@@ -94,7 +84,9 @@ export const createStash = () => {
       }
 
       stack.push(text);
-      stack.splice(0, Math.max(0, stack.length - MAX_STASHES));
+
+      if (stack.length > MAX_STASHES) stack.shift();
+
       ctx.ui.setEditorText("");
       ctx.ui.notify(`Stashed (${stack.length}).`, "info");
       await save(ctx);
