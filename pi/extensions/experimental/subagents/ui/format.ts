@@ -117,7 +117,7 @@ export const elapsed = (node: AgentNode, now: number): string => {
   return node.endedAt === undefined ? "" : duration(node.endedAt - node.startedAt);
 };
 
-export const tokens = (count: number): string => {
+const tokens = (count: number): string => {
   if (count < 1000) return String(Math.round(count));
 
   if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k`;

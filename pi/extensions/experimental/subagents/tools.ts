@@ -20,7 +20,7 @@ import { agentRenderers } from "./renderers.js";
 
 const STRICT = { additionalProperties: false } as const;
 
-export const parseForkTurns = (value: string | undefined): ForkTurns => {
+const parseForkTurns = (value: string | undefined): ForkTurns => {
   const normalized = value?.trim().toLowerCase() ?? "all";
 
   if (normalized === "all" || normalized === "none") {

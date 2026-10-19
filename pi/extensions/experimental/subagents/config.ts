@@ -10,7 +10,7 @@ import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 export const ThinkingSchema = StringEnum(THINKING_LEVELS);
 
@@ -79,13 +79,13 @@ export const loadConfig = async (
       error: undefined,
     };
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return { config: DEFAULT_CONFIG, error: undefined };
-    }
+    const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
 
     return {
       config: DEFAULT_CONFIG,
-      error: `Invalid ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+      error: missing
+        ? undefined
+        : `Invalid ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };

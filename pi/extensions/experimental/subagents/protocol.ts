@@ -173,14 +173,6 @@ export const publicStatus = (node: AgentNode | undefined): PublicAgentStatus => 
 
 export const isAgentPath = (value: string): boolean => PATH_PATTERN.test(value);
 
-const validatePath = (value: string): string => {
-  if (!isAgentPath(value)) {
-    throw new Error(`Invalid agent path: ${value}`);
-  }
-
-  return value;
-};
-
 export const childAgentPath = (caller: string, taskName: string): string => {
   if (!SEGMENT_PATTERN.test(taskName)) {
     throw new Error("task_name must contain only lowercase letters, digits, and underscores");
@@ -190,7 +182,8 @@ export const childAgentPath = (caller: string, taskName: string): string => {
     throw new Error("task_name root is reserved");
   }
 
-  return validatePath(`${caller}/${taskName}`);
+  // The caller is a canonical agent path, so a valid segment yields one too.
+  return `${caller}/${taskName}`;
 };
 
 export const resolveAgentPath = (caller: string, target: string): string => {
@@ -198,7 +191,13 @@ export const resolveAgentPath = (caller: string, target: string): string => {
     throw new Error("Agent target must not be blank");
   }
 
-  return validatePath(target.startsWith("/") ? target : `${caller}/${target}`);
+  const path = target.startsWith("/") ? target : `${caller}/${target}`;
+
+  if (!isAgentPath(path)) {
+    throw new Error(`Invalid agent path: ${path}`);
+  }
+
+  return path;
 };
 
 export const parentAgentPath = (path: string): string | undefined =>

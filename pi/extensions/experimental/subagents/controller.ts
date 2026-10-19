@@ -124,6 +124,12 @@ export interface ControllerDependencies {
 
 type WaitActivity = "aborted" | "mailbox" | "steered" | "timed_out";
 
+const WAIT_MESSAGES: Record<Exclude<WaitActivity, "aborted">, string> = {
+  mailbox: "Wait completed.",
+  steered: "Wait interrupted by new input.",
+  timed_out: "Wait timed out.",
+};
+
 export class Controller {
   /** Presentation feed; the controller only publishes to it. */
   readonly monitor: Monitor;
@@ -494,9 +500,7 @@ export class Controller {
     const effective = Math.max(10_000, timeoutMs);
     const settled = Promise.withResolvers<WaitActivity>();
 
-    const wake = (activity: WaitActivity) => {
-      settled.resolve(activity);
-    };
+    const wake = settled.resolve;
 
     const abort = () => {
       settled.resolve("aborted");
@@ -523,13 +527,7 @@ export class Controller {
         throw new Error("Wait aborted");
       }
 
-      let message = "Wait interrupted by new input.";
-
-      if (activity === "timed_out") {
-        message = "Wait timed out.";
-      } else if (activity === "mailbox") {
-        message = "Wait completed.";
-      }
+      let message = WAIT_MESSAGES[activity];
 
       if (timeoutMs < effective) {
         message += `\n\nRequested timeout of ${timeoutMs}ms was clamped to the minimum of ${effective}ms.`;
