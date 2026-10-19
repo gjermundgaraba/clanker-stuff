@@ -119,13 +119,9 @@ export const createFooterHost = (
     const { config, loadError } = active;
     const known = builtins(active);
 
-    const unknown = [
-      ...new Set(
-        placedIds(config).filter(
-          (id) => id !== STATUSES_ID && !id.startsWith(STATUS_PREFIX) && !known.has(id),
-        ),
-      ),
-    ];
+    const unknown = placedIds(config).filter(
+      (id) => id !== STATUSES_ID && !id.startsWith(STATUS_PREFIX) && !known.has(id),
+    );
 
     return [
       ...(loadError === undefined ? [] : [`${loadError}; using the default footer layout`]),
