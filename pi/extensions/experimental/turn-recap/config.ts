@@ -51,7 +51,5 @@ export const loadRecapConfig = async (
     throw error;
   }
 
-  const value: unknown = JSON.parse(text);
-
-  return parseRecapConfig(value);
+  return parseRecapConfig(JSON.parse(text));
 };

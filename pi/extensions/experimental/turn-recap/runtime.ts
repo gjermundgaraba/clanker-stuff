@@ -24,11 +24,6 @@ import { createLiveWidget } from "./widget.js";
 
 const WIDGET_KEY = "turn-recap";
 
-interface SessionState {
-  config: RecapConfig | undefined;
-  rollingFont: RollingFont | undefined;
-}
-
 interface ActiveRun {
   baseline: string | null;
   timing: ReturnType<typeof createTiming>;
@@ -36,18 +31,19 @@ interface ActiveRun {
   metrics: Metrics;
 }
 
-class TurnRecapRuntime {
+export class TurnRecapRuntime {
   readonly #pi: ExtensionAPI;
   readonly #configPath: string;
-  #session: SessionState | undefined;
+  /** Aborted when the session ends, cancelling its pending loads and recap requests. */
+  #session = new AbortController();
+  #config: RecapConfig | undefined;
+  #rollingFont: RollingFont | undefined;
   #active: ActiveRun | undefined;
   /** Recaps by run ID, from saved entries plus those being generated. */
   #recaps = new Map<string, RecapView>();
-  /** Recap requests in flight; several can overlap later runs. */
-  #pending = new Set<AbortController>();
   #requestRender: (() => void) | undefined;
 
-  constructor(pi: ExtensionAPI, configPath: string) {
+  constructor(pi: ExtensionAPI, configPath = getRecapConfigPath()) {
     this.#pi = pi;
     this.#configPath = configPath;
   }
@@ -65,8 +61,7 @@ class TurnRecapRuntime {
         this.#recaps.set(entry.data.runId, entry.data.recap);
     }
 
-    const session: SessionState = { config: undefined, rollingFont: undefined };
-    this.#session = session;
+    const session = this.#session.signal;
 
     // Independent loads: a broken config never disables animation, or vice versa.
     const [config, font] = await Promise.allSettled([
@@ -74,30 +69,21 @@ class TurnRecapRuntime {
       ctx.mode === "tui" ? loadRollingFont() : undefined,
     ]);
 
-    if (this.#session !== session) return;
+    if (session.aborted) return;
 
-    if (config.status === "fulfilled") session.config = config.value;
+    if (config.status === "fulfilled") this.#config = config.value;
     else
       ctx.ui.notify(
         `Turn recap configuration ignored; generated recaps disabled (${this.#configPath}): ${errorText(config.reason)}`,
         "error",
       );
 
-    if (font.status === "fulfilled") session.rollingFont = font.value;
+    if (font.status === "fulfilled") this.#rollingFont = font.value;
     else
       ctx.ui.notify(
         `Rolling numbers disabled (${getRollingFontPath()}): ${errorText(font.reason)}`,
         "error",
       );
-  }
-
-  view(): LiveState | undefined {
-    return (
-      this.#active && {
-        elapsedMs: this.#active.timing.read().wallMs,
-        metrics: this.#active.metrics,
-      }
-    );
   }
 
   recap(runId: string): RecapView | undefined {
@@ -147,10 +133,9 @@ class TurnRecapRuntime {
   }
 
   async settled(event: Pick<AgentSettledEvent, "aborted">, ctx: ExtensionContext): Promise<void> {
-    const config = this.#session?.config;
     const active = this.#active;
 
-    if (!this.#session || !active) return;
+    if (!active) return;
     this.refresh(ctx);
     this.#active = undefined;
     this.#unmount(ctx);
@@ -165,6 +150,8 @@ class TurnRecapRuntime {
     };
 
     this.#pi.appendEntry(ENTRY_TYPE, snapshot);
+
+    const config = this.#config;
 
     if (!config) return;
     let prompt: string | undefined;
@@ -184,17 +171,11 @@ class TurnRecapRuntime {
 
     // Pi draws the new card on a later frame, so it already sees this.
     this.#recaps.set(snapshot.runId, { status: "generating" });
-    const controller = new AbortController();
-    this.#pending.add(controller);
+    const session = this.#session.signal;
+    const recap = await generateRecap(ctx, config, prompt, session);
 
-    try {
-      const recap = await generateRecap(ctx, config, prompt, controller.signal);
-
-      // Only shutdown aborts; later runs and tree navigation let the recap finish.
-      if (!controller.signal.aborted) this.#save(snapshot.runId, recap);
-    } finally {
-      this.#pending.delete(controller);
-    }
+    // Only shutdown aborts; later runs and tree navigation let the recap finish.
+    if (!session.aborted) this.#save(snapshot.runId, recap);
   }
 
   shutdown(ctx: ExtensionContext): void {
@@ -202,11 +183,12 @@ class TurnRecapRuntime {
   }
 
   #reset(ctx: ExtensionContext): void {
-    for (const controller of this.#pending) controller.abort();
-    this.#pending.clear();
+    this.#session.abort();
+    this.#session = new AbortController();
+    this.#config = undefined;
+    this.#rollingFont = undefined;
     this.#recaps.clear();
     this.#active = undefined;
-    this.#session = undefined;
     this.#unmount(ctx);
   }
 
@@ -227,7 +209,7 @@ class TurnRecapRuntime {
     ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
       this.#requestRender = () => tui.requestRender();
 
-      const widget = createLiveWidget(tui, theme, () => this.view(), this.#session?.rollingFont);
+      const widget = createLiveWidget(tui, theme, () => this.#view(), this.#rollingFont);
 
       return {
         ...widget,
@@ -242,9 +224,13 @@ class TurnRecapRuntime {
   #unmount(ctx: ExtensionContext): void {
     if (ctx.mode === "tui") ctx.ui.setWidget(WIDGET_KEY, undefined);
   }
-}
 
-export const createTurnRecapRuntime = (
-  pi: ExtensionAPI,
-  configPath = getRecapConfigPath(),
-): TurnRecapRuntime => new TurnRecapRuntime(pi, configPath);
+  #view(): LiveState | undefined {
+    return (
+      this.#active && {
+        elapsedMs: this.#active.timing.read().wallMs,
+        metrics: this.#active.metrics,
+      }
+    );
+  }
+}

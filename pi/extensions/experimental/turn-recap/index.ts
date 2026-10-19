@@ -3,10 +3,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createCardRenderer } from "./card.js";
 import { errorText } from "./conversation.js";
 import { ENTRY_TYPE } from "./entry.js";
-import { createTurnRecapRuntime } from "./runtime.js";
+import { TurnRecapRuntime } from "./runtime.js";
 
 export default function turnRecapExtension(pi: ExtensionAPI): void {
-  const runtime = createTurnRecapRuntime(pi);
+  const runtime = new TurnRecapRuntime(pi);
 
   // Recap entries have no renderer of their own: each card shows its run's recap in place.
   pi.registerEntryRenderer(

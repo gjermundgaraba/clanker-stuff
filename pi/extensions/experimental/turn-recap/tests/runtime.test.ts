@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/t
 import { renderCard } from "../card.js";
 import { getRollingFontDirectory, getRollingFontPath } from "../font.js";
 import { ENTRY_TYPE, RECAP_ENTRY_TYPE, RecapEntrySchema, SnapshotSchema } from "../entry.js";
-import { createTurnRecapRuntime } from "../runtime.js";
+import { TurnRecapRuntime } from "../runtime.js";
 import { RECAP_REQUEST_TIMEOUT_MS } from "../recap.js";
 import { Value } from "typebox/value";
 import {
@@ -42,10 +42,10 @@ const setup = async (...responses: ResponseStep[]) => {
     throw new Error("Authentication belongs to streamSimple");
   });
 
-  let runtime: ReturnType<typeof createTurnRecapRuntime> | undefined;
+  let runtime: TurnRecapRuntime | undefined;
 
   const host = createExtensionHost((pi) => {
-    runtime = createTurnRecapRuntime(
+    runtime = new TurnRecapRuntime(
       {
         ...pi,
         appendEntry: (type, data) => {

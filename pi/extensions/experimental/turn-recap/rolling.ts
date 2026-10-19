@@ -1,3 +1,4 @@
+import type { NumericText } from "./card.js";
 import type { RollingFont } from "./font.js";
 
 export const ROLL_FRAME_MS = 1000 / 30;
@@ -47,7 +48,7 @@ export class RollingNumbers {
   frame(
     now: number,
     font: RollingFont,
-    render: (number: (id: string, text: string) => string) => string[],
+    render: (numeric: NumericText) => string[],
   ): { lines: string[]; animated: boolean } {
     const requested = new Set<string>();
     let animated = false;

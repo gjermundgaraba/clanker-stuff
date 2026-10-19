@@ -10,13 +10,14 @@ export const RECAP_MAX_CHARS = 320;
 export const sanitizeRecapText = (value: string): string =>
   safeText(value).replace(/\s+/gu, " ").trim();
 
+/** Bounds by code points, so a clipped surrogate pair never leaves half a character. */
+const clip = (text: string, max: number): string => Array.from(text).slice(0, max).join("");
+
 const ERROR_MAX_CHARS = 1000;
 
 /** Sanitized and bounded, since recap failures are persisted and shown in cards. */
 export const errorText = (error: unknown): string =>
-  Array.from(sanitizeRecapText(error instanceof Error ? error.message : String(error)))
-    .slice(0, ERROR_MAX_CHARS)
-    .join("");
+  clip(sanitizeRecapText(error instanceof Error ? error.message : String(error)), ERROR_MAX_CHARS);
 
 export const RECAP_PROMPT_MAX_CHARS = 12_000;
 
@@ -74,11 +75,7 @@ export const buildRecapPrompt = (
 };
 
 export const normalizeRecap = (value: string): string | undefined => {
-  const trimmed = sanitizeRecapText(value);
+  const text = clip(sanitizeRecapText(value), RECAP_MAX_CHARS);
 
-  if (trimmed.length === 0) {
-    return undefined;
-  }
-
-  return Array.from(trimmed).slice(0, RECAP_MAX_CHARS).join("");
+  return text.length === 0 ? undefined : text;
 };
