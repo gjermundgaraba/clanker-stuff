@@ -2,26 +2,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import { FRAME_INTERVAL_MS, RUBIK, wireframe } from "@clanker-stuff/pi-shape-glyphs";
+import { FRAME_INTERVAL_MS, manifest, RUBIK, wireframe } from "@clanker-stuff/pi-shape-glyphs";
+import type { Ink, Wireframe } from "@clanker-stuff/pi-shape-glyphs";
 import type { ThemeAppearance } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-export const shapes = ["rubik", "orb", "cube", "octahedron", "tetrahedron"] as const;
-
-export const colors = [
-  "blue",
-  "purple",
-  "pink",
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "cyan",
-  "gray",
+export const shapes = [
+  "rubik",
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This imported JSON owns exactly the wireframe keys; Object.keys erases their literal types.
+  ...(Object.keys(manifest.animations) as Wireframe[]),
 ] as const;
+
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This imported JSON owns exactly the ink keys; Object.keys erases their literal types.
+export const colors = Object.keys(manifest.inks) as readonly Ink[];
 
 export const motions = ["animated", "static"] as const;
 

@@ -248,11 +248,19 @@ describe("shape spinner", () => {
     expect(Number.isInteger(1000 / manifest.fps)).toBe(true);
     expect(manifest.seed).toBe("amp-orb");
     expect(manifest.rubik.frames).toContainEqual(manifest.rubik.still);
-    // The settings offer exactly what the manifest bundles; rubik has no colored animations.
-    expect(new Set(Object.keys(manifest.animations))).toEqual(
-      new Set(shapes.filter((shape) => shape !== "rubik")),
-    );
-    expect(new Set(Object.keys(manifest.inks))).toEqual(new Set(colors));
+    // Manifest order drives settings cycling, with the uncolored puzzle first.
+    expect(shapes).toEqual(["rubik", "orb", "cube", "octahedron", "tetrahedron"]);
+    expect(colors).toEqual([
+      "blue",
+      "purple",
+      "pink",
+      "red",
+      "orange",
+      "yellow",
+      "green",
+      "cyan",
+      "gray",
+    ]);
     const loops: [string, Loop][] = [["rubik", manifest.rubik]];
 
     for (const [shape, byColor] of Object.entries(manifest.animations)) {
