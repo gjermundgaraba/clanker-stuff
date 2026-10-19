@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { rename, rm, writeFile } from "node:fs/promises";
+import { rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { ExtensionContext, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
@@ -22,22 +22,15 @@ export const formatResumeCommand = (
   const sessionFile = sessionManager.getSessionFile();
 
   // Pi creates the file with the first user message; until then there is nothing to resume.
-  if (sessionFile === undefined || sessionFile.length === 0 || !existsSync(sessionFile)) {
+  if (sessionFile === undefined || !existsSync(sessionFile)) {
     return undefined;
   }
 
   return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
 };
 
-export const enqueueResumeCommand = async (
-  command: string,
-  inbox = process.env[INBOX_ENV],
-): Promise<void> => {
-  if (inbox === undefined || inbox.length === 0) {
-    return;
-  }
-
-  const name = `${Date.now()}-${process.pid}-${randomUUID()}.command`;
+export const enqueueResumeCommand = async (inbox: string, command: string): Promise<void> => {
+  const name = `${Date.now()}-${randomUUID()}.command`;
   const finalPath = path.join(inbox, name);
   const temporaryPath = path.join(inbox, `.${name}.tmp`);
 
@@ -46,20 +39,16 @@ export const enqueueResumeCommand = async (
     flag: "wx",
     mode: 0o600,
   });
-
-  try {
-    await rename(temporaryPath, finalPath);
-  } catch (error) {
-    await rm(temporaryPath, { force: true });
-    throw error;
-  }
+  await rename(temporaryPath, finalPath);
 };
 
 export const recordResumeCommand = async (
   reason: SessionShutdownEvent["reason"],
   ctx: ExtensionContext,
 ): Promise<void> => {
-  if (reason !== "quit" || ctx.mode !== "tui") {
+  const inbox = process.env[INBOX_ENV];
+
+  if (reason !== "quit" || ctx.mode !== "tui" || inbox === undefined || inbox.length === 0) {
     return;
   }
 
@@ -70,7 +59,7 @@ export const recordResumeCommand = async (
   }
 
   try {
-    await enqueueResumeCommand(command);
+    await enqueueResumeCommand(inbox, command);
   } catch {
     // History integration must never block pi from shutting down.
   }

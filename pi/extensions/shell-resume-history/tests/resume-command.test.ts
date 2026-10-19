@@ -129,8 +129,8 @@ describe("resume command", () => {
     const { inbox } = await setup();
 
     await Promise.all([
-      enqueueResumeCommand("pi --session first"),
-      enqueueResumeCommand("pi --session second"),
+      enqueueResumeCommand(inbox, "pi --session first"),
+      enqueueResumeCommand(inbox, "pi --session second"),
     ]);
 
     const messages = await readdir(inbox);
