@@ -1,3 +1,5 @@
+import { single } from "./document.js";
+
 export interface Command {
   key: string;
   count: number;
@@ -7,17 +9,13 @@ export interface Command {
   around?: boolean;
 }
 
-export const MAX_COUNT = 1000;
+const MAX_COUNT = 1000;
 
 const motions = "hjklwbeWBE0^$G%";
 
 const standalone = "iIaAoOvVxXsSDCpPJu.~";
 
 const objects = /^[ia][wW"'`(){}[\]<>]$/u;
-
-const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-const single = (text: string) => [...segmenter.segment(text)].length === 1;
 
 /** A leading zero is the line-start motion, never a count. */
 function counted(input: string): [digits: string, rest: string] {

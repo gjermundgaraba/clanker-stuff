@@ -1,7 +1,7 @@
 import type { EditorHost, Change } from "@clanker-stuff/editor";
 import { isKeyRelease, matchesKey, parseKey, decodeKittyPrintable } from "@earendil-works/pi-tui";
 import { execute, selection, type Mode, type State } from "./core/commands.js";
-import { normalCursor, exitInsert, type View } from "./core/document.js";
+import { normalCursor, exitInsert, segmenter, single, type View } from "./core/document.js";
 import { Parser, type Command } from "./core/parser.js";
 import {
   Transactions,
@@ -17,14 +17,21 @@ interface Pending {
   before: View;
   insertion: Insertion;
   command: Command;
-  selection?: SelectionExtent;
+  selection: SelectionExtent | undefined;
+}
+
+interface Repeat {
+  command: Command;
+  /** What the command's Insert session typed; undefined for commands that stay in Normal. */
+  delta: Delta | undefined;
+  selection: SelectionExtent | undefined;
 }
 
 interface Edits {
   observed: View;
   /** An open Insert session: one transaction and one dot-repeatable change. */
   pending: Pending | undefined;
-  repeat: { command: Command; delta?: Delta; selection?: SelectionExtent } | undefined;
+  repeat: Repeat | undefined;
 }
 
 export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () => void {
@@ -88,11 +95,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         }
 
         if (delta.remove || delta.text || pending.before.text !== document.text())
-          edits.repeat = {
-            command,
-            delta,
-            ...(pending.selection !== undefined ? { selection: pending.selection } : {}),
-          };
+          edits.repeat = { command, delta, selection: pending.selection };
         history.commit(pending.before, view());
       }
 
@@ -135,15 +138,10 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       }
 
       if (state.mode === "insert" && !replay)
-        edits.pending = {
-          before,
-          insertion: new Insertion(view()),
-          command,
-          ...(extent !== undefined ? { selection: extent } : {}),
-        };
+        edits.pending = { before, insertion: new Insertion(view()), command, selection: extent };
       else if (result.edit && !replay) {
         history.commit(before, view());
-        edits.repeat = { command, ...(extent !== undefined ? { selection: extent } : {}) };
+        edits.repeat = { command, delta: undefined, selection: extent };
       }
 
       if (state.mode !== "insert") document.move(normalCursor(view(), document.cursor()));
@@ -204,6 +202,7 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
           before,
           insertion: new Insertion(before),
           command: { key: "i", count: 1, explicit: false },
+          selection: undefined,
         };
         edits.pending.insertion.record(before, view());
       } else {
@@ -283,8 +282,8 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       if (
         bindings.matches(data, "tui.input.submit") ||
         bindings.matches(data, "tui.input.newLine") ||
-        editor.keys.matches(data, "app.clipboard.pasteImage") ||
-        [...editor.actionHandlers.keys()].some((action) => editor.keys.matches(data, action))
+        bindings.matches(data, "app.clipboard.pasteImage") ||
+        [...editor.actionHandlers.keys()].some((action) => bindings.matches(data, action))
       ) {
         parser.reset();
 
@@ -308,11 +307,11 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
 
       const printable =
         decodeKittyPrintable(data) ??
-        (shifted && [...segmenter.segment(shifted)].length === 1
+        (shifted && single(shifted)
           ? shifted.toUpperCase()
           : key === "space"
             ? " "
-            : key && [...segmenter.segment(key)].length === 1
+            : key && single(key)
               ? key
               : data);
 
@@ -355,7 +354,6 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     });
 
     dispose = () => {
-      parser.reset();
       document.cancelCompletion();
       release();
     };
@@ -368,5 +366,3 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     dispose?.();
   };
 }
-
-const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });

@@ -4,13 +4,10 @@ import { mountVim } from "./runtime.js";
 
 export function createVim() {
   let stop: (() => void) | undefined;
-  let context: ExtensionContext | undefined;
 
   const dispose = () => {
     stop?.();
     stop = undefined;
-    context?.ui.setStatus("vim", undefined);
-    context = undefined;
   };
 
   return {
@@ -21,10 +18,15 @@ export function createVim() {
       const host = acquireEditorHost(ctx);
 
       if (!host) return;
-      context = ctx;
-      stop = mountVim(host, (mode) =>
+
+      const unmount = mountVim(host, (mode) =>
         ctx.ui.setStatus("vim", ctx.ui.theme.fg("accent", mode.toUpperCase())),
       );
+
+      stop = () => {
+        unmount();
+        ctx.ui.setStatus("vim", undefined);
+      };
     },
     dispose,
   };

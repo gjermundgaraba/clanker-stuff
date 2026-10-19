@@ -1,4 +1,4 @@
-import { units, line, previous, type View } from "./core/document.js";
+import { units, line, previous, type Unit, type View } from "./core/document.js";
 
 export class Transactions {
   private past: View[] = [];
@@ -40,6 +40,9 @@ export class Transactions {
   }
 }
 
+const sameContent = (a: Unit[], b: Unit[]) =>
+  a.length === b.length && a.every((u, i) => u.content === b[i]!.content);
+
 export interface Delta {
   offset: number;
   remove: number;
@@ -59,7 +62,7 @@ export class Insertion {
     const a = units(before),
       b = units(after);
 
-    if (a.length === b.length && a.every((u, i) => u.content === b[i]!.content)) return;
+    if (sameContent(a, b)) return;
 
     // A prefix may not skip past the edit cursor just because adjacent content is identical.
     const limit = Math.min(
@@ -95,8 +98,7 @@ export class Insertion {
     const added = units(after).slice(this.start, this.newEnd);
     const removed = units(this.before).slice(this.start, this.oldEnd);
 
-    if (added.length === removed.length && added.every((u, i) => u.content === removed[i]!.content))
-      return { offset: 0, remove: 0, text: "" };
+    if (sameContent(added, removed)) return { offset: 0, remove: 0, text: "" };
 
     return {
       offset: this.start - this.origin,

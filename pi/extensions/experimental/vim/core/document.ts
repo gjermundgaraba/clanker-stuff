@@ -17,7 +17,9 @@ export interface Unit extends Atom {
   text: string;
 }
 
-const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+export const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+export const single = (text: string) => [...segmenter.segment(text)].length === 1;
 
 /** UTF-16 offsets at the host boundary; operations traverse whole graphemes/paste atoms. */
 export function units(view: View): Unit[] {

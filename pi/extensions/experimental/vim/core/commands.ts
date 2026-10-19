@@ -95,18 +95,23 @@ export function execute(view: View, state: State, command: Command): Result | un
     return result && { cursor: normalCursor(view, result.at) };
   }
 
-  if (key === "v" || key === "V")
-    return {
-      cursor,
-      mode:
-        state.mode === (key === "v" ? "visual" : "visual-line")
-          ? "normal"
-          : key === "v"
-            ? "visual"
-            : "visual-line",
-    };
+  if (key === "v" || key === "V") {
+    const target = key === "v" ? "visual" : "visual-line";
 
-  if ("iIaAoO".includes(key)) {
+    return { cursor, mode: state.mode === target ? "normal" : target };
+  }
+
+  if (key === "o" || key === "O") {
+    const at = key === "o" ? row.end : row.start;
+
+    return {
+      cursor: at + (key === "o" ? 1 : 0),
+      mode: "insert",
+      edit: { start: at, end: at, text: "\n" },
+    };
+  }
+
+  if ("iIaA".includes(key)) {
     const at =
       key === "i"
         ? cursor
@@ -114,18 +119,7 @@ export function execute(view: View, state: State, command: Command): Result | un
           ? row.start + (text.slice(row.start, row.end).match(/^\s*/u)?.[0].length ?? 0)
           : key === "a"
             ? Math.min(row.end, next(view, cursor))
-            : key === "A"
-              ? row.end
-              : key === "o"
-                ? row.end
-                : row.start;
-
-    if (key === "o" || key === "O")
-      return {
-        cursor: at + (key === "o" ? 1 : 0),
-        mode: "insert",
-        edit: { start: at, end: at, text: "\n" },
-      };
+            : row.end;
 
     return { cursor: at, mode: "insert" };
   }

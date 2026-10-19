@@ -48,5 +48,5 @@ export function setup(text = "") {
 
   const normal = () => keys("\x1b", "gg", "0");
 
-  return { editor, host, keys, normal, mode: () => mode };
+  return { editor, keys, normal, mode: () => mode };
 }
