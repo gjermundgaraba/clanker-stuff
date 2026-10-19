@@ -3,7 +3,7 @@
 set -u
 
 inbox="${PI_SHELL_RESUME_HISTORY_DIR:-}"
-[ -n "$inbox" ] && [ -d "$inbox" ] || exit 0
+[ -d "$inbox" ] || exit 0
 
 sid=$(jq -r '.session_id // empty')
 case "$sid" in
