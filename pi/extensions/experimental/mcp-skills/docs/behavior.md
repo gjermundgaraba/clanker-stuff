@@ -4,9 +4,11 @@ This extension implements the host side of the MCP Skills extension (`io.modelco
 
 ## Connections
 
-The extension connects the servers Pi's built-in MCP support connects, chosen by Pi's rules: the global `mcp.json`, a trusted project's `.pi/mcp.json`, and servers other extensions register. Disabled servers and servers with `hidden` exposure are left out. The configuration is read again before each prompt, and servers reconnect only when it changed.
+The extension reads servers from the same sources and in the same order as Pi's built-in MCP support: the global `mcp.json`, a trusted project's `.pi/mcp.json`, and servers other extensions register. Disabled servers and servers with `hidden` exposure are left out. The configuration is read again before each prompt, and servers reconnect only when it changed.
 
 It opens its own connection to each server and declares the skills extension. Pi's own MCP connections are not changed, so a server that serves skills runs twice: once for Pi's tools and once for skills. A server that does not declare the extension is closed again right away; one that failed or needed sign-in is tried again before a prompt, at most once a minute.
+
+OAuth sign-in settings in `oauth` are ignored, not validated: this extension does not perform sign-in. A server can therefore be accepted here even if Pi rejects its `oauth` block. Transport validation, project trust, and provider-credential restrictions still apply.
 
 Servers are authenticated the way Pi authenticates them. Servers with `auth.provider` get the provider's current token from Pi. For OAuth servers the extension sends the token Pi stores after `/mcp` sign-in and never refreshes it itself; Pi refreshes it when it uses one of the server's tools, or `/mcp` asks you to sign in again.
 

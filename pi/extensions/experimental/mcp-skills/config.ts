@@ -1,6 +1,6 @@
 // Server loading and validation adapted from Pi's extensions/mcp/config.ts and core/mcp-servers.ts
-// (MIT, Copyright (c) 2025 Mario Zechner), which Pi does not export, so that skills connect exactly
-// the servers Pi's own MCP support connects.
+// (MIT, Copyright (c) 2025 Mario Zechner), which Pi does not export. OAuth sign-in settings are
+// intentionally ignored: skills use Pi's stored tokens rather than performing sign-in.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +53,7 @@ interface Settings {
   transport: SkillServerTransport;
 }
 
-/** A server entry Pi accepts: as written, for project overrides to merge into, and as settings. */
+/** An accepted server entry: as written, for project overrides to merge into, and as settings. */
 interface Accepted {
   raw: Entry;
   settings: Settings;
@@ -71,98 +71,7 @@ const exposureName = (value: unknown): string | undefined =>
 
 const isExposure = (value: unknown): boolean => EXPOSURES.includes(exposureName(value) ?? "");
 
-const isLoopbackRedirect = (value: string): boolean => {
-  if (!URL.canParse(value)) return false;
-
-  const url = new URL(value);
-
-  return (
-    url.protocol === "http:" &&
-    LOOPBACK_HOSTS.includes(url.hostname) &&
-    url.search === "" &&
-    url.hash === ""
-  );
-};
-
-/** Why Pi rejects an `oauth` block. Skills never use it, but a server Pi rejects must not connect. */
-const oauthProblem = (value: unknown): string | undefined => {
-  if (value === undefined) return undefined;
-
-  if (!isEntry(value)) return "oauth must be an object";
-
-  const { authServerMetadataUrl, callbackPort, callbackUrl, clientId, clientName } = value;
-  const { clientRegistration, clientSecret, scope } = value;
-
-  if (clientId !== undefined && typeof clientId !== "string")
-    return "oauth.clientId must be a string";
-
-  if (clientSecret !== undefined && typeof clientSecret !== "string") {
-    return "oauth.clientSecret must be a string";
-  }
-
-  if (
-    callbackPort !== undefined &&
-    (typeof callbackPort !== "number" ||
-      !Number.isInteger(callbackPort) ||
-      callbackPort < 1 ||
-      callbackPort > 65_535)
-  ) {
-    return "oauth.callbackPort must be a port number";
-  }
-
-  if (callbackUrl !== undefined) {
-    if (typeof callbackUrl !== "string" || !isLoopbackRedirect(callbackUrl)) {
-      return "oauth.callbackUrl must be an http URI on localhost, 127.0.0.1, or [::1] without query or fragment";
-    }
-
-    const port = new URL(callbackUrl).port;
-
-    if (port && callbackPort !== undefined && Number(port) !== callbackPort) {
-      return "oauth.callbackUrl and oauth.callbackPort name different ports";
-    }
-  }
-
-  if (scope !== undefined && typeof scope !== "string") return "oauth.scope must be a string";
-
-  if (clientName !== undefined && (typeof clientName !== "string" || !clientName.trim())) {
-    return "oauth.clientName must be a non-empty string";
-  }
-
-  if (clientRegistration !== undefined && clientRegistration !== "dcr") {
-    if (clientRegistration !== "cimd") return 'oauth.clientRegistration must be "dcr" or "cimd"';
-
-    if (clientId !== undefined || clientName !== undefined) {
-      return 'oauth.clientRegistration "cimd" cannot be combined with oauth.clientId or oauth.clientName';
-    }
-
-    const callback = callbackUrl === undefined ? undefined : new URL(callbackUrl);
-
-    if (callback && (callback.hostname === "[::1]" || callback.pathname !== "/callback")) {
-      return 'oauth.clientRegistration "cimd" requires oauth.callbackUrl on localhost or 127.0.0.1 with path /callback';
-    }
-  }
-
-  if (authServerMetadataUrl !== undefined) {
-    const url =
-      typeof authServerMetadataUrl === "string" && URL.canParse(authServerMetadataUrl)
-        ? new URL(authServerMetadataUrl)
-        : undefined;
-
-    if (
-      !url ||
-      !(
-        url.protocol === "https:" ||
-        (url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname))
-      )
-    ) {
-      return "oauth.authServerMetadataUrl must be an https URL, or http on localhost, 127.0.0.1, or [::1]";
-    }
-  }
-
-  return undefined;
-};
-
-/** Pi's checks of one server entry: its settings, or why Pi rejects it. */
+/** Pi's server checks except OAuth sign-in settings: connection settings or a rejection reason. */
 const validateServer = (name: string, raw: unknown): Settings | string => {
   if (!SERVER_NAME.test(name)) return `invalid server name "${name}"`;
 
@@ -214,10 +123,6 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
     if (headers !== undefined && !Value.Check(StringMap, headers)) {
       return `server "${name}": headers must map names to strings`;
     }
-
-    const oauth = oauthProblem(raw.oauth);
-
-    if (oauth !== undefined) return `server "${name}": ${oauth}`;
 
     let provider: string | undefined;
 
@@ -276,7 +181,7 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
 /**
  * Read one mcp.json into `servers` as Pi does. A project entry with none of `command`, `url`, and
  * `type` overrides only `enabled`, `exposure`, and `toolExposure` of the global server it names.
- * Entries Pi rejects are left out; Pi reports them.
+ * Invalid connection entries are left out. OAuth sign-in settings are not validated.
  */
 const readConfigFile = (path: string, project: boolean, servers: Map<string, Accepted>): void => {
   if (!existsSync(path)) return;
@@ -347,7 +252,7 @@ export const serverOrigin = (server: SkillServerConfig): string => {
 };
 
 /**
- * The enabled, non-hidden servers Pi connects: the global mcp.json, then the trusted project's
+ * Enabled, non-hidden servers from the global mcp.json, then the trusted project's
  * `.pi/mcp.json`, then servers extensions registered under names no file uses.
  */
 export const loadServers = (options: {
