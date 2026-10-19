@@ -14,13 +14,11 @@ const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
 export const isDebugEnabled = (): boolean => process.env.CLAUDE_BRIDGE_DEBUG === "1";
 
-const logsDir = (): string => path.join(getExtensionStoragePaths(EXTENSION_ID).dataDir, "logs");
-
 /** Paths resolve per call so tests can swap the environment mid-process. */
 export function debugLogPath(): string {
   const override = process.env.CLAUDE_BRIDGE_DEBUG_PATH;
 
-  return override !== undefined && override !== "" ? override : path.join(logsDir(), "debug.log");
+  return override || path.join(getExtensionStoragePaths(EXTENSION_ID).dataDir, "logs", "debug.log");
 }
 
 const format = (value: unknown): string => {
