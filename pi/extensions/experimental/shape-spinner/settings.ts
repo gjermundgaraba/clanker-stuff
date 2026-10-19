@@ -4,9 +4,10 @@ import { FRAME_INTERVAL_MS, manifest } from "@clanker-stuff/pi-shape-glyphs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
-import type { Component, SettingItem, TuiMouseEvent } from "@earendil-works/pi-tui";
+import type { Component, SettingItem } from "@earendil-works/pi-tui";
+import { Value } from "typebox/value";
 
-import { colors, motions, shapes, styleFor } from "./config.js";
+import { colors, ConfigSchema, motions, shapes, styleFor } from "./config.js";
 import type { Config } from "./config.js";
 
 const loops = [
@@ -28,17 +29,9 @@ const fontPath = fileURLToPath(new URL("./assets/ShapeSpinner.ttf", import.meta.
 
 /** Apply a SettingsList value, ignoring values that the setting does not offer. */
 export const updateSetting = (config: Config, id: string, value: string): void => {
-  switch (id) {
-    case "motion":
-      config.motion = motions.find((motion) => motion === value) ?? config.motion;
-      break;
-    case "shape":
-      config.shape = shapes.find((shape) => shape === value) ?? config.shape;
-      break;
-    case "color":
-      config.color = colors.find((color) => color === value) ?? config.color;
-      break;
-  }
+  const next = { ...config, [id]: value };
+
+  if (Value.Check(ConfigSchema, next)) Object.assign(config, next);
 };
 
 /** Animates the configured spinner at its real frame rate. */
@@ -141,10 +134,10 @@ export const openSettings = async (
 
       return {
         dispose: () => preview.dispose(),
-        handleInput: (data: string) => list.handleInput(data),
-        handleMouse: (event: TuiMouseEvent) => container.handleMouse(event),
+        handleInput: (data) => list.handleInput(data),
+        handleMouse: (event) => container.handleMouse(event),
         invalidate: () => container.invalidate(),
-        render: (width: number) => container.render(width),
+        render: (width) => container.render(width),
       };
     },
     { overlay: true, overlayOptions: { anchor: "center", margin: 1, minWidth: 64, width: "80%" } },

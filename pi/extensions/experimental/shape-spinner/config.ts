@@ -46,9 +46,9 @@ export const styleFor = (
 
 export const configPath = () => getExtensionStoragePaths("shape-spinner").configFile;
 
-export async function loadConfig(file = configPath()): Promise<Config> {
+export async function loadConfig(): Promise<Config> {
   try {
-    const value: unknown = JSON.parse(await readFile(file, "utf8"));
+    const value: unknown = JSON.parse(await readFile(configPath(), "utf8"));
 
     return Value.Check(ConfigSchema, value) ? value : defaultConfig();
   } catch {
@@ -56,8 +56,8 @@ export async function loadConfig(file = configPath()): Promise<Config> {
   }
 }
 
-export async function saveConfig(config: Config, file = configPath()): Promise<void> {
-  const target = path.resolve(file);
+export async function saveConfig(config: Config): Promise<void> {
+  const target = path.resolve(configPath());
 
   await withFileMutationQueue(target, async () => {
     await mkdir(path.dirname(target), { recursive: true });
