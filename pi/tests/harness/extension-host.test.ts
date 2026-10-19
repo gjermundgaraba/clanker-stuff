@@ -433,6 +433,30 @@ describe("extension-host harness", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("passes Pi's coerced and null-normalized arguments to execute without mutating input", async () => {
+    const host = createExtensionHost((pi) => {
+      pi.registerTool({
+        name: "normalize",
+        label: "Normalize",
+        description: "Argument normalization fixture",
+        parameters: Type.Object({
+          count: Type.Number(),
+          label: Type.Optional(Type.String()),
+          nullable: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+        }),
+        async execute(_toolCallId, params) {
+          return { content: [], details: params };
+        },
+      });
+    });
+
+    const input = { count: "2", label: null, nullable: null };
+    const result = await host.runTool("normalize", input);
+
+    expect(result.details).toStrictEqual({ count: 2, nullable: null });
+    expect(input).toStrictEqual({ count: "2", label: null, nullable: null });
+  });
+
   it("passes explicit tool execution options through runTool", async () => {
     const { signal } = new AbortController();
     const onUpdate = vi.fn<() => void>();

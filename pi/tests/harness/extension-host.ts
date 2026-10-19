@@ -717,11 +717,9 @@ export const createExtensionHost = (
       },
     );
 
-    const parsedParams: unknown = Value.Parse(tool.definition.parameters, validatedParams);
-
     return await tool.definition.execute(
       runOptions.toolCallId ?? name,
-      parsedParams,
+      validatedParams,
       runOptions.signal,
       runOptions.onUpdate,
       runOptions.ctx ?? createToolContext(),

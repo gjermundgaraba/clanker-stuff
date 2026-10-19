@@ -1,9 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-import { Type } from "@earendil-works/pi-ai";
-import type { Static } from "typebox";
-
 import { patchEnv } from "../helpers/env.js";
 import { createTempDir, linkDirectory } from "../helpers/fs.js";
 import { createAgentSessionHarness } from "./agent-session.js";
@@ -18,50 +15,8 @@ export interface ExtensionSmokeHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
-type ProviderMessageContent = string | { type?: string; text?: string }[] | undefined;
-
-const ProviderPayloadWithMessagesSchema = Type.Object(
-  {
-    messages: Type.Optional(
-      Type.Array(
-        Type.Object({
-          content: Type.Optional(
-            Type.Union([
-              Type.String(),
-              Type.Array(
-                Type.Object({
-                  text: Type.Optional(Type.String()),
-                  type: Type.Optional(Type.String()),
-                }),
-              ),
-            ]),
-          ),
-          role: Type.Optional(Type.String()),
-        }),
-      ),
-    ),
-  },
-  { additionalProperties: true },
-);
-
 const noopRestore = () => {
   /* noop */
-};
-
-const extractTextContent = (content: ProviderMessageContent): string => {
-  if (Array.isArray(content)) {
-    return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("\n");
-  }
-
-  return content ?? "";
-};
-
-const lastUserTextFromPayload = (
-  payload: Static<typeof ProviderPayloadWithMessagesSchema> | undefined,
-): string => {
-  const content = (payload?.messages ?? []).findLast((message) => message.role === "user")?.content;
-
-  return extractTextContent(content);
 };
 
 export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarnessOptions) => {
@@ -126,15 +81,6 @@ export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarness
       ...harness,
       cleanup,
       homeDir,
-      lastUserText() {
-        try {
-          return lastUserTextFromPayload(
-            harness?.lastProviderPayload(ProviderPayloadWithMessagesSchema),
-          );
-        } catch {
-          return "";
-        }
-      },
       projectDir,
     };
   } catch (error) {
