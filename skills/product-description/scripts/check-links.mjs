@@ -36,7 +36,7 @@ function* markdownFiles(directory) {
 /** @param {string} root */
 function checkLinks(root) {
   const files = [...markdownFiles(root)].sort();
-  /** @type {Map<string, import("mdast").Root>} */
+  /** @type {Map<string, { nodes: import("mdast").Nodes[], anchors: Set<string> }>} */
   const documents = new Map();
 
   /** @param {string} file */
@@ -45,42 +45,36 @@ function checkLinks(root) {
 
     if (cached !== undefined) return cached;
 
-    const tree = fromMarkdown(readFileSync(file, "utf8"), {
-      extensions: [gfm()],
-      mdastExtensions: [gfmFromMarkdown()],
-    });
+    const nodes = [
+      ...walk(
+        fromMarkdown(readFileSync(file, "utf8"), {
+          extensions: [gfm()],
+          mdastExtensions: [gfmFromMarkdown()],
+        }),
+      ),
+    ];
 
-    documents.set(file, tree);
-
-    return tree;
-  };
-
-  /** @type {Map<string, Set<string>>} */
-  const anchors = new Map();
-
-  /** @param {string} file */
-  const headingAnchors = (file) => {
-    const cached = anchors.get(file);
-
-    if (cached !== undefined) return cached;
     const slugger = new GithubSlugger();
 
-    const headings = new Set(
-      [...walk(document(file))]
-        .filter((node) => node.type === "heading")
-        .map((node) => slugger.slug(toString(node, { includeHtml: false }))),
-    );
+    const parsed = {
+      nodes,
+      anchors: new Set(
+        nodes
+          .filter((node) => node.type === "heading")
+          .map((node) => slugger.slug(toString(node, { includeHtml: false }))),
+      ),
+    };
 
-    anchors.set(file, headings);
+    documents.set(file, parsed);
 
-    return headings;
+    return parsed;
   };
 
   const problems = [];
   let checked = 0;
 
   for (const file of files) {
-    const nodes = [...walk(document(file))];
+    const { nodes } = document(file);
 
     /** @type {Map<string, string>} */
     const definitions = new Map();
@@ -130,7 +124,7 @@ function checkLinks(root) {
       } else if (
         anchor !== "" &&
         /\.md$/iu.test(destination) &&
-        !headingAnchors(destination).has(anchor)
+        !document(destination).anchors.has(anchor)
       ) {
         problems.push(`${context}: missing anchor: ${target}`);
       }
