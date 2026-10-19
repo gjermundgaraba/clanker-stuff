@@ -34,11 +34,37 @@ describe("tool schemas", () => {
     expect(() => makeStrictJsonSchema(structuralSchema(Rich))).not.toThrow();
   });
 
-  it("names each violation of the constrained schema", () => {
-    const input = { name: "much too long" };
-
-    expect(invalidArguments(Rich, input, "demo").message).toContain(
-      "Invalid demo arguments: /name",
+  it("traverses schema-valued keywords without rewriting literal data or the source", () => {
+    const schema = Type.Object(
+      {
+        value: Type.Union([Type.String({ minLength: 2 }), Type.Null()]),
+        data: Type.Unknown({
+          description: "Literal data. ",
+          default: { minLength: 1 },
+          examples: [{ pattern: "literal" }],
+        }),
+      },
+      { additionalProperties: Type.Number({ minimum: 0 }) },
     );
+
+    const original = structuredClone(schema);
+    const parameters = structuralSchema(schema);
+
+    expect(parameters.properties.value).toStrictEqual({
+      anyOf: [{ type: "string", description: "Limits: at least 2 characters." }, { type: "null" }],
+    });
+    expect(parameters).toHaveProperty("additionalProperties", {
+      type: "number",
+      description: "Limits: at least 0.",
+    });
+    expect(parameters.properties.data).toStrictEqual(original.properties.data);
+    expect(schema).toStrictEqual(original);
+  });
+
+  it("names each violation of the constrained schema", () => {
+    const message = invalidArguments(Rich, { name: "much too long", sizes: [0] }, "demo").message;
+
+    expect(message).toContain("Invalid demo arguments: /name");
+    expect(message).toContain("; /sizes/0:");
   });
 });

@@ -23,8 +23,6 @@ const Constraints = Type.Partial(
 
 const VALUE_CONSTRAINTS = new Set(Object.keys(Constraints.properties));
 
-const Described = Type.Object({ description: Type.String() });
-
 const range = (min: number | undefined, max: number | undefined, unit: string) =>
   min !== undefined && max !== undefined
     ? [min === max ? `exactly ${min}${unit}` : `${min}–${max}${unit}`]
@@ -63,29 +61,34 @@ const strip = (node: unknown): unknown => {
 
   if (!isSchemaNode(node)) return node;
 
+  const result = Object.fromEntries(
+    Object.entries(node)
+      .filter(([key]) => !VALUE_CONSTRAINTS.has(key))
+      .map(([key, value]) => {
+        // Property names are data: a property called `pattern` must survive.
+        if (key === "properties" && isSchemaNode(value))
+          return [
+            key,
+            Object.fromEntries(Object.entries(value).map(([name, child]) => [name, strip(child)])),
+          ];
+
+        if (key === "items" || key === "anyOf" || key === "additionalProperties")
+          return [key, strip(value)];
+
+        return [key, value];
+      }),
+  );
+
   const summary = limits(node);
 
-  const description = Value.Check(Described, node)
-    ? `${node.description.replace(/[.\s]*$/, "")}. `
-    : "";
+  if (summary.length > 0) {
+    const description =
+      typeof node.description === "string" ? `${node.description.replace(/[.\s]*$/, "")}. ` : "";
 
-  return Object.fromEntries([
-    ...Object.entries(node)
-      .filter(([key]) => !VALUE_CONSTRAINTS.has(key))
-      .map(([key, value]) => [
-        key,
-        // Property names are data: a property called `pattern` must survive.
-        key === "properties" && isSchemaNode(value)
-          ? Object.fromEntries(Object.entries(value).map(([name, child]) => [name, strip(child)]))
-          : key === "items" || key === "anyOf" || key === "additionalProperties"
-            ? strip(value)
-            : value,
-      ]),
-    // A later entry replaces the original description.
-    ...(summary.length > 0
-      ? [["description", `${description}Limits: ${summary.join("; ")}.`]]
-      : []),
-  ]);
+    result.description = `${description}Limits: ${summary.join("; ")}.`;
+  }
+
+  return result;
 };
 
 /**
