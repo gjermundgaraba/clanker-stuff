@@ -126,14 +126,15 @@ export const createMockTui = (options: MockTuiOptions = {}): TUI => {
     requestRender() {},
     showOverlay(_component: Component, overlayOptions?: OverlayOptions) {
       let entry: (typeof overlays)[number];
-      let handle: OverlayHandle;
-      handle = createOverlayHandle(() => {
+
+      const handle = createOverlayHandle(() => {
         const index = overlays.indexOf(entry);
 
         if (index !== -1) {
           overlays.splice(index, 1);
         }
       });
+
       entry = { handle };
 
       if (overlayOptions !== undefined) {
@@ -221,7 +222,7 @@ async function runCustomUi<T>(
       await options.onComponent?.(component);
 
       if (options.captureRender === "before" || options.captureRender === "before-and-after") {
-        rendered.push(renderComponent(component, width) ?? "");
+        rendered.push(component.render(width).join("\n"));
       }
 
       for (const key of options.keys ?? []) {
@@ -231,7 +232,7 @@ async function runCustomUi<T>(
       }
 
       if (options.captureRender === "after" || options.captureRender === "before-and-after") {
-        rendered.push(renderComponent(component, width) ?? "");
+        rendered.push(component.render(width).join("\n"));
       }
 
       await options.onAfterCapture?.();
@@ -252,17 +253,16 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
   let component: CustomUiComponent | undefined;
   let handle = createOverlayHandle();
 
-  async function runWithState<TResult>(
+  const custom: ExtensionUIContext["custom"] = async <TResult>(
     factory: CustomUiFactory<TResult>,
-    runOptions: CustomUiDriverOptions,
     customOptions?: CustomUiOptions,
-  ): Promise<CustomUiRunResult<TResult>> {
-    const onComponent = runOptions.onComponent;
+  ): Promise<TResult> => {
+    const onComponent = options.onComponent;
 
     const result = await runCustomUi(
       factory,
       {
-        ...runOptions,
+        ...options,
         async onComponent(nextComponent) {
           component = nextComponent;
           await onComponent?.(nextComponent);
@@ -278,15 +278,6 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
     );
 
     rendered.push(...result.rendered);
-
-    return result;
-  }
-
-  const custom: ExtensionUIContext["custom"] = async <TResult>(
-    factory: CustomUiFactory<TResult>,
-    customOptions?: CustomUiOptions,
-  ): Promise<TResult> => {
-    const result = await runWithState(factory, options, customOptions);
 
     return result.result;
   };

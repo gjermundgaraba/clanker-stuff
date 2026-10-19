@@ -318,17 +318,10 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
 
     ({ session } = createdSession);
 
-    const bindOptions: Parameters<AgentSession["bindExtensions"]>[0] = {};
-
-    if (options.mode !== undefined) {
-      bindOptions.mode = options.mode;
-    }
-
-    if (options.uiContext !== undefined) {
-      bindOptions.uiContext = options.uiContext;
-    }
-
-    await session.bindExtensions(bindOptions);
+    await session.bindExtensions({
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+      ...(options.uiContext === undefined ? {} : { uiContext: options.uiContext }),
+    });
 
     const events: AgentSessionEvent[] = [];
     session.subscribe((event) => {
@@ -336,16 +329,11 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
     });
 
     const activeSession = session;
-    const activeFaux = registeredFaux;
-    const activeExtensionsResult = createdSession.extensionsResult;
-    const activeResourceLoader = resourceLoader;
-    const harnessTempDir = tempDir;
-    const harnessAgentDir = agentDir;
 
     return {
-      agentDir: harnessAgentDir,
+      agentDir,
       appendResponses(responses: FauxResponseStep[]) {
-        activeFaux.appendResponses(responses);
+        registeredFaux.appendResponses(responses);
       },
       cleanup,
       events() {
@@ -356,10 +344,10 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
           (event): event is Extract<AgentSessionEvent, { type: T }> => event.type === type,
         );
       },
-      extensionsResult: activeExtensionsResult,
-      faux: activeFaux,
+      extensionsResult: createdSession.extensionsResult,
+      faux: registeredFaux,
       getPendingResponseCount() {
-        return activeFaux.getPendingResponseCount();
+        return registeredFaux.getPendingResponseCount();
       },
       lastProviderPayload<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema> {
         const payload = providerPayloads.at(-1);
@@ -379,13 +367,13 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
       providerPayloads<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema>[] {
         return providerPayloads.map((payload) => Value.Parse(schema, payload));
       },
-      resourceLoader: activeResourceLoader,
+      resourceLoader,
       session: activeSession,
       sessionManager,
       setResponses(responses: FauxResponseStep[]) {
-        activeFaux.setResponses(responses);
+        registeredFaux.setResponses(responses);
       },
-      tempDir: harnessTempDir,
+      tempDir,
     };
   } catch (error) {
     cleanup();

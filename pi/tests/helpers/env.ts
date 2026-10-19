@@ -1,21 +1,5 @@
 type EnvPatch = Record<string, string | undefined>;
 
-interface RestoreEntry {
-  key: string;
-  hadValue: boolean;
-  value: string | undefined;
-}
-
-const restorePatch = (entries: RestoreEntry[]) => {
-  for (const entry of entries.toReversed()) {
-    if (entry.hadValue) {
-      process.env[entry.key] = entry.value;
-    } else {
-      Reflect.deleteProperty(process.env, entry.key);
-    }
-  }
-};
-
 export const patchEnv = (patch: EnvPatch) => {
   const restoreEntries = Object.entries(patch).map(([key]) => ({
     hadValue: Object.hasOwn(process.env, key),
@@ -39,6 +23,13 @@ export const patchEnv = (patch: EnvPatch) => {
     }
 
     restored = true;
-    restorePatch(restoreEntries);
+
+    for (const entry of restoreEntries.toReversed()) {
+      if (entry.hadValue) {
+        process.env[entry.key] = entry.value;
+      } else {
+        Reflect.deleteProperty(process.env, entry.key);
+      }
+    }
   };
 };

@@ -124,23 +124,17 @@ describe("packed extension packages", () => {
   });
 
   it("installs and loads every packed npm artifact", async () => {
-    tempRoot = mkdtempSync(path.join(tmpdir(), "packed-extensions-smoke-"));
+    const root = mkdtempSync(path.join(tmpdir(), "packed-extensions-smoke-"));
+    tempRoot = root;
 
-    const sharedTarballs = SHARED_PACKAGES.map(({ dir, name }) => {
-      const tarball = packPackage(tempRoot ?? "", name, dir);
+    const tarballs = [...SHARED_PACKAGES, ...EXTENSION_PACKAGES].map(({ dir, name }) => {
+      const tarball = packPackage(root, name, dir);
       inspectTarball(name, tarball);
 
       return { name, tarball };
     });
 
-    const tarballs = EXTENSION_PACKAGES.map(({ dir, name }) => {
-      const tarball = packPackage(tempRoot ?? "", name, dir);
-      inspectTarball(name, tarball);
-
-      return { name, tarball };
-    });
-
-    const installDir = path.join(tempRoot, "install");
+    const installDir = path.join(root, "install");
     mkdirSync(installDir);
     writeFileSync(
       path.join(installDir, "package.json"),
@@ -150,9 +144,7 @@ describe("packed extension packages", () => {
             ...CONSUMER_DEPENDENCIES.map(
               (name) => [name, consumerDependencyVersion(name)] as const,
             ),
-            ...[...sharedTarballs, ...tarballs].map(
-              ({ name, tarball }) => [name, `file:${tarball}`] as const,
-            ),
+            ...tarballs.map(({ name, tarball }) => [name, `file:${tarball}`] as const),
           ]),
           private: true,
         },
@@ -165,8 +157,8 @@ describe("packed extension packages", () => {
       Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
     );
 
-    const emptyGlobalConfig = path.join(tempRoot, "empty-global.npmrc");
-    const emptyUserConfig = path.join(tempRoot, "empty-user.npmrc");
+    const emptyGlobalConfig = path.join(root, "empty-global.npmrc");
+    const emptyUserConfig = path.join(root, "empty-user.npmrc");
     writeFileSync(emptyGlobalConfig, "");
     writeFileSync(emptyUserConfig, "");
     execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund"], {
