@@ -32,9 +32,7 @@ export default async function evaluationExtension(pi) {
     throw new Error("Controlled comparisons require an explicit direct tool inventory");
 
   const expected = controlled
-    ? (mode === "direct" ? names : [...names, "codemode"]).sort((a, b) =>
-        a < b ? -1 : a > b ? 1 : 0,
-      )
+    ? (mode === "direct" ? names : [...names, "codemode"]).sort()
     : undefined;
 
   const matchesTools = () =>

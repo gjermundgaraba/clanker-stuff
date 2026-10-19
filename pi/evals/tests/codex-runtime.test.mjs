@@ -7,7 +7,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inspect } from "node:util";
 
-import { evalConfig, rpcMessage, startedThreadId, startedTurnId } from "../runtime/codex-eval.mjs";
+import {
+  createCapture,
+  evalConfig,
+  rpcMessage,
+  startedThreadId,
+  startedTurnId,
+} from "../runtime/codex-eval.mjs";
 
 const requiredConfig = { instructionPath: "/tmp/instruction", model: "test-model" };
 
@@ -185,6 +191,98 @@ for (const { key, parse } of [
     }
   });
 }
+
+void describe("Codex usage and compaction capture", () => {
+  void it("classifies responses and settles compactions in either hook order", () => {
+    const capture = createCapture();
+
+    /**
+     * @param {string} method
+     * @param {import("../runtime/codex-eval.mjs").RpcParams} params
+     */
+    const accept = (method, params) =>
+      capture.accept({ hasError: false, hasResult: false, method, params });
+
+    accept("rawResponse/completed", {
+      responseId: "a",
+      threadId: "t",
+      turnId: "ordinary",
+      usage: {},
+    });
+    capture.beginCompaction("succeeded");
+    accept("item/started", { item: { id: "c1", type: "contextCompaction" }, turnId: "succeeded" });
+    accept("rawResponse/completed", {
+      responseId: "b",
+      threadId: "t",
+      turnId: "succeeded",
+      usage: {},
+    });
+    accept("item/completed", {
+      item: { id: "c1", type: "contextCompaction" },
+      turnId: "succeeded",
+    });
+    accept("rawResponse/completed", {
+      responseId: "c",
+      threadId: "t",
+      turnId: "succeeded",
+      usage: {},
+    });
+    accept("turn/completed", { turn: { id: "succeeded", status: "completed" } });
+    capture.beginCompaction("failed");
+    accept("item/started", { item: { id: "c2", type: "contextCompaction" }, turnId: "failed" });
+    accept("rawResponse/completed", {
+      responseId: "d",
+      threadId: "t",
+      turnId: "failed",
+      usage: null,
+    });
+    accept("turn/completed", { turn: { id: "failed", status: "failed" } });
+    capture.beginCompaction("aborted");
+    accept("item/started", { item: { id: "c3", type: "contextCompaction" }, turnId: "aborted" });
+    accept("turn/completed", { turn: { id: "aborted", status: "interrupted" } });
+    // The terminal turn may arrive before the runner registers the compaction.
+    accept("turn/completed", { turn: { id: "pre-hook", status: "interrupted" } });
+    capture.beginCompaction("pre-hook");
+    capture.beginCompaction("post-hook");
+    accept("item/started", { item: { id: "c4", type: "contextCompaction" }, turnId: "post-hook" });
+    accept("rawResponse/completed", {
+      responseId: "e",
+      threadId: "t",
+      turnId: "post-hook",
+      usage: {},
+    });
+    accept("item/completed", {
+      item: { id: "c4", type: "contextCompaction" },
+      turnId: "post-hook",
+    });
+    accept("turn/completed", { turn: { id: "post-hook", status: "interrupted" } });
+
+    const captured = capture.finish();
+    assert.deepStrictEqual(
+      captured.records.map(({ kind }) => kind),
+      ["ordinary", "compaction", "ordinary", "compaction"],
+    );
+    assert.deepStrictEqual(
+      captured.attempts.map(({ state }) => state),
+      ["succeeded", "failed", "aborted", "aborted", "succeeded"],
+    );
+  });
+
+  void it("rejects a completed compaction turn without an item completion", () => {
+    const capture = createCapture();
+    capture.beginCompaction("malformed");
+    assert.throws(
+      () =>
+        capture.accept({
+          hasError: false,
+          hasResult: false,
+          method: "turn/completed",
+          params: { turn: { id: "malformed", status: "completed" } },
+        }),
+      /omitted item\/completed/,
+    );
+  });
+});
 
 void it("runs the CLI through a symlink beside dependencies without losing entrypoint detection", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "codex-eval-test-"));

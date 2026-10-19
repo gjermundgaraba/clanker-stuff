@@ -2,20 +2,9 @@
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-
-const runtimeRequire = createRequire("/opt/pi-evals/package.json");
-
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve this pinned production dependency from the deployed extension, whose package declarations are the imported type contract.
-const { Type } = /** @type {typeof import("typebox")} */ (runtimeRequire("typebox"));
-
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve this pinned production dependency from the deployed extension, whose package declarations are the imported type contract.
-const { Value } = /** @type {typeof import("typebox/value")} */ (runtimeRequire("typebox/value"));
-
-const codingAgentUrl = pathToFileURL(
-  "/opt/pi-evals/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
-).href;
+import { RpcClient } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const compactionTimeoutMs = 4 * 60 * 1000;
 
@@ -110,22 +99,10 @@ const selfTestCompactionValidation = () => {
   }
 };
 
-/** @returns {Promise<typeof import("@earendil-works/pi-coding-agent").RpcClient>} */
-const loadRpcClient = async () => {
-  /* oxlint-disable typescript/no-unsafe-type-assertion -- ESM loads the pinned pi-coding-agent entry point at the exact deployed path; the URL-based loader cannot infer its exported declarations. */
-  const module = /** @type {typeof import("@earendil-works/pi-coding-agent")} */ (
-    await import(codingAgentUrl)
-  );
-
-  /* oxlint-enable typescript/no-unsafe-type-assertion */
-  return module.RpcClient;
-};
-
 /** @param {string} configPath */
 const run = async (configPath) => {
   const config = parseConfig(await readFile(configPath, "utf-8"));
 
-  const RpcClient = await loadRpcClient();
   /** @type {import("@earendil-works/pi-coding-agent").JsonAgentSessionEvent[]} */
   const events = [];
   const { promise: completionEvent, resolve: resolveCompletion } = Promise.withResolvers();
@@ -183,7 +160,6 @@ const run = async (configPath) => {
 
 if (process.argv[2] === "--self-test") {
   selfTestCompactionValidation();
-  await loadRpcClient();
 } else {
   const configPath = process.argv[2];
 

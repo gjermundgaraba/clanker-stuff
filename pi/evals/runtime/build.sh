@@ -11,6 +11,7 @@ docker run --rm --network none clanker-pi-evals:node26 sh -c \
     && test ! -e /repo \
     && test "$(readlink -f /usr/local/bin/codex-eval)" = /opt/pi-evals/codex-eval.mjs \
     && codex-eval --self-test \
+    && test "$(readlink -f /usr/local/bin/pi-eval-compact)" = /opt/pi-evals/pi-eval-compact.mjs \
     && pi-eval-compact --self-test \
     && test "$(command -v pi)" = /opt/pi-evals/node_modules/.bin/pi \
     && test ! -e /usr/local/lib/node_modules/@earendil-works/pi-coding-agent \

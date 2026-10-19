@@ -15,8 +15,8 @@ RUN apt-get update \
   && npm install --global --ignore-scripts \
     @openai/codex@0.159.2
 COPY --from=runtime /out /opt/pi-evals
-COPY pi/evals/runtime/pi-eval-compact.mjs /usr/local/bin/pi-eval-compact
-RUN chmod 755 /opt/pi-evals/codex-eval.mjs /usr/local/bin/pi-eval-compact \
-  && ln -s /opt/pi-evals/codex-eval.mjs /usr/local/bin/codex-eval
+RUN chmod 755 /opt/pi-evals/codex-eval.mjs /opt/pi-evals/pi-eval-compact.mjs \
+  && ln -s /opt/pi-evals/codex-eval.mjs /usr/local/bin/codex-eval \
+  && ln -s /opt/pi-evals/pi-eval-compact.mjs /usr/local/bin/pi-eval-compact
 ENV PATH="/opt/pi-evals/node_modules/.bin:${PATH}"
 WORKDIR /app
