@@ -11,10 +11,7 @@ export interface ModelHistory {
 
 /** Reads persisted history; `turn_end` and later events see the finished response appended. */
 export function inspectModelHistory(branch: readonly SessionEntry[]): ModelHistory {
-  const history: ModelHistory = {
-    lastSuccessfulResponse: undefined,
-    lastPhysicalAttempt: undefined,
-  };
+  let lastPhysicalAttempt: AssistantMessage | undefined;
 
   for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index];
@@ -25,13 +22,11 @@ export function inspectModelHistory(branch: readonly SessionEntry[]): ModelHisto
     if (message.role !== "assistant" || isVirtualModel(message) || message.stopReason === "pending")
       continue;
 
-    history.lastPhysicalAttempt ??= message;
+    lastPhysicalAttempt ??= message;
 
-    if (["stop", "toolUse", "length"].includes(message.stopReason)) {
-      history.lastSuccessfulResponse = message;
-      break;
-    }
+    if (["stop", "toolUse", "length"].includes(message.stopReason))
+      return { lastSuccessfulResponse: message, lastPhysicalAttempt };
   }
 
-  return history;
+  return { lastSuccessfulResponse: undefined, lastPhysicalAttempt };
 }
