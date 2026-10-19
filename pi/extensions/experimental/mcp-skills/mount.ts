@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 
-import { splitSkillUri } from "./entry.js";
 import type { SkillEntry } from "./entry.js";
 
 /** `~` and `~/` at the start of a path stand for the home directory, as Pi reads them. */
@@ -17,11 +16,8 @@ export const mountRoot = (agentDir: string): string => join(agentDir, "mcp-skill
  * same-URI skills of two servers apart, and the revision keeps versions apart, so a folder never
  * changes once written.
  */
-export const skillDir = (root: string, server: string, entry: SkillEntry): string | undefined => {
-  const parts = splitSkillUri(entry.root);
-
-  return parts && join(root, server, entry.revision.slice(0, 8), parts.scheme, ...parts.segments);
-};
+export const skillDir = (root: string, server: string, entry: SkillEntry): string =>
+  join(root, server, entry.revision.slice(0, 8), ...entry.rootSegments);
 
 /** Where a file of a skill lies in its folder: its URI below the skill's root. */
 export const filePath = (dir: string, entry: SkillEntry, uri: string): string =>

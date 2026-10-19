@@ -9,7 +9,7 @@ const MAX_SKILL_FILES = 512;
 
 const MAX_SKILL_BYTES = 16 * 1024 * 1024;
 
-const DIGEST = /^sha256:[0-9a-f]{64}$/iu;
+const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
 const SKILL_FILE = "SKILL.md";
 
@@ -42,6 +42,8 @@ export interface SkillEntry {
   uri: string;
   /** The skill's root directory URI: `uri` without `/SKILL.md`. */
   root: string;
+  /** The root's scheme and path segments, which its stored folder mirrors. */
+  rootSegments: string[];
   /** The `SKILL.md` frontmatter as the server rendered it, in canonical JSON. Compared with the file when it is read. */
   frontmatterJson: string;
   name: string;
@@ -56,14 +58,13 @@ export interface SkillEntry {
 /** A listed skill this host does not load, with the reason shown to the user. */
 export interface DeclinedSkill {
   uri: string;
-  name?: string;
   reason: string;
 }
 
 export type DecodedEntry = { skill: SkillEntry } | { declined: DeclinedSkill };
 
 /** The scheme and the `/`-separated path after `scheme://` of a URI that is safe to map to a path. */
-export const splitSkillUri = (uri: string): { scheme: string; segments: string[] } | undefined => {
+const splitSkillUri = (uri: string): { scheme: string; segments: string[] } | undefined => {
   const match = URI.exec(uri);
   const scheme = match?.groups?.scheme;
   const path = match?.groups?.path;
@@ -82,11 +83,11 @@ export const splitSkillUri = (uri: string): { scheme: string; segments: string[]
 };
 
 /** Digest of a file list, independent of its order. A changed, added, or removed file changes it. */
-export const skillRevision = (files: readonly SkillFile[]): string =>
+const skillRevision = (files: readonly SkillFile[]): string =>
   createHash("sha256")
     .update(
       files
-        .map((file) => `${file.uri}\n${file.digest.toLowerCase()}\n${String(file.size)}\n`)
+        .map((file) => `${file.uri}\n${file.digest}\n${String(file.size)}\n`)
         .toSorted()
         .join(""),
     )
@@ -102,9 +103,7 @@ export const canonicalJson = (value: unknown): string =>
       : nested,
   );
 
-const declined = (uri: string, reason: string, name?: string): DecodedEntry => ({
-  declined: { reason, uri, ...(name === undefined ? {} : { name }) },
-});
+const declined = (uri: string, reason: string): DecodedEntry => ({ declined: { reason, uri } });
 
 /** Problems with a file list, or undefined when every file belongs to the skill exactly once. */
 const fileListProblem = (entry: { uri: string; root: string; files: SkillFile[] }) => {
@@ -123,11 +122,11 @@ const fileListProblem = (entry: { uri: string; root: string; files: SkillFile[] 
 
   if (!seen.has(entry.uri)) return "does not list its SKILL.md";
 
-  const bytes = entry.files.reduce((total, file) => total + file.size, 0);
-
   if (entry.files.length > MAX_SKILL_FILES) {
     return `has ${String(entry.files.length)} files, more than the limit of ${String(MAX_SKILL_FILES)}`;
   }
+
+  const bytes = entry.files.reduce((total, file) => total + file.size, 0);
 
   if (bytes > MAX_SKILL_BYTES) return `has ${String(bytes)} bytes, more than the limit of 16 MiB`;
 
@@ -156,18 +155,18 @@ export const decodeSkillEntry = (raw: unknown): DecodedEntry => {
   const parts = splitSkillUri(uri);
 
   if (parts?.segments.at(-1) !== SKILL_FILE || parts.segments.at(-2) !== name) {
-    return declined(uri, `does not end in /${name}/SKILL.md`, name);
+    return declined(uri, `does not end in /${name}/SKILL.md`);
   }
 
   if (raw.resources === "dynamic") {
-    return declined(uri, "is generated dynamically, so its content cannot be verified", name);
+    return declined(uri, "is generated dynamically, so its content cannot be verified");
   }
 
   const root = uri.slice(0, -`/${SKILL_FILE}`.length);
   const files = raw.resources.map((file) => ({ ...file, digest: file.digest.toLowerCase() }));
   const problem = fileListProblem({ files, root, uri });
 
-  if (problem !== undefined) return declined(uri, problem, name);
+  if (problem !== undefined) return declined(uri, problem);
 
   return {
     skill: {
@@ -178,6 +177,7 @@ export const decodeSkillEntry = (raw: unknown): DecodedEntry => {
       name,
       revision: skillRevision(files),
       root,
+      rootSegments: [parts.scheme, ...parts.segments.slice(0, -1)],
       uri,
     },
   };

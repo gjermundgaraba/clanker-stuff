@@ -8,15 +8,13 @@ import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-wor
 import { SkillApprovals } from "./approvals.js";
 import { buildCatalog } from "./catalog.js";
 import type { CatalogSkill } from "./catalog.js";
-import { loadServers } from "./config.js";
+import { SERVER_NAME, loadServers } from "./config.js";
 import type { SkillFile } from "./entry.js";
 import { filePath, mountRoot } from "./mount.js";
 import { SkillServers, describeError } from "./servers.js";
 import { checkBytes, frontmatterMatches, verifyFile } from "./verify.js";
 
 export type Loaded = { bytes: Buffer } | { error: string };
-
-const SERVER_NAME = /^[A-Za-z0-9_-]+$/u;
 
 /** Text of the messages loaded skills leave their folder path in: user messages and `read` results. */
 const messageText = (entry: SessionEntry): string => {

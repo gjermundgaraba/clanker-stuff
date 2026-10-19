@@ -11,7 +11,8 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-const SERVER_NAME = /^[A-Za-z0-9_-]+$/u;
+/** Server names Pi accepts, which are also safe as one path segment. */
+export const SERVER_NAME = /^[A-Za-z0-9_-]+$/u;
 
 const EXPOSURES = ["codemode", "deferred", "direct", "hidden"];
 

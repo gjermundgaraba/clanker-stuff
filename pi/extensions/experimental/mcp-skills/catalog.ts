@@ -35,11 +35,8 @@ export const buildCatalog = (
 
     for (const entry of status.skills) counts.set(entry.name, (counts.get(entry.name) ?? 0) + 1);
 
-    return status.skills.flatMap((entry) => {
+    return status.skills.map((entry) => {
       const dir = skillDir(root, status.name, entry);
-
-      if (dir === undefined) return [];
-
       const base = `${status.name}:${entry.name}`;
       const hash = createHash("sha256").update(entry.uri).digest("hex");
 
@@ -52,7 +49,7 @@ export const buildCatalog = (
 
       taken.add(name);
 
-      return [{ dir, entry, name, path: join(dir, "SKILL.md"), server: status.name }];
+      return { dir, entry, name, path: join(dir, "SKILL.md"), server: status.name };
     });
   });
 };
