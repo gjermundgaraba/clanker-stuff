@@ -9,14 +9,10 @@ beforeAll(() => initTheme("dark"));
 
 it("renders the call as the safe, bounded record of the message", () => {
   const theme = createIdentityTheme();
-  const context = { ...toolRenderContext(), args: { message: "Test" } };
   const hostile = "\x1b[2J\u202e";
+  const args = { message: "Deploy **blocked**\n\n" + "中文".repeat(500) + hostile };
 
-  const view = renderCall(
-    { message: "Deploy **blocked**\n\n" + "中文".repeat(500) + hostile },
-    theme,
-    context,
-  );
+  const view = renderCall(args, theme, { ...toolRenderContext(), args });
 
   const text = renderedRows(view).join("\n");
   expect(text).toContain("Message for you");
@@ -31,9 +27,11 @@ it("renders the call as the safe, bounded record of the message", () => {
     expect(rows.join("\n")).not.toContain("\u202e");
   }
 
-  const expanded = renderCall({ message: "中文".repeat(500) + "END" }, theme, {
+  const expandedArgs = { message: "中文".repeat(500) + "END" };
+
+  const expanded = renderCall(expandedArgs, theme, {
     ...toolRenderContext({ expanded: true }),
-    args: { message: "" },
+    args: expandedArgs,
   });
 
   expect(renderedRows(expanded).join("")).toContain("END");
