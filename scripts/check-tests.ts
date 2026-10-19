@@ -33,15 +33,11 @@ const isWithinTestsDir = (filePath: string) =>
 const getImportSpecifiers = (sourceText: string): string[] => {
   const specifiers: string[] = [];
 
-  for (const match of sourceText.matchAll(IMPORT_SPECIFIER_PATTERN)) {
-    if (match.groups?.specifier !== undefined) {
-      specifiers.push(match.groups.specifier);
-    }
-  }
-
-  for (const match of sourceText.matchAll(DYNAMIC_IMPORT_PATTERN)) {
-    if (match.groups?.specifier !== undefined) {
-      specifiers.push(match.groups.specifier);
+  for (const pattern of [IMPORT_SPECIFIER_PATTERN, DYNAMIC_IMPORT_PATTERN]) {
+    for (const match of sourceText.matchAll(pattern)) {
+      if (match.groups?.specifier !== undefined) {
+        specifiers.push(match.groups.specifier);
+      }
     }
   }
 
@@ -103,8 +99,7 @@ for (const packageName of packageDirs) {
   const files = findTypeScriptFiles(packageRoot);
 
   const sourceFiles = files.filter(
-    (filePath) =>
-      filePath.endsWith(".ts") && !filePath.endsWith(".test.ts") && !isWithinTestsDir(filePath),
+    (filePath) => !filePath.endsWith(".test.ts") && !isWithinTestsDir(filePath),
   );
 
   for (const sourceFile of sourceFiles) {

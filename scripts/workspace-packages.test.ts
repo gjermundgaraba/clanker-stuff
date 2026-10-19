@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { publishableWorkspacePackages, readWorkspacePackages } from "./workspace-packages.ts";
+import {
+  publishableWorkspacePackages,
+  readJson,
+  readWorkspacePackages,
+} from "./workspace-packages.ts";
 
 const tempDirs: string[] = [];
 
@@ -31,13 +35,100 @@ const addPackage = (root: string, name: string, privateValue?: boolean) => {
   );
 };
 
-describe("workspace package discovery", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
+afterEach(() => {
+  vi.unstubAllEnvs();
 
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true });
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true });
+});
+
+describe("package metadata decoding", () => {
+  it("preserves consumed fields, additional metadata, and opaque export formats", () => {
+    const root = fixture();
+    const file = path.join(root, "package.json");
+
+    const manifest = {
+      ...rootManifest,
+      bugs: { url: "https://example.com/issues", email: "bugs@example.com" },
+      dependencies: { "@clanker-stuff/shared": "workspace:^" },
+      description: "A sample package.",
+      engines: { node: ">=26", pnpm: ">=12" },
+      exports: { ".": { import: "./index.js", require: "./index.cjs" } },
+      files: ["index.ts"],
+      homepage: "https://example.com",
+      keywords: ["pi-package"],
+      license: "MIT",
+      peerDependencies: { typebox: "*" },
+      pi: { extensions: ["./index.ts"], skills: ["./skills"] },
+      publishConfig: { access: "public", registry: "https://registry.npmjs.org" },
+      repository: { directory: "packages/sample", type: "git", url: "https://example.com/repo" },
+      version: "0.1.0",
+      scripts: { build: "tsc" },
+    };
+
+    writeFileSync(file, JSON.stringify(manifest));
+    expect(readJson(file)).toStrictEqual(manifest);
   });
 
+  it("leaves absent policy fields absent for the readiness checker", () => {
+    const root = fixture();
+    const file = path.join(root, "package.json");
+
+    const manifest = {
+      name: "sample",
+      bugs: {},
+      engines: {},
+      pi: {},
+      publishConfig: {},
+      repository: {},
+    };
+
+    writeFileSync(file, JSON.stringify(manifest));
+    expect(readJson(file)).toStrictEqual(manifest);
+  });
+
+  it.each([
+    { name: 7 },
+    { description: false },
+    { private: "false" },
+    { files: "index.ts" },
+    { files: ["index.ts", 7] },
+    { keywords: [false] },
+    { pi: null },
+    { pi: { extensions: "./index.ts" } },
+    { pi: { extensions: [7] } },
+    { dependencies: ["typebox"] },
+    { dependencies: { typebox: 7 } },
+    { peerDependencies: { typebox: false } },
+    { engines: { node: 26 } },
+    { repository: "https://example.com/repo" },
+    { repository: { directory: 7 } },
+    { bugs: { url: false } },
+    { publishConfig: { access: false } },
+  ])("rejects malformed consumed metadata without coercion: %j", (change) => {
+    const root = fixture();
+    const file = path.join(root, "package.json");
+    writeFileSync(file, JSON.stringify({ ...rootManifest, ...change }));
+
+    expect(() => readJson(file)).toThrow(
+      new TypeError(`${file} does not contain package metadata`),
+    );
+  });
+
+  it.each(["{", "null", "[]", "{}"])(
+    "rejects invalid JSON or missing package identity: %s",
+    (text) => {
+      const root = fixture();
+      const file = path.join(root, "package.json");
+      writeFileSync(file, text);
+
+      expect(() => readJson(file)).toThrow(
+        new TypeError(`${file} does not contain package metadata`),
+      );
+    },
+  );
+});
+
+describe("workspace package discovery", () => {
   it("discovers root and relative package directories from an explicit symlinked root", () => {
     const root = fixture();
     addPackage(root, "sample");

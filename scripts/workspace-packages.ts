@@ -2,27 +2,54 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-export interface PackageJson {
-  bugs?: { url?: string };
-  dependencies?: Record<string, string>;
-  description?: string;
-  engines?: { node?: string };
-  exports?: unknown;
-  files?: string[];
-  homepage?: string;
-  keywords?: string[];
-  license?: string;
-  name: string;
-  packageManager?: string;
-  peerDependencies?: Record<string, string>;
-  pi?: { extensions?: string[] };
-  private?: boolean;
-  publishConfig?: { access?: string };
-  repository?: { directory?: string; type?: string; url?: string };
-  version?: string;
-}
+const PackageJsonSchema = Type.Object(
+  {
+    bugs: Type.Optional(
+      Type.Object({ url: Type.Optional(Type.String()) }, { additionalProperties: true }),
+    ),
+    dependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
+    description: Type.Optional(Type.String()),
+    engines: Type.Optional(
+      Type.Object({ node: Type.Optional(Type.String()) }, { additionalProperties: true }),
+    ),
+    // The readiness checker owns the supported export formats.
+    exports: Type.Optional(Type.Unknown()),
+    files: Type.Optional(Type.Array(Type.String())),
+    homepage: Type.Optional(Type.String()),
+    keywords: Type.Optional(Type.Array(Type.String())),
+    license: Type.Optional(Type.String()),
+    name: Type.String(),
+    packageManager: Type.Optional(Type.String()),
+    peerDependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
+    pi: Type.Optional(
+      Type.Object(
+        { extensions: Type.Optional(Type.Array(Type.String())) },
+        { additionalProperties: true },
+      ),
+    ),
+    private: Type.Optional(Type.Boolean()),
+    publishConfig: Type.Optional(
+      Type.Object({ access: Type.Optional(Type.String()) }, { additionalProperties: true }),
+    ),
+    repository: Type.Optional(
+      Type.Object(
+        {
+          directory: Type.Optional(Type.String()),
+          type: Type.Optional(Type.String()),
+          url: Type.Optional(Type.String()),
+        },
+        { additionalProperties: true },
+      ),
+    ),
+    version: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+
+export type PackageJson = Static<typeof PackageJsonSchema>;
 
 export interface WorkspacePackage {
   dir: string;
@@ -30,8 +57,6 @@ export interface WorkspacePackage {
   packageJson: PackageJson;
   packageJsonPath: string;
 }
-
-const PackageJsonSchema = Type.Object({ name: Type.String() }, { additionalProperties: true });
 
 export const readJson = (filePath: string): PackageJson => {
   try {

@@ -49,9 +49,6 @@ const collectRuntimeTsFiles = (directory: string, files: readonly string[]): str
     .filter((file) => file.endsWith(".ts"))
     .map((file) => path.join(directory, file));
 
-const matchesPackageSpecifier = (specifier: string, packageName: string) =>
-  specifier === packageName || specifier.startsWith(`${packageName}/`);
-
 const importedPiProvidedPackages = (directory: string, files: readonly string[]): Set<string> => {
   const imported = new Set<string>();
   const importRe = /\b(?:import|export)\b[\s\S]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gu;
@@ -67,7 +64,7 @@ const importedPiProvidedPackages = (directory: string, files: readonly string[])
       }
 
       for (const packageName of PI_PROVIDED) {
-        if (matchesPackageSpecifier(specifier, packageName)) {
+        if (specifier === packageName || specifier.startsWith(`${packageName}/`)) {
           imported.add(packageName);
           break;
         }
@@ -192,7 +189,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
 
     for (const [subpath, exported] of subpathExports) {
-      const target = Value.Check(TypeOnlyExportSchema, exported) ? exported.types : exported;
+      const target = typeof exported === "string" ? exported : exported.types;
 
       if (
         (subpath !== "." && !subpath.startsWith("./")) ||
@@ -213,7 +210,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: expected exports to be ./index.ts`);
   }
 
-  if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
+  if (pkg.files === undefined || pkg.files.length === 0) {
     errors.push(`${label}: missing files allowlist`);
   } else {
     for (const entry of pkg.files) {
@@ -226,15 +223,11 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   const isExperimentalExtensionPackage = dir.startsWith("pi/extensions/experimental/");
 
   if (isExtensionPackage) {
-    if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
+    if (!pkg.keywords?.includes("pi-package")) {
       errors.push(`${label}: extension package must include keyword pi-package`);
     }
 
-    if (
-      pkg.pi === undefined ||
-      !Array.isArray(pkg.pi.extensions) ||
-      pkg.pi.extensions.length === 0
-    ) {
+    if (pkg.pi?.extensions === undefined || pkg.pi.extensions.length === 0) {
       errors.push(`${label}: extension package must declare pi.extensions`);
     } else {
       for (const entry of pkg.pi.extensions) {

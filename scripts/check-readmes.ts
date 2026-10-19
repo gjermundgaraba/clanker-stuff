@@ -28,10 +28,7 @@ const NPM_INSTALL_PATTERN = /\bpi\s+install\s+(?<source>npm:[^\s`]+)/gu;
 const repoRoot = process.cwd();
 
 const extensionPackages = readWorkspacePackages()
-  .filter(
-    ({ packageJson }) =>
-      Array.isArray(packageJson.pi?.extensions) && packageJson.pi.extensions.length > 0,
-  )
+  .filter(({ packageJson }) => (packageJson.pi?.extensions?.length ?? 0) > 0)
   .toSorted((left, right) => left.dir.localeCompare(right.dir));
 
 const packages = extensionPackages.filter(({ packageJson }) => packageJson.private === false);
@@ -174,7 +171,7 @@ for (const { dir, packageJson } of experimentalPackages) {
 for (const { dir, packageJson } of packages) {
   const readmePath = path.join(repoRoot, dir, "README.md");
   const description = packageJson.description?.trim();
-  const packageName = packageJson.name?.trim();
+  const packageName = packageJson.name.trim();
   const title = path.basename(dir);
 
   if (description === undefined || description.length === 0) {
@@ -182,7 +179,7 @@ for (const { dir, packageJson } of packages) {
     continue;
   }
 
-  if (packageName === undefined || packageName.length === 0) {
+  if (packageName.length === 0) {
     errors.push(`${dir}/package.json is missing a non-empty name.`);
     continue;
   }

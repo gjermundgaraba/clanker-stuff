@@ -11,10 +11,17 @@ const tempDirs: string[] = [];
 
 const createFixture = (
   valid: boolean,
-  extension = true,
-  experimental = extension,
-  packagePrivate = true,
-  includeExperimentalWarning = experimental,
+  {
+    extension = true,
+    experimental = extension,
+    packagePrivate = true,
+    includeExperimentalWarning = experimental,
+  }: {
+    extension?: boolean;
+    experimental?: boolean;
+    packagePrivate?: boolean;
+    includeExperimentalWarning?: boolean;
+  } = {},
 ) => {
   const root = mkdtempSync(path.join(tmpdir(), "package-readiness-test-"));
   tempDirs.push(root);
@@ -236,14 +243,14 @@ describe("package readiness", () => {
   });
 
   it("allows shared library packages without extension metadata", () => {
-    expect(validateFixture(createFixture(true, false))).toMatchObject({
+    expect(validateFixture(createFixture(true, { extension: false }))).toMatchObject({
       status: 0,
       stderr: "",
     });
   });
 
   it("allows published shared-library subpaths and rejects unpublished targets", () => {
-    const fixture = createFixture(true, false);
+    const fixture = createFixture(true, { extension: false });
     const { packageJsonPath, packageJson: pkg } = fixture;
     const exports = { "./dialog": "./index.ts" };
     writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, exports }));
@@ -260,7 +267,7 @@ describe("package readiness", () => {
   it.each([null, [], 7, { types: 7 }, { types: "./index.ts", default: "./index.ts" }])(
     "rejects unsupported export targets (%j)",
     (target) => {
-      const fixture = createFixture(true, false);
+      const fixture = createFixture(true, { extension: false });
       const { packageJsonPath, packageJson: pkg } = fixture;
       writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, exports: { "./bad": target } }));
       const result = validateFixture(fixture);
@@ -289,12 +296,12 @@ describe("package readiness", () => {
   it.each([
     [
       "stable",
-      () => createFixture(true, true, false),
+      () => createFixture(true, { experimental: false }),
       "stable extension packages must set private: false",
     ],
     [
       "experimental",
-      () => createFixture(true, true, true, false),
+      () => createFixture(true, { packagePrivate: false }),
       "experimental extension packages must set private: true",
     ],
   ])("enforces %s extension publication state", (_label, fixture, message) => {
@@ -302,14 +309,16 @@ describe("package readiness", () => {
   });
 
   it("accepts a valid stable extension package", () => {
-    expect(validateFixture(createFixture(true, true, false, false))).toMatchObject({
+    expect(
+      validateFixture(createFixture(true, { experimental: false, packagePrivate: false })),
+    ).toMatchObject({
       status: 0,
       stderr: "",
     });
   });
 
   it("requires experimental packages to warn in their README", () => {
-    const result = validateFixture(createFixture(true, true, true, true, false));
+    const result = validateFixture(createFixture(true, { includeExperimentalWarning: false }));
 
     expect(result.stderr).toContain("experimental extension README must include **Experimental:**");
   });
