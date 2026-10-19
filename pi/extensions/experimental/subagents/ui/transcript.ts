@@ -223,8 +223,9 @@ export class Transcript extends Container {
     for (const content of message.content) {
       if (content.type !== "toolCall") continue;
 
-      if (this.#pending.has(content.id))
-        this.#pending.get(content.id)?.updateArgs(content.arguments);
+      const component = this.#pending.get(content.id);
+
+      if (component !== undefined) component.updateArgs(content.arguments);
       else this.#tool(content.id, content.name, content.arguments);
     }
   }
@@ -280,11 +281,15 @@ export class Transcript extends Container {
 
       case "custom": {
         // Steered tasks are stored hidden, but mail is what a viewer most wants to see.
-        if (message.customType === SUBAGENT_MESSAGE_TYPE) {
-          const component = new CustomMessageComponent(message, mailRenderer, this.#markdownTheme);
-          this.#add(component, component);
-        } else if (message.display) {
-          const component = new CustomMessageComponent(message, undefined, this.#markdownTheme);
+        const isMail = message.customType === SUBAGENT_MESSAGE_TYPE;
+
+        if (isMail || message.display) {
+          const component = new CustomMessageComponent(
+            message,
+            isMail ? mailRenderer : undefined,
+            this.#markdownTheme,
+          );
+
           this.#add(component, component);
         }
 

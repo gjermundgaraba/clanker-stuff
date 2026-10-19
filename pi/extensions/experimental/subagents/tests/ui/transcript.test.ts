@@ -3,6 +3,7 @@ import { resetCapabilitiesCache, setCapabilities, Text } from "@earendil-works/p
 import { afterEach, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { createIdentityTheme, createMockTui } from "../../../../../tests/harness/tui.js";
+import { envelopeText, SUBAGENT_MESSAGE_TYPE } from "../../protocol.js";
 import type { AgentMessage } from "../../runtime.js";
 import { Transcript } from "../../ui/transcript.js";
 
@@ -58,6 +59,47 @@ beforeAll(() => initTheme("dark"));
 afterEach(() => resetCapabilitiesCache());
 
 describe(Transcript, () => {
+  it.each([false, true])(
+    "shows and expands mail regardless of display, while other custom messages honor it (%s)",
+    (display) => {
+      const component = transcript();
+      component.load(
+        [
+          {
+            role: "custom",
+            customType: SUBAGENT_MESSAGE_TYPE,
+            content: envelopeText({
+              content: "First line\nSecond line\nThird line\nFourth line\nMAIL-TAIL",
+              from: "/root/scout",
+              kind: "MESSAGE",
+              to: "/root/worker",
+            }),
+            display,
+            timestamp: 0,
+          },
+          {
+            role: "custom",
+            customType: "other-extension",
+            content: "OTHER-CUSTOM-CONTENT",
+            display,
+            timestamp: 0,
+          },
+        ],
+        undefined,
+      );
+
+      expect(text(component)).toContain("message from");
+      expect(text(component)).toContain("scout");
+      expect(text(component)).not.toContain("Message Type:");
+      expect(text(component)).not.toContain("MAIL-TAIL");
+      expect(text(component).includes("OTHER-CUSTOM-CONTENT")).toBe(display);
+
+      component.setExpanded(true);
+      expect(text(component)).toContain("MAIL-TAIL");
+      component.dispose();
+    },
+  );
+
   it("shows results of calls that finished before it was opened mid-batch", () => {
     // The fast call has finished; Pi emits its result message only when the whole batch ends.
     const component = transcript();

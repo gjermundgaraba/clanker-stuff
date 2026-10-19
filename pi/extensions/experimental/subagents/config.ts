@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG: SubagentsConfig = {
 
 export type SpawnModelRegistry = Pick<ModelRegistry, "find" | "getAvailable">;
 
-export const parseConfig = <T>(value: T): SubagentsConfig => {
+export const parseConfig = (value: unknown): SubagentsConfig => {
   if (!Value.Check(SubagentsConfigSchema, value)) {
     throw new Error("config must be a strict version 2 object");
   }
@@ -90,15 +90,6 @@ export const loadConfig = async (
   }
 };
 
-const unknownSpawnModel = (requested: string, registry: SpawnModelRegistry): Error =>
-  new Error(
-    `Unknown model \`${requested}\` for spawn_agent. Available models: ${registry
-      .getAvailable()
-      .slice(0, 5)
-      .map((model) => `${model.provider}/${model.id}`)
-      .join(", ")}`,
-  );
-
 const findModel = (requested: string, registry: SpawnModelRegistry): Model<Api> => {
   const slash = requested.indexOf("/");
 
@@ -109,7 +100,13 @@ const findModel = (requested: string, registry: SpawnModelRegistry): Model<Api> 
   const model = registry.find(requested.slice(0, slash), requested.slice(slash + 1));
 
   if (model === undefined) {
-    throw unknownSpawnModel(requested, registry);
+    throw new Error(
+      `Unknown model \`${requested}\` for spawn_agent. Available models: ${registry
+        .getAvailable()
+        .slice(0, 5)
+        .map((available) => `${available.provider}/${available.id}`)
+        .join(", ")}`,
+    );
   }
 
   return model;

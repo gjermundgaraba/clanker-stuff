@@ -532,18 +532,17 @@ export class AgentsViewer implements Component {
     const inTranscript = this.#focus === "transcript";
     const view = this.#view();
 
-    const keys = [
+    const hints: [key: string, label: string][] = [
       ["↑↓", inTranscript ? "scroll" : "select"],
       ["tab", inTranscript ? "tree" : "transcript"],
       ["f", view?.follow === false ? "follow" : "following"],
       ["e", view?.transcript.expanded === true ? "collapse" : "expand"],
       ["esc", inTranscript ? "back" : "close"],
-    ]
-      // Key hints are chrome the user reads past (docs/color.md); bold picks out the key.
-      .map(
-        ([key, label]) =>
-          `${theme.bold(theme.fg("dim", key ?? ""))} ${theme.fg("dim", label ?? "")}`,
-      )
+    ];
+
+    // Key hints are chrome the user reads past (docs/color.md); bold picks out the key.
+    const keys = hints
+      .map(([key, label]) => `${theme.bold(theme.fg("dim", key))} ${theme.fg("dim", label)}`)
       .join(theme.fg("dim", " · "));
 
     const position =
