@@ -137,15 +137,7 @@ export class TaskRuntime {
     if (!origin) throw new Error("Cannot start a task without a session creation entry");
 
     const task = await this.supervisor.start(
-      {
-        name: params.name,
-        command: params.command,
-        args: params.args ?? [],
-        cwd: resolve(ctx.cwd, params.cwd ?? "."),
-        origin,
-        ...(params.protocol !== undefined ? { protocol: params.protocol } : {}),
-        ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
-      },
+      { ...params, args: params.args ?? [], cwd: resolve(ctx.cwd, params.cwd ?? "."), origin },
       signal,
     );
 

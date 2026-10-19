@@ -32,7 +32,7 @@ export type TaskSummary = Static<typeof taskSummarySchema>;
 
 export type Outcome = Exclude<TaskSummary["status"], "running">;
 
-export const logsSchema = Type.Object(
+const logsSchema = Type.Object(
   {
     stdout: Type.String(),
     stderr: Type.String(),
@@ -49,10 +49,7 @@ const dataSchema = Type.Unsafe<JsonValue>(Type.Unknown());
 
 const { id, name, status, cleanup } = taskSummarySchema.properties;
 
-export const listRowSchema = Type.Object(
-  { id, name, status, cleanup, unread: Type.Boolean() },
-  strict,
-);
+const listRowSchema = Type.Object({ id, name, status, cleanup, unread: Type.Boolean() }, strict);
 
 export type ListRow = Static<typeof listRowSchema>;
 

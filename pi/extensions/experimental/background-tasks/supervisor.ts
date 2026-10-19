@@ -1,6 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { TaskLogs } from "./logs.js";
@@ -31,7 +32,7 @@ export interface Task {
   result?: JsonValue;
   notices: TaskNotices;
   logs: TaskLogs;
-  child?: ChildProcess;
+  child?: ChildProcessByStdio<null, Readable, Readable>;
   ready: Promise<void>;
   cleanupPromise?: Promise<void>;
   timer?: ReturnType<typeof setTimeout>;
@@ -147,14 +148,10 @@ export class Supervisor {
               if (record.type === "result") {
                 task.result = record.data;
                 this.finish(task, "result");
-
-                return false;
+              } else {
+                task.notices.record(record.data, record.key);
+                this.notify();
               }
-
-              task.notices.record(record.data, record.key);
-              this.notify();
-
-              return !task.outcome;
             });
           }
         } catch (error) {
@@ -163,8 +160,8 @@ export class Supervisor {
         }
       };
 
-      child.stdout?.on("data", (chunk: Buffer) => capture("stdout", chunk));
-      child.stderr?.on("data", (chunk: Buffer) => capture("stderr", chunk));
+      child.stdout.on("data", (chunk: Buffer) => capture("stdout", chunk));
+      child.stderr.on("data", (chunk: Buffer) => capture("stderr", chunk));
       child.on("error", (error) => {
         task.diagnostic = describe(error);
         this.finish(task, "spawn_error");
@@ -304,15 +301,15 @@ export class Supervisor {
     if (verdict === "failed" && refusal !== undefined) task.diagnostic ??= refusal;
 
     // Allow close/data callbacks to drain. Never wait forever for inherited pipes.
-    if (!child.stdout?.destroyed || !child.stderr?.destroyed) {
+    if (!child.stdout.destroyed || !child.stderr.destroyed) {
       await Promise.race([
         new Promise<void>((resolve) => child.once("close", () => resolve())),
         delay(100),
       ]);
     }
 
-    child.stdout?.destroy();
-    child.stderr?.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
     // Published once cleanup is over: a stop that sees "failed" retries a finished cleanup.
     task.cleanup = verdict;
   }

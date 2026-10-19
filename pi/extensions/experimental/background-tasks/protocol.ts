@@ -29,15 +29,15 @@ const resultSchema = Type.Object(
 
 const recordSchema = Type.Union([eventSchema, resultSchema]);
 
-export type WatchRecord = Static<typeof recordSchema>;
+type WatchRecord = Static<typeof recordSchema>;
 
-/** Strict byte framing: Unicode separators are data, and a final LF is required. */
+/** Strict byte framing: Unicode separators are data, and a final LF is required. A result ends the stream. */
 export class WatchDecoder {
   private pending = Buffer.alloc(0);
   private ended = false;
   private decoder = new TextDecoder("utf-8", { fatal: true });
 
-  push(chunk: Buffer, accept: (record: WatchRecord) => boolean): void {
+  push(chunk: Buffer, accept: (record: WatchRecord) => void): void {
     if (this.ended) return;
     let offset = 0;
 
@@ -70,7 +70,9 @@ export class WatchDecoder {
       if (Buffer.byteLength(jsonText(record.data)) > MAX_RECORD_BYTES)
         throw new Error(`stdout record data exceeds ${MAX_RECORD_BYTES} bytes as rendered JSON`);
 
-      if (!accept(record)) {
+      accept(record);
+
+      if (record.type === "result") {
         this.ended = true;
 
         return;

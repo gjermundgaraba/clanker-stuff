@@ -7,11 +7,7 @@ describe("WatchDecoder", () => {
     const records: unknown[] = [];
 
     for (const byte of Buffer.from('{"v":1,"type":"event","data":"😀\\nnext"}\n')) {
-      decoder.push(Buffer.from([byte]), (record) => {
-        records.push(record);
-
-        return true;
-      });
+      decoder.push(Buffer.from([byte]), (record) => records.push(record));
     }
 
     decoder.finish();
@@ -25,15 +21,15 @@ describe("WatchDecoder", () => {
     "\n",
     '{"v":1,"type":"unknown","data":0}\n',
   ])("rejects invalid record %s", (line) => {
-    expect(() => new WatchDecoder().push(Buffer.from(line), () => true)).toThrow();
+    expect(() => new WatchDecoder().push(Buffer.from(line), () => {})).toThrow();
   });
   it("rejects invalid UTF8, oversized and incomplete final records", () => {
-    expect(() => new WatchDecoder().push(Buffer.from([255, 10]), () => true)).toThrow();
+    expect(() => new WatchDecoder().push(Buffer.from([255, 10]), () => {})).toThrow();
     const decoder = new WatchDecoder();
-    decoder.push(Buffer.alloc(MAX_RECORD_BYTES, 32), () => true);
-    expect(() => decoder.push(Buffer.from(" "), () => true)).toThrow();
+    decoder.push(Buffer.alloc(MAX_RECORD_BYTES, 32), () => {});
+    expect(() => decoder.push(Buffer.from(" "), () => {})).toThrow();
     const partial = new WatchDecoder();
-    partial.push(Buffer.from('{"v":1,"type":"result","data":0}'), () => true);
+    partial.push(Buffer.from('{"v":1,"type":"result","data":0}'), () => {});
     expect(() => partial.finish()).toThrow();
   });
   it("bounds data as tool text renders it, as well as the line", () => {
@@ -47,26 +43,20 @@ describe("WatchDecoder", () => {
     expect(Buffer.byteLength(JSON.stringify(JSON.parse(escapes)))).toBeLessThan(MAX_RECORD_BYTES);
     const records: unknown[] = [];
 
-    new WatchDecoder().push(fits, (r) => {
-      records.push(r);
-
-      return true;
-    });
+    new WatchDecoder().push(fits, (r) => records.push(r));
     expect(records).toHaveLength(1);
 
     for (const data of [numbers, escapes]) {
       expect(record(data).length).toBeLessThanOrEqual(MAX_RECORD_BYTES + 1);
-      expect(() => new WatchDecoder().push(record(data), () => true)).toThrow(/as rendered JSON/);
+      expect(() => new WatchDecoder().push(record(data), () => {})).toThrow(/as rendered JSON/);
     }
   });
   it("stops decoding after a terminal decision", () => {
     const decoder = new WatchDecoder();
     const records: unknown[] = [];
-    decoder.push(Buffer.from('{"v":1,"type":"result","data":1}\ninvalid\n'), (r) => {
-      records.push(r);
-
-      return false;
-    });
+    decoder.push(Buffer.from('{"v":1,"type":"result","data":1}\ninvalid\n'), (r) =>
+      records.push(r),
+    );
     decoder.push(Buffer.from("also invalid"), () => {
       throw new Error("late callback");
     });
