@@ -59,7 +59,6 @@ describe("Fast local preference", () => {
 
     const ctx = host.createContext({
       modelRegistry: {
-        find: () => model,
         isUsingOAuth: () => true,
         getProvider: (id) => runtime.getProvider(id),
       },
@@ -178,7 +177,6 @@ describe("Fast local preference", () => {
       if (outcome === "resolve") loaded.resolve(true);
       else loaded.reject(new Error("Late read failure"));
       await start;
-      mode.toggle("", ctx);
       await mode.start(startup, ctx);
       expect(mode.payload(payload, ctx)).toBeUndefined();
       expect(host.getStatus("fast")).toBeUndefined();

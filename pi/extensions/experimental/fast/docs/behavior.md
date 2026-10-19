@@ -20,7 +20,7 @@ Install the local package into personal or trusted project settings for ordinary
 
 ## Request boundary
 
-Both the selected model and registry-resolved metadata must identify `openai/openai-responses` at exactly `https://api.openai.com/v1`. Authentication must be subscription OAuth, not an API key. The outgoing payload model must match the selected ID. Eligible model IDs are otherwise unrestricted.
+The selected model must identify `openai/openai-responses` at exactly `https://api.openai.com/v1`. Authentication must be subscription OAuth, not an API key. The outgoing payload model must match the selected ID. Eligible model IDs are otherwise unrestricted.
 
 When off or ineligible, Fast leaves the payload unchanged. It does not change providers, endpoints, auth, model choice or routing headers. Backend rejection surfaces normally; Fast adds no retry or fallback.
 

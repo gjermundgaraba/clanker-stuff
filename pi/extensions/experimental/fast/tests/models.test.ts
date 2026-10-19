@@ -30,7 +30,6 @@ describe("best-effort native priority gate", () => {
 
     for (const model of [...models, { ...first, id: "future-native-model" }]) {
       const registry = {
-        find: () => model,
         isUsingOAuth: () => true,
         getProvider: (provider: string) => runtime.getProvider(provider),
       };
@@ -46,9 +45,6 @@ describe("best-effort native priority gate", () => {
           ...ctx,
           modelRegistry: { ...registry, getProvider: () => undefined },
         }),
-      ).toBe(false);
-      expect(
-        canRequestPriority({ ...ctx, modelRegistry: { ...registry, find: () => undefined } }),
       ).toBe(false);
 
       expect(
@@ -69,12 +65,8 @@ describe("best-effort native priority gate", () => {
         { ...model, api: "openai-completions" as const },
         { ...model, baseUrl: "https://custom.invalid/v1" },
         { ...model, baseUrl: "https://api.openai.com/v1/" },
-      ]) {
+      ])
         expect(canRequestPriority({ ...ctx, model: changed })).toBe(false);
-        expect(
-          canRequestPriority({ ...ctx, modelRegistry: { ...registry, find: () => changed } }),
-        ).toBe(false);
-      }
     }
   });
 });

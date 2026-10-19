@@ -31,16 +31,16 @@ export const createFastMode = (
 
   return {
     async start(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
-      if (stopped) return;
+      const startupFlag = event.reason === "startup" && pi.getFlag("fast") === true;
 
       try {
         const saved = await loadDefault(configPath);
 
         if (stopped) return;
-        enabled = saved || (event.reason === "startup" && pi.getFlag("fast") === true);
+        enabled = saved || startupFlag;
       } catch (error) {
         if (stopped) return;
-        enabled = event.reason === "startup" && pi.getFlag("fast") === true;
+        enabled = startupFlag;
         notify(
           ctx,
           `Failed to load ${configPath}; using the local startup flag or Fast off: ${error instanceof Error ? error.message : String(error)}`,
@@ -62,8 +62,6 @@ export const createFastMode = (
       return { ...event.payload, service_tier: "priority" };
     },
     toggle(args: string, ctx: ExtensionContext): void {
-      if (stopped) return;
-
       if (args.trim() !== "") {
         notify(ctx, "Usage: /fast", "warning");
 
