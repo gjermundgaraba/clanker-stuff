@@ -23,14 +23,13 @@ const Constraints = Type.Partial(
 
 const VALUE_CONSTRAINTS = new Set(Object.keys(Constraints.properties));
 
-const range = (min: number | undefined, max: number | undefined, unit: string) =>
-  min !== undefined && max !== undefined
-    ? [min === max ? `exactly ${min}${unit}` : `${min}–${max}${unit}`]
-    : min !== undefined
-      ? [`at least ${min}${unit}`]
-      : max !== undefined
-        ? [`at most ${max}${unit}`]
-        : [];
+const range = (min: number | undefined, max: number | undefined, unit: string): string[] => {
+  if (min === undefined) return max === undefined ? [] : [`at most ${max}${unit}`];
+
+  if (max === undefined) return [`at least ${min}${unit}`];
+
+  return [min === max ? `exactly ${min}${unit}` : `${min}–${max}${unit}`];
+};
 
 // The model cannot see a stripped constraint, so its meaning moves into the
 // description: the limit is still enforced when the call executes.
