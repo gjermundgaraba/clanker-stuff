@@ -124,6 +124,43 @@ class ReportTest(TestCase):
             rendered,
         )
 
+    def test_operational_samples_keep_zero_and_failed_trials_but_exclude_nonnumbers(self) -> None:
+        values = [
+            {
+                "platform": "p",
+                "mode": mode,
+                "task": "t",
+                "status": status,
+                "valid": 1,
+                "quality": 1,
+                "input": tokens,
+            }
+            for mode, status, tokens in [
+                ("off", "completed", 0),
+                ("off", "errored", 10),
+                ("off", "completed", True),
+                ("off", "completed", float("nan")),
+                ("off", "completed", float("inf")),
+                ("off", "completed", None),
+                ("on", "completed", 20),
+            ]
+        ]
+        summaries = report.matched_summaries(values)
+        self.assertEqual(
+            [(row["input"], row["input_n"]) for row in summaries],
+            [(5, 2), (20, 1)],
+        )
+        for row in summaries:
+            self.assertIsNone(row["output"])
+            self.assertEqual(row["output_n"], 0)
+        [delta] = report.matched_deltas(values)
+        self.assertEqual(
+            (delta["input"], delta["off_input_n"], delta["on_input_n"]),
+            (15, 2, 1),
+        )
+        self.assertIsNone(delta["output"])
+        self.assertEqual((delta["off_output_n"], delta["on_output_n"]), (0, 0))
+
     def test_summaries_and_deltas_accept_a_suite_score(self) -> None:
         values = [
             {

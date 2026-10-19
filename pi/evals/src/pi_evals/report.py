@@ -38,6 +38,10 @@ def matched_summaries(
         ]
         scores = [row[score] for row in valid_rows if _number(row.get(score))]
         completed = sum(row["status"] == "completed" for row in group)
+        measured = {
+            key: [row[key] for row in group if _number(row.get(key))]
+            for key in OPERATIONAL_KEYS
+        }
         output.append(
             {
                 **dict(zip(group_keys, identity, strict=True)),
@@ -51,14 +55,12 @@ def matched_summaries(
                 score: fmean(scores) if scores else None,
                 f"{score}_n": len(scores),
                 **{
-                    key: fmean(row[key] for row in group if _number(row.get(key)))
-                    if any(_number(row.get(key)) for row in group)
-                    else None
-                    for key in OPERATIONAL_KEYS
+                    key: fmean(samples) if samples else None
+                    for key, samples in measured.items()
                 },
                 **{
-                    f"{key}_n": sum(_number(row.get(key)) for row in group)
-                    for key in OPERATIONAL_KEYS
+                    f"{key}_n": len(samples)
+                    for key, samples in measured.items()
                 },
             }
         )
@@ -85,25 +87,23 @@ def matched_deltas(
         if not modes["off"] or not modes["on"]:
             continue
         item: dict[str, Any] = dict(zip(group_keys, identity, strict=True))
-        for mode in ("off", "on"):
-            rows_for_mode = modes[mode]
-            valid_rows = [
+        valid_by_mode = {
+            mode: [
                 row
-                for row in rows_for_mode
+                for row in modes[mode]
                 if row["status"] == "completed" and row["valid"] == 1
             ]
-            item[f"{mode}_n"] = len(rows_for_mode)
-            item[f"{mode}_valid"] = len(valid_rows)
-            item[f"{mode}_valid_yield"] = len(valid_rows) / len(rows_for_mode)
+            for mode in ("off", "on")
+        }
+        for mode in ("off", "on"):
+            item[f"{mode}_n"] = len(modes[mode])
+            item[f"{mode}_valid"] = len(valid_by_mode[mode])
+            item[f"{mode}_valid_yield"] = len(valid_by_mode[mode]) / len(modes[mode])
         for metric in (score, *OPERATIONAL_KEYS):
             measured: dict[str, list[int | float]] = {}
             for mode in ("off", "on"):
                 candidates = (
-                    [
-                        row
-                        for row in modes[mode]
-                        if row["status"] == "completed" and row["valid"] == 1
-                    ]
+                    valid_by_mode[mode]
                     if metric == score
                     else modes[mode]
                 )

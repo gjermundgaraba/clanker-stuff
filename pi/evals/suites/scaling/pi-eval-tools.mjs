@@ -3,13 +3,35 @@ import { Type } from "typebox";
 import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
 import { createJournal } from "/opt/pi-evals/eval-journal.mjs";
 
-import { serviceDefinitions } from "/opt/pi-evals/service-tools.mjs";
 import { createServices, FIXTURE, SERVICE_NAMES, toolSpecs } from "./services.mjs";
 
 export { createJournal } from "/opt/pi-evals/eval-journal.mjs";
 
 /** @param {ReturnType<typeof createServices>} backend */
-export const definitions = (backend) => serviceDefinitions(backend, toolSpecs(Type));
+export function definitions(backend) {
+  return toolSpecs(Type).map(([name, description, parameters]) => ({
+    name,
+    label: name,
+    description: `${description} Returns JSON; Code Mode receives a parsed object. Services may return {error:{code:string,retryable:boolean}} instead; retry the identical arguments on retryable errors. Read calls are independent when their inputs are known. Responses are bounded below 10 KB.`,
+    parameters,
+    outputSchema: Type.Unknown(),
+    /**
+     * @param {string} _id
+     * @param {unknown} args Each public service call validates its own request contract.
+     * @param {AbortSignal} [signal]
+     * @returns {Promise<{content: {type: "text", text: string}[], details: object, structuredContent: import("./services.mjs").ServiceResult}>}
+     */
+    async execute(_id, args, signal) {
+      const result = await backend.call(name, args, signal);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        details: {},
+        structuredContent: result,
+      };
+    },
+  }));
+}
 
 /** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi */
 export default async function extension(pi) {

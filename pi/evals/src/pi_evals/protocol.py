@@ -53,15 +53,4 @@ def validate_manifest(value: Any) -> Manifest:
             raise ValueError("code-mode configuration does not match arm")
         if not isinstance(value["pair_id"], str) or not value["pair_id"].strip():
             raise ValueError("code-mode pair_id must be nonempty")
-    return {
-        **value,
-        **(
-            {key: value[key] for key in ("experiment", "arm", "tool_mode", "pair_id")}
-            if code_mode
-            else {}
-        ),
-        "platform": platform,
-        "compaction_mode": mode,
-        "expected_mechanism": mechanism,
-        "expected_protocol": protocol,
-    }
+    return dict(value)

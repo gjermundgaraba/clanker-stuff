@@ -23,7 +23,6 @@
       "/opt/pi-evals/pi-eval-tools.mjs": ["./pi/evals/suites/scaling/pi-eval-tools.mjs"],
       "/opt/pi-evals/services.mjs": ["./pi/evals/suites/scaling/services.mjs"],
       "/opt/pi-evals/eval-journal.mjs": ["./pi/evals/runtime/eval-journal.mjs"],
-      "/opt/pi-evals/service-tools.mjs": ["./pi/evals/runtime/service-tools.mjs"],
       "/opt/pi-evals/*": ["./pi/evals/runtime/*"],
       "/solution/solve.mjs": ["./pi/evals/suites/scaling/solve.mjs"],
       "/tests/comparison.mjs": ["./pi/evals/verifiers/comparison.mjs"],

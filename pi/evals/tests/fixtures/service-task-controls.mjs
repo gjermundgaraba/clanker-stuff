@@ -41,9 +41,7 @@ registerHooks({
 
       return {
         url: url(
-          ["service-tools.mjs", "eval-journal.mjs"].includes(name)
-            ? `${runtime}/${name}`
-            : `${task}/environment/${name}`,
+          name === "eval-journal.mjs" ? `${runtime}/${name}` : `${task}/environment/${name}`,
         ),
         shortCircuit: true,
       };
@@ -107,7 +105,7 @@ const answer = await serializedSolve(async (name, args) => {
   const [content] = (await definition.execute("test", args)).content;
   assert.ok(content);
 
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- serviceDefinitions JSON-encodes this backend's JSON-only ServiceResult; exercise the real serialization round trip rather than bypassing it.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The scaling tool adapter JSON-encodes this backend's JSON-only ServiceResult; exercise the real serialization round trip rather than bypassing it.
   return /** @type {ServiceResult} */ (JSON.parse(content.text));
 });
 

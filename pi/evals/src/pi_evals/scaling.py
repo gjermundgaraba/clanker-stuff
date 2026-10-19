@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 import argparse
-from copy import deepcopy
 import hashlib
 from itertools import permutations
 import json
@@ -123,7 +122,6 @@ def source_hashes():
             "Dockerfile",
             "pi-eval-tools.mjs",
             "eval-journal.mjs",
-            "service-tools.mjs",
             "service-codex.mjs",
             "codex-eval.mjs",
             "pi-eval-compact.mjs",
@@ -198,13 +196,11 @@ def prepare(output: Path, catalog: Path, model=None, thinking=None) -> None:
                 )
             )
             for arm in orders[len(fixtures) - 1]:
-                config = deepcopy(
-                    yaml.safe_load(
-                        (
-                            EVALS
-                            / f"profiles/{'native-codex' if arm == 'native' else 'code-mode'}.yaml"
-                        ).read_text()
-                    )
+                config = yaml.safe_load(
+                    (
+                        EVALS
+                        / f"profiles/{'native-codex' if arm == 'native' else 'code-mode'}.yaml"
+                    ).read_text()
                 )
                 if arm == "native":
                     agent = config["agents"][0]
