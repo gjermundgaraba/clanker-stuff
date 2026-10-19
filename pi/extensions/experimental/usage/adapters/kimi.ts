@@ -1,16 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import type { UsageFetchResult, UsageWindow } from "../providers.js";
+import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../providers.js";
 import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import {
-  fetchUsage,
-  isDefined,
-  makeUsageWindow,
-  parseIso,
-  windowIdFromLimitSeconds,
-} from "./util.js";
+import { fetchUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
 
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 
@@ -59,6 +53,26 @@ const windowSeconds = (
     : windowInfo.duration * unit;
 };
 
+/**
+ * Map a window length in seconds to a coarse bucket. 5h class accepts up to
+ * 12h rolling windows; week class accepts multi-day through ~2 weeks.
+ */
+const windowIdFromLimitSeconds = (seconds: number): UsageWindowId | undefined => {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return undefined;
+  }
+
+  if (seconds <= 12 * 3600) {
+    return "5h";
+  }
+
+  if (seconds <= 14 * 86_400) {
+    return "week";
+  }
+
+  return "month";
+};
+
 /** Labels a window with its actual length, in the largest whole unit. */
 const durationLabel = (seconds: number): string => {
   if (seconds % 86_400 === 0) {
@@ -96,7 +110,7 @@ const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindo
 
 export const mapKimiUsagePayload = (
   payload: Static<typeof KimiUsagePayloadSchema>,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): UsageFetchResult => {
   const { limits = [], usage } = payload;
   const weeklyLimit = usage?.limit ?? 0;

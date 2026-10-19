@@ -80,8 +80,8 @@ describe("kimi usage", () => {
       now: () => NOW,
     });
 
-    const [url, , options] = fetchJson.mock.calls[0] ?? [];
+    const [url, , headers] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://api.kimi.com/coding/v1/usages");
-    expect(options?.headers?.Authorization).toBe("Bearer kimi-token");
+    expect(headers?.Authorization).toBe("Bearer kimi-token");
   });
 });

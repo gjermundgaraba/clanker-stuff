@@ -17,7 +17,7 @@ describe("usage cache", () => {
   it("returns fresh success within TTL and fetches again after", async () => {
     let now = 10_000;
     let fetches = 0;
-    const cache = new UsageCache({ now: () => now, ttlMs: 1000 });
+    const cache = new UsageCache(() => now);
 
     const fetcher = async () => {
       fetches += 1;
@@ -26,17 +26,17 @@ describe("usage cache", () => {
     };
 
     await cache.getOrFetch("anthropic", false, fetcher);
-    now = 10_999;
+    now = 69_999;
     await cache.getOrFetch("anthropic", false, fetcher);
     expect(fetches).toBe(1);
-    now = 11_000;
+    now = 70_000;
     await cache.getOrFetch("anthropic", false, fetcher);
     expect(fetches).toBe(2);
-    expect(cache.getLastSuccess("anthropic")?.fetchedAt).toBe(11_000);
+    expect(cache.getLastSuccess("anthropic")?.fetchedAt).toBe(70_000);
   });
 
   it("shares a single in-flight fetch across callers", async () => {
-    const cache = new UsageCache({ now: () => 5000 });
+    const cache = new UsageCache(() => 5000);
     let starts = 0;
     const { promise: gate, resolve: release } = Promise.withResolvers<UsageSnapshot>();
 
@@ -63,7 +63,7 @@ describe("usage cache", () => {
 
   it("retains the last success after failure", async () => {
     let now = 1000;
-    const cache = new UsageCache({ now: () => now });
+    const cache = new UsageCache(() => now);
     await cache.getOrFetch("anthropic", true, async () => ({
       ok: true,
       snapshot: snapshot({ fetchedAt: 1000 }),
@@ -81,7 +81,7 @@ describe("usage cache", () => {
   });
 
   it("replaces the last success after a forced successful refresh", async () => {
-    const cache = new UsageCache({ now: () => 3000 });
+    const cache = new UsageCache(() => 3000);
     await cache.getOrFetch("anthropic", true, async () => ({
       ok: true,
       snapshot: snapshot({ fetchedAt: 1000 }),

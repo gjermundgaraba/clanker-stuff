@@ -34,7 +34,7 @@ const parseWindow = (
 
 export const mapOpenCodeGoUsagePayload = (
   payload: Static<typeof OpenCodeGoUsagePayloadSchema>,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): UsageFetchResult => {
   const windows = [
     parseWindow(payload.usage.rolling, "5h"),

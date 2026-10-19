@@ -40,13 +40,10 @@ describe("usage fetch", () => {
       ok: true,
       snapshot: { accounting: { available: 3 }, fetchedAt: NOW },
     });
-    expect(fetchJson).toHaveBeenCalledExactlyOnceWith(
-      URL,
-      Schema,
-      expect.objectContaining({
-        headers: { Accept: "application/json", Authorization: "Bearer token" },
-      }),
-    );
+    expect(fetchJson).toHaveBeenCalledExactlyOnceWith(URL, Schema, {
+      Accept: "application/json",
+      Authorization: "Bearer token",
+    });
   });
 
   it("does not send a request without a credential", async () => {
@@ -56,6 +53,7 @@ describe("usage fetch", () => {
     const result = await fetchCredits({
       getAuth: async () => undefined,
       fetchJson: client.fetchJson,
+      now: () => NOW,
     });
 
     expect(result).toStrictEqual({
@@ -71,7 +69,7 @@ describe("usage fetch", () => {
     [503, "failure"],
   ] as const)("reports HTTP %s as %s", async (status, kind) => {
     await expect(
-      fetchCredits({ getAuth: tokenAuth("token"), fetchJson: failing(status) }),
+      fetchCredits({ getAuth: tokenAuth("token"), fetchJson: failing(status), now: () => NOW }),
     ).resolves.toStrictEqual({ error: { kind, message: `HTTP ${status}` }, ok: false });
   });
 });

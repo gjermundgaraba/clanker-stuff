@@ -65,7 +65,7 @@ describe("usage controller", () => {
         now: () => 1000,
         getAuth: () => auth,
         radiusBillingUrl: () => "https://gateway.example/v1/billing",
-        fetchJson: async (url, schema, options) =>
+        fetchJson: async (url, schema, headers) =>
           okFetch(
             url.includes("/v1/billing")
               ? {
@@ -75,7 +75,7 @@ describe("usage controller", () => {
                   ok: true,
                 }
               : { five_hour: { utilization: 30 } },
-          )(url, schema, options),
+          )(url, schema, headers),
       }),
       {
         model: { ...claudeModel, api: "pi-virtual", provider: "router", id: "auto", name: "Auto" },
@@ -210,11 +210,11 @@ describe("usage controller", () => {
           radiusBillingUrl: () => undefined,
           getAuth: () => async (provider) =>
             provider === "anthropic" ? { auth: { apiKey: "offline" }, source: "OAuth" } : undefined,
-          fetchJson: async (url, schema, options) => {
+          fetchJson: async (url, schema, headers) => {
             started.resolve();
             await release.promise;
 
-            return okFetch({ five_hour: { utilization: 20 } })(url, schema, options);
+            return okFetch({ five_hour: { utilization: 20 } })(url, schema, headers);
           },
         }),
         { model: claudeModel },
@@ -252,13 +252,13 @@ describe("usage controller", () => {
         radiusBillingUrl: () => undefined,
         getAuth: () => async (provider) =>
           provider === "anthropic" ? { auth: { apiKey: "offline" }, source: "OAuth" } : undefined,
-        fetchJson: async (url, schema, options) => {
+        fetchJson: async (url, schema, headers) => {
           if (delayFetch) {
             entered.resolve();
             await release.promise;
           }
 
-          return okFetch({ five_hour: { utilization: 20 } })(url, schema, options);
+          return okFetch({ five_hour: { utilization: 20 } })(url, schema, headers);
         },
       }),
       { model: claudeModel },
@@ -391,13 +391,13 @@ describe("usage controller", () => {
       ok: true;
     }>();
 
-    fetchJson.mockImplementation(async (url, schema, options) => {
+    fetchJson.mockImplementation(async (url, schema, headers) => {
       if (url.includes("/v1/billing")) {
-        return okFetch((await radius.promise).json)(url, schema, options);
+        return okFetch((await radius.promise).json)(url, schema, headers);
       }
 
       if (url.includes("anthropic.com")) {
-        return okFetch((await claude.promise).json)(url, schema, options);
+        return okFetch((await claude.promise).json)(url, schema, headers);
       }
 
       return { kind: "response", message: "unavailable", ok: false };
@@ -453,11 +453,11 @@ describe("usage controller", () => {
     const nowRef = { value: 1000 };
     const { extension, fetchJson } = stubDependencies(nowRef);
     let requests = 0;
-    fetchJson.mockImplementation(async (url, schema, options) => {
+    fetchJson.mockImplementation(async (url, schema, headers) => {
       requests += 1;
 
       if (requests === 2) {
-        return successfulFetchJson(url, schema, options);
+        return successfulFetchJson(url, schema, headers);
       }
 
       return { kind: "response", message: "boom\n[31mred", ok: false };

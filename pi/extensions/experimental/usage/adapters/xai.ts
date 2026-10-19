@@ -2,7 +2,6 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 
 import { accessToken } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
@@ -34,7 +33,7 @@ const XaiPayloadSchema = Type.Object({
 
 type XaiConfig = Static<typeof XaiConfigSchema>;
 
-export type XaiPayload = Static<typeof XaiPayloadSchema>;
+type XaiPayload = Static<typeof XaiPayloadSchema>;
 
 const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined =>
   typeof value === "number" ? value : value?.val;
@@ -90,7 +89,7 @@ export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefine
 export const mapXaiUsagePayloads = (
   monthlyPayload: XaiPayload | undefined,
   weeklyPayload: XaiPayload | undefined,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): UsageFetchResult => {
   const windows = [
     monthlyPayload === undefined ? undefined : mapXaiMonthlyPayload(monthlyPayload),
@@ -110,7 +109,6 @@ export const mapXaiUsagePayloads = (
 };
 
 export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
   const auth = await accessToken(deps.getAuth, "xai", { oauth: true });
 
   if (!auth.ok) return auth;
@@ -121,17 +119,11 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
     "x-xai-token-auth": "xai-grok-cli",
   };
 
-  const monthlyPromise = deps.fetchJson(BILLING_URL, XaiPayloadSchema, {
-    headers,
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
+  const monthlyPromise = deps.fetchJson(BILLING_URL, XaiPayloadSchema, headers);
 
   const weeklyPromise = (async () => {
     try {
-      return await deps.fetchJson(CREDITS_URL, XaiPayloadSchema, {
-        headers,
-        timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-      });
+      return await deps.fetchJson(CREDITS_URL, XaiPayloadSchema, headers);
     } catch {
       return null;
     }
@@ -148,6 +140,6 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
   return mapXaiUsagePayloads(
     monthly.ok ? monthly.json : undefined,
     weekly !== null && weekly.ok ? weekly.json : undefined,
-    now(),
+    deps.now(),
   );
 };

@@ -37,7 +37,7 @@ const parseQuotaWindow = (
 
 export const mapCopilotUsagePayload = (
   payload: Static<typeof CopilotUsagePayloadSchema>,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): UsageFetchResult => {
   const resetsAt = parseIso(payload.quota_reset_date_utc);
 

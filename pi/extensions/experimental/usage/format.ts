@@ -21,14 +21,9 @@ const USD_FORMAT = new Intl.NumberFormat("en-US", {
 
 const CREDIT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()): string => {
-  const resetMs = Date.parse(resetsAt);
-
-  if (Number.isNaN(resetMs)) {
-    return "unknown";
-  }
-
-  const remainingMs = resetMs - nowMs;
+/** Reset times are normalized ISO strings from the adapters. */
+export const formatResetDuration = (resetsAt: string, nowMs: number): string => {
+  const remainingMs = Date.parse(resetsAt) - nowMs;
 
   if (remainingMs <= 0) {
     return "now";
@@ -50,7 +45,7 @@ export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()
   return `${Math.max(1, minutes)}m`;
 };
 
-const formatAge = (fetchedAt: number, nowMs: number = Date.now()): string => {
+const formatAge = (fetchedAt: number, nowMs: number): string => {
   const ageMs = Math.max(0, nowMs - fetchedAt);
 
   if (ageMs < 1000) return "just now";
@@ -82,11 +77,11 @@ const accountingLines = (accounting: UsageAccounting, nowMs: number): string[] =
       ];
 
 export const formatProviderLabel = (snapshot: UsageSnapshot): string =>
-  snapshot.planLabel !== undefined && snapshot.planLabel.length > 0
-    ? `${providerDisplayName(snapshot.provider)} (${inlineText(snapshot.planLabel)})`
-    : providerDisplayName(snapshot.provider);
+  snapshot.planLabel === undefined
+    ? providerDisplayName(snapshot.provider)
+    : `${providerDisplayName(snapshot.provider)} (${inlineText(snapshot.planLabel)})`;
 
-export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()): string => {
+export const formatDetail = (snapshot: UsageSnapshot, nowMs: number): string => {
   const lines = [formatProviderLabel(snapshot)];
 
   const windows = snapshot.quotaWindows.toSorted(
@@ -95,7 +90,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
 
   for (const window of windows) {
     const reset =
-      window.resetsAt === undefined || window.resetsAt.length === 0
+      window.resetsAt === undefined
         ? "resets unknown"
         : `resets in ${formatResetDuration(window.resetsAt, nowMs)}`;
 
@@ -118,6 +113,6 @@ export const formatRefreshFailed = (
   provider: SupportedProvider,
   message: string,
   fetchedAt: number,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): string =>
   `usage: ${provider}: refresh failed (${inlineText(message)}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;

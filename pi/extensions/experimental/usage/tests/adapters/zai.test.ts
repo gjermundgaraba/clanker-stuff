@@ -236,7 +236,7 @@ describe("zai usage", () => {
     });
 
     expect(fetchJson.mock.calls[0]?.[0]).toBe("https://api.z.ai/api/monitor/usage/quota/limit");
-    expect(fetchJson.mock.calls[0]?.[2]?.headers).toMatchObject({
+    expect(fetchJson.mock.calls[0]?.[2]).toMatchObject({
       Authorization: "Bearer k",
     });
     expect(result.ok && result.snapshot.planLabel).toBe("Pro");

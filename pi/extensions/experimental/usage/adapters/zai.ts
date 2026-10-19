@@ -91,7 +91,7 @@ const planLabelFromLevel = (level: string | undefined): string | undefined =>
 
 export const mapZaiQuotaPayload = (
   payload: Static<typeof ZaiQuotaPayloadSchema>,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): UsageFetchResult => {
   const { code } = payload;
 

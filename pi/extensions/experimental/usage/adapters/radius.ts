@@ -20,11 +20,9 @@ const RadiusBillingPayloadSchema = Type.Object({
   ok: Type.Literal(true),
 });
 
-export type RadiusBillingPayload = Static<typeof RadiusBillingPayloadSchema>;
-
 export const mapRadiusBillingPayload = (
-  payload: RadiusBillingPayload,
-  nowMs: number = Date.now(),
+  payload: Static<typeof RadiusBillingPayloadSchema>,
+  nowMs: number,
 ): UsageFetchResult => {
   const periodEndsAt = parseIso(payload.current_period.ends_at);
 

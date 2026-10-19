@@ -2,7 +2,6 @@ import type { Static, TSchema } from "typebox";
 
 import { accessToken } from "../auth.js";
 import type { GetAuth } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { FetchJson } from "../http.js";
 import { usageFailure } from "../providers.js";
 import type {
@@ -15,7 +14,7 @@ import type {
 export interface AdapterDeps {
   getAuth: GetAuth;
   fetchJson: FetchJson;
-  now?: () => number;
+  now: () => number;
 }
 
 export interface UsageRequest<S extends TSchema> {
@@ -44,16 +43,13 @@ export const fetchUsage = async <S extends TSchema>(
   if (!auth.ok) return auth;
 
   const response = await deps.fetchJson(request.url, request.schema, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `${request.scheme ?? "Bearer"} ${auth.token}`,
-      ...request.headers,
-    },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
+    Accept: "application/json",
+    Authorization: `${request.scheme ?? "Bearer"} ${auth.token}`,
+    ...request.headers,
   });
 
   if (response.ok) {
-    return map(response.json, (deps.now ?? Date.now)());
+    return map(response.json, deps.now());
   }
 
   return usageFailure(response.message, response.status === 403 ? "unavailable" : "failure");
@@ -94,24 +90,4 @@ export const parseIso = (value: string | undefined): string | undefined => {
   }
 
   return new Date(parsed).toISOString();
-};
-
-/**
- * Map a window length in seconds to a coarse bucket. 5h class accepts up to
- * 12h rolling windows; week class accepts multi-day through ~2 weeks.
- */
-export const windowIdFromLimitSeconds = (seconds: number): UsageWindowId | undefined => {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return undefined;
-  }
-
-  if (seconds <= 12 * 3600) {
-    return "5h";
-  }
-
-  if (seconds <= 14 * 86_400) {
-    return "week";
-  }
-
-  return "month";
 };

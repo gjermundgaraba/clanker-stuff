@@ -2,33 +2,16 @@ import type { Static, TSchema } from "typebox";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-export const USAGE_HTTP_TIMEOUT_MS = 12_000;
+const USAGE_HTTP_TIMEOUT_MS = 12_000;
 
-export interface FetchJsonSuccess<T> {
-  ok: true;
-  json: T;
-}
-
-export interface FetchJsonFailure {
-  ok: false;
-  kind: "response" | "payload";
-  message: string;
-  status?: number;
-}
-
-export type FetchJsonResult<T> = FetchJsonSuccess<T> | FetchJsonFailure;
-
-export interface FetchJsonOptions {
-  headers?: Record<string, string>;
-  timeoutMs: number;
-  method?: "GET" | "POST";
-  body?: string;
-}
+export type FetchJsonResult<T> =
+  | { ok: true; json: T }
+  | { ok: false; kind: "response" | "payload"; message: string; status?: number };
 
 export type FetchJson = <S extends TSchema>(
   url: string,
   schema: S,
-  options: FetchJsonOptions,
+  headers: Record<string, string>,
 ) => Promise<FetchJsonResult<Static<S>>>;
 
 const HttpErrorMessageSchema = Type.Object({
@@ -38,10 +21,6 @@ const HttpErrorMessageSchema = Type.Object({
 });
 
 const messageFromErrorBody = (text: string): string | undefined => {
-  if (text.length === 0) {
-    return undefined;
-  }
-
   try {
     const json: unknown = JSON.parse(text);
 
@@ -51,18 +30,11 @@ const messageFromErrorBody = (text: string): string | undefined => {
   }
 };
 
-export const defaultFetchJson: FetchJson = async (url, schema, options) => {
-  const signal = AbortSignal.timeout(options.timeoutMs);
+export const defaultFetchJson: FetchJson = async (url, schema, headers) => {
+  const signal = AbortSignal.timeout(USAGE_HTTP_TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
-      ...(options.body !== undefined ? { body: options.body } : {}),
-      ...(options.headers !== undefined ? { headers: options.headers } : {}),
-
-      method: options.method ?? "GET",
-      signal,
-    });
-
+    const response = await fetch(url, { headers, signal });
     const text = await response.text();
 
     if (!response.ok) {

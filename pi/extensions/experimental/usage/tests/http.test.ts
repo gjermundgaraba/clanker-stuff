@@ -12,9 +12,9 @@ describe(defaultFetchJson, () => {
 
     try {
       await expect(
-        defaultFetchJson("https://example.test", Type.Object({}), { timeoutMs: 1 }),
+        defaultFetchJson("https://example.test", Type.Object({}), {}),
       ).resolves.toStrictEqual({ kind: "response", message: "request timed out", ok: false });
-      expect(timeout).toHaveBeenCalledWith(1);
+      expect(timeout).toHaveBeenCalledWith(12_000);
     } finally {
       timeout.mockRestore();
       vi.unstubAllGlobals();
@@ -70,9 +70,9 @@ describe("usage HTTP boundaries", () => {
     vi.stubGlobal("fetch", async () => new Response(body, { status }));
 
     try {
-      await expect(
-        defaultFetchJson("https://example.test", schema, { timeoutMs: 1000 }),
-      ).resolves.toStrictEqual(result);
+      await expect(defaultFetchJson("https://example.test", schema, {})).resolves.toStrictEqual(
+        result,
+      );
     } finally {
       vi.unstubAllGlobals();
     }
@@ -84,9 +84,11 @@ describe("usage HTTP boundaries", () => {
     });
 
     try {
-      await expect(
-        defaultFetchJson("https://example.test", schema, { timeoutMs: 1000 }),
-      ).resolves.toStrictEqual({ ok: false, kind: "response", message: "connection reset" });
+      await expect(defaultFetchJson("https://example.test", schema, {})).resolves.toStrictEqual({
+        ok: false,
+        kind: "response",
+        message: "connection reset",
+      });
     } finally {
       vi.unstubAllGlobals();
     }

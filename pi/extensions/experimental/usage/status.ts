@@ -20,8 +20,8 @@ export const presentationProvider = (presentation: UsagePresentation): Supported
 
 const METER_CELLS = 10;
 
-const usedPercent = (window: UsageWindow): number =>
-  Math.min(100, Math.max(0, 100 - window.remainingPercent));
+/** `makeUsageWindow` clamps `remainingPercent` to 0–100, which keeps the meter in range. */
+const usedPercent = (window: UsageWindow): number => 100 - window.remainingPercent;
 
 /** The window closest to its limit is the one that will stop work first. */
 const selectQuotaWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {

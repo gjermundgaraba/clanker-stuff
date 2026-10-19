@@ -98,12 +98,9 @@ describe("radius usage", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(fetchJson).toHaveBeenCalledWith(
-      BILLING_URL,
-      expect.any(Object),
-      expect.objectContaining({
-        headers: { Accept: "application/json", Authorization: "Bearer token" },
-      }),
-    );
+    expect(fetchJson).toHaveBeenCalledWith(BILLING_URL, expect.any(Object), {
+      Accept: "application/json",
+      Authorization: "Bearer token",
+    });
   });
 });

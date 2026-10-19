@@ -150,7 +150,7 @@ describe("xai fetch", () => {
     });
 
     const client = {
-      fetchJson: async (url, schema, options) => {
+      fetchJson: async (url, schema, headers) => {
         if (url.includes("format=credits")) {
           return { kind: "response", message: "HTTP 500", ok: false };
         }
@@ -160,7 +160,7 @@ describe("xai fetch", () => {
             monthlyLimit: 200,
             used: 50,
           },
-        })(url, schema, options);
+        })(url, schema, headers);
       },
     } satisfies { fetchJson: FetchJson };
 
@@ -189,12 +189,12 @@ describe("xai fetch", () => {
     });
 
     const client = {
-      fetchJson: async (url, schema, options) => {
+      fetchJson: async (url, schema, headers) => {
         if (!url.includes("format=credits")) {
           await monthlyGate.promise;
         }
 
-        return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, options);
+        return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, headers);
       },
     } satisfies { fetchJson: FetchJson };
 
@@ -274,8 +274,8 @@ describe("xai optional payload boundaries", () => {
     { monthly: { config: { monthlyLimit: 100, used: 10 } }, weekly: null, ids: ["month"] },
     { monthly: { config: {} }, weekly: { config: { creditUsagePercent: 20 } }, ids: ["week"] },
   ])("maps available windows for $ids", async ({ monthly, weekly, ids }) => {
-    const fetchJson: FetchJson = (url, schema, options) =>
-      okFetch(url.includes("format=credits") ? weekly : monthly)(url, schema, options);
+    const fetchJson: FetchJson = (url, schema, headers) =>
+      okFetch(url.includes("format=credits") ? weekly : monthly)(url, schema, headers);
 
     const result = await fetchXaiUsage({
       getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
@@ -300,21 +300,23 @@ describe("xai optional payload boundaries", () => {
       fetchXaiUsage({
         getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
         fetchJson,
+        now: () => 1,
       }),
     ).rejects.toThrow("monthly failed");
     weekly.reject(new Error("weekly failed"));
   });
 
   it("keeps valid monthly windows when weekly rejects", async () => {
-    const fetchJson: FetchJson = async (url, schema, options) => {
+    const fetchJson: FetchJson = async (url, schema, headers) => {
       if (url.includes("format=credits")) throw new Error("weekly failed");
 
-      return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, options);
+      return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, headers);
     };
 
     const result = await fetchXaiUsage({
       getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
       fetchJson,
+      now: () => 1,
     });
 
     expect(result).toMatchObject({

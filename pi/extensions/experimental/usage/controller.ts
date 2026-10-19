@@ -82,7 +82,7 @@ export const createUsageController = (
 ) => {
   const { fetchJson, now, getAuth } = dependencies;
   const radiusBillingUrl = dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
-  const cache = new UsageCache({ now });
+  const cache = new UsageCache(now);
 
   const usageFetchers = {
     anthropic: fetchClaudeUsage,

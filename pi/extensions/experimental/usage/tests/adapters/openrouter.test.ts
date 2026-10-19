@@ -29,11 +29,11 @@ describe("openrouter usage", () => {
     let seenAuthorization: string | undefined;
     let seenUrl: string | undefined;
 
-    const fetchJson: FetchJson = async (url, schema, options) => {
-      seenAuthorization = options.headers?.Authorization;
+    const fetchJson: FetchJson = async (url, schema, headers) => {
+      seenAuthorization = headers.Authorization;
       seenUrl = url;
 
-      return await okFetch(creditsPayload)(url, schema, options);
+      return await okFetch(creditsPayload)(url, schema, headers);
     };
 
     const result = await fetchOpenRouterUsage({

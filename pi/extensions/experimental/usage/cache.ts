@@ -3,35 +3,11 @@ import { usageFailure } from "./providers.js";
 
 const CACHE_TTL_MS = 60_000;
 
-export interface UsageCacheOptions {
-  ttlMs?: number;
-  now?: () => number;
-}
-
 export class UsageCache {
-  private readonly ttlMs: number;
-  private readonly now: () => number;
   private readonly success = new Map<SupportedProvider, UsageSnapshot>();
   private readonly inflight = new Map<SupportedProvider, Promise<UsageFetchResult>>();
 
-  constructor(options: UsageCacheOptions = {}) {
-    this.ttlMs = options.ttlMs ?? CACHE_TTL_MS;
-    this.now = options.now ?? Date.now;
-  }
-
-  private getFresh(provider: SupportedProvider): UsageSnapshot | undefined {
-    const snapshot = this.success.get(provider);
-
-    if (snapshot === undefined) {
-      return undefined;
-    }
-
-    if (this.now() - snapshot.fetchedAt >= this.ttlMs) {
-      return undefined;
-    }
-
-    return snapshot;
-  }
+  constructor(private readonly now: () => number) {}
 
   getLastSuccess(provider: SupportedProvider): UsageSnapshot | undefined {
     return this.success.get(provider);
@@ -42,12 +18,10 @@ export class UsageCache {
     force: boolean,
     fetcher: () => Promise<UsageFetchResult>,
   ): Promise<UsageFetchResult> {
-    if (!force) {
-      const fresh = this.getFresh(provider);
+    const last = this.success.get(provider);
 
-      if (fresh !== undefined) {
-        return { ok: true, snapshot: fresh };
-      }
+    if (!force && last !== undefined && this.now() - last.fetchedAt < CACHE_TTL_MS) {
+      return { ok: true, snapshot: last };
     }
 
     const existing = this.inflight.get(provider);

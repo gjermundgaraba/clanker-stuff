@@ -31,7 +31,7 @@ const parseWindow = (
 
 export const mapClaudeUsagePayload = (
   payload: Static<typeof ClaudeUsagePayloadSchema>,
-  nowMs: number = Date.now(),
+  nowMs: number,
 ): UsageFetchResult => {
   const windows = [
     parseWindow(payload.five_hour, "5h"),
