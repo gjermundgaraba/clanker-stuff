@@ -44,6 +44,9 @@ export const skillBlock = (skills: readonly LoadedSkill[]): string => {
   return `<skill name="${name}" location="${location}">\n${sections.join("\n\n")}\n</skill>`;
 };
 
+/** A skill-block attribute value: non-empty, with no double quote to end it early. */
+const BLOCK_ATTRIBUTE = /^[^"]+$/u;
+
 /** Decode results from extensions on the untyped event bus before consumers format them. */
 const decodeLoadedSkill = (result: unknown): LoadedSkill | { error: string } => {
   if (typeof result === "object" && result !== null) {
@@ -52,10 +55,10 @@ const decodeLoadedSkill = (result: unknown): LoadedSkill | { error: string } => 
     } else if (
       "name" in result &&
       typeof result.name === "string" &&
-      /^[^"]+$/u.test(result.name) &&
+      BLOCK_ATTRIBUTE.test(result.name) &&
       "location" in result &&
       typeof result.location === "string" &&
-      /^[^"]+$/u.test(result.location) &&
+      BLOCK_ATTRIBUTE.test(result.location) &&
       "content" in result &&
       typeof result.content === "string"
     ) {
