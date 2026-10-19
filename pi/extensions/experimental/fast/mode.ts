@@ -1,4 +1,3 @@
-import type { Tone } from "@clanker-stuff/pi-tones";
 import type {
   BeforeProviderRequestEvent,
   ExtensionAPI,
@@ -10,8 +9,6 @@ import { Value } from "typebox/value";
 
 import { loadFastDefault } from "./config.js";
 import { canRequestPriority } from "./models.js";
-
-const ACTIVE: Tone = "accent";
 
 const PayloadSchema = Type.Object({ model: Type.String() }, { additionalProperties: true });
 
@@ -25,7 +22,7 @@ export const createFastMode = (
 
   const refresh = (ctx: ExtensionContext): void => {
     if (!ctx.hasUI) return;
-    ctx.ui.setStatus("fast", enabled ? ctx.ui.theme.fg(ACTIVE, "⚡ Fast requested") : undefined);
+    ctx.ui.setStatus("fast", enabled ? ctx.ui.theme.fg("accent", "⚡ Fast requested") : undefined);
   };
 
   const notify = (ctx: ExtensionContext, message: string, type: "info" | "warning"): void => {

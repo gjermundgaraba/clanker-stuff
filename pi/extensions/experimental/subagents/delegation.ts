@@ -1,4 +1,3 @@
-import type { Tone } from "@clanker-stuff/pi-tones";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -9,8 +8,6 @@ import type { SubagentsConfig } from "./config.js";
 export type DelegationPolicy = SubagentsConfig["delegation"];
 
 const STATE_TYPE = "subagents-delegation";
-
-const ACTIVE: Tone = "accent";
 
 const ownedEntry = (session: Pick<ExtensionContext["sessionManager"], "getBranch">) =>
   session
@@ -41,7 +38,7 @@ export const createDelegation = (pi: ExtensionAPI, defaultPolicy: DelegationPoli
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(
       "proactive",
-      policy === "proactive" ? ctx.ui.theme.fg(ACTIVE, "✦ proactive delegation") : undefined,
+      policy === "proactive" ? ctx.ui.theme.fg("accent", "✦ proactive delegation") : undefined,
     );
   };
 

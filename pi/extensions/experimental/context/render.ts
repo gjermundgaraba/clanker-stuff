@@ -3,10 +3,8 @@ import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ContextUsage, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { ContextSnapshot, InspectorSnapshot, NodeTone } from "./snapshot.js";
+import type { ContextSnapshot, InspectorSnapshot } from "./snapshot.js";
 import type { FlatRow } from "./tree.js";
-
-type ThemeColor = Parameters<Theme["fg"]>[0];
 
 /** Smallest width where the title corners "╭─ " and " ╮" fit around an empty title. */
 const MIN_WIDTH = 5;
@@ -130,8 +128,6 @@ export const renderLegend = (theme: Theme, snapshot: ContextSnapshot): string =>
     .join(theme.fg("dim", "   "));
 };
 
-const toneColor = (tone: NodeTone): ThemeColor => (tone === "code" ? "mdCode" : tone);
-
 const renderRowBar = (theme: Theme, share: number): string => {
   const filled = Math.max(share > 0 ? 1 : 0, Math.round(share * ROW_BAR_WIDTH));
 
@@ -165,7 +161,11 @@ export const renderTreeRows = (
     const isGroup = row.node.children.length > 0;
     const branch = row.depth === 0 ? "" : `${"  ".repeat(row.depth)}${row.last ? "└ " : "├ "}`;
     const glyph = row.depth === 0 && isGroup ? (row.expanded ? "▾ " : "▸ ") : "  ";
-    const name = theme.fg(toneColor(row.node.tone), displayText(row.node.label));
+
+    const name = theme.fg(
+      row.node.tone === "code" ? "mdCode" : row.node.tone,
+      displayText(row.node.label),
+    );
 
     const label = [
       theme.fg("dim", branch),

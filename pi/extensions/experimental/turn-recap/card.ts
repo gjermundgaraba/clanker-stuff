@@ -58,7 +58,7 @@ const statistics = (
 
   const contextValue = expanded && windowDetail ? `${added} (${windowDetail})` : added;
 
-  const contextTone: Tone = percent == null ? "text" : percentTone(percent);
+  const contextTone = percent == null ? "text" : percentTone(percent);
 
   return [
     stat(
