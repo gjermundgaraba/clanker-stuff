@@ -12,7 +12,7 @@ import { decorateRows, type Decoration } from "./render.js";
 /** Changes made outside the modal engine. Its own edits and restores are not reported. */
 export type Change = "input" | "insert" | "replace";
 
-type Kind = Change | "edit" | "restore";
+type Kind = Change | "internal";
 
 export interface Editing {
   input(data: string): boolean;
@@ -34,21 +34,18 @@ interface Contributions {
 class SharedEditor extends CustomEditor {
   /** Undefined when Pi's private editor layout is unsupported: document features are skipped. */
   readonly document: DocumentAdapter | undefined;
-  readonly keys: KeybindingsManager;
   private kind: Kind = "input";
   private before: DocumentView | undefined;
 
   constructor(
     tui: TUI,
     theme: EditorTheme,
-    keys: KeybindingsManager,
+    readonly keys: KeybindingsManager,
     private readonly contributions: Contributions,
     private readonly uiTheme: () => Theme,
-    changed: (kind: Kind, before?: DocumentView) => void,
     unsupported: (reason: string) => void,
   ) {
     super(tui, theme, keys, { embedWorkingStatus: true });
-    this.keys = keys;
 
     try {
       this.document = connect(this);
@@ -63,7 +60,7 @@ class SharedEditor extends CustomEditor {
     Object.defineProperty(this, "onChange", {
       configurable: true,
       get: () => (text: string) => {
-        changed(this.kind, this.before);
+        if (this.kind !== "internal") this.contributions.editing?.changed(this.kind, this.before);
 
         if (this.before) this.before = this.document?.view();
         change?.(text);
@@ -127,7 +124,7 @@ class SharedEditor extends CustomEditor {
     const document = this.document;
 
     if (!document) return;
-    this.withChange("restore", () => {
+    this.withChange("internal", () => {
       document.restoreView(view);
       this.onChange?.(this.getText());
     });
@@ -137,7 +134,7 @@ class SharedEditor extends CustomEditor {
     const document = this.document;
 
     if (!document) return;
-    this.withChange("edit", () => {
+    this.withChange("internal", () => {
       document.replace(start, end, insertion, cursor);
       this.onChange?.(this.getText());
     });
@@ -164,9 +161,12 @@ class SharedEditor extends CustomEditor {
 
     const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
 
-    return document && spans.length
-      ? decorateRows(native, document.text(), padding, document, spans, this.uiTheme(), width)
-      : native.map((row) => truncateToWidth(row, width, ""));
+    const rows =
+      document && spans.length
+        ? decorateRows(native, document.text(), padding, document, spans, this.uiTheme())
+        : native;
+
+    return rows.map((row) => truncateToWidth(row, width, ""));
   }
 }
 
@@ -181,20 +181,9 @@ export class EditorHost {
   create(tui: TUI, theme: EditorTheme, keys: KeybindingsManager) {
     if (this.editor) return this.editor;
 
-    const editor = new SharedEditor(
-      tui,
-      theme,
-      keys,
-      this.contributions,
-      this.theme,
-      (kind, before) => {
-        if (kind === "input" || kind === "insert" || kind === "replace")
-          this.contributions.editing?.changed(kind, before);
-      },
-      (reason) => {
-        this.unsupported = reason;
-      },
-    );
+    const editor = new SharedEditor(tui, theme, keys, this.contributions, this.theme, (reason) => {
+      this.unsupported = reason;
+    });
 
     this.editor = editor;
 

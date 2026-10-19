@@ -1,4 +1,3 @@
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { DocumentAdapter } from "./adapter.js";
 
@@ -23,7 +22,6 @@ export function decorateRows(
   adapter: DocumentAdapter,
   spans: Decoration[],
   theme: Theme,
-  width: number,
 ): string[] {
   const layout = adapter.layout();
   const offsets = [0];
@@ -31,11 +29,11 @@ export function decorateRows(
   for (const line of text.split("\n")) offsets.push(offsets.at(-1)! + line.length + 1);
 
   return rows.map((row, index) => {
-    if (index < 1 || index > layout.visible) return truncateToWidth(row, width, "");
+    if (index < 1 || index > layout.visible) return row;
     const map = layout.rows[layout.scroll + index - 1]!;
     let position = -padding;
 
-    const result = row
+    return row
       .split(escapes)
       .map((part) => {
         if (part.startsWith("\x1b")) return part;
@@ -65,7 +63,5 @@ export function decorateRows(
           .join("");
       })
       .join("");
-
-    return truncateToWidth(result, width, "");
   });
 }
