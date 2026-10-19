@@ -30,7 +30,7 @@ export default function mcpSkills(pi: ExtensionAPI): void {
     pi.events.emit(SKILL_PROVIDER_CHANNEL, createMentionProvider(skills));
     await skills.refresh(ctx);
   });
-  pi.on("session_shutdown", () => skills.stop());
+  pi.on("session_shutdown", () => skills.servers.stop());
   pi.on("before_agent_start", (event, ctx) => addSkillsToPrompt(skills, event, ctx));
   pi.on("input", (event, ctx) => expandSkillCommand(skills, event, ctx));
   pi.on("tool_call", (event, ctx) => reads.beforeRead(event, ctx));

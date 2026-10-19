@@ -12,13 +12,6 @@ const StoredStates = Type.Record(
   Type.Object({ tokens: Type.Optional(Type.Object({ access_token: Type.String() })) }),
 );
 
-/** Pi's keys for a server's OAuth state in `mcp-auth.json`: by namespace and URL, then by URL alone. */
-const storeKeys = (name: string, url: string): [string, string] => {
-  const legacy = String(new URL(url));
-
-  return [`${mcpNamespace(name)}|${legacy}`, legacy];
-};
-
 /**
  * Bearer tokens from the OAuth sign-ins Pi stores for its own MCP connections. The token is read
  * again for every request and never refreshed here: Pi refreshes it on its own calls, and a second
@@ -30,7 +23,9 @@ export const createStoredTokenAuth = (
   name: string,
   url: string,
 ): AuthProvider => {
-  const keys = storeKeys(name, url);
+  const normalizedUrl = String(new URL(url));
+  // Pi looks up OAuth state by namespace and URL, then by URL alone for older sign-ins.
+  const keys = [`${mcpNamespace(name)}|${normalizedUrl}`, normalizedUrl];
 
   return {
     async onUnauthorized() {

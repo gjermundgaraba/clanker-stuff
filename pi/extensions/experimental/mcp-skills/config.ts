@@ -135,7 +135,7 @@ const oauthProblem = (value: unknown): string | undefined => {
       return 'oauth.clientRegistration "cimd" cannot be combined with oauth.clientId or oauth.clientName';
     }
 
-    const callback = typeof callbackUrl === "string" ? new URL(callbackUrl) : undefined;
+    const callback = callbackUrl === undefined ? undefined : new URL(callbackUrl);
 
     if (callback && (callback.hostname === "[::1]" || callback.pathname !== "/callback")) {
       return 'oauth.clientRegistration "cimd" requires oauth.callbackUrl on localhost or 127.0.0.1 with path /callback';
@@ -198,7 +198,7 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
   const common = {
     enabled: enabled !== false,
     exposure: exposureName(exposure),
-    timeoutMs: (typeof timeout === "number" ? timeout : 60) * 1000,
+    timeoutMs: (timeout ?? 60) * 1000,
   };
 
   const { args, auth, command, cwd, env, headers, url } = raw;
@@ -219,6 +219,8 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
 
     if (oauth !== undefined) return `server "${name}": ${oauth}`;
 
+    let provider: string | undefined;
+
     if (auth !== undefined) {
       if (!isEntry(auth) || typeof auth.provider !== "string" || !auth.provider) {
         return `server "${name}": auth.provider must be a provider name`;
@@ -229,9 +231,9 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
       if (protocol !== "https:" && !LOOPBACK_HOSTS.includes(hostname)) {
         return `server "${name}": auth requires an https URL, or http on a loopback host`;
       }
-    }
 
-    const provider = isEntry(auth) && typeof auth.provider === "string" ? auth.provider : undefined;
+      provider = auth.provider;
+    }
 
     return {
       ...common,

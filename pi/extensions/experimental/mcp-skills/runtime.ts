@@ -80,10 +80,6 @@ export class McpSkills {
     this.servers.retryFailed();
   }
 
-  async stop(): Promise<void> {
-    await this.servers.stop();
-  }
-
   /** Forget every approval and delete every stored skill. */
   async forget(): Promise<void> {
     await this.approvals.clear();
