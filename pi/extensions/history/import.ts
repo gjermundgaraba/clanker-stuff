@@ -114,7 +114,6 @@ export const importPersistentHistory = async (
 
     onProgress(`importing history: ${index + 1}/${candidates.length} files`);
     await yieldToEventLoop();
-    signal.throwIfAborted();
   }
 
   signal.throwIfAborted();

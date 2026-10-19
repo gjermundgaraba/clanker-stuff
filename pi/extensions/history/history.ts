@@ -21,7 +21,6 @@ const EntryWireSchema = Type.Object({
         Type.Array(
           Type.Object({
             text: Type.Optional(Type.String()),
-            type: Type.Optional(Type.String()),
           }),
         ),
       ]),
@@ -53,35 +52,27 @@ export const typedPrompt = (text: string): string => {
   return typed === "" ? `/skill:${skill.name}` : `/skill:${skill.name} ${typed}`;
 };
 
+/** A user `!command`, or `!!command` when its output was excluded from the model's context. */
+export const bashPrompt = (command: string, excludeFromContext: boolean | undefined): string =>
+  `${excludeFromContext === true ? "!!" : "!"}${command}`;
+
 export const historyItemFromEntry = (entry: unknown): HistoryItem | undefined => {
   if (!Value.Check(EntryWireSchema, entry)) return undefined;
   const { message } = entry;
-  let text: string;
 
-  if (message.role === "user") {
-    text = typedPrompt(
-      Array.isArray(message.content)
-        ? message.content.map((block) => block.text ?? "").join("")
-        : message.content,
-    );
-  } else {
-    text = `${message.excludeFromContext === true ? "!!" : "!"}${message.command}`;
-  }
-
-  const trimmed = text.trim();
-
-  if (trimmed.length === 0) {
-    return undefined;
-  }
+  const text = (
+    message.role === "user"
+      ? typedPrompt(
+          Array.isArray(message.content)
+            ? message.content.map((block) => block.text ?? "").join("")
+            : message.content,
+        )
+      : bashPrompt(message.command, message.excludeFromContext)
+  ).trim();
 
   const timestamp = message.timestamp ?? Date.parse(entry.timestamp ?? "");
 
-  if (!Number.isFinite(timestamp)) {
-    return undefined;
-  }
+  if (!text || !Number.isFinite(timestamp)) return undefined;
 
-  return {
-    text: trimmed,
-    timestamp,
-  };
+  return { text, timestamp };
 };

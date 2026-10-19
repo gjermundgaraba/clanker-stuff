@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
 
-import { typedPrompt } from "./history.js";
+import { bashPrompt, typedPrompt } from "./history.js";
 import type { HistoryItem } from "./history.js";
 import { importPersistentHistory } from "./import.js";
 import {
@@ -27,7 +27,8 @@ export const createHistoryRuntime = () => {
   let history: HistoryItem[] = [];
   let databaseVersion: number | undefined;
   let closeSearch: (() => void) | undefined;
-  let importAbort: AbortController | undefined;
+  /** Aborted when the session ends, stopping a running import. Pi loads extensions afresh per session. */
+  const session = new AbortController();
   let importPromise: Promise<number> | undefined;
   let persistenceWarningShown = false;
 
@@ -122,20 +123,18 @@ export const createHistoryRuntime = () => {
       return;
     }
 
-    const abort = new AbortController();
-    importAbort = abort;
     importPromise = importPersistentHistory(
       database,
       ctx.sessionManager.getSessionDir(),
       (status) => ctx.ui.setStatus(STATUS_KEY, status),
-      abort.signal,
+      session.signal,
     );
 
     try {
       const files = await importPromise;
       ctx.ui.notify(`Imported prompt history from ${files} session files.`, "info");
     } catch (error) {
-      if (!abort.signal.aborted) {
+      if (!session.signal.aborted) {
         const message = error instanceof Error ? `: ${error.message}` : "";
         ctx.ui.notify(`Session history import failed${message}`, "error");
       }
@@ -143,7 +142,6 @@ export const createHistoryRuntime = () => {
       // Writes on this connection do not change its data version.
       databaseVersion = undefined;
       ctx.ui.setStatus(STATUS_KEY, undefined);
-      importAbort = undefined;
       importPromise = undefined;
     }
   };
@@ -154,12 +152,12 @@ export const createHistoryRuntime = () => {
   };
 
   const recordBash = (event: UserBashEvent, ctx: ExtensionContext) => {
-    record(`${event.excludeFromContext ? "!!" : "!"}${event.command}`, ctx.ui);
+    record(bashPrompt(event.command, event.excludeFromContext), ctx.ui);
   };
 
   const dispose = async () => {
     closeSearch?.();
-    importAbort?.abort();
+    session.abort();
 
     try {
       await importPromise;
@@ -167,12 +165,9 @@ export const createHistoryRuntime = () => {
       // The import command reports its errors; shutdown only waits for it to stop writing.
     }
 
+    // Shutdown can run more than once; close the database only the first time.
     database?.close();
     database = undefined;
-    persistent = false;
-    history = [];
-    databaseVersion = undefined;
-    persistenceWarningShown = false;
   };
 
   return { dispose, importHistory, open, recordBash, recordInput, start };
