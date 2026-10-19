@@ -4,7 +4,7 @@ import path from "node:path";
 import { inspectModelHistory } from "@clanker-stuff/model-history";
 import { percentTone } from "@clanker-stuff/pi-tones";
 import type { Tone } from "@clanker-stuff/pi-tones";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import type { IconFamily } from "./config.js";
@@ -36,16 +36,8 @@ export interface SessionTotals {
   cost: number;
   input: number;
   output: number;
-  startedAt?: number;
-  name?: string;
-}
-
-interface UsageLike {
-  cacheRead?: number;
-  cacheWrite?: number;
-  cost?: { total?: number };
-  input?: number;
-  output?: number;
+  startedAt: number | undefined;
+  name: string | undefined;
 }
 
 type SessionTotalsContext = {
@@ -160,7 +152,7 @@ const contextWidget = (ctx: ExtensionContext): BuiltinWidget => {
   };
 
   // Pi reports unknown usage after compaction until the next response, and none without a window.
-  if (usage?.percent === null || usage?.percent === undefined) {
+  if (usage === undefined || usage.percent === null) {
     return {
       ...base,
       content: [
@@ -218,7 +210,7 @@ const gitWidgets = (branch: string | null, details: GitDetails | undefined): Bui
   },
 ];
 
-const usageFromEntry = (entry: SessionEntry): UsageLike | undefined => {
+const usageFromEntry = (entry: SessionEntry): Usage | undefined => {
   if (entry.type === "message") return "usage" in entry.message ? entry.message.usage : undefined;
 
   return entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary"
@@ -227,29 +219,27 @@ const usageFromEntry = (entry: SessionEntry): UsageLike | undefined => {
 };
 
 export const collectSessionTotals = (ctx: SessionTotalsContext): SessionTotals => {
-  const totals: SessionTotals = { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 };
+  const totals = { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 };
 
   for (const entry of ctx.sessionManager.getEntries()) {
     const usage = usageFromEntry(entry);
 
     if (!usage) continue;
 
-    totals.input += usage.input ?? 0;
-    totals.output += usage.output ?? 0;
-    totals.cacheRead += usage.cacheRead ?? 0;
-    totals.cacheWrite += usage.cacheWrite ?? 0;
-    totals.cost += usage.cost?.total ?? 0;
+    totals.input += usage.input;
+    totals.output += usage.output;
+    totals.cacheRead += usage.cacheRead;
+    totals.cacheWrite += usage.cacheWrite;
+    totals.cost += usage.cost.total;
   }
-
-  const name = ctx.sessionManager.getSessionName();
-
-  if (name !== undefined) totals.name = name;
 
   const started = Date.parse(ctx.sessionManager.getHeader()?.timestamp ?? "");
 
-  if (Number.isFinite(started)) totals.startedAt = started;
-
-  return totals;
+  return {
+    ...totals,
+    name: ctx.sessionManager.getSessionName(),
+    startedAt: Number.isFinite(started) ? started : undefined,
+  };
 };
 
 const sessionWidget = (totals: SessionTotals, now: number): BuiltinWidget => {

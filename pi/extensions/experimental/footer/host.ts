@@ -10,6 +10,7 @@ import { fuzzyFilter, stripTerminalSequences } from "@earendil-works/pi-tui";
 
 import {
   DEFAULT_CONFIG,
+  errorMessage,
   formatFooterConfig,
   parseFooterConfig,
   placedIds,
@@ -27,6 +28,13 @@ const TICK_MS = 60_000;
 
 const RETAINED_ERRORS = 20;
 
+const ARGS = [
+  { value: "reset", description: "Restore the default layout" },
+  { value: "inspect", description: "Show each widget's value, placement, and recent errors" },
+];
+
+const USAGE = `Usage: /footer [${ARGS.map((arg) => arg.value).join("|")}]`;
+
 interface Runtime {
   ctx: ExtensionContext;
   config: FooterConfig;
@@ -42,9 +50,6 @@ interface Runtime {
   border: { host: EditorHost; release: () => void } | undefined;
   timer: ReturnType<typeof setInterval>;
 }
-
-const describe = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const placement = (config: FooterConfig, id: string): string => {
   if (config.hidden.includes(id)) return "hidden";
@@ -77,12 +82,13 @@ export const createFooterHost = (
   let generation = 0;
 
   const addError = (active: Runtime, error: unknown): void => {
-    const text = describe(error);
+    const text = errorMessage(error);
 
     if (active.errors.at(-1) === text) return;
 
     active.errors.push(text);
-    active.errors.splice(0, Math.max(0, active.errors.length - RETAINED_ERRORS));
+
+    if (active.errors.length > RETAINED_ERRORS) active.errors.shift();
   };
 
   /** Recomputed only when what they show can have changed, like Pi's own footer. */
@@ -248,7 +254,7 @@ export const createFooterHost = (
     try {
       await store.save(config);
     } catch (error) {
-      ctx.ui.notify(`Footer layout was not saved: ${describe(error)}`, "error");
+      ctx.ui.notify(`Footer layout was not saved: ${errorMessage(error)}`, "error");
 
       return;
     }
@@ -278,7 +284,7 @@ export const createFooterHost = (
 
         return;
       } catch (error) {
-        ctx.ui.notify(`Invalid footer config: ${describe(error)}`, "error");
+        ctx.ui.notify(`Invalid footer config: ${errorMessage(error)}`, "error");
         text = edited;
       }
     }
@@ -286,6 +292,7 @@ export const createFooterHost = (
 
   const inspect = (active: Runtime, ctx: ExtensionContext): string[] => {
     const live = liveWidgets(active, ctx.ui.theme);
+    const layout = drawn(active);
     const truncated = new Set(active.truncated);
     const ids = [...new Set([...live.keys(), ...placedIds(active.config)])].toSorted();
 
@@ -298,7 +305,7 @@ export const createFooterHost = (
         const state =
           text === undefined ? " · not present" : truncated.has(id) ? " · truncated" : "";
 
-        return `${id} · ${placement(drawn(active), id)}${state}${text ? `: ${stripTerminalSequences(text)}` : ""}`;
+        return `${id} · ${placement(layout, id)}${state}${text ? `: ${stripTerminalSequences(text)}` : ""}`;
       }),
       ...(active.errors.length === 0
         ? ["errors: none"]
@@ -313,17 +320,9 @@ export const createFooterHost = (
 
     // Pi removes the custom footer itself after session_shutdown handlers run.
     runtime = undefined;
-    active.gitGeneration += 1;
     clearInterval(active.timer);
     active.border?.release();
   };
-
-  const ARGS = [
-    { value: "reset", description: "Restore the default layout" },
-    { value: "inspect", description: "Show each widget's value, placement, and recent errors" },
-  ];
-
-  const USAGE = `Usage: /footer [${ARGS.map((arg) => arg.value).join("|")}]`;
 
   return {
     completions: (prefix: string) =>

@@ -13,12 +13,10 @@ import type { BuiltinWidget } from "./widgets.js";
 
 export type FooterTheme = Pick<Theme, "fg">;
 
-type Truncation = "start" | "end";
-
 /** A widget rendered to one styled line, keyed by its config ID. */
 export interface LiveWidget {
   text: string;
-  truncate?: Truncation;
+  truncate?: "start";
 }
 
 export interface FooterLayout {
@@ -62,7 +60,7 @@ export const statusWidgets = (statuses: ReadonlyMap<string, string>): Map<string
       .filter(([, widget]) => widget.text.length > 0),
   );
 
-const truncate = (text: string, width: number, direction: Truncation): string => {
+const truncate = (text: string, width: number, direction: "start" | "end"): string => {
   const sourceWidth = visibleWidth(text);
 
   if (sourceWidth <= width) return text;
@@ -216,9 +214,9 @@ export const renderBorder = (
   theme: FooterTheme,
   borderColor: (text: string) => string,
 ): string => {
-  const plain = stripTerminalSequences(original);
-
   if (entries.length === 0 || width < 5 || visibleWidth(original) !== width) return original;
+
+  const plain = stripTerminalSequences(original);
 
   if (!plain.startsWith("─") || !plain.endsWith("─")) return original;
 

@@ -100,7 +100,7 @@ export interface FooterConfigStore {
   save: (config: FooterConfig) => Promise<void>;
 }
 
-const message = (error: unknown): string =>
+export const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const createFooterConfigStore = (
@@ -118,13 +118,13 @@ export const createFooterConfigStore = (
       } catch (error) {
         return error instanceof Error && "code" in error && error.code === "ENOENT"
           ? { config: DEFAULT_CONFIG }
-          : { config: DEFAULT_CONFIG, error: `Cannot read ${target}: ${message(error)}` };
+          : { config: DEFAULT_CONFIG, error: `Cannot read ${target}: ${errorMessage(error)}` };
       }
 
       try {
         return { config: parseFooterConfig(text), text };
       } catch (error) {
-        return { config: DEFAULT_CONFIG, error: `Invalid ${target}: ${message(error)}`, text };
+        return { config: DEFAULT_CONFIG, error: `Invalid ${target}: ${errorMessage(error)}`, text };
       }
     },
     async save(config) {
