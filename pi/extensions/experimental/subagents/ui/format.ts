@@ -2,7 +2,6 @@
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Tone } from "@clanker-stuff/pi-tones";
 import { FRAME_INTERVAL_MS, wireframe } from "@clanker-stuff/pi-shape-glyphs";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
@@ -135,12 +134,6 @@ export const usageText = (usage: AgentUsage): string => {
 
   return `↑${tokens(input)} ↓${tokens(usage.output)}${cost}`;
 };
-
-/** The text parts of message content, which may also hold images. */
-export const contentText = (content: string | readonly (TextContent | ImageContent)[]): string =>
-  typeof content === "string"
-    ? content
-    : content.flatMap((item) => (item.type === "text" ? [item.text] : [])).join("\n");
 
 export const agentName = (path: string): string =>
   path === ROOT_AGENT_PATH ? "root" : path.slice(path.lastIndexOf("/") + 1);

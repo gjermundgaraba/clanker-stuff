@@ -308,12 +308,19 @@ describe("task presentation", () => {
     expect(
       renderedRows(
         renderer(
-          { content: [{ type: "text", text: "Failed\u001b[2J" }], details: undefined },
+          {
+            content: [
+              { type: "text", text: "Failed\u001b[2J" },
+              { type: "image", data: "", mimeType: "image/png" },
+              { type: "text", text: "More detail" },
+            ],
+            details: undefined,
+          },
           { expanded: false, isPartial: false },
           theme,
           toolRenderContext({ isError: true }),
         ),
       ).join("\n"),
-    ).toBe("Failed");
+    ).toBe("Failed\nMore detail");
   });
 });

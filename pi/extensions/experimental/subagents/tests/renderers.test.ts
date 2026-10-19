@@ -321,11 +321,15 @@ describe("agent presentation", () => {
     expect(call).toBe("spawn_agent");
   });
 
-  it("falls back safely for old results and failed messaging", () => {
+  it("joins text blocks and ignores images when falling back for old results and errors", () => {
     const renderer = agentRenderers("send_message").renderResult;
 
     const result = {
-      content: [{ type: "text" as const, text: "Old error\u001b[2J" }],
+      content: [
+        { type: "text" as const, text: "Old error\u001b[2J" },
+        { type: "image" as const, data: "", mimeType: "image/png" },
+        { type: "text" as const, text: "More detail" },
+      ],
       details: undefined,
     };
 
@@ -339,7 +343,7 @@ describe("agent presentation", () => {
             toolRenderContext({ isError }),
           ),
         ).join("\n"),
-      ).toBe("Old error");
+      ).toBe("Old error\nMore detail");
   });
 });
 

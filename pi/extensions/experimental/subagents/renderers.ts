@@ -1,6 +1,7 @@
 /** Presentation only. Stored calls and results from retired tool shapes fall back to sanitized text. */
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import { displayText as clean, inlineText } from "@clanker-stuff/pi-tool-rendering/text";
+import { contentText } from "@earendil-works/pi-ai";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { MessageRenderer, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
@@ -9,14 +10,7 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import { isAgentPath, MailDetailsSchema, readEnvelope } from "./protocol.js";
-import {
-  agentName,
-  contentText,
-  isDisplayStatus,
-  statusGlyph,
-  statusTone,
-  treeRows,
-} from "./ui/format.js";
+import { agentName, isDisplayStatus, statusGlyph, statusTone, treeRows } from "./ui/format.js";
 import type { DisplayStatus } from "./ui/format.js";
 
 // Open display contracts tolerate new wire fields without interpreting them.

@@ -1,6 +1,7 @@
 /** Display-only snapshots: never consult live tasks or change the model-facing JSON. */
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import { displayText, inlineText, jsonText } from "@clanker-stuff/pi-tool-rendering/text";
+import { contentText } from "@earendil-works/pi-ai";
 import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
@@ -81,10 +82,7 @@ export const taskRenderers = (name: string): Renderers => ({
     );
   },
   renderResult(result, options, theme, context) {
-    const text = result.content
-      .filter((item) => item.type === "text")
-      .map((item) => item.text)
-      .join("\n");
+    const text = contentText(result.content);
 
     const output = new Container();
 

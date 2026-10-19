@@ -3,6 +3,7 @@
  * live events. The event handling follows Pi's interactive mode.
  */
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
+import { contentText } from "@earendil-works/pi-ai";
 import {
   AssistantMessageComponent,
   BranchSummaryMessageComponent,
@@ -21,7 +22,7 @@ import { Value } from "typebox/value";
 import { readEnvelope, SUBAGENT_MESSAGE_TYPE } from "../protocol.js";
 import type { AgentMessage } from "../runtime.js";
 import { mailRenderer } from "../renderers.js";
-import { agentName, contentText } from "./format.js";
+import { agentName } from "./format.js";
 
 type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
 
