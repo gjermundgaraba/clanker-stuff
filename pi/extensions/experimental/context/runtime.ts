@@ -8,7 +8,7 @@ import type {
 import { observeRequest, type ObservedRequest } from "./observation.js";
 import { ContextViews } from "./views.js";
 import { OVERLAY_HEIGHT_RATIO } from "./render.js";
-import { buildSnapshot } from "./snapshot.js";
+import { buildSnapshot, type RequestSnapshot } from "./snapshot.js";
 import { buildToolsSnapshot } from "./tools.js";
 
 export const createContextInspector = (
@@ -40,20 +40,13 @@ export const createContextInspector = (
       modelLabel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown model",
     });
 
-    const request = captured;
+    const request: RequestSnapshot = { kind: "request", request: captured };
     const tools = buildToolsSnapshot(pi.getAllTools(), pi.getActiveTools());
 
     await ctx.ui.custom(
       (tui, theme, keybindings, done) =>
-        new ContextViews(
-          tui,
-          theme,
-          keybindings,
-          snapshot,
-          { kind: "request", request },
-          tools,
-          ctx.ui,
-          () => done(undefined),
+        new ContextViews(tui, theme, keybindings, snapshot, request, tools, ctx.ui, () =>
+          done(undefined),
         ),
       {
         overlay: true,

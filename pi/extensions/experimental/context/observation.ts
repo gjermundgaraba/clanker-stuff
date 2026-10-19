@@ -36,7 +36,6 @@ export function observeRequest(payload: unknown): ObservedRequest {
     body = JSON.stringify(payload, omitMedia, 2);
   } catch {
     // Cycles, throwing getters/toJSON, and other non-JSON inputs are inspection failures.
-    body = undefined;
   }
 
   if (body === undefined)

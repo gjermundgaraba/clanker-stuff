@@ -40,6 +40,7 @@ const setup = (
     snapshot,
     { notify },
     done,
+    { label: "request", open: vi.fn() },
   );
 
   overlay.focused = true;

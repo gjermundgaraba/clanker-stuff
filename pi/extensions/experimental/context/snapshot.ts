@@ -170,7 +170,7 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
   return {
     kind: "state",
     modelLabel: input.modelLabel,
-    usage: input.usage === undefined ? undefined : { ...input.usage },
+    usage: input.usage,
     ...declarations(getCurrentSystemMessage(projection.messages), input.pendingPrompt),
     messages,
   };

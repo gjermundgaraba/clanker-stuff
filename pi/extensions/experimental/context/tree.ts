@@ -70,9 +70,6 @@ export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
   ];
 };
 
-export const groupIds = (nodes: readonly TreeNode[]): string[] =>
-  nodes.flatMap((node) => (node.children.length > 0 ? [node.id] : []));
-
 export interface FlatRow {
   readonly depth: number;
   readonly expanded: boolean;

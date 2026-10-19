@@ -38,7 +38,7 @@ export const fit = (text: string, width: number): string => truncateToWidth(text
 const count = (value: number): string => value.toLocaleString("en-US");
 
 /** Breakdown figures are estimates everywhere they appear: tree rows, legend and preview header. */
-const estimate = (value: number): string => `~${count(value)}`;
+export const estimate = (value: number): string => `~${count(value)}`;
 
 export const overlayHeight = (terminalRows: number): number =>
   Math.max(1, Math.floor(terminalRows * OVERLAY_HEIGHT_RATIO));
@@ -147,7 +147,7 @@ export const renderTreeRows = (
   selected: number,
   width: number,
   countWidth: number,
-  showEstimates = true,
+  showEstimates: boolean,
 ): string[] => {
   const showBar = showEstimates && width >= ROW_BAR_MIN_TREE_WIDTH;
 
@@ -232,6 +232,44 @@ export const renderFooter = (
   return `${left}${" ".repeat(gap)}${rightText}`;
 };
 
+/** The title subtitle and the three header rows that describe each view's snapshot. */
+const renderHeader = (theme: Theme, snapshot: InspectorSnapshot, width: number) => {
+  switch (snapshot.kind) {
+    case "state":
+      return {
+        subtitle: `state · ${displayText(snapshot.modelLabel)}`,
+        summary: renderUsageLine(theme, snapshot.usage),
+        note: renderUsageBar(theme, snapshot.usage, width),
+        legend: renderLegend(theme, snapshot),
+      };
+    case "request":
+      return {
+        subtitle: "request observation",
+        summary: snapshot.request
+          ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
+          : "No request observed yet",
+        note: theme.fg(
+          "muted",
+          "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay",
+        ),
+        legend: theme.fg(
+          "muted",
+          `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated ? " · truncated to 1 MiB" : ""}`,
+        ),
+      };
+    case "tools":
+      return {
+        subtitle: "tools · registered inventory",
+        summary: `${snapshot.tools.length} registered · ${snapshot.activeCount} active · Captured ${new Date(snapshot.capturedAt).toISOString()}`,
+        note: theme.fg(
+          "muted",
+          "Registration and activation at open time; loadouts may hide active declarations",
+        ),
+        legend: theme.fg("muted", "Memory-only · no token estimates · reopen to refresh"),
+      };
+  }
+};
+
 export const renderOverlay = (
   theme: Theme,
   snapshot: InspectorSnapshot,
@@ -256,8 +294,10 @@ export const renderOverlay = (
       ? `${border(left)}${border("─".repeat(treeWidth))}${divider(junction)}${border("─".repeat(previewWidth))}${border(right)}`
       : `${border(left)}${border("─".repeat(innerWidth))}${border(right)}`;
 
+  const header = renderHeader(theme, snapshot, innerWidth - 2 * PAD.length);
+
   const title = truncateToWidth(
-    `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", snapshot.kind === "state" ? `state · ${displayText(snapshot.modelLabel)}` : snapshot.kind === "request" ? "request observation" : "tools · registered inventory")}`,
+    `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", header.subtitle)}`,
     Math.max(0, innerWidth - 4),
     "…",
   );
@@ -272,48 +312,9 @@ export const renderOverlay = (
       title +
       border(` ${"─".repeat(Math.max(0, innerWidth - 3 - visibleWidth(title)))}╮`),
     ...(layout.roomy ? [blank] : []),
-    line(
-      `${PAD}${
-        snapshot.kind === "state"
-          ? renderUsageLine(theme, snapshot.usage)
-          : snapshot.kind === "tools"
-            ? `${snapshot.tools.length} registered · ${snapshot.activeCount} active · Captured ${new Date(snapshot.capturedAt).toISOString()}`
-            : snapshot.request
-              ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
-              : "No request observed yet"
-      }`,
-    ),
-    line(
-      `${PAD}${
-        snapshot.kind === "state"
-          ? renderUsageBar(theme, snapshot.usage, innerWidth - 2 * PAD.length)
-          : snapshot.kind === "tools"
-            ? theme.fg(
-                "muted",
-                "Registration and activation at open time; loadouts may hide active declarations",
-              )
-            : theme.fg(
-                "muted",
-                "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay",
-              )
-      }`,
-    ),
-    ...(layout.showLegend
-      ? [
-          line(
-            `${PAD}${
-              snapshot.kind === "state"
-                ? renderLegend(theme, snapshot)
-                : snapshot.kind === "tools"
-                  ? theme.fg("muted", "Memory-only · no token estimates · reopen to refresh")
-                  : theme.fg(
-                      "muted",
-                      `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated ? " · truncated to 1 MiB" : ""}`,
-                    )
-            }`,
-          ),
-        ]
-      : []),
+    line(`${PAD}${header.summary}`),
+    line(`${PAD}${header.note}`),
+    ...(layout.showLegend ? [line(`${PAD}${header.legend}`)] : []),
     ...(layout.roomy ? [blank] : []),
     rule("├", "┬", "┤"),
     ...(layout.roomy ? [bodyPad] : []),
