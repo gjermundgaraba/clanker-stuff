@@ -1,6 +1,6 @@
 /** Display-only snapshots: never consult live tasks or change the model-facing JSON. */
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
-import { displayText as clean, inlineText, jsonText } from "@clanker-stuff/pi-tool-rendering/text";
+import { displayText, inlineText, jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
@@ -16,21 +16,15 @@ type Renderers = Required<
   Pick<ToolDefinition<TUnsafe<CallArgs>, unknown>, "renderCall" | "renderResult">
 >;
 
-const str = (value: string | null | undefined) => clean(value ?? "");
+const status = (value: TaskSummary["status"], theme: Theme) => {
+  if (value === "running") return theme.fg("accent", "● running");
 
-const inline = (value: string | null | undefined) => inlineText(value ?? "");
+  if (value === "completed" || value === "result")
+    return theme.fg("success", `✓ ${value === "result" ? "result received" : value}`);
 
-const status = (value: string, theme: Theme) => {
-  const name = inline(value) || "unknown";
+  if (value === "cancelled") return theme.fg("muted", "■ cancelled");
 
-  if (name === "running") return theme.fg("accent", "● running");
-
-  if (name === "completed" || name === "result")
-    return theme.fg("success", `✓ ${name === "result" ? "result received" : name}`);
-
-  if (name === "cancelled") return theme.fg("muted", "■ cancelled");
-
-  return theme.fg("error", `✗ ${name.replaceAll("_", " ")}`);
+  return theme.fg("error", `✗ ${value.replaceAll("_", " ")}`);
 };
 
 const taskLine = (task: TaskSummary | ListRow, theme: Theme) => {
@@ -38,8 +32,8 @@ const taskLine = (task: TaskSummary | ListRow, theme: Theme) => {
 
   return [
     status(task.status, theme),
-    theme.fg("text", inline(task.name) || inline(task.id)),
-    task.name ? theme.fg("muted", inline(task.id)) : "",
+    theme.fg("text", inlineText(task.name) || inlineText(task.id)),
+    task.name ? theme.fg("muted", inlineText(task.id)) : "",
     exitCode !== undefined ? theme.fg("muted", `exit ${exitCode}`) : "",
     task.cleanup === "failed" ? theme.fg("error", "cleanup failed") : "",
     task.cleanup === "pending" && task.status !== "running"
@@ -58,7 +52,7 @@ export const taskRenderers = (name: string): Renderers => ({
         const target = name === "task_start" ? data.name : data.id;
 
         const lines = [
-          `${theme.fg("toolTitle", theme.bold(name))}${target ? ` ${theme.fg("accent", inline(target))}` : ""}`,
+          `${theme.fg("toolTitle", theme.bold(name))}${target ? ` ${theme.fg("accent", inlineText(target))}` : ""}`,
         ];
 
         if (name === "task_start" && data.command !== undefined) {
@@ -73,7 +67,7 @@ export const taskRenderers = (name: string): Renderers => ({
             const value = data[key];
 
             if (value !== undefined)
-              lines.push(theme.fg("muted", `${key}: ${inline(String(value))}`));
+              lines.push(theme.fg("muted", `${key}: ${inlineText(String(value))}`));
           }
         }
 
@@ -94,13 +88,11 @@ export const taskRenderers = (name: string): Renderers => ({
 
     const output = new Container();
 
-    const add = (draw: () => string, limit = 5, tail = false) =>
-      output.addChild(
-        preview(() => new Text(draw(), 0, 0), options.expanded, limit, tail ? "tail" : "head"),
-      );
+    const add = (draw: () => string, limit = 5, edge: "head" | "tail" = "head") =>
+      output.addChild(preview(() => new Text(draw(), 0, 0), options.expanded, limit, edge));
 
     if (context.isError || options.isPartial) {
-      add(() => theme.fg(context.isError ? "error" : "accent", clean(text) || "● working"));
+      add(() => theme.fg(context.isError ? "error" : "accent", displayText(text) || "● working"));
 
       return output;
     }
@@ -108,7 +100,7 @@ export const taskRenderers = (name: string): Renderers => ({
     const data = result.details;
 
     if (!Value.Check(toolOutputSchema, data)) {
-      add(() => theme.fg("toolOutput", clean(text)));
+      add(() => theme.fg("toolOutput", displayText(text)));
 
       return output;
     }
@@ -144,7 +136,7 @@ export const taskRenderers = (name: string): Renderers => ({
       const metadata = [
         task.pid !== undefined ? `PID ${task.pid}` : "",
         task.endedAt !== undefined ? `${((task.endedAt - task.startedAt) / 1000).toFixed(1)}s` : "",
-        task.signal ? `signal ${inline(task.signal)}` : "",
+        task.signal ? `signal ${inlineText(task.signal)}` : "",
       ]
         .filter(Boolean)
         .join(" · ");
@@ -155,7 +147,7 @@ export const taskRenderers = (name: string): Renderers => ({
     if (!("task" in data)) return output;
     const { diagnostic, events, logs } = data;
 
-    if (diagnostic) add(() => theme.fg("error", str(diagnostic)));
+    if (diagnostic) add(() => theme.fg("error", displayText(diagnostic)));
 
     if ("result" in data) {
       add(() => theme.fg("muted", "Result · untrusted output"));
@@ -175,7 +167,7 @@ export const taskRenderers = (name: string): Renderers => ({
           events
             .map(
               (event) =>
-                `#${event.seq}${event.key === undefined ? "" : ` ${inline(event.key)}`} ${inline(jsonText(event.data))}`,
+                `#${event.seq}${event.key === undefined ? "" : ` ${inlineText(event.key)}`} ${inlineText(jsonText(event.data))}`,
             )
             .join("\n"),
         );
@@ -192,7 +184,7 @@ export const taskRenderers = (name: string): Renderers => ({
           ),
         );
 
-        if (logs[stream]) add(() => theme.fg("toolOutput", str(logs[stream])), 5, true);
+        if (logs[stream]) add(() => theme.fg("toolOutput", displayText(logs[stream])), 5, "tail");
       }
     }
 
