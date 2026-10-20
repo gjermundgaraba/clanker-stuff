@@ -72,10 +72,6 @@ describe("skill providers", () => {
     "not an object",
     { name: "alpha", location: alpha.location },
     { ...alpha, content: 42 },
-    { ...alpha, name: "" },
-    { ...alpha, name: 'bad"name' },
-    { ...alpha, location: "" },
-    { ...alpha, location: '/skills/"alpha"/SKILL.md' },
     { ...alpha, error: 42 },
   ])("rejects malformed load results: %j", async (result) => {
     const events = createEventBus();

@@ -22,8 +22,7 @@ export interface SkillProvider {
   skills(): MentionableSkill[];
   /**
    * Load one skill after whatever approval and checks the provider requires, or explain why it
-   * cannot be loaded. The name and location must be non-empty and contain no double quotes, as
-   * required by Pi's skill-block attributes. Content includes any origin or relative-path guidance.
+   * cannot be loaded. Content includes any origin or relative-path guidance.
    */
   load(name: string, ctx: ExtensionContext): Promise<LoadedSkill | { error: string }>;
 }
@@ -44,9 +43,6 @@ export const skillBlock = (skills: readonly LoadedSkill[]): string => {
   return `<skill name="${name}" location="${location}">\n${sections.join("\n\n")}\n</skill>`;
 };
 
-/** A skill-block attribute value: non-empty, with no double quote to end it early. */
-const BLOCK_ATTRIBUTE = /^[^"]+$/u;
-
 /** Decode results from extensions on the untyped event bus before consumers format them. */
 const decodeLoadedSkill = (result: unknown): LoadedSkill | { error: string } => {
   if (typeof result === "object" && result !== null) {
@@ -55,10 +51,8 @@ const decodeLoadedSkill = (result: unknown): LoadedSkill | { error: string } => 
     } else if (
       "name" in result &&
       typeof result.name === "string" &&
-      BLOCK_ATTRIBUTE.test(result.name) &&
       "location" in result &&
       typeof result.location === "string" &&
-      BLOCK_ATTRIBUTE.test(result.location) &&
       "content" in result &&
       typeof result.content === "string"
     ) {

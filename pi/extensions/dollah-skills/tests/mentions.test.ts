@@ -187,15 +187,12 @@ describe("skill mentions", () => {
 
         if (name === "docs:broken") return { error: "not approved" };
 
-        if (name === "docs:odd") return { ...provided(name), location: "" };
-
         return provided(name);
       },
       skills: () => [
         { description: "Shadowed by the local skill", name: "alpha" },
         { description: "Refunds", name: "docs:refunds" },
         { description: "Broken", name: "docs:broken" },
-        { description: "Odd", name: "docs:odd" },
         { description: "Billing refunds", name: "docs:refunds-1a2b3c4d" },
       ],
     };
@@ -204,25 +201,16 @@ describe("skill mentions", () => {
     host.events.emit(SKILL_PROVIDER_CHANNEL, provider);
     host.events.emit(SKILL_PROVIDER_CHANNEL, { id: "not-a-provider" });
 
-    const text = "Use $alpha, $docs:refunds, $docs:broken, $docs:odd and $docs:refunds-1a2b3c4d.";
+    const text = "Use $alpha, $docs:refunds, $docs:broken and $docs:refunds-1a2b3c4d.";
     const result = await host.emitInput({ source: "interactive", text, type: "input" });
 
     expect(result).toStrictEqual({
       action: "transform",
       text: `${skillBlock([...loaded("alpha"), provided("docs:refunds"), provided("docs:refunds-1a2b3c4d")])}\n\n${text}`,
     });
-    expect(loads).toStrictEqual([
-      "docs:refunds",
-      "docs:broken",
-      "docs:odd",
-      "docs:refunds-1a2b3c4d",
-    ]);
+    expect(loads).toStrictEqual(["docs:refunds", "docs:broken", "docs:refunds-1a2b3c4d"]);
     expect(host.getNotifications()).toStrictEqual([
       { message: "Failed to load skill docs:broken: not approved", type: "warning" },
-      {
-        message: "Failed to load skill docs:odd: the provider returned invalid skill content",
-        type: "warning",
-      },
     ]);
 
     const completion = await host
