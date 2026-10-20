@@ -367,47 +367,6 @@ describe("child runtime", () => {
     }
   });
 
-  it("keeps asynchronous user interaction tools root-only while retaining blocking questions", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    harness.setResponses([fauxAssistantMessage("done")]);
-    let active: string[] = [];
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      tools: ["request_user_input", "request_user_input_async", "send_message_to_user_async"],
-      bridge: (pi) => {
-        for (const name of [
-          "request_user_input",
-          "request_user_input_async",
-          "send_message_to_user_async",
-        ]) {
-          pi.registerTool({
-            name,
-            label: name,
-            description: name,
-            parameters: Type.Object({}),
-            execute: async () => ({ content: [], details: {} }),
-          });
-        }
-
-        pi.on("before_agent_start", () => {
-          active = pi.getActiveTools();
-        });
-      },
-    });
-
-    try {
-      await runtime.startTurn("work");
-      expect(active).toContain("request_user_input");
-      expect(active).not.toContain("request_user_input_async");
-      expect(active).not.toContain("send_message_to_user_async");
-    } finally {
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
   it("exposes effective model and thinking after child initialization", async () => {
     const harness = await createAgentSessionHarness({
       models: [

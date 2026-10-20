@@ -27,7 +27,6 @@ A personal collection of extensions, plugins, and skills for Pi, Claude Code, an
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)               | Adds durable hierarchical subagents with a live tree and viewer, branch-local proactive delegation, and a one-shot /ultra thinking boost. |
 | [`@clanker-stuff/turn-recap`](pi/extensions/experimental/turn-recap)             | Adds a turn card with timing, usage, tool activity, and optional LLM recaps to the chat after each run.                                   |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                       | Shows account usage for supported providers in a status line and on demand.                                                               |
-| [`@clanker-stuff/user-attention`](pi/extensions/experimental/user-attention)     | Sends attention notifications while pi continues working.                                                                                 |
 | [`@clanker-stuff/vim`](pi/extensions/experimental/vim)                           | Adds composable Vim editing with transactional undo and visual selections to pi.                                                          |
 
 Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.

@@ -1,10 +1,10 @@
 # Questionnaires
 
-`request_user_input` waits for a reviewed submission. `request_user_input_async` accepts the same questionnaire and returns a pending receipt immediately; the agent may continue **independent** work only. A pending receipt is not an answer or approval. Attention notifications belong to the separate experimental `user-attention` extension; this package registers only the two questionnaire tools and `revise_user_input`.
+`request_user_input` waits for a reviewed submission. `request_user_input_async` accepts the same questionnaire and returns a pending receipt immediately; the agent may continue **independent** work only. A pending receipt is not an answer or approval.
 
 ## Requirements
 
-Questionnaires require the interactive TUI. In RPC, print and JSON modes the three tools are withdrawn (`exposure: "hidden"`), so neither `--tools` nor another extension can activate them, and `/answers` reports the channel as unavailable. Any session works, including `--no-session`; without a session file, questionnaires last as long as the process.
+Questionnaires require the interactive TUI. In RPC, print and JSON modes the three tools are withdrawn (`exposure: "hidden"`), so neither `--tools` nor another extension can activate them, and `/answers` reports the channel as unavailable. Delegated subagents run in print mode, so none of this package's questionnaire tools are available there. Any interactive TUI session works, including `--no-session`; without a session file, questionnaires last as long as the process.
 
 ## Authoring
 
@@ -46,7 +46,7 @@ Limits: title/option labels 256 characters, question headers 64, question prompt
 
 Tool schemas are structural: closed objects, types and required fields, which Pi's strict constrained-sampling converter can represent. All three tools request `strict: "prefer"`, so providers without strict tool support fall back to ordinary sampling. Lengths, counts, ID syntax and uniqueness are runtime validation, reported as tool errors.
 
-These tools are **not native Codex wire-compatible implementations**. Native Pi owns their serialization and Code Mode placement; there is no provider-specific catalog gate. Ordinary delegated subagents exclude the root-only async questionnaire and attention tools; blocking questionnaires are separate.
+These tools are **not native Codex wire-compatible implementations**. Native Pi owns their serialization and Code Mode placement; there is no provider-specific catalog gate.
 
 ## Answering
 

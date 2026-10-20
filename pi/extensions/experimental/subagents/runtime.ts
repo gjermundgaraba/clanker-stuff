@@ -46,9 +46,6 @@ export interface ChildSnapshot {
 
 const CHILD_BRIDGE_PATH = "<inline:subagents-child>";
 
-/** Asynchronous user interaction stays with the root session, which owns the user. */
-const ROOT_ONLY_TOOLS = ["request_user_input_async", "send_message_to_user_async"];
-
 const canonicalExtensionPath = (candidate: string): string => {
   try {
     return realpathSync(candidate);
@@ -317,7 +314,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   const { session } = await createAgentSession({
     agentDir,
     cwd: request.cwd,
-    excludeTools: ROOT_ONLY_TOOLS,
     model,
     modelRuntime,
     resourceLoader,
