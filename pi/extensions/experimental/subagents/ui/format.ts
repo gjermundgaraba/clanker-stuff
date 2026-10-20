@@ -67,6 +67,7 @@ export const orbMarks = (nodes: () => readonly AgentNode[]): Marks => ({
     const tops = nodes().filter((node) => parentAgentPath(node.path) === ROOT_AGENT_PATH);
     const index = tops.findIndex((top) => path === top.path || path.startsWith(`${top.path}/`));
 
+    // Root and paths outside the tree find no top-level agent (-1), which indexes no ink: gray.
     const color = ORB_COLORS[index % ORB_COLORS.length] ?? "gray";
 
     const { frames } = wireframe("orb", color, theme.appearance);
