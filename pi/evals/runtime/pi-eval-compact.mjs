@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -54,7 +55,7 @@ const compactionState = (event) => {
  * @param {Error | undefined} commandError
  * @param {boolean} commandTimedOut
  */
-const validateCompaction = (terminals, commandError, commandTimedOut) => {
+export const validateCompaction = (terminals, commandError, commandTimedOut) => {
   const terminal = terminals[0];
 
   if (terminals.length !== 1 || terminal === undefined) {
@@ -73,30 +74,6 @@ const validateCompaction = (terminals, commandError, commandTimedOut) => {
   }
 
   return state;
-};
-
-const selfTestCompactionValidation = () => {
-  /** @type {CompactionTerminal} */
-  const succeeded = { type: "compaction_end", aborted: false, result: { usage: {} } };
-  /** @type {CompactionTerminal} */
-  const failed = { type: "compaction_end", aborted: false, errorMessage: "failed" };
-  /** @type {CompactionTerminal} */
-  const aborted = { type: "compaction_end", aborted: true };
-  const commandError = new Error("compaction command failed");
-  assert.equal(validateCompaction([succeeded], undefined, false), "succeeded");
-  assert.equal(validateCompaction([failed], commandError, false), "failed");
-  assert.equal(validateCompaction([aborted], commandError, false), "aborted");
-  assert.equal(validateCompaction([failed], undefined, true), "failed");
-
-  for (const invalid of [
-    () => validateCompaction([], undefined, false),
-    () => validateCompaction([succeeded, succeeded], undefined, false),
-    () => validateCompaction([{ type: "compaction_end", aborted: false }], undefined, false),
-    () => validateCompaction([failed], undefined, false),
-    () => validateCompaction([succeeded], commandError, false),
-  ]) {
-    assert.throws(invalid);
-  }
 };
 
 /** @param {string} configPath */
@@ -158,14 +135,15 @@ const run = async (configPath) => {
   }
 };
 
-if (process.argv[2] === "--self-test") {
-  selfTestCompactionValidation();
-} else {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const configPath = process.argv[2];
 
   if (process.argv.length !== 3 || configPath === undefined) {
     throw new Error("usage: pi-eval-compact CONFIG_JSON | pi-eval-compact --self-test");
   }
 
-  await run(configPath);
+  // The self-test only proves that this entry point and its deployed dependencies load.
+  if (configPath !== "--self-test") {
+    await run(configPath);
+  }
 }
