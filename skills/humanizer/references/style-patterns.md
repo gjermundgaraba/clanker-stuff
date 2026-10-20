@@ -4,7 +4,7 @@ Use when adjusting formatting or punctuation. These are deliberate house prefere
 
 ## Punctuation preferences
 
-- Use no em or en dashes in the rewritten prose. Replace them, and double hyphens used as dashes, with periods, commas, colons, parentheses, or a rewritten sentence. Preserve verbatim quotations, proper names, code, and titles when changing them would misquote or corrupt source material; choose prose around them that follows the preference.
+- Use no em or en dashes in the rewritten prose. Replace them, and double hyphens used as dashes, with periods, commas, colons, parentheses, or a rewritten sentence. A semicolon is not a substitute. Preserve verbatim quotations, proper names, code, and titles when changing them would misquote or corrupt source material; choose prose around them that follows the preference.
 - Prefer straight quotation marks in authored prose. Do not alter the words of a direct quotation.
 - Keep attributive compound hyphens; generally remove them in predicate position where the meaning remains clear (“a high-quality report”; “the report is high quality”). Preserve lexical hyphens, including words conventionally always hyphenated such as “third-party” and “cross-functional”, as well as identifiers and names. Do not apply predicate-position cleanup to every hyphenated pair.
 

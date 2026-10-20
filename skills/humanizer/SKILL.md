@@ -14,7 +14,7 @@ metadata:
   upstream-release: "3.1.0"
   upstream-ce-noslop-source: "https://github.com/EveryInc/compound-engineering-plugin"
   upstream-ce-noslop-path: "skills/ce-noslop/"
-  upstream-ce-noslop-revision: "efcb657d9a5733ccc154c36cc7d3d78b4136eb23"
+  upstream-ce-noslop-revision: "51aa537383744736eb8ad30468d34420e9fb8ea8"
   upstream-ce-noslop-relationship: "adapted"
   upstream-ce-noslop-license: "MIT"
   upstream-ce-noslop-license-file: "LICENSE.ce-noslop"
@@ -52,7 +52,7 @@ Read only what the text needs:
 
 ## Deliberate preferences and limits
 
-Use no em or en dashes in rewritten prose; restructure instead, including double hyphens used as dashes. Prefer straight quotes, sentence case headings, and ordinary compound-hyphen usage. Preserve verbatim source material when changing it would misquote or corrupt it.
+Use no em or en dashes in rewritten prose; restructure instead, including double hyphens used as dashes. A semicolon is not a substitute. Prefer straight quotes, sentence case headings, and ordinary compound-hyphen usage. Preserve verbatim source material when changing it would misquote or corrupt it.
 
 Preserve the author's distinctive details, humor, asides, opinions, and uneven rhythm when appropriate. Do not force personality onto neutral material. Polished grammar, formal vocabulary, mixed registers, dry prose, missing citations, and a single dash or transition word do not establish AI authorship. These patterns guide editing; do not present them as an AI detector.
 
