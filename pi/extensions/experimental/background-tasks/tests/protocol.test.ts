@@ -51,7 +51,7 @@ describe("WatchDecoder", () => {
       expect(() => new WatchDecoder().push(record(data), () => {})).toThrow(/as rendered JSON/);
     }
   });
-  it("stops decoding after a terminal decision", () => {
+  it("stops decoding after a result record", () => {
     const decoder = new WatchDecoder();
     const records: unknown[] = [];
     decoder.push(Buffer.from('{"v":1,"type":"result","data":1}\ninvalid\n'), (r) =>
