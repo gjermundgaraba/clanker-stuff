@@ -7,8 +7,8 @@ const snapshot = (overrides: Partial<UsageSnapshot> = {}): UsageSnapshot => ({
   fetchedAt: 1000,
   provider: "anthropic",
   quotaWindows: [
-    { id: "5h", label: "5h", remainingPercent: 68 },
-    { id: "week", label: "week", remainingPercent: 66 },
+    { label: "5h", remainingPercent: 68 },
+    { label: "week", remainingPercent: 66 },
   ],
   ...overrides,
 });
@@ -53,7 +53,7 @@ describe("usage cache", () => {
       snapshot({
         fetchedAt: 5000,
         provider: "xai",
-        quotaWindows: [{ id: "month", label: "month", remainingPercent: 80 }],
+        quotaWindows: [{ label: "month", remainingPercent: 80 }],
       }),
     );
     const [a, b] = await Promise.all([first, second]);
@@ -91,7 +91,7 @@ describe("usage cache", () => {
       ok: true as const,
       snapshot: snapshot({
         fetchedAt: 3000,
-        quotaWindows: [{ id: "5h", label: "5h", remainingPercent: 10 }],
+        quotaWindows: [{ label: "5h", remainingPercent: 10 }],
       }),
     }));
 

@@ -23,7 +23,6 @@ describe("copilot usage", () => {
         provider: "github-copilot",
         quotaWindows: [
           {
-            id: "month",
             label: "Premium",
             remainingPercent: 65,
             resetsAt: "2026-08-01T00:00:00.000Z",
@@ -34,7 +33,24 @@ describe("copilot usage", () => {
   });
 
   it("fails when no quota snapshots are present", () => {
-    expect(mapCopilotUsagePayload({ quota_snapshots: {} }, NOW).ok).toBeFalsy();
+    expect(mapCopilotUsagePayload({ quota_snapshots: {} }, NOW)).toStrictEqual({
+      ok: false,
+      error: { kind: "failure", message: "no usage data in response" },
+    });
+  });
+
+  it("reports an account without metered quota as unavailable", () => {
+    expect(
+      mapCopilotUsagePayload(
+        {
+          quota_snapshots: { chat: { unlimited: true }, premium_interactions: { unlimited: true } },
+        },
+        NOW,
+      ),
+    ).toStrictEqual({
+      ok: false,
+      error: { kind: "unavailable", message: "no metered Copilot quota" },
+    });
   });
 
   it("requests the Copilot endpoint with its required headers", async () => {

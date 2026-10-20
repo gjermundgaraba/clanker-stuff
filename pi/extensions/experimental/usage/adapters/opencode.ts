@@ -23,13 +23,13 @@ const OpenCodeGoUsagePayloadSchema = Type.Object({
 
 const parseWindow = (
   raw: Static<typeof OpenCodeGoWindowSchema> | undefined,
-  id: UsageWindow["id"],
+  label: string,
 ): UsageWindow | undefined => {
   if (raw === undefined) {
     return undefined;
   }
 
-  return makeUsageWindow(id, 100 - raw.percent, parseIso(raw.resetsAt));
+  return makeUsageWindow(label, 100 - raw.percent, parseIso(raw.resetsAt));
 };
 
 export const mapOpenCodeGoUsagePayload = (

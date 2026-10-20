@@ -92,8 +92,8 @@ export const mapXaiUsagePayloads = (
   nowMs: number,
 ): UsageFetchResult => {
   const windows = [
-    monthlyPayload === undefined ? undefined : mapXaiMonthlyPayload(monthlyPayload),
     weeklyPayload === undefined ? undefined : mapXaiWeeklyPayload(weeklyPayload),
+    monthlyPayload === undefined ? undefined : mapXaiMonthlyPayload(monthlyPayload),
   ].filter(isDefined);
 
   const prepaidBalance = moneyValue(weeklyPayload?.config.prepaidBalance);

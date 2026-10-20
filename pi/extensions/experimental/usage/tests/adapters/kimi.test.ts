@@ -33,13 +33,11 @@ describe("kimi usage", () => {
         provider: "kimi-coding",
         quotaWindows: [
           {
-            id: "5h",
             label: "5h",
             remainingPercent: 40,
             resetsAt: "2026-07-21T14:00:00.000Z",
           },
           {
-            id: "week",
             label: "week",
             remainingPercent: 50,
             resetsAt: "2026-07-28T00:00:00.000Z",
@@ -50,19 +48,20 @@ describe("kimi usage", () => {
   });
 
   it.each([
-    [{ duration: 60, timeUnit: "TIME_UNIT_MINUTE" }, "5h", "1h"],
-    [{ duration: 24, timeUnit: "TIME_UNIT_HOUR" }, "week", "1d"],
-    [{ duration: 1, timeUnit: "TIME_UNIT_DAY" }, "week", "1d"],
-    [{ duration: 90, timeUnit: "TIME_UNIT_MINUTE" }, "5h", "90m"],
-    [{ duration: 3, timeUnit: "TIME_UNIT_FORTNIGHT" }, "5h", "5h"],
-  ])("labels a %o window with its actual length", (window, id, label) => {
+    [{ duration: 60, timeUnit: "TIME_UNIT_MINUTE" }, "1h"],
+    [{ duration: 24, timeUnit: "TIME_UNIT_HOUR" }, "1d"],
+    [{ duration: 1, timeUnit: "TIME_UNIT_DAY" }, "1d"],
+    [{ duration: 90, timeUnit: "TIME_UNIT_MINUTE" }, "90m"],
+    [{ duration: 1.5, timeUnit: "TIME_UNIT_MINUTE" }, "90s"],
+    [{ duration: 3, timeUnit: "TIME_UNIT_FORTNIGHT" }, "5h"],
+  ])("labels a %o window with its actual length", (window, label) => {
     const result = mapKimiUsagePayload(
       { limits: [{ detail: { limit: 10, remaining: 5 }, window }] },
       NOW,
     );
 
     expect(result.ok && result.snapshot.quotaWindows).toStrictEqual([
-      { id, label, remainingPercent: 50 },
+      { label, remainingPercent: 50 },
     ]);
   });
 

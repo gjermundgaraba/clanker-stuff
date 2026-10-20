@@ -1,6 +1,7 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { fetchClaudeUsage } from "./adapters/claude.js";
+import { fetchCodexUsage } from "./adapters/codex.js";
 import { fetchCopilotUsage } from "./adapters/copilot.js";
 import { fetchKimiUsage } from "./adapters/kimi.js";
 import { fetchOpenCodeGoUsage } from "./adapters/opencode.js";
@@ -86,6 +87,7 @@ export const createUsageController = (
 
   const usageFetchers = {
     anthropic: fetchClaudeUsage,
+    "openai-codex": fetchCodexUsage,
     "github-copilot": fetchCopilotUsage,
     "kimi-coding": fetchKimiUsage,
     "opencode-go": fetchOpenCodeGoUsage,

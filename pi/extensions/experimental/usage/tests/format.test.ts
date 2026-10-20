@@ -17,13 +17,11 @@ const claudeSnapshot = (): UsageSnapshot => ({
   provider: "anthropic",
   quotaWindows: [
     {
-      id: "5h",
       label: "5h",
       remainingPercent: 68.4,
       resetsAt: new Date(now + 2 * 3_600_000).toISOString(),
     },
     {
-      id: "week",
       label: "week",
       remainingPercent: 66.1,
       resetsAt: new Date(now + 3 * 86_400_000).toISOString(),
@@ -66,6 +64,34 @@ describe("detail formatting", () => {
     expect(text).toContain("week  66% left  resets in 3d");
   });
 
+  it("preserves adapter window order and keeps supplementary buckets together", () => {
+    const text = formatDetail(
+      {
+        provider: "openai-codex",
+        fetchedAt: now,
+        quotaWindows: [
+          { label: "3h", remainingPercent: 75 },
+          { label: "7d", remainingPercent: 40 },
+        ],
+        additionalQuotaWindows: [
+          { label: "Spark 5h", remainingPercent: 0 },
+          { label: "Spark 7d", remainingPercent: 20 },
+        ],
+        accounting: { kind: "credit-balance", available: 12.5 },
+      },
+      now,
+    );
+
+    expect(text.split("\n")).toStrictEqual([
+      "Codex",
+      "3h  75% left  resets unknown",
+      "7d  40% left  resets unknown",
+      "Spark 5h  0% left  resets unknown",
+      "Spark 7d  20% left  resets unknown",
+      "credits  12.5",
+    ]);
+  });
+
   it("formats Radius accounting", () => {
     const text = formatDetail(
       {
@@ -96,6 +122,12 @@ describe("detail formatting", () => {
 
     if (firstWindow === undefined) throw new Error("expected usage window");
     firstWindow.label = "5h\nforged\twindow\u009B";
+    snapshot.additionalQuotaWindows = [
+      {
+        label: "Spark\n5h\u001B]52;c;secret\u0007",
+        remainingPercent: 10,
+      },
+    ];
 
     const detail = formatDetail(snapshot, now);
 
@@ -106,7 +138,7 @@ describe("detail formatting", () => {
 
     expect(`${detail}\n${error}`).not.toContain("\u001B");
     expect(`${detail}\n${error}`).not.toContain("\u009B");
-    expect(detail.split("\n")).toHaveLength(3);
+    expect(detail.split("\n")).toHaveLength(4);
     expect(error).not.toContain("\n");
     expect(`${detail}\n${error}`).not.toContain("\t");
   });

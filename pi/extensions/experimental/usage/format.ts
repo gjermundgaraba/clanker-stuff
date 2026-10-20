@@ -1,18 +1,7 @@
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 
 import { providerDisplayName } from "./providers.js";
-import type {
-  SupportedProvider,
-  UsageAccounting,
-  UsageSnapshot,
-  UsageWindowId,
-} from "./providers.js";
-
-const WINDOW_ORDER = {
-  "5h": 0,
-  week: 1,
-  month: 2,
-} satisfies Record<UsageWindowId, number>;
+import type { SupportedProvider, UsageAccounting, UsageSnapshot } from "./providers.js";
 
 const USD_FORMAT = new Intl.NumberFormat("en-US", {
   currency: "USD",
@@ -84,9 +73,7 @@ export const formatProviderLabel = (snapshot: UsageSnapshot): string =>
 export const formatDetail = (snapshot: UsageSnapshot, nowMs: number): string => {
   const lines = [formatProviderLabel(snapshot)];
 
-  const windows = snapshot.quotaWindows.toSorted(
-    (left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id],
-  );
+  const windows = [...snapshot.quotaWindows, ...(snapshot.additionalQuotaWindows ?? [])];
 
   for (const window of windows) {
     const reset =

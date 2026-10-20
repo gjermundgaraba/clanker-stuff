@@ -1,4 +1,4 @@
-import { okFetch } from "./adapters/helpers.js";
+import { CODEX_TOKEN, okFetch } from "./adapters/helpers.js";
 import { fauxAssistantMessage, type Api, type Model } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -172,6 +172,60 @@ describe("usage controller", () => {
       await host.emitSessionShutdown(ctx);
     },
   );
+
+  it("lists Codex separately and never substitutes its quota for native OpenAI", async () => {
+    const auth = vi.fn<GetAuth>(async (provider) =>
+      provider === "openai-codex" ? { auth: { apiKey: CODEX_TOKEN }, source: "OAuth" } : undefined,
+    );
+
+    const client = {
+      fetchJson: okFetch({
+        plan_type: "plus",
+        rate_limit: {
+          primary_window: { used_percent: 35, limit_window_seconds: 18_000 },
+        },
+        additional_rate_limits: [
+          {
+            limit_name: "Spark",
+            rate_limit: { primary_window: { used_percent: 100, limit_window_seconds: 18_000 } },
+          },
+        ],
+      }),
+    };
+
+    const fetchJson = vi.spyOn(client, "fetchJson");
+    const nativeModel = { ...claudeModel, provider: "openai" };
+    const codexModel = { ...claudeModel, provider: "openai-codex" };
+
+    const host = createExtensionHost(
+      createUsageExtension({
+        fetchJson: client.fetchJson,
+        now: () => 1000,
+        getAuth: () => auth,
+        radiusBillingUrl: () => undefined,
+      }),
+      { model: nativeModel },
+    );
+
+    const native = host.createContext({ model: nativeModel });
+
+    await host.emitSessionStart(native);
+    await host.runCommand("usage", "", native);
+    expect(host.getNotifications().at(-1)?.message).toBe(
+      "usage: quota reporting is unsupported for openai\n\nCodex (plus)\n5h  65% left  resets unknown\nSpark 5h  0% left  resets unknown",
+    );
+    expect(host.getStatus("usage")).toBeUndefined();
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+
+    const codex = host.createContext({ model: codexModel });
+    await host.emit("model_select", { type: "model_select", model: codexModel }, codex);
+    await vi.waitFor(() => expect(host.getStatus("usage")).toMatch(/^Codex \(plus\) 5h .* 35%$/));
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+
+    await host.emit("model_select", { type: "model_select", model: nativeModel }, native);
+    expect(host.getStatus("usage")).toBeUndefined();
+    await host.emitSessionShutdown(native);
+  });
 
   it("names why the target's usage is unavailable, but not other providers'", async () => {
     const host = createExtensionHost(

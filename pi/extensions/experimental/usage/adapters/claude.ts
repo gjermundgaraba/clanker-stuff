@@ -14,19 +14,19 @@ const ClaudeWindowSchema = Type.Object({
 });
 
 const ClaudeUsagePayloadSchema = Type.Object({
-  five_hour: Type.Optional(ClaudeWindowSchema),
-  seven_day: Type.Optional(ClaudeWindowSchema),
+  five_hour: Type.Optional(Type.Union([ClaudeWindowSchema, Type.Null()])),
+  seven_day: Type.Optional(Type.Union([ClaudeWindowSchema, Type.Null()])),
 });
 
 const parseWindow = (
-  raw: Static<typeof ClaudeWindowSchema> | undefined,
-  id: UsageWindow["id"],
+  raw: Static<typeof ClaudeWindowSchema> | null | undefined,
+  label: string,
 ): UsageWindow | undefined => {
-  if (raw === undefined) {
+  if (raw === undefined || raw === null) {
     return undefined;
   }
 
-  return makeUsageWindow(id, 100 - raw.utilization, parseIso(raw.resets_at));
+  return makeUsageWindow(label, 100 - raw.utilization, parseIso(raw.resets_at));
 };
 
 export const mapClaudeUsagePayload = (
@@ -49,7 +49,7 @@ export const fetchClaudeUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =
       url: CLAUDE_USAGE_URL,
       schema: ClaudeUsagePayloadSchema,
       oauth: true,
-      headers: { "anthropic-beta": "oauth-2025-04-20" },
+      headers: () => ({ "anthropic-beta": "oauth-2025-04-20" }),
     },
     mapClaudeUsagePayload,
   );

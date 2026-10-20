@@ -5,6 +5,7 @@ The usage extension reads credentials already configured for pi and uses them on
 | Provider       | Usage source              |
 | -------------- | ------------------------- |
 | Anthropic      | Anthropic OAuth usage API |
+| OpenAI Codex   | ChatGPT Codex usage API   |
 | GitHub Copilot | GitHub Copilot usage API  |
 | Kimi           | Moonshot usage API        |
 | OpenCode Go    | OpenCode Go usage API     |
@@ -15,7 +16,7 @@ The usage extension reads credentials already configured for pi and uses them on
 
 Provider APIs and response formats are not stable public contracts, so a provider can temporarily stop working after an upstream change. `/usage refresh` bypasses the local cache when checking a failure.
 
-A usage endpoint that answers HTTP 403 means the credential lacks that entitlement, so the provider is reported as unavailable rather than failed. Anthropic and xAI subscription usage requires an OAuth login; API keys are reported as unavailable without a request. When the current target is unavailable, its status says so and `/usage` leads with the reason; other unavailable providers are left out of `/usage`.
+A usage endpoint that answers HTTP 403 means the credential lacks that entitlement, so the provider is reported as unavailable rather than failed. Anthropic, OpenAI Codex, and xAI subscription usage requires an OAuth login; API keys are reported as unavailable without a request. When the current target is unavailable, its status says so and `/usage` leads with the reason; other unavailable providers are left out of `/usage`.
 
 ## Active provider
 
@@ -25,11 +26,19 @@ Pending messages and unresolved virtual routing failures are not physical attemp
 
 The target is account relevance, not proof of a billable HTTP request. An unsupported target clears the status, and `/usage` explains that quota reporting is unsupported for its provider; no supported provider's older quota is substituted. Native session token/cost accounting is unaffected, and the footer's separate model/thinking history still describes successful completed responses.
 
-The status shows the most-used quota window, or the available balance for accounting providers, and ends with `!` while it shows cached data after a failed refresh. Pi's footer and the footer extension both render it.
+The status summarizes the most-used main account window, or accounting when no main window is reported. Supplementary feature quotas appear only in `/usage`; the footer is an account summary, not a prediction of whether the selected model can continue. Detail output preserves each adapter's window order.
+
+If only feature quotas are reported, the footer says “account quota not reported” while `/usage` shows those quotas. A response without any metrics counts as a failed refresh, since it cannot be told apart from an upstream format change. Failed refreshes retain the latest successful snapshot and mark the status with `!`. Pi's footer and the footer extension both render it.
+
+## OpenAI Codex
+
+Sign in with `/login openai-codex`. Pi manages the OAuth token and refresh; the extension uses that token and its account ID to read `https://chatgpt.com/backend-api/wham/usage`. This is an internal ChatGPT endpoint, not a stable public OpenAI API.
+
+`/usage` lists the account as **Codex**, with main quotas, supplementary feature quotas, and the credit balance when the account has metered credits. Windows use their actual durations. The status line shows Codex only when the active physical provider is `openai-codex`.
 
 ## Native OpenAI
 
-Quota reporting is unsupported for native `openai`, as for any provider without a usage integration; this is not a login failure. Native credentials are not sent to any usage endpoint, and inference support does not establish quota support.
+Quota reporting is unsupported for native `openai`, as for any provider without a usage integration; this is not a login failure. Native credentials are not sent to any usage endpoint, and a separate Codex login's quota is never substituted for native status.
 
 ## OpenRouter credits
 

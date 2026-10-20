@@ -3,6 +3,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const SUPPORTED_PROVIDERS = [
   "anthropic",
+  "openai-codex",
   "openrouter",
   "github-copilot",
   "kimi-coding",
@@ -14,10 +15,7 @@ export const SUPPORTED_PROVIDERS = [
 
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
-export type UsageWindowId = "5h" | "week" | "month";
-
 export interface UsageWindow {
-  id: UsageWindowId;
   label: string;
   remainingPercent: number;
   resetsAt?: string;
@@ -37,7 +35,10 @@ export type UsageAccounting =
 export interface UsageSnapshot {
   provider: SupportedProvider;
   planLabel?: string;
+  /** Main account windows in presentation order. */
   quotaWindows: UsageWindow[];
+  /** Supplementary feature windows, shown only in the detail view. */
+  additionalQuotaWindows?: UsageWindow[];
   accounting?: UsageAccounting;
   fetchedAt: number;
 }
@@ -59,8 +60,11 @@ export const usageFailure = (
   kind: UsageFetchError["kind"] = "failure",
 ): UsageFetchFailure => ({ error: { kind, message }, ok: false });
 
+/** A response without metrics is indistinguishable from an upstream shape change, so it fails. */
 export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
-  snapshot.quotaWindows.length > 0 || snapshot.accounting !== undefined
+  snapshot.quotaWindows.length > 0 ||
+  (snapshot.additionalQuotaWindows?.length ?? 0) > 0 ||
+  snapshot.accounting !== undefined
     ? { ok: true, snapshot }
     : usageFailure("no usage data in response");
 
@@ -88,6 +92,7 @@ export const quotaUnavailableMessage = (provider: string | undefined): string =>
 
 const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Claude",
+  "openai-codex": "Codex",
   "github-copilot": "Copilot",
   "kimi-coding": "Kimi",
   openrouter: "OpenRouter",

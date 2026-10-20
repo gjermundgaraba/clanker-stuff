@@ -22,7 +22,6 @@ describe("xai monthly parsing", () => {
     });
 
     expect(window).toStrictEqual({
-      id: "month",
       label: "month",
       remainingPercent: 85,
       resetsAt: "2026-08-01T00:00:00.000Z",
@@ -52,7 +51,6 @@ describe("xai weekly parsing", () => {
     });
 
     expect(window).toStrictEqual({
-      id: "week",
       label: "week",
       remainingPercent: 80,
       resetsAt: "2026-07-28T00:00:00.000Z",
@@ -110,9 +108,9 @@ describe("xai combined payloads", () => {
       return;
     }
 
-    expect(result.snapshot.accounting?.available).toBe(1084);
+    expect(result.snapshot.accounting).toStrictEqual({ kind: "credit-balance", available: 1084 });
     expect(
-      result.snapshot.quotaWindows.find((window) => window.id === "week")?.remainingPercent,
+      result.snapshot.quotaWindows.find((window) => window.label === "week")?.remainingPercent,
     ).toBe(0);
   });
 });
@@ -175,7 +173,7 @@ describe("xai fetch", () => {
       snapshot: {
         fetchedAt: 9,
         provider: "xai",
-        quotaWindows: [{ id: "month", label: "month", remainingPercent: 75 }],
+        quotaWindows: [{ label: "month", remainingPercent: 75 }],
       },
     });
   });
@@ -238,6 +236,31 @@ describe("xai fetch", () => {
 });
 
 describe("xai optional payload boundaries", () => {
+  it("keeps a reported zero credit balance when monthly metrics are unavailable", async () => {
+    const fetchJson: FetchJson = (url, schema, headers) =>
+      okFetch(url.includes("format=credits") ? { config: { prepaidBalance: 0 } } : {})(
+        url,
+        schema,
+        headers,
+      );
+
+    await expect(
+      fetchXaiUsage({
+        getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+        fetchJson,
+        now: () => 1,
+      }),
+    ).resolves.toStrictEqual({
+      ok: true,
+      snapshot: {
+        fetchedAt: 1,
+        provider: "xai",
+        quotaWindows: [],
+        accounting: { kind: "credit-balance", available: 0 },
+      },
+    });
+  });
+
   it.each([200, 204])(
     "retains weekly usage after an empty monthly HTTP %i response",
     async (status) => {
@@ -260,7 +283,7 @@ describe("xai optional payload boundaries", () => {
             accounting: { available: 10, kind: "credit-balance" },
             fetchedAt: 1,
             provider: "xai",
-            quotaWindows: [{ id: "week", label: "week", remainingPercent: 80 }],
+            quotaWindows: [{ label: "week", remainingPercent: 80 }],
           },
         });
       } finally {
@@ -270,10 +293,10 @@ describe("xai optional payload boundaries", () => {
   );
 
   it.each([
-    { monthly: null, weekly: { config: { creditUsagePercent: 20 } }, ids: ["week"] },
-    { monthly: { config: { monthlyLimit: 100, used: 10 } }, weekly: null, ids: ["month"] },
-    { monthly: { config: {} }, weekly: { config: { creditUsagePercent: 20 } }, ids: ["week"] },
-  ])("maps available windows for $ids", async ({ monthly, weekly, ids }) => {
+    { monthly: null, weekly: { config: { creditUsagePercent: 20 } }, labels: ["week"] },
+    { monthly: { config: { monthlyLimit: 100, used: 10 } }, weekly: null, labels: ["month"] },
+    { monthly: { config: {} }, weekly: { config: { creditUsagePercent: 20 } }, labels: ["week"] },
+  ])("maps available windows for $labels", async ({ monthly, weekly, labels }) => {
     const fetchJson: FetchJson = (url, schema, headers) =>
       okFetch(url.includes("format=credits") ? weekly : monthly)(url, schema, headers);
 
@@ -285,7 +308,8 @@ describe("xai optional payload boundaries", () => {
 
     expect(result.ok).toBe(true);
 
-    if (result.ok) expect(result.snapshot.quotaWindows.map(({ id }) => id)).toStrictEqual(ids);
+    if (result.ok)
+      expect(result.snapshot.quotaWindows.map(({ label }) => label)).toStrictEqual(labels);
   });
 
   it("observes weekly rejection even when the monthly request rejects", async () => {
@@ -321,7 +345,7 @@ describe("xai optional payload boundaries", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      snapshot: { quotaWindows: [{ id: "month", remainingPercent: 100 }] },
+      snapshot: { quotaWindows: [{ remainingPercent: 100 }] },
     });
   });
 });

@@ -13,9 +13,8 @@ const snapshot: UsageSnapshot = {
   fetchedAt: 1000,
   provider: "anthropic",
   quotaWindows: [
-    { id: "5h", label: "5h", remainingPercent: 80 },
+    { label: "5h", remainingPercent: 80 },
     {
-      id: "week",
       label: "week",
       remainingPercent: 10,
       resetsAt: new Date(86_401_000).toISOString(),
@@ -32,6 +31,21 @@ describe(statusText, () => {
     expect(plain(text)).toBe("Claude week ━━━━━━━━━─ 90% · 1d");
     expect(text).toContain("<error: 90%>");
     expect(text).toContain("<dim:─>");
+  });
+
+  it("does not promote supplementary quotas when no main quota is reported", () => {
+    const text = statusText(
+      ready({
+        provider: "openai-codex",
+        fetchedAt: 1000,
+        quotaWindows: [],
+        additionalQuotaWindows: [{ label: "Spark 5h", remainingPercent: 0 }],
+      }),
+      1000,
+      tones,
+    );
+
+    expect(plain(text)).toBe("Codex account quota not reported");
   });
 
   it("marks stale data and stays quiet while loading or unavailable", () => {
@@ -80,6 +94,25 @@ describe(statusText, () => {
         ),
       ),
     ).toBe("OpenRouter 12.5 credits");
+  });
+
+  it("strips terminal controls from provider quota labels", () => {
+    const text = statusText(
+      ready({
+        fetchedAt: 1000,
+        provider: "openai-codex",
+        quotaWindows: [
+          {
+            label: "Spark\n15m\u001B]52;c;secret\u0007",
+            remainingPercent: 20,
+          },
+        ],
+      }),
+      1000,
+      tones,
+    );
+
+    expect(plain(text)).toBe("Codex Spark 15m ━━━━━━━━── 80%");
   });
 
   it("strips terminal controls from provider plan labels", () => {

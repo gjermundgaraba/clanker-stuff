@@ -4,12 +4,7 @@ import { accessToken } from "../auth.js";
 import type { GetAuth } from "../auth.js";
 import type { FetchJson } from "../http.js";
 import { usageFailure } from "../providers.js";
-import type {
-  SupportedProvider,
-  UsageFetchResult,
-  UsageWindow,
-  UsageWindowId,
-} from "../providers.js";
+import type { SupportedProvider, UsageFetchResult, UsageWindow } from "../providers.js";
 
 export interface AdapterDeps {
   getAuth: GetAuth;
@@ -24,7 +19,8 @@ export interface UsageRequest<S extends TSchema> {
   oauth?: boolean;
   /** Authorization scheme; GitHub's Copilot endpoint uses `token`. */
   scheme?: "Bearer" | "token";
-  headers?: Record<string, string>;
+  /** Extra request headers; some providers route by claims in the token. */
+  headers?: (token: string) => Record<string, string>;
 }
 
 /**
@@ -45,7 +41,7 @@ export const fetchUsage = async <S extends TSchema>(
   const response = await deps.fetchJson(request.url, request.schema, {
     Accept: "application/json",
     Authorization: `${request.scheme ?? "Bearer"} ${auth.token}`,
-    ...request.headers,
+    ...request.headers?.(auth.token),
   });
 
   if (response.ok) {
@@ -60,13 +56,11 @@ export const isDefined = <T>(value: T | undefined): value is T => value !== unde
 const clampPercent = (value: number): number => Math.min(100, Math.max(0, value));
 
 export const makeUsageWindow = (
-  id: UsageWindowId,
+  label: string,
   remainingPercent: number,
   resetsAt?: string,
-  label: string = id,
 ): UsageWindow => {
   const usageWindow: UsageWindow = {
-    id,
     label,
     remainingPercent: clampPercent(remainingPercent),
   };
@@ -76,6 +70,26 @@ export const makeUsageWindow = (
   }
 
   return usageWindow;
+};
+
+/** Labels a positive duration in seconds using the largest exact whole unit. */
+export const durationLabel = (seconds: number): string => {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
+
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+
+  return `${seconds}s`;
+};
+
+/** `undefined` for values outside `Date`'s range, which `toISOString()` would throw on. */
+export const isoFromEpochMs = (value: number | undefined): string | undefined => {
+  if (value === undefined) return undefined;
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 };
 
 export const parseIso = (value: string | undefined): string | undefined => {

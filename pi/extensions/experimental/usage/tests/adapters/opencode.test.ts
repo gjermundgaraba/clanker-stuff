@@ -35,19 +35,16 @@ describe("opencode go usage", () => {
         provider: "opencode-go",
         quotaWindows: [
           {
-            id: "5h",
             label: "5h",
             remainingPercent: 88,
             resetsAt: "2026-07-21T17:00:00.000Z",
           },
           {
-            id: "week",
             label: "week",
             remainingPercent: 66,
             resetsAt: "2026-07-28T00:00:00.000Z",
           },
           {
-            id: "month",
             label: "month",
             remainingPercent: 44,
             resetsAt: "2026-08-21T12:00:00.000Z",
@@ -70,7 +67,6 @@ describe("opencode go usage", () => {
         provider: "opencode-go",
         quotaWindows: [
           {
-            id: "5h",
             label: "5h",
             remainingPercent: 75,
             resetsAt: "2026-07-21T17:00:00.000Z",

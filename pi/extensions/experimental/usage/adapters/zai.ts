@@ -1,10 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../providers.js";
+import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { fetchUsage, isDefined, makeUsageWindow } from "./util.js";
+import { fetchUsage, isoFromEpochMs, makeUsageWindow } from "./util.js";
 
 const ZAI_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
 
@@ -33,15 +33,14 @@ type ZaiLimit = Static<typeof ZaiLimitSchema>;
 /**
  * Quota windows are TOKENS_LIMIT/CREDIT_LIMIT (seen across plan
  * generations); TIME_LIMIT is the monthly web-search count. Unknown types
- * are dropped rather than guessed by unit — a rejected new type surfaces as
- * a visible "no usage data" error instead of a wrong quota (cf. CodexBar
- * issue #2724). Unit is an opaque enum: 3 marks the sub-daily window, 6 the
+ * are dropped rather than guessed by unit (cf. CodexBar issue #2724).
+ * Unit is an opaque enum: 3 marks the sub-daily window, 6 the
  * multi-day one; `number` is ignored because its meaning flipped between
  * plan generations (7 vs 1 for weekly).
  */
-const windowIdFromLimit = (limit: ZaiLimit): UsageWindowId | undefined => {
+const windowLabel = (limit: ZaiLimit): string | undefined => {
   if (limit.type === "TIME_LIMIT") {
-    return "month";
+    return "web search month";
   }
 
   if (limit.type !== "TOKENS_LIMIT" && limit.type !== "CREDIT_LIMIT") {
@@ -70,18 +69,15 @@ const remainingPercentFrom = (limit: ZaiLimit): number | undefined => {
   return limit.percentage === undefined ? undefined : 100 - limit.percentage;
 };
 
-const epochMsToIso = (value: number | undefined): string | undefined =>
-  value === undefined ? undefined : new Date(value).toISOString();
-
 const parseLimitEntry = (limit: ZaiLimit): UsageWindow | undefined => {
   const remainingPercent = remainingPercentFrom(limit);
-  const id = windowIdFromLimit(limit);
+  const label = windowLabel(limit);
 
-  if (remainingPercent === undefined || id === undefined) {
+  if (remainingPercent === undefined || label === undefined) {
     return undefined;
   }
 
-  return makeUsageWindow(id, remainingPercent, epochMsToIso(limit.nextResetTime));
+  return makeUsageWindow(label, remainingPercent, isoFromEpochMs(limit.nextResetTime));
 };
 
 const planLabelFromLevel = (level: string | undefined): string | undefined =>
@@ -102,7 +98,16 @@ export const mapZaiQuotaPayload = (
     return usageFailure(message);
   }
 
-  const windows = (payload.data?.limits ?? []).map(parseLimitEntry).filter(isDefined);
+  const quotaWindows: UsageWindow[] = [];
+  const additionalQuotaWindows: UsageWindow[] = [];
+
+  for (const limit of payload.data?.limits ?? []) {
+    const window = parseLimitEntry(limit);
+
+    if (window === undefined) continue;
+
+    (limit.type === "TIME_LIMIT" ? additionalQuotaWindows : quotaWindows).push(window);
+  }
 
   const planLabel = planLabelFromLevel(payload.data?.level);
 
@@ -110,7 +115,8 @@ export const mapZaiQuotaPayload = (
     fetchedAt: nowMs,
     ...(planLabel === undefined ? {} : { planLabel }),
     provider: "zai",
-    quotaWindows: windows,
+    quotaWindows,
+    ...(additionalQuotaWindows.length === 0 ? {} : { additionalQuotaWindows }),
   });
 };
 

@@ -14,7 +14,7 @@ describe("providers", () => {
   it("classifies supported providers at the fetch boundary", () => {
     expect(SUPPORTED_PROVIDERS.every(isSupportedProvider)).toBe(true);
 
-    for (const provider of ["unknown", "openai", "openai-codex", undefined])
+    for (const provider of ["unknown", "openai", undefined])
       expect(isSupportedProvider(provider)).toBe(false);
   });
 
@@ -79,10 +79,18 @@ describe("providers", () => {
     expect(resolveQuotaProvider(ctx)).toBeUndefined();
   });
 
-  it("requires quota or accounting", () => {
+  it("requires quota, feature quota, or accounting", () => {
     expect(usageResult({ fetchedAt: 1, provider: "radius", quotaWindows: [] })).toMatchObject({
       ok: false,
     });
+    expect(
+      usageResult({
+        additionalQuotaWindows: [{ label: "web search month", remainingPercent: 0 }],
+        fetchedAt: 1,
+        provider: "zai",
+        quotaWindows: [],
+      }),
+    ).toMatchObject({ ok: true });
     expect(
       usageResult({
         accounting: { available: 0, kind: "credit-balance" },

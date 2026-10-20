@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
-import { usageResult } from "../providers.js";
+import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
 import { fetchUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
 
@@ -15,12 +15,10 @@ const CopilotQuotaSchema = Type.Object({
 
 const CopilotUsagePayloadSchema = Type.Object({
   quota_reset_date_utc: Type.Optional(Type.String()),
-  quota_snapshots: Type.Optional(
-    Type.Object({
-      chat: Type.Optional(CopilotQuotaSchema),
-      premium_interactions: Type.Optional(CopilotQuotaSchema),
-    }),
-  ),
+  quota_snapshots: Type.Object({
+    chat: Type.Optional(CopilotQuotaSchema),
+    premium_interactions: Type.Optional(CopilotQuotaSchema),
+  }),
 });
 
 const parseQuotaWindow = (
@@ -32,7 +30,7 @@ const parseQuotaWindow = (
     return undefined;
   }
 
-  return makeUsageWindow("month", quota.percent_remaining, resetsAt, label);
+  return makeUsageWindow(label, quota.percent_remaining, resetsAt);
 };
 
 export const mapCopilotUsagePayload = (
@@ -41,10 +39,15 @@ export const mapCopilotUsagePayload = (
 ): UsageFetchResult => {
   const resetsAt = parseIso(payload.quota_reset_date_utc);
 
+  const { chat, premium_interactions: premium } = payload.quota_snapshots;
+
   const windows = [
-    parseQuotaWindow(payload.quota_snapshots?.premium_interactions, "Premium", resetsAt),
-    parseQuotaWindow(payload.quota_snapshots?.chat, "Chat", resetsAt),
+    parseQuotaWindow(premium, "Premium", resetsAt),
+    parseQuotaWindow(chat, "Chat", resetsAt),
   ].filter(isDefined);
+
+  if (windows.length === 0 && (chat?.unlimited === true || premium?.unlimited === true))
+    return usageFailure("no metered Copilot quota", "unavailable");
 
   return usageResult({ fetchedAt: nowMs, provider: "github-copilot", quotaWindows: windows });
 };
@@ -57,11 +60,11 @@ export const fetchCopilotUsage = (deps: AdapterDeps): Promise<UsageFetchResult> 
       url: COPILOT_USAGE_URL,
       schema: CopilotUsagePayloadSchema,
       scheme: "token",
-      headers: {
+      headers: () => ({
         "Editor-Version": "vscode/1.96.2",
         "User-Agent": "GitHubCopilotChat/0.26.7",
         "X-Github-Api-Version": "2025-04-01",
-      },
+      }),
     },
     mapCopilotUsagePayload,
   );

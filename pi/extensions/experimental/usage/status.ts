@@ -1,4 +1,5 @@
 import { percentTone } from "@clanker-stuff/pi-tones";
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 import { formatCredits, formatProviderLabel, formatResetDuration, formatUsd } from "./format.js";
@@ -23,7 +24,7 @@ const METER_CELLS = 10;
 /** `makeUsageWindow` clamps `remainingPercent` to 0–100, which keeps the meter in range. */
 const usedPercent = (window: UsageWindow): number => 100 - window.remainingPercent;
 
-/** The window closest to its limit is the one that will stop work first. */
+/** Summarize the main account windows, not independent feature limits. */
 const selectQuotaWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {
   let selected: UsageWindow | undefined;
 
@@ -43,7 +44,7 @@ const metricText = (snapshot: UsageSnapshot, now: number, theme: Pick<Theme, "fg
     const filled = Math.round((percent / 100) * METER_CELLS);
 
     return [
-      theme.fg("muted", `${window.label} `),
+      theme.fg("muted", `${inlineText(window.label)} `),
       theme.fg(tone, "━".repeat(filled)),
       theme.fg("dim", "─".repeat(METER_CELLS - filled)),
       theme.fg(tone, ` ${Math.round(percent)}%`),
@@ -55,7 +56,8 @@ const metricText = (snapshot: UsageSnapshot, now: number, theme: Pick<Theme, "fg
 
   const { accounting } = snapshot;
 
-  if (accounting === undefined) return "";
+  // `usageResult` admits a snapshot without main windows or accounting only for feature quotas.
+  if (accounting === undefined) return theme.fg("muted", "account quota not reported");
 
   return accounting.kind === "credit-balance"
     ? theme.fg("text", `${formatCredits(accounting.available)} credits`)

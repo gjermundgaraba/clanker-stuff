@@ -56,7 +56,10 @@ describe("radius usage", () => {
       balance: { ...payload.balance, available: -1.25 },
     });
 
-    expect(result.ok && result.snapshot.accounting?.available).toBe(-1.25);
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: { accounting: { kind: "radius-billing", available: -1.25 } },
+    });
   });
 
   it.each([

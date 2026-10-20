@@ -87,13 +87,11 @@ describe("zai usage", () => {
         provider: "zai",
         quotaWindows: [
           {
-            id: "5h",
             label: "5h",
             remainingPercent: (8446 / 12_000) * 100,
             resetsAt: new Date(NOW + 2 * 3_600_000).toISOString(),
           },
           {
-            id: "week",
             label: "week",
             remainingPercent: (49_341 / 60_000) * 100,
             resetsAt: new Date(NOW + 6 * 86_400_000).toISOString(),
@@ -113,23 +111,36 @@ describe("zai usage", () => {
         provider: "zai",
         quotaWindows: [
           {
-            id: "5h",
             label: "5h",
             remainingPercent: (672_305_536 / 800_000_000) * 100,
             resetsAt: new Date(NOW + 3_600_000).toISOString(),
           },
           {
-            id: "week",
             label: "week",
             remainingPercent: (5_000_000_000 / 6_000_000_000) * 100,
             resetsAt: new Date(NOW + 5 * 86_400_000).toISOString(),
           },
+        ],
+        additionalQuotaWindows: [
           {
-            id: "month",
-            label: "month",
+            label: "web search month",
             remainingPercent: (2172 / 4000) * 100,
           },
         ],
+      },
+    });
+  });
+
+  it("keeps exhausted web-search quotas separate even without main account quotas", () => {
+    expect(
+      mapZaiQuotaPayload({ data: { limits: [{ type: "TIME_LIMIT", percentage: 100 }] } }, NOW),
+    ).toStrictEqual({
+      ok: true,
+      snapshot: {
+        fetchedAt: NOW,
+        provider: "zai",
+        quotaWindows: [],
+        additionalQuotaWindows: [{ label: "web search month", remainingPercent: 0 }],
       },
     });
   });
@@ -165,7 +176,7 @@ describe("zai usage", () => {
       snapshot: {
         fetchedAt: NOW,
         provider: "zai",
-        quotaWindows: [{ id: "5h", label: "5h", remainingPercent: 70 }],
+        quotaWindows: [{ label: "5h", remainingPercent: 70 }],
       },
     });
   });
@@ -195,7 +206,6 @@ describe("zai usage", () => {
 
     expect(result.ok && result.snapshot.quotaWindows).toStrictEqual([
       {
-        id: "5h",
         label: "5h",
         remainingPercent: 70,
       },

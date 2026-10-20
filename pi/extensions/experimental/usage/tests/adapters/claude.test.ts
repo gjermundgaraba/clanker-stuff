@@ -26,13 +26,11 @@ describe("claude usage", () => {
         provider: "anthropic",
         quotaWindows: [
           {
-            id: "5h",
             label: "5h",
             remainingPercent: 75,
             resetsAt: "2026-07-21T14:00:00.000Z",
           },
           {
-            id: "week",
             label: "week",
             remainingPercent: 50,
             resetsAt: "2026-07-28T00:00:00.000Z",
@@ -42,12 +40,21 @@ describe("claude usage", () => {
     });
   });
 
-  it("fails when a valid payload has no windows", () => {
-    expect(mapClaudeUsagePayload({}, NOW)).toStrictEqual({
-      ok: false,
-      error: { kind: "failure", message: "no usage data in response" },
-    });
-  });
+  it.each([{}, { five_hour: null, seven_day: null }])(
+    "fails when a valid payload has no windows: %j",
+    async (payload) => {
+      await expect(
+        fetchClaudeUsage({
+          getAuth: tokenAuth("token"),
+          fetchJson: okFetch(payload),
+          now: () => NOW,
+        }),
+      ).resolves.toStrictEqual({
+        ok: false,
+        error: { kind: "failure", message: "no usage data in response" },
+      });
+    },
+  );
 
   it.each([-1, 101])("rejects out-of-range utilization %s at ingress", async (utilization) => {
     await expect(
