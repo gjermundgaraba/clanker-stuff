@@ -89,6 +89,14 @@ describe("questionnaire presentation", () => {
     expect(text).not.toContain("Recommendation");
     expect(text).not.toContain("Questionnaire note:");
   });
+  it("shows a required marker for a selected but blank custom draft", () => {
+    const item = fresh();
+    const answer = item.draft?.answers.target;
+    assert(answer);
+    answer.custom_selected = true;
+
+    expect(reviewText(item)).toContain("(blank — required)");
+  });
   it("compares only changed answers and notes without hiding multiline text", () => {
     let item = fresh();
 

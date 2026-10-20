@@ -173,7 +173,7 @@ export function answered(a: Draft["answers"][string] | undefined): boolean {
   );
 }
 
-/** The draft's current answer in submission shape; a blank custom answer is shown as required. */
+/** The draft's current answer in submission shape. */
 export function draftAnswer(item: Interaction, q: Question): Answer {
   const answer: Answer = { question: q.question, header: q.header, selections: [] };
   const a = item.draft?.answers[q.id];
@@ -191,7 +191,7 @@ export function draftAnswer(item: Interaction, q: Question): Answer {
   }
 
   if (a.custom_selected) {
-    answer.custom = { text: displayText(a.custom).trim() ? a.custom : "(blank — required)" };
+    answer.custom = { text: a.custom };
 
     if (a.custom_note) answer.custom.note = a.custom_note;
   }

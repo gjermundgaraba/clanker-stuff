@@ -20,7 +20,7 @@ export function answerRows(answer: Answer | undefined): Row[] {
   if (answer?.custom)
     rows.push({
       kind: "answer",
-      text: answer.custom.text,
+      text: displayText(answer.custom.text).trim() ? answer.custom.text : "(blank — required)",
       ...(answer.custom.note !== undefined ? { note: answer.custom.note } : {}),
     });
 

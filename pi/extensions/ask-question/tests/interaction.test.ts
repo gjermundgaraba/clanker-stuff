@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, expect, it } from "vite-plus/test";
-import { awaitingUser, collectAnswers, createInteraction, transition } from "../interaction.js";
+import {
+  awaitingUser,
+  collectAnswers,
+  createInteraction,
+  draftAnswer,
+  transition,
+} from "../interaction.js";
 import type { Action } from "../interaction.js";
 
 const request = {
@@ -134,6 +140,14 @@ describe("questionnaire transitions", () => {
       selections: [{ option_id: "local" }],
       custom: { text: "also a third", note: "custom rationale" },
     });
+  });
+  it("keeps a blank custom answer in a draft as typed, without a display placeholder", () => {
+    const item = createInteraction("question_test", request, "call1", "async");
+    const answer = item.draft?.answers.target;
+    assert.ok(answer);
+    answer.custom_selected = true;
+
+    expect(draftAnswer(item, request.questions[0])).toMatchObject({ custom: { text: "" } });
   });
   it("supports IDs that also name Object prototype members without inventing notes", () => {
     let item = createInteraction(
