@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
@@ -42,23 +42,23 @@ const setup = async (...responses: ResponseStep[]) => {
     throw new Error("Authentication belongs to streamSimple");
   });
 
-  let runtime: TurnRecapRuntime | undefined;
+  let api: ExtensionAPI | undefined;
 
   const host = createExtensionHost((pi) => {
-    runtime = new TurnRecapRuntime(
-      {
-        ...pi,
-        appendEntry: (type, data) => {
-          session.appendCustomEntry(type, data);
-        },
+    api = {
+      ...pi,
+      appendEntry: (type, data) => {
+        session.appendCustomEntry(type, data);
       },
-      configPath,
-    );
+    };
   });
 
   await host.ready;
 
-  if (!runtime) throw new Error("Missing runtime");
+  if (!api) throw new Error("Missing extension API");
+  const readyApi = api;
+  const createRuntime = () => new TurnRecapRuntime(readyApi, configPath);
+  let runtime = createRuntime();
   const tui = createMockTui();
   const theme = createIdentityTheme();
   let component: (Component & { dispose?(): void }) | undefined;
@@ -78,9 +78,7 @@ const setup = async (...responses: ResponseStep[]) => {
     },
   });
 
-  const readyRuntime = runtime;
-  onTestFinished(() => readyRuntime.shutdown(ctx));
-  await runtime.start(ctx);
+  onTestFinished(() => runtime.shutdown(ctx));
 
   const snapshots = () =>
     session
@@ -114,7 +112,15 @@ const setup = async (...responses: ResponseStep[]) => {
     stream,
     ctx,
     host,
-    runtime,
+    get runtime() {
+      return runtime;
+    },
+    /** Pi's reload: the session's runtime shuts down and a new one starts over the same session. */
+    reload: async () => {
+      runtime.shutdown(ctx);
+      runtime = createRuntime();
+      await runtime.start(ctx);
+    },
     snapshots,
     recaps,
     render: () => component?.render(100).join("\n") ?? "",
@@ -123,10 +129,18 @@ const setup = async (...responses: ResponseStep[]) => {
       const latest = snapshots().at(-1);
 
       return latest
-        ? renderCard(latest, readyRuntime.recap(latest.runId), 100, theme, expanded).join("\n")
+        ? renderCard(latest, runtime.recap(latest.runId), 100, theme, expanded).join("\n")
         : "";
     },
   };
+};
+
+/** A runtime after Pi's session start, for tests that arrange nothing first. */
+const started = async (...responses: ResponseStep[]) => {
+  const env = await setup(...responses);
+  await env.runtime.start(env.ctx);
+
+  return env;
 };
 
 afterEach(() => vi.useRealTimers());
@@ -143,18 +157,15 @@ describe("turn recap runtime", () => {
     vi.useFakeTimers();
     const env = await setup();
     await installFont();
-
-    for (let run = 0; run < 2; run++) {
-      await env.runtime.start(env.ctx);
-      env.runtime.begin(env.ctx);
-      expect(env.render()).toContain("0s elapsed");
-      vi.advanceTimersByTime(1000);
-      env.render();
-      vi.advanceTimersByTime(130);
-      expect(env.render()).toContain(`${glyph}s elapsed`);
-      vi.advanceTimersByTime(370);
-      expect(env.render()).toContain("1s elapsed");
-    }
+    await env.runtime.start(env.ctx);
+    env.runtime.begin(env.ctx);
+    expect(env.render()).toContain("0s elapsed");
+    vi.advanceTimersByTime(1000);
+    env.render();
+    vi.advanceTimersByTime(130);
+    expect(env.render()).toContain(`${glyph}s elapsed`);
+    vi.advanceTimersByTime(370);
+    expect(env.render()).toContain("1s elapsed");
 
     expect(env.host.getNotifications()).toEqual([]);
     env.runtime.shutdown(env.ctx);
@@ -230,7 +241,7 @@ describe("turn recap runtime", () => {
   it("writes the card when the run settles and fills in its recap when it arrives", async () => {
     vi.useFakeTimers();
     const response = Promise.withResolvers<AssistantMessage>();
-    const env = await setup(() => response.promise);
+    const env = await started(() => response.promise);
     expect(env.render()).toBe("");
     env.runtime.begin(env.ctx);
     expect(env.render()).toContain("0s elapsed");
@@ -260,11 +271,11 @@ describe("turn recap runtime", () => {
   });
 
   it("restores recaps into their cards after a reload", async () => {
-    const env = await setup(() => fauxAssistantMessage("Restored recap"));
+    const env = await started(() => fauxAssistantMessage("Restored recap"));
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
-    await env.runtime.start(env.ctx);
+    await env.reload();
     expect(env.card()).toContain("Restored recap");
   });
 
@@ -290,7 +301,7 @@ describe("turn recap runtime", () => {
   it.each(["completed", "aborted", "error"] as const)(
     "writes a %s run without a recap when there is nothing to recap",
     async (outcome) => {
-      const env = await setup();
+      const env = await started();
       env.runtime.begin(env.ctx);
       env.runtime.boundary({ outcome }, env.ctx);
       await env.runtime.settled({ aborted: false }, env.ctx);
@@ -316,7 +327,7 @@ describe("turn recap runtime", () => {
   });
 
   it("takes Pi's abort over a last turn that completed", async () => {
-    const env = await setup();
+    const env = await started();
     env.runtime.begin(env.ctx);
     env.runtime.boundary({ outcome: "completed" }, env.ctx);
     await env.runtime.settled({ aborted: true }, env.ctx);
@@ -326,7 +337,7 @@ describe("turn recap runtime", () => {
   it("lets a pending recap finish across later runs and fills in its own card", async () => {
     const first = Promise.withResolvers<AssistantMessage>();
 
-    const env = await setup(
+    const env = await started(
       () => first.promise,
       () => fauxAssistantMessage("Second recap"),
     );
@@ -352,7 +363,7 @@ describe("turn recap runtime", () => {
 
   it("abandons pending recaps on shutdown, leaving their cards without one", async () => {
     const response = Promise.withResolvers<AssistantMessage>();
-    const env = await setup(() => response.promise);
+    const env = await started(() => response.promise);
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     const completion = env.runtime.settled({ aborted: false }, env.ctx);
@@ -397,7 +408,7 @@ describe("turn recap runtime", () => {
   );
 
   it("recovers from request-time authentication failure without reinitialization", async () => {
-    const env = await setup(
+    const env = await started(
       () => {
         throw new Error("No credentials");
       },
@@ -420,7 +431,7 @@ describe("turn recap runtime", () => {
   });
 
   it("re-resolves models on each request and recovers when a model becomes available", async () => {
-    const env = await setup(() => fauxAssistantMessage("Model available"));
+    const env = await started(() => fauxAssistantMessage("Model available"));
     env.find.mockReturnValueOnce(undefined);
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
@@ -434,7 +445,7 @@ describe("turn recap runtime", () => {
   });
 
   it("keeps the card if optional prompt preparation fails", async () => {
-    const env = await setup();
+    const env = await started();
     vi.spyOn(env.ctx.sessionManager, "buildSessionProjection").mockImplementation(() => {
       throw new Error("Projection failed");
     });
@@ -448,7 +459,7 @@ describe("turn recap runtime", () => {
   });
 
   it("bounds persisted failure text", async () => {
-    const env = await setup(() => {
+    const env = await started(() => {
       throw new Error("failure ".repeat(10_000));
     });
 
@@ -464,7 +475,7 @@ describe("turn recap runtime", () => {
     vi.useFakeTimers();
     const response = Promise.withResolvers<AssistantMessage>();
 
-    const env = await setup(
+    const env = await started(
       () => response.promise,
       () => fauxAssistantMessage("Recovered"),
     );

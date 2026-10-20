@@ -27,7 +27,7 @@ turn/tool/compaction boundaries -> refresh raw-entry metrics (not for calls a to
 agent_settled       -> stop timing; unmount; write the card
                     -> with a recap model, mark it generating and request the recap in the background
 recap result        -> write the recap entry; its card redraws with it
-session_shutdown    -> abort pending recaps and clear state
+session_shutdown    -> abort pending loads and recaps; unmount (Pi builds a new runtime per session)
 ```
 
 `agent_settled`, not Pi's per-response `turn_end`, defines the completed run. The last `turn_end` outcome distinguishes completion from failure; the `aborted` flag on `agent_settled` marks interruption, including aborts that leave the last turn completed, such as during tool execution or the retry delay. A `continue` proposal from another extension does not freeze the card early. Durations are wall time, including time spent in extension dialogs; the timer uses `performance.now()`, and `Date.now()` is used only for start/finish timestamps. Model and tool time come from the `durationMs` Pi records on responses and tool results; each tool's span is placed to end at its result's timestamp, and overlapping spans are merged. Pi stamps a parallel batch's results once the whole batch ends, and the batch's calls start together, so this counts each parallel batch's longest call and adds up calls run one at a time.

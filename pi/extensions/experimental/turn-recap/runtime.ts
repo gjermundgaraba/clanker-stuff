@@ -34,8 +34,11 @@ interface ActiveRun {
 export class TurnRecapRuntime {
   readonly #pi: ExtensionAPI;
   readonly #configPath: string;
-  /** Aborted when the session ends, cancelling its pending loads and recap requests. */
-  #session = new AbortController();
+  /**
+   * Aborted when the session ends, cancelling its pending loads and recap requests. Pi builds a new
+   * runtime for the next session.
+   */
+  readonly #lifetime = new AbortController();
   #config: RecapConfig | undefined;
   #rollingFont: RollingFont | undefined;
   #active: ActiveRun | undefined;
@@ -49,8 +52,6 @@ export class TurnRecapRuntime {
   }
 
   async start(ctx: ExtensionContext): Promise<void> {
-    this.#reset(ctx);
-
     // Keyed by run ID, so recaps on other branches are harmless and navigation needs no rebuild.
     for (const entry of ctx.sessionManager.getEntries()) {
       if (
@@ -61,7 +62,7 @@ export class TurnRecapRuntime {
         this.#recaps.set(entry.data.runId, entry.data.recap);
     }
 
-    const session = this.#session.signal;
+    const lifetime = this.#lifetime.signal;
 
     // Independent loads: a broken config never disables animation, or vice versa.
     const [config, font] = await Promise.allSettled([
@@ -69,7 +70,7 @@ export class TurnRecapRuntime {
       ctx.mode === "tui" ? loadRollingFont() : undefined,
     ]);
 
-    if (session.aborted) return;
+    if (lifetime.aborted) return;
 
     if (config.status === "fulfilled") this.#config = config.value;
     else
@@ -171,24 +172,15 @@ export class TurnRecapRuntime {
 
     // Pi draws the new card on a later frame, so it already sees this.
     this.#recaps.set(snapshot.runId, { status: "generating" });
-    const session = this.#session.signal;
-    const recap = await generateRecap(ctx, config, prompt, session);
+    const lifetime = this.#lifetime.signal;
+    const recap = await generateRecap(ctx, config, prompt, lifetime);
 
     // Only shutdown aborts; later runs and tree navigation let the recap finish.
-    if (!session.aborted) this.#save(snapshot.runId, recap);
+    if (!lifetime.aborted) this.#save(snapshot.runId, recap);
   }
 
   shutdown(ctx: ExtensionContext): void {
-    this.#reset(ctx);
-  }
-
-  #reset(ctx: ExtensionContext): void {
-    this.#session.abort();
-    this.#session = new AbortController();
-    this.#config = undefined;
-    this.#rollingFont = undefined;
-    this.#recaps.clear();
-    this.#active = undefined;
+    this.#lifetime.abort();
     this.#unmount(ctx);
   }
 
