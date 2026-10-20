@@ -51,6 +51,21 @@ describe("lazy singleton", () => {
     expect(create).toHaveBeenCalledOnce();
   });
 
+  it("does not return a value stopped during its load callback", async () => {
+    const value = { id: "loaded" };
+    const dispose = vi.fn<(loaded: typeof value) => void>();
+    let singleton: ReturnType<typeof createLazySingleton<typeof value>>;
+
+    singleton = createLazySingleton(
+      async () => value,
+      () => void singleton.stop(dispose),
+    );
+
+    await expect(singleton.load()).resolves.toBeUndefined();
+    expect(dispose).toHaveBeenCalledExactlyOnceWith(value);
+    expect(singleton.isStopped()).toBe(true);
+  });
+
   it("stops terminally and disposes an in-flight result once", async () => {
     const loading = Promise.withResolvers<{ id: string }>();
 

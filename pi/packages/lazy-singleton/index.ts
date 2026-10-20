@@ -30,7 +30,7 @@ export const createLazySingleton = <T extends object>(
         onLoad?.(value);
       }
 
-      return current;
+      return lifetime.signal.aborted ? undefined : current;
     } catch (error) {
       if (lifetime.signal.aborted) {
         return undefined;
