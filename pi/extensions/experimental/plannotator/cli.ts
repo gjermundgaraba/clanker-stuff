@@ -19,7 +19,11 @@ export interface CliStartOptions {
 
 export type CliStarter = (args: string[], options: CliStartOptions) => Promise<CliCompletion>;
 
-export const startPlannotatorCli: CliStarter = (args, options) => {
+/**
+ * Async because `spawn` throws synchronously for some arguments, such as one with a null byte; this
+ * way those failures reject like any other failed start.
+ */
+export const startPlannotatorCli: CliStarter = async (args, options) => {
   const child = spawn("plannotator", args, {
     cwd: options.cwd,
     env: {
@@ -50,5 +54,5 @@ export const startPlannotatorCli: CliStarter = (args, options) => {
     resolve({ code, signal, stdout });
   });
 
-  return completion;
+  return await completion;
 };

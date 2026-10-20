@@ -4,6 +4,9 @@ import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
 
+/** Names this command in its failure and outcome notices. */
+const LABEL = "Plannotator annotation";
+
 export const createAnnotateHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
@@ -26,13 +29,9 @@ export const createAnnotateHandler =
     }
 
     runtime.launch(["annotate", ...tokens, "--json"], ctx, {
-      failureLabel: "Plannotator annotation",
+      failureLabel: LABEL,
       onOutput(stdout) {
-        const feedback = readAnnotationFeedback(stdout, ctx, {
-          approved: "Plannotator annotation approved.",
-          dismissed: "Plannotator annotation closed.",
-          empty: "Plannotator annotation closed without feedback.",
-        });
+        const feedback = readAnnotationFeedback(stdout, ctx, LABEL);
 
         if (feedback === undefined) {
           return;

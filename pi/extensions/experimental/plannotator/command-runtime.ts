@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import type { CliCompletion, CliStarter } from "./cli.js";
+import type { CliStarter } from "./cli.js";
 import { startPlannotatorCli } from "./cli.js";
 
 const SHUTDOWN_TIMEOUT_MS = 2500;
@@ -110,24 +110,17 @@ export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli):
 
   const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
     const { signal } = lifetime;
-    let completion: Promise<CliCompletion>;
 
-    try {
-      completion = starter(args, {
-        cwd: ctx.cwd,
-        onStderrLine: (line) => {
-          const message = line.trim();
+    const completion = starter(args, {
+      cwd: ctx.cwd,
+      onStderrLine: (line) => {
+        const message = line.trim();
 
-          if (message !== "" && !signal.aborted) ctx.ui.notify(message, "info");
-        },
-        signal,
-        stdin: options.stdin,
-      });
-    } catch (error) {
-      notifyError(ctx, options.failureLabel, error);
-
-      return;
-    }
+        if (message !== "" && !signal.aborted) ctx.ui.notify(message, "info");
+      },
+      signal,
+      stdin: options.stdin,
+    });
 
     const settleRun = async (): Promise<void> => {
       try {

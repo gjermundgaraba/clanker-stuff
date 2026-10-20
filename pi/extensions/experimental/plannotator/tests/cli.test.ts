@@ -76,13 +76,18 @@ setInterval(() => {}, 1000);`);
     signal: controller.signal,
   });
 
-  try {
-    await ready.promise;
-    controller.abort();
+  await ready.promise;
+  controller.abort();
 
-    await expect(completion).resolves.toStrictEqual({ code: null, signal: "SIGTERM", stdout: "" });
-  } finally {
-    controller.abort();
-    await completion.catch(() => undefined);
-  }
+  await expect(completion).resolves.toStrictEqual({ code: null, signal: "SIGTERM", stdout: "" });
+});
+
+it("rejects arguments spawn refuses instead of throwing", async () => {
+  await expect(
+    startPlannotatorCli(["a\0b"], {
+      cwd: directory,
+      onStderrLine: () => {},
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toMatchObject({ code: "ERR_INVALID_ARG_VALUE" });
 });

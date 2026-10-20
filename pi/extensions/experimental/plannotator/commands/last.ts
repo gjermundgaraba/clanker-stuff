@@ -4,6 +4,9 @@ import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
 
+/** Names this command in its failure and outcome notices. */
+const LABEL = "Plannotator message annotation";
+
 const getLastAssistantText = (ctx: ExtensionCommandContext): string | undefined => {
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
     if (entry.type !== "message" || entry.message.role !== "assistant") {
@@ -55,13 +58,9 @@ export const createLastHandler =
     }
 
     runtime.launch(["annotate-last", "--stdin", "--json", ...tokens], ctx, {
-      failureLabel: "Plannotator message annotation",
+      failureLabel: LABEL,
       onOutput(stdout) {
-        const feedback = readAnnotationFeedback(stdout, ctx, {
-          approved: "Plannotator message approved.",
-          dismissed: "Plannotator message annotation closed.",
-          empty: "Plannotator message annotation closed without feedback.",
-        });
+        const feedback = readAnnotationFeedback(stdout, ctx, LABEL);
 
         if (feedback === undefined) {
           return;

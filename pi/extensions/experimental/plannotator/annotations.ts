@@ -11,17 +11,11 @@ const AnnotationOutcomeSchema = Type.Union([
   }),
 ]);
 
-interface AnnotationNotices {
-  approved: string;
-  dismissed: string;
-  empty: string;
-}
-
-/** Returns trimmed feedback to send, or notifies why there is none. */
+/** Returns trimmed feedback to send, or notifies why there is none under the annotation's label. */
 export const readAnnotationFeedback = (
   stdout: string,
   ctx: ExtensionCommandContext,
-  notices: AnnotationNotices,
+  label: string,
 ): string | undefined => {
   let outcome: unknown;
 
@@ -36,7 +30,7 @@ export const readAnnotationFeedback = (
   }
 
   if (outcome.decision !== "annotated") {
-    ctx.ui.notify(notices[outcome.decision], "info");
+    ctx.ui.notify(`${label} ${outcome.decision === "approved" ? "approved" : "closed"}.`, "info");
 
     return undefined;
   }
@@ -44,7 +38,7 @@ export const readAnnotationFeedback = (
   const feedback = outcome.feedback.trim();
 
   if (feedback.length === 0) {
-    ctx.ui.notify(notices.empty, "info");
+    ctx.ui.notify(`${label} closed without feedback.`, "info");
 
     return undefined;
   }
