@@ -214,7 +214,7 @@ export class EditorHost {
 
 // The factory is Pi's existing shared ownership boundary, including across separate jiti loads.
 // The key versions the host's shape; a copy built for another shape sees a foreign editor.
-const owner = Symbol.for("clanker-stuff.editor/2");
+const owner = Symbol.for("clanker-stuff.editor/3");
 
 type OwnedFactory = NonNullable<ReturnType<ExtensionUIContext["getEditorComponent"]>> & {
   [owner]?: EditorHost;
