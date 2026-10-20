@@ -1,6 +1,7 @@
 // Server loading and validation adapted from Pi's extensions/mcp/config.ts and core/mcp-servers.ts
-// (MIT, Copyright (c) 2025 Mario Zechner), which Pi does not export. OAuth sign-in settings are
-// intentionally ignored: skills use Pi's stored tokens rather than performing sign-in.
+// (MIT, Copyright (c) 2025 Mario Zechner), which Pi does not export. Only settings skills use are
+// validated: `oauth`, `description`, and `toolExposure` are ignored, since skills use Pi's stored
+// tokens and no tools.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +22,10 @@ const EXPOSURE_ALIASES = new Map([["codemode-deferred", "codemode"]]);
 
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
-/** Keys a project entry may set to override a global server of the same name. */
+/**
+ * Keys a project entry may set to override a global server of the same name. Skills ignore
+ * `toolExposure`, but an override that also sets it must still apply.
+ */
 const OVERRIDE_KEYS = ["enabled", "exposure", "toolExposure"];
 
 const Entry = Type.Record(Type.String(), Type.Unknown());
@@ -70,33 +74,20 @@ const isEntry = (value: unknown): value is Entry =>
 const exposureName = (value: unknown): string | undefined =>
   typeof value === "string" ? (EXPOSURE_ALIASES.get(value) ?? value) : undefined;
 
-const isExposure = (value: unknown): boolean => EXPOSURES.includes(exposureName(value) ?? "");
-
-/** Pi's server checks except OAuth sign-in settings: connection settings or a rejection reason. */
+/** Pi's checks of the settings skills use: connection settings or a rejection reason. */
 const validateServer = (name: string, raw: unknown): Settings | string => {
   if (!SERVER_NAME.test(name)) return `invalid server name "${name}"`;
 
   if (!isEntry(raw)) return `server "${name}" must be an object`;
 
-  const { description, enabled, exposure, timeout, toolExposure, type } = raw;
+  const { enabled, exposure, timeout, type } = raw;
 
-  if (exposure !== undefined && !isExposure(exposure)) {
+  if (exposure !== undefined && !EXPOSURES.includes(exposureName(exposure) ?? "")) {
     return `server "${name}": exposure must be one of ${EXPOSURES.join(", ")}`;
-  }
-
-  if (
-    toolExposure !== undefined &&
-    !(isEntry(toolExposure) && Object.values(toolExposure).every(isExposure))
-  ) {
-    return `server "${name}": toolExposure must map tool names to exposures`;
   }
 
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return `server "${name}": enabled must be a boolean`;
-  }
-
-  if (description !== undefined && typeof description !== "string") {
-    return `server "${name}": description must be a string`;
   }
 
   if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) {
@@ -182,7 +173,7 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
 /**
  * Read one mcp.json into `servers` as Pi does. A project entry with none of `command`, `url`, and
  * `type` overrides only `enabled`, `exposure`, and `toolExposure` of the global server it names.
- * Invalid connection entries are left out. OAuth sign-in settings are not validated.
+ * Invalid connection entries are left out.
  */
 const readConfigFile = (path: string, project: boolean, servers: Map<string, Accepted>): void => {
   if (!existsSync(path)) return;

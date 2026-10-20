@@ -8,7 +8,7 @@ The extension reads servers from the same sources and in the same order as Pi's 
 
 It opens its own connection to each server and declares the skills extension. Pi's own MCP connections are not changed, so a server that serves skills runs twice: once for Pi's tools and once for skills. A server that does not declare the extension is closed again right away; one that failed or needed sign-in is tried again before a prompt, at most once a minute.
 
-OAuth sign-in settings in `oauth` are ignored, not validated: this extension does not perform sign-in. A server can therefore be accepted here even if Pi rejects its `oauth` block. Transport validation, project trust, and provider-credential restrictions still apply.
+Settings skills do not use are ignored, not validated: `oauth`, because this extension does not perform sign-in, and `description` and `toolExposure`, because it calls no tools. A server can therefore be accepted here even if Pi rejects one of those settings. Transport validation, project trust, and provider-credential restrictions still apply.
 
 Servers are authenticated the way Pi authenticates them. Servers with `auth.provider` get the provider's current token from Pi. For OAuth servers the extension sends the token Pi stores after `/mcp` sign-in and never refreshes it itself; Pi refreshes it when it uses one of the server's tools, or `/mcp` asks you to sign in again.
 

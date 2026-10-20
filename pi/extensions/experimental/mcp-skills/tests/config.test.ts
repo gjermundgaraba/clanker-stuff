@@ -1,22 +1,47 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { expect, it } from "vite-plus/test";
 
 import { loadServers } from "../config.js";
 
-it("ignores OAuth sign-in settings without weakening connection validation", async () => {
+const url = "https://example.com/mcp";
+
+const withConfigs = async (
+  configs: { global: unknown; project?: unknown },
+  check: (dirs: { agentDir: string; cwd: string }) => void,
+): Promise<void> => {
   const agentDir = await mkdtemp(path.join(os.tmpdir(), "mcp-skills-config-"));
-  const url = "https://example.com/mcp";
+  const cwd = path.join(agentDir, "project");
 
   try {
-    await writeFile(
-      path.join(agentDir, "mcp.json"),
-      JSON.stringify({
+    await writeFile(path.join(agentDir, "mcp.json"), JSON.stringify(configs.global));
+
+    if (configs.project !== undefined) {
+      await mkdir(path.join(cwd, CONFIG_DIR_NAME), { recursive: true });
+      await writeFile(path.join(cwd, CONFIG_DIR_NAME, "mcp.json"), JSON.stringify(configs.project));
+    }
+
+    check({ agentDir, cwd });
+  } finally {
+    await rm(agentDir, { recursive: true, force: true });
+  }
+};
+
+it("ignores settings skills do not use without weakening connection validation", async () => {
+  await withConfigs(
+    {
+      global: {
         mcpServers: {
-          malformedBlock: { url, oauth: "unused" },
-          malformedFields: {
+          unusedSettings: {
+            url,
+            oauth: "unused",
+            description: 42,
+            toolExposure: "not a map",
+          },
+          malformedOauth: {
             url,
             oauth: { clientId: 42, callbackUrl: "https://remote.example/callback" },
             auth: { provider: "example" },
@@ -27,24 +52,37 @@ it("ignores OAuth sign-in settings without weakening connection validation", asy
           },
           malformedHeaders: { url, headers: { Authorization: 42 } },
         },
-      }),
-    );
-
-    expect(loadServers({ agentDir, cwd: agentDir, projectTrusted: false, registered: [] })).toEqual(
-      [
+      },
+    },
+    ({ agentDir, cwd }) => {
+      expect(loadServers({ agentDir, cwd, projectTrusted: false, registered: [] })).toEqual([
         {
-          name: "malformedBlock",
+          name: "unusedSettings",
           timeoutMs: 60_000,
           transport: { kind: "http", url, headers: {} },
         },
         {
-          name: "malformedFields",
+          name: "malformedOauth",
           timeoutMs: 60_000,
           transport: { kind: "http", url, headers: {}, authProvider: "example" },
         },
-      ],
-    );
-  } finally {
-    await rm(agentDir, { recursive: true, force: true });
-  }
+      ]);
+    },
+  );
+});
+
+it("applies a trusted project's override that also sets toolExposure", async () => {
+  await withConfigs(
+    {
+      global: { mcpServers: { disabled: { url }, kept: { url } } },
+      project: { mcpServers: { disabled: { enabled: false, toolExposure: { search: "hidden" } } } },
+    },
+    ({ agentDir, cwd }) => {
+      expect(
+        loadServers({ agentDir, cwd, projectTrusted: true, registered: [] }).map(
+          ({ name }) => name,
+        ),
+      ).toEqual(["kept"]);
+    },
+  );
 });
