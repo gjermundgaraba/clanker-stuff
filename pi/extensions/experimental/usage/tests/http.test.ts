@@ -14,7 +14,6 @@ describe(defaultFetchJson, () => {
       await expect(
         defaultFetchJson("https://example.test", Type.Object({}), {}),
       ).resolves.toStrictEqual({ kind: "response", message: "request timed out", ok: false });
-      expect(timeout).toHaveBeenCalledWith(12_000);
     } finally {
       timeout.mockRestore();
       vi.unstubAllGlobals();

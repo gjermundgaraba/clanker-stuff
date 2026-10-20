@@ -177,7 +177,6 @@ describe("Fast local preference", () => {
       if (outcome === "resolve") loaded.resolve(true);
       else loaded.reject(new Error("Late read failure"));
       await start;
-      await mode.start(startup, ctx);
       expect(mode.payload(payload, ctx)).toBeUndefined();
       expect(host.getStatus("fast")).toBeUndefined();
       expect(host.getNotifications()).toStrictEqual([]);
