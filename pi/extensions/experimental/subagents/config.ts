@@ -79,13 +79,13 @@ export const loadConfig = async (
       error: undefined,
     };
   } catch (error) {
-    const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { config: DEFAULT_CONFIG, error: undefined };
+    }
 
     return {
       config: DEFAULT_CONFIG,
-      error: missing
-        ? undefined
-        : `Invalid ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Invalid ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 };
