@@ -1,16 +1,18 @@
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 
-export type CliCompletion =
-  | {
-      code: number;
-      kind: "exited";
-      stdout: string;
-    }
-  | { kind: "signaled"; signal: NodeJS.Signals };
+/** How the CLI closed: an exit code, or the signal that ended it. */
+export interface CliCompletion {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+}
 
 export interface CliStartOptions {
   cwd: string;
-  onStderr: (chunk: string) => void;
+  /** Each stderr line as it arrives, including an unterminated last line. */
+  onStderrLine: (line: string) => void;
+  /** Aborting sends SIGTERM; completion still waits for the CLI to close. */
   signal: AbortSignal;
   stdin?: string | undefined;
 }
@@ -25,68 +27,27 @@ export const startPlannotatorCli: CliStarter = (args, options) => {
       PLANNOTATOR_CWD: options.cwd,
       PLANNOTATOR_ORIGIN: "pi",
     },
-    shell: false,
+    signal: options.signal,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  child.stdout.setEncoding("utf-8");
-  child.stderr.setEncoding("utf-8");
-
   let stdout = "";
-  let killTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const terminate = (): void => {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      return;
-    }
-
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      return;
-    }
-
-    killTimer = setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // Cancellation is best-effort and must not throw.
-        }
-      }
-    }, 1000);
-    killTimer.unref();
-  };
-
-  options.signal.addEventListener("abort", terminate, { once: true });
-
-  const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
+  child.stdout.setEncoding("utf-8");
   child.stdout.on("data", (chunk: string) => {
     stdout += chunk;
   });
-  child.stderr.on("data", options.onStderr);
-  child.once("error", reject);
+  createInterface({ crlfDelay: Infinity, input: child.stderr }).on("line", options.onStderrLine);
+
+  const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
+  child.once("error", (error) => {
+    if (error.name !== "AbortError") reject(error);
+  });
   child.stdin.once("error", reject);
   child.once("spawn", () => {
     child.stdin.end(options.stdin);
   });
   child.once("close", (code, signal) => {
-    options.signal.removeEventListener("abort", terminate);
-    clearTimeout(killTimer);
-
-    if (code !== null) {
-      resolve({ code, kind: "exited", stdout });
-
-      return;
-    }
-
-    if (signal) {
-      resolve({ kind: "signaled", signal });
-
-      return;
-    }
-
-    reject(new Error("plannotator closed without an exit code or signal"));
+    resolve({ code, signal, stdout });
   });
 
   return completion;

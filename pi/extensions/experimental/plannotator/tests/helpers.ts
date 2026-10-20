@@ -35,13 +35,14 @@ export const setup = (entries: SessionEntry[] = [], leafId: string | null = null
 
 export const exited = (stdout: string, options: { code?: number } = {}): CliCompletion => ({
   code: options.code ?? 0,
-  kind: "exited",
+  signal: null,
   stdout,
 });
 
 export const signaled = (signal: NodeJS.Signals): CliCompletion => ({
-  kind: "signaled",
+  code: null,
   signal,
+  stdout: "",
 });
 
 export const waitForMessages = async (host: ReturnType<typeof setup>["host"], count: number) => {

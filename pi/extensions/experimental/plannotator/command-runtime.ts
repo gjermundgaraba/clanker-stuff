@@ -104,40 +104,23 @@ export const parseArguments = (
 };
 
 export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli): CommandRuntime => {
-  const activeRuns = new Map<AbortController, Promise<void>>();
+  /** Aborted at shutdown, which ends every run; Pi builds a new runtime for the next session. */
+  const lifetime = new AbortController();
+  const activeRuns = new Set<Promise<void>>();
 
   const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
-    let pendingStderr = "";
-
-    const notifyLines = (lines: string[]): void => {
-      for (const line of lines) {
-        const message = line.trim();
-
-        if (message !== "") {
-          ctx.ui.notify(message, "info");
-        }
-      }
-    };
-
-    const streamStderr = (chunk: string): void => {
-      const lines = (pendingStderr + chunk).split("\n");
-      pendingStderr = lines.pop() ?? "";
-      notifyLines(lines);
-    };
-
-    const flushStderr = (): void => {
-      notifyLines([pendingStderr]);
-      pendingStderr = "";
-    };
-
-    const controller = new AbortController();
+    const { signal } = lifetime;
     let completion: Promise<CliCompletion>;
 
     try {
       completion = starter(args, {
         cwd: ctx.cwd,
-        onStderr: streamStderr,
-        signal: controller.signal,
+        onStderrLine: (line) => {
+          const message = line.trim();
+
+          if (message !== "" && !signal.aborted) ctx.ui.notify(message, "info");
+        },
+        signal,
         stdin: options.stdin,
       });
     } catch (error) {
@@ -148,48 +131,33 @@ export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli):
 
     const settleRun = async (): Promise<void> => {
       try {
-        const result = await completion;
+        const { code, signal: exitSignal, stdout } = await completion;
 
-        if (controller.signal.aborted) {
-          return;
-        }
+        if (signal.aborted) return;
 
-        flushStderr();
-
-        if (result.kind === "signaled") {
-          throw new Error(`terminated by ${result.signal}`);
-        }
-
-        if (result.code !== 0) {
-          throw new Error(`exited with code ${result.code}`);
-        }
-
-        options.onOutput(result.stdout);
+        if (code === 0) options.onOutput(stdout);
+        else
+          notifyError(
+            ctx,
+            options.failureLabel,
+            exitSignal ? `terminated by ${exitSignal}` : `exited with code ${code}`,
+          );
       } catch (error) {
-        if (!controller.signal.aborted) {
-          // Stderr was shown as it arrived, so a failure only adds how the CLI ended.
-          flushStderr();
-          notifyError(ctx, options.failureLabel, error);
-        }
-      } finally {
-        activeRuns.delete(controller);
+        if (!signal.aborted) notifyError(ctx, options.failureLabel, error);
       }
     };
 
-    activeRuns.set(controller, settleRun());
+    const run = settleRun().finally(() => activeRuns.delete(run));
+    activeRuns.add(run);
 
     ctx.ui.notify(options.openedMessage, "info");
   };
 
   const shutdown = async (): Promise<void> => {
-    const runs = [...activeRuns];
-
-    for (const [controller] of runs) {
-      controller.abort();
-    }
+    lifetime.abort();
 
     await Promise.race([
-      Promise.allSettled(runs.map(([, settled]) => settled)),
+      Promise.allSettled(activeRuns),
       delay(SHUTDOWN_TIMEOUT_MS, undefined, { ref: false }),
     ]);
   };
