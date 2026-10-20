@@ -170,9 +170,6 @@ export const createKeybindings = (
   return keybindings as KeybindingsManager;
 };
 
-export const renderComponent = (component: Component | undefined, width = 80): string | undefined =>
-  component?.render(width).join("\n");
-
 async function runCustomUi<T>(
   factory: CustomUiFactory<T>,
   options: CustomUiDriverOptions = {},
