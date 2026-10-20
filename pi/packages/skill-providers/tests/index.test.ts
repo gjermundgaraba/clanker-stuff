@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { collectSkillProviders, SKILL_PROVIDER_CHANNEL, skillBlock } from "../index.js";
-import type { LoadedSkill, SkillProvider } from "../index.js";
+import type { LoadedSkill, ProvidedSkill, SkillProvider } from "../index.js";
 
 const alpha: LoadedSkill = {
   content: "References are relative to /skills/alpha.\n\nAlpha instructions.",
@@ -31,7 +31,20 @@ describe("skill blocks", () => {
       userMessage: "Use $alpha and $beta",
     });
   });
+
+  it("keeps blocks Pi can parse when a name or location holds a double quote", () => {
+    const quoted = { ...beta, location: '/skills/"beta"/SKILL.md', name: 'be"ta' };
+
+    expect(parseSkillBlock(`${skillBlock([alpha, quoted])}\n\nUse them`)).toMatchObject({
+      location: "/skills/alpha/SKILL.md, /skills/%22beta%22/SKILL.md",
+      name: "alpha, be%22ta",
+      userMessage: "Use them",
+    });
+  });
 });
+
+/** What a provider loads for a skill, without the name it was requested by. */
+const provided = ({ content, location }: LoadedSkill): ProvidedSkill => ({ content, location });
 
 describe("skill providers", () => {
   it("keeps providers live, preserves method receivers, and replaces announcements by id", async () => {
@@ -56,14 +69,14 @@ describe("skill providers", () => {
     expect(providers.get("test")?.skills()).toStrictEqual([
       { name: beta.name, description: beta.content },
     ]);
-    expect(await providers.get("test")?.load("beta", ctx)).toStrictEqual(beta);
+    expect(await providers.get("test")?.load("beta", ctx)).toStrictEqual(provided(beta));
     expect(await providers.get("test")?.load("alpha", ctx)).toStrictEqual({ error: "not found" });
 
     events.emit(SKILL_PROVIDER_CHANNEL, { ...provider, available: [alpha] });
     events.emit(SKILL_PROVIDER_CHANNEL, { id: "test", skills: [], load: null });
 
     expect(providers.size).toBe(1);
-    expect(await providers.get("test")?.load("alpha", ctx)).toStrictEqual(alpha);
+    expect(await providers.get("test")?.load("alpha", ctx)).toStrictEqual(provided(alpha));
   });
 
   it.each([
@@ -72,6 +85,7 @@ describe("skill providers", () => {
     "not an object",
     { name: "alpha", location: alpha.location },
     { ...alpha, content: 42 },
+    { ...alpha, location: "" },
     { ...alpha, error: 42 },
   ])("rejects malformed load results: %j", async (result) => {
     const events = createEventBus();
@@ -105,14 +119,14 @@ describe("skill providers", () => {
 
         if (name === "denied") return { error: "not approved" };
 
-        return { ...alpha, content: "" };
+        return { ...provided(alpha), content: "" };
       },
     };
 
     events.emit(SKILL_PROVIDER_CHANNEL, provider);
 
     expect(await providers.get("test")?.load("alpha", ctx)).toStrictEqual({
-      ...alpha,
+      ...provided(alpha),
       content: "",
     });
     expect(await providers.get("test")?.load("denied", ctx)).toStrictEqual({

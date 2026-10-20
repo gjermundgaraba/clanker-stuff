@@ -5,7 +5,7 @@ import type {
   InputEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { skillBlock } from "@clanker-stuff/pi-skill-providers";
-import type { LoadedSkill, SkillProvider } from "@clanker-stuff/pi-skill-providers";
+import type { ProvidedSkill, SkillProvider } from "@clanker-stuff/pi-skill-providers";
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
@@ -27,7 +27,7 @@ const loadSkill = async (
   skills: McpSkills,
   skill: CatalogSkill,
   ctx: ExtensionContext,
-): Promise<LoadedSkill | { error: string }> => {
+): Promise<ProvidedSkill | { error: string }> => {
   const loaded = await skills.load(ctx, skill, ctx.signal);
 
   if ("error" in loaded) return loaded;
@@ -35,7 +35,6 @@ const loadSkill = async (
   return {
     content: `${skillOrigin(skill)}\n\n${stripFrontmatter(loaded.bytes.toString("utf8")).trim()}`,
     location: skill.path,
-    name: skill.name,
   };
 };
 
@@ -65,7 +64,7 @@ export const expandSkillCommand = async (
   }
 
   const args = match?.groups?.args?.trim();
-  const block = skillBlock([loaded]);
+  const block = skillBlock([{ ...loaded, name: skill.name }]);
 
   return { action: "transform", text: args ? `${block}\n\n${args}` : block };
 };

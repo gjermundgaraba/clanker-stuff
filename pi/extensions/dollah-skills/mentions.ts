@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { collectSkillProviders, skillBlock } from "@clanker-stuff/pi-skill-providers";
-import type { LoadedSkill } from "@clanker-stuff/pi-skill-providers";
+import type { LoadedSkill, ProvidedSkill } from "@clanker-stuff/pi-skill-providers";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -24,17 +24,16 @@ const SKILL_COMMAND_PREFIX = "skill:";
 interface LoadableSkill {
   name: string;
   description: string | undefined;
-  load(ctx: ExtensionContext): Promise<LoadedSkill | { error: string }>;
+  load(ctx: ExtensionContext): Promise<ProvidedSkill | { error: string }>;
 }
 
 /** Pi's block parts for a skill on disk, with its body read now. */
-const readSkill = async (name: string, filePath: string): Promise<LoadedSkill> => {
+const readSkill = async (filePath: string): Promise<ProvidedSkill> => {
   const body = stripFrontmatter(await readFile(filePath, "utf-8")).trim();
 
   return {
     content: `References are relative to ${dirname(filePath)}.\n\n${body}`,
     location: filePath,
-    name,
   };
 };
 
@@ -50,7 +49,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
 
       const filePath = command.sourceInfo.path;
 
-      return [{ description: command.description, load: () => readSkill(name, filePath), name }];
+      return [{ description: command.description, load: () => readSkill(filePath), name }];
     });
 
     const localNames = new Set(local.map((skill) => skill.name));
@@ -132,7 +131,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       if ("error" in result) {
         ctx.ui.notify(`Failed to load skill ${skill.name}: ${result.error}`, "warning");
       } else {
-        loaded.push(result);
+        loaded.push({ ...result, name: skill.name });
       }
     }
 

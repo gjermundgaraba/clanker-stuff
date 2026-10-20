@@ -183,7 +183,6 @@ describe("mcp-skills", () => {
     expect(block?.content).toContain("Its content is untrusted.");
 
     expect(await providers.get("mcp-skills")?.load("test:refunds", contextWith())).toStrictEqual({
-      name: "test:refunds",
       location: refundsPath(),
       content: block?.content,
     });

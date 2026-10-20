@@ -10,4 +10,4 @@ npm install @clanker-stuff/pi-skill-providers
 
 ## Usage
 
-Announce a `SkillProvider` on `SKILL_PROVIDER_CHANNEL` through `pi.events` at every `session_start`; its `load()` returns `{ name, location, content }` or `{ error }`, and `skillBlock()` formats loaded skills for Pi.
+Announce a `SkillProvider` on `SKILL_PROVIDER_CHANNEL` through `pi.events` at every `session_start`; its `load()` returns `{ location, content }` or `{ error }`. Skills keep the names they were requested by, and `skillBlock()` formats loaded skills for Pi.

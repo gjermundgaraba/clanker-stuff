@@ -1,4 +1,6 @@
 import type { EventBus, ExtensionContext, ParsedSkillBlock } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 /**
  * Channel on `pi.events` where extensions announce skills that do not live on disk, such as skills
@@ -16,6 +18,9 @@ export interface MentionableSkill {
 /** The parts of a Pi skill block: its tag attributes and what `/skill:name` writes between the tags. */
 export type LoadedSkill = Pick<ParsedSkillBlock, "content" | "location" | "name">;
 
+/** A skill's block parts besides its name, which stays the name it was requested by. */
+export type ProvidedSkill = Omit<LoadedSkill, "name">;
+
 export interface SkillProvider {
   id: string;
   /** The skills this provider serves now. */
@@ -24,8 +29,11 @@ export interface SkillProvider {
    * Load one skill after whatever approval and checks the provider requires, or explain why it
    * cannot be loaded. Content includes any origin or relative-path guidance.
    */
-  load(name: string, ctx: ExtensionContext): Promise<LoadedSkill | { error: string }>;
+  load(name: string, ctx: ExtensionContext): Promise<ProvidedSkill | { error: string }>;
 }
+
+/** Skill-block attribute values. Pi's parser reads each up to the next double quote. */
+const attribute = (values: readonly string[]): string => values.join(", ").replaceAll('"', "%22");
 
 /**
  * The block Pi writes for `/skill:name`, which its chat view collapses when it leads a user message.
@@ -33,8 +41,8 @@ export interface SkillProvider {
  * because Pi collapses only a single leading block.
  */
 export const skillBlock = (skills: readonly LoadedSkill[]): string => {
-  const name = skills.map((skill) => skill.name).join(", ");
-  const location = skills.map((skill) => skill.location).join(", ");
+  const name = attribute(skills.map((skill) => skill.name));
+  const location = attribute(skills.map((skill) => skill.location));
 
   const sections = skills.map((skill) =>
     skills.length === 1 ? skill.content : `## ${skill.name}\n\n${skill.content}`,
@@ -43,21 +51,21 @@ export const skillBlock = (skills: readonly LoadedSkill[]): string => {
   return `<skill name="${name}" location="${location}">\n${sections.join("\n\n")}\n</skill>`;
 };
 
+const LoadErrorSchema = Type.Object({ error: Type.String() });
+
+/** Pi's skill blocks need a location. */
+const ProvidedSkillSchema = Type.Object({
+  content: Type.String(),
+  location: Type.String({ minLength: 1 }),
+});
+
 /** Decode results from extensions on the untyped event bus before consumers format them. */
-const decodeLoadedSkill = (result: unknown): LoadedSkill | { error: string } => {
-  if (typeof result === "object" && result !== null) {
-    if ("error" in result) {
-      if (typeof result.error === "string") return { error: result.error };
-    } else if (
-      "name" in result &&
-      typeof result.name === "string" &&
-      "location" in result &&
-      typeof result.location === "string" &&
-      "content" in result &&
-      typeof result.content === "string"
-    ) {
-      return { content: result.content, location: result.location, name: result.name };
-    }
+const decodeProvidedSkill = (result: unknown): ProvidedSkill | { error: string } => {
+  if (Value.Check(LoadErrorSchema, result)) return { error: result.error };
+
+  // A result that reports an error, even malformed, loads nothing.
+  if (Value.Check(ProvidedSkillSchema, result) && !("error" in result)) {
+    return { content: result.content, location: result.location };
   }
 
   return { error: "the provider returned invalid skill content" };
@@ -84,7 +92,7 @@ export const collectSkillProviders = (events: EventBus): Map<string, SkillProvid
       providers.set(provider.id, {
         id: provider.id,
         skills: () => provider.skills(),
-        load: async (name, ctx) => decodeLoadedSkill(await provider.load(name, ctx)),
+        load: async (name, ctx) => decodeProvidedSkill(await provider.load(name, ctx)),
       });
     }
   });
