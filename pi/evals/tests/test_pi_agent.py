@@ -178,16 +178,6 @@ class PiTrajectoryTest(TestCase):
         with self.assertRaisesRegex(ValueError, "must be the first line"):
             controlled_instruction(f"Continue\n{CONTROLLED_COMPACTION_MARKER}", "on")
 
-    def test_compaction_runtime_validates_its_terminal_states(self) -> None:
-        result = subprocess.run(
-            ["node", "--test", "tests/compact-runtime.test.mjs"],
-            check=False,
-            cwd=Path(__file__).parents[1],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
     def test_pi_event_guard_requires_successful_settlement(self) -> None:
         def run(events: list[dict[str, object]]) -> int:
             return subprocess.run(

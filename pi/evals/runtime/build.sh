@@ -10,9 +10,9 @@ docker run --rm --network none clanker-pi-evals:node26 sh -c \
   'test "$(node --version | cut -d. -f1)" = v26 \
     && test ! -e /repo \
     && test "$(readlink -f /usr/local/bin/codex-eval)" = /opt/pi-evals/codex-eval.mjs \
-    && codex-eval --self-test \
+    && ! codex-eval 2>/tmp/usage && grep -q "usage: codex-eval CONFIG_JSON" /tmp/usage \
     && test "$(readlink -f /usr/local/bin/pi-eval-compact)" = /opt/pi-evals/pi-eval-compact.mjs \
-    && pi-eval-compact --self-test \
+    && ! pi-eval-compact 2>/tmp/usage && grep -q "usage: pi-eval-compact CONFIG_JSON" /tmp/usage \
     && test "$(command -v pi)" = /opt/pi-evals/node_modules/.bin/pi \
     && test ! -e /usr/local/lib/node_modules/@earendil-works/pi-coding-agent \
     && cd /opt/pi-evals \

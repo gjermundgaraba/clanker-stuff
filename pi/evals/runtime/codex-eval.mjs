@@ -750,12 +750,11 @@ export const run = async (configPath, hooks = {}) => {
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const configPath = process.argv[2];
 
+  // The image build runs this without arguments: the usage error proves the entry point and its
+  // deployed dependencies load.
   if (process.argv.length !== 3 || configPath === undefined) {
-    throw new Error("usage: codex-eval CONFIG_JSON | codex-eval --self-test");
+    throw new Error("usage: codex-eval CONFIG_JSON");
   }
 
-  // The self-test only proves that this entry point and its deployed dependencies load.
-  if (configPath !== "--self-test") {
-    await run(configPath);
-  }
+  await run(configPath);
 }

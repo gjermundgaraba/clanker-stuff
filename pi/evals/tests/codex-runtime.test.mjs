@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -284,17 +284,18 @@ void describe("Codex usage and compaction capture", () => {
   });
 });
 
-void it("runs the CLI through a symlink beside dependencies without losing entrypoint detection", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "codex-eval-test-"));
-  const executable = path.join(directory, "codex-eval");
+for (const name of ["codex-eval", "pi-eval-compact"]) {
+  void it(`runs ${name} through a symlink beside dependencies without losing entrypoint detection`, () => {
+    const directory = mkdtempSync(path.join(tmpdir(), `${name}-test-`));
+    const executable = path.join(directory, name);
 
-  try {
-    symlinkSync(path.resolve(import.meta.dirname, "../runtime/codex-eval.mjs"), executable);
-    execFileSync(process.execPath, [executable, "--self-test"]);
-    const result = spawnSync(process.execPath, [executable], { encoding: "utf8" });
-    assert.notStrictEqual(result.status, 0);
-    assert.match(result.stderr, /usage: codex-eval CONFIG_JSON/);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+    try {
+      symlinkSync(path.resolve(import.meta.dirname, `../runtime/${name}.mjs`), executable);
+      const result = spawnSync(process.execPath, [executable], { encoding: "utf8" });
+      assert.notStrictEqual(result.status, 0);
+      assert.match(result.stderr, new RegExp(`usage: ${name} CONFIG_JSON`));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
