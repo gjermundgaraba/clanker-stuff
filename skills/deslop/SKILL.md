@@ -45,7 +45,7 @@ Deliver diagnosis and evidence. Do not prescribe replacements, implementation st
 
 **Tests**
 
-When the requested review includes tests, use [the test-value guidance](references/test-value.md) to assess their protection, assertion strength, and maintenance cost.
+When the requested review includes tests, use [the test-value guidance](references/test-value.md) to assess their protection, assertion strength, and maintenance cost. When executing temporary probes, isolate mutable build outputs from other source trees and concurrent builds, and verify that the intended tests ran against the probe source before citing the result.
 
 - Tests with no meaningful contract coverage
 - Test complexity disproportionate to the behavior asserted
