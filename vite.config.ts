@@ -22,6 +22,8 @@ const ignorePatterns = [
   "tools/oxlint/anti-slop/**",
   // Imported third-party installer bundle; preserve its scripts and assets verbatim.
   "skills/install-anti-slop/**",
+  // Adapted third-party skill with a minified diff bundle; keep upstream formatting for syncs.
+  "skills/skill-doctor/**",
 ];
 
 export default defineConfig({
@@ -38,7 +40,7 @@ export default defineConfig({
       "check:tests": { command: "node ./scripts/check-tests.ts" },
       "check:skills": {
         command:
-          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/librarian/tests && python3 -B -m unittest discover -s skills/tui-ux-tester/scripts",
+          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/librarian/tests && python3 -B -m unittest discover -s skills/tui-ux-tester/scripts && python3 -B -m unittest discover -s skills/skill-doctor/scripts",
       },
       ready: {
         cache: false,
