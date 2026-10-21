@@ -55,7 +55,7 @@ When the requested review includes tests, use [the test-value guidance](referenc
 
 ## Boundaries
 
-- Stay within the requested scope; inspect relevant callers, contracts, and invariants far enough to support findings.
+- Stay within the requested scope; inspect relevant callers, contracts, and invariants far enough to support findings. When the scope imports a library with an installed conventions skill, such as `effect`, load that skill before judging its idioms.
 - Prefer clear, maintainable code over fewer lines. A single implementation alone does not prove an interface is unnecessary.
 - Account for required behavior, including validation, data-loss protection, security, accessibility, compatibility, and calibration, before judging a mechanism unnecessary. When fixes are requested, confirm a replacement covers the relevant requirements before recommending or applying removal.
 - Harmless slop is still slop: flag unnecessary code, fallbacks, comments, and test complexity even when they cause no bug.
