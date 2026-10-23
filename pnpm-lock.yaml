@@ -353,6 +353,30 @@ importers:
         specifier: 1.3.36
         version: 1.3.36
 
+  pi/extensions/experimental/codemode-diffs:
+    dependencies:
+      '@clanker-stuff/pi-tool-rendering':
+        specifier: workspace:^
+        version: link:../../../packages/tool-rendering
+      '@clanker-stuff/pi-tool-schema':
+        specifier: workspace:^
+        version: link:../../../packages/tool-schema
+      '@earendil-works/pi-coding-agent':
+        specifier: 1.3.0
+        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))(@smithy/signature-v4@5.7.3)(ws@8.22.0)(zod@4.6.5)
+      '@earendil-works/pi-tui':
+        specifier: 1.3.0
+        version: 1.3.0
+      '@pierre/highlights':
+        specifier: 0.2.0
+        version: 0.2.0
+      diff:
+        specifier: 8.0.4
+        version: 8.0.4
+      typebox:
+        specifier: 1.3.36
+        version: 1.3.36
+
   pi/extensions/experimental/context:
     dependencies:
       '@clanker-stuff/pi-tones':
@@ -1552,6 +1576,9 @@ packages:
   '@oxlint/plugins@1.88.0':
     resolution: {integrity: sha512-G2xbfWTrbqYRhR/vfeKNMQf/sS3/ti0iKJAAkRxHuXWZH/hne/dyIb9QKk5LuR6cJLARxsL6FMoAYmfspd74MQ==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+
+  '@pierre/highlights@0.2.0':
+    resolution: {integrity: sha512-hTpcOU1EzDAP4bYtEhxmMu2jwMvtkUydRUBUpWMSHTs3dw0IaC3Ld5ansMy18L0GE3b6Vfl2OGkLK+pWWpnBmw==}
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -4191,6 +4218,8 @@ snapshots:
     optional: true
 
   '@oxlint/plugins@1.88.0': {}
+
+  '@pierre/highlights@0.2.0': {}
 
   '@polka/url@1.0.0-next.29': {}
 
