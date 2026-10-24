@@ -29,7 +29,7 @@ metadata:
 
 # Taste
 
-Apply this to the UI the user names: build it, improve it, or review it. For a review, report findings without editing unless asked. For an existing UI, work inside its stack, design system, and platform conventions; fix in place with small, reviewable changes rather than rewriting. Do not add a colour, face, or other building block the system lacks without asking, and if the concept itself is wrong, say so instead of slipping a redesign into a polish pass. Project rules and the platform's own guidelines for standard controls outrank anything here.
+Apply this to the UI the user names: build it, improve it, or review it. For a review, report findings without editing unless asked. For an existing UI, work inside its stack, design system, and platform conventions; fix in place with small, reviewable changes rather than rewriting. Do not add a colour, face, or other building block the system lacks without asking, and if the concept itself is wrong, say so instead of slipping a redesign into a polish pass. Always make the decision that improves all three: the user experience (UX), the developer experience (DX) of building and maintaining the UI, and the agent experience (AX) of reading, driving, or changing it. Project rules and the platform's own guidelines for standard controls outrank anything here.
 
 ## Translate to the medium first
 
@@ -91,9 +91,10 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 
 ## Copy
 
+- Cut taglines, helper text, and secondary labels. If a screen needs them to make sense, fix the layout.
 - Name the outcome or the thing: "Save draft", "Delete 3 files", never the gesture ("Click here"). One action keeps one name everywhere.
 - Prefer the specific noun and the real number. If another product could print the sentence unchanged, sharpen it or cut it.
-- Say it once. If the heading explains the state, the text below adds something new or goes. Helper text answers the question the user would ask, not the control's name again.
+- Say it once. If the heading explains the state, the text below adds something new or goes.
 - A placeholder is an example, not a label; the label stays visible while the user types.
 - Errors say what happened, why if known, and what to do next, with no "Oops" and no exclamation marks.
 - Loading text names the real operation.
@@ -151,7 +152,7 @@ Make each pass separately:
 8. States: walk every empty state, loading, error, and interruption.
 9. Sizes and data: overflow, truncation, collisions, anything covering content, and the stress data.
 10. Decisions: count the equal options at each decision point.
-11. The task: walk it end to end as an expert (keyboard only, nothing forced or unskippable) and as a first-timer who reads every label literally.
+11. The task: walk it end to end as an expert (keyboard only, nothing forced or unskippable), as a first-timer who reads every label literally, and as an agent that sees only the captured text or accessibility names.
 12. Substance: does it show what the user came for, completely and at a readable size? Cover the product's name: could the screen belong to anything else?
 
 Fix anything broken, misleading, blocking, or losing data first. Then fix in this order, since later items cannot rescue earlier ones: purpose and hierarchy, composition and spacing, type, colour, copy, states, detail, motion. Fix the top three problems, render again, and critique again, for at most three rounds. Stop early when a round finds nothing a stranger would notice.
