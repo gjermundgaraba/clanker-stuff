@@ -13,9 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: voidzero-dev/setup-vp@v1.21.1
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
+          node-version-file: package.json
           cache: true
+          cache-toolchain: true
       - run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: vp install --frozen-lockfile
       - run: vp run ready
