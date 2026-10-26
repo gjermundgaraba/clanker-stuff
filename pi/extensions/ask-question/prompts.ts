@@ -1,6 +1,6 @@
 /**
- * Shows questionnaire prompts one at a time. Pi gives each `ctx.ui` prompt the editor slot
- * outright, so a second prompt would orphan the first one still awaiting input.
+ * Shows questionnaire prompts one at a time, in arrival order. Pi stacks `ctx.ui` prompts with the
+ * newest on top, so a new question would otherwise cover a form the user is still filling in.
  */
 export function createPromptQueue() {
   let tail = Promise.resolve();
