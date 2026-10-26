@@ -13,7 +13,7 @@ const [task, runtime, logs] = process.argv.slice(2);
 
 assert.ok(task && runtime && logs, "task, runtime and logs paths are required");
 
-process.env.EVAL_COMPARISON = `${task}/tests/comparison.json`;
+process.env["EVAL_COMPARISON"] = `${task}/tests/comparison.json`;
 
 const { readComparison } = await import("../../verifiers/comparison.mjs");
 
@@ -124,11 +124,11 @@ assert.equal(score(answer, oracle(fixture()), backendEvents).quality, 1);
   );
 }
 
-process.env.EVAL_LOGS = logs;
+process.env["EVAL_LOGS"] = logs;
 
-process.env.EVAL_EVENTS = `${logs}/events.jsonl`;
+process.env["EVAL_EVENTS"] = `${logs}/events.jsonl`;
 
-process.env.EVAL_TRAJECTORY = `${logs}/trajectory.json`;
+process.env["EVAL_TRAJECTORY"] = `${logs}/trajectory.json`;
 
 for (const arm of ["pi-direct", "pi-code", "native"]) {
   const mode = arm === "pi-direct" ? "direct" : arm === "pi-code" ? "code_mode_only" : "native";
@@ -212,8 +212,11 @@ for (const arm of ["pi-direct", "pi-code", "native"]) {
       start.dynamicTools.push({ name: "exec_command" });
     }
 
-    writeFileSync(process.env.EVAL_EVENTS, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    writeFileSync(process.env.EVAL_TRAJECTORY, JSON.stringify(trajectory));
+    writeFileSync(
+      process.env["EVAL_EVENTS"],
+      events.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    );
+    writeFileSync(process.env["EVAL_TRAJECTORY"], JSON.stringify(trajectory));
     await import(url(`${task}/tests/grade.mjs`) + `?arm=${arm}&valid=${valid}`);
     /** @type {unknown} */
     const reward = JSON.parse(readFileSync(`${logs}/reward.json`, "utf8"));

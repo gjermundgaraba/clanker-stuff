@@ -139,7 +139,11 @@ export class Monitor {
   readonly #tracks = new Map<string, Track>();
 
   /** Receives change listener failures, which must not fail the change being announced. */
-  constructor(private readonly onError: (cause: unknown) => void) {}
+  private readonly onError: (cause: unknown) => void;
+
+  constructor(onError: (cause: unknown) => void) {
+    this.onError = onError;
+  }
 
   activity(path: string): Activity | undefined {
     const track = this.#tracks.get(path);

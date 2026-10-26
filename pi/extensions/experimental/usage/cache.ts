@@ -7,7 +7,11 @@ export class UsageCache {
   private readonly success = new Map<SupportedProvider, UsageSnapshot>();
   private readonly inflight = new Map<SupportedProvider, Promise<UsageFetchResult>>();
 
-  constructor(private readonly now: () => number) {}
+  private readonly now: () => number;
+
+  constructor(now: () => number) {
+    this.now = now;
+  }
 
   getLastSuccess(provider: SupportedProvider): UsageSnapshot | undefined {
     return this.success.get(provider);

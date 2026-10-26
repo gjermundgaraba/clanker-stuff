@@ -203,16 +203,33 @@ export class AgentsViewer implements Component {
   #selected: string | undefined;
   #treeScroll = 0;
 
+  private readonly tui: TUI;
+  private readonly theme: Theme;
+  private readonly keybindings: KeybindingsManager;
+  private readonly source: ViewerSource;
+  private readonly marks: Marks;
+  private readonly cwd: string;
+  private readonly done: () => void;
+  private readonly now: () => number;
+
   constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    private readonly keybindings: KeybindingsManager,
-    private readonly source: ViewerSource,
-    private readonly marks: Marks,
-    private readonly cwd: string,
-    private readonly done: () => void,
-    private readonly now: () => number = Date.now,
+    tui: TUI,
+    theme: Theme,
+    keybindings: KeybindingsManager,
+    source: ViewerSource,
+    marks: Marks,
+    cwd: string,
+    done: () => void,
+    now: () => number = Date.now,
   ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.keybindings = keybindings;
+    this.source = source;
+    this.marks = marks;
+    this.cwd = cwd;
+    this.done = done;
+    this.now = now;
     this.#builtIns = builtIns(cwd);
     this.#refreshRows();
     this.#unsubscribe = source.monitor.onChange(() => {

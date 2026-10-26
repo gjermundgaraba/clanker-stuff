@@ -5,7 +5,7 @@
   "scripts": {
     "eval:frontier": "uv run --project pi/evals python -m pi_evals.frontier",
     "eval:scaling": "uv run --project pi/evals python -m pi_evals.scaling",
-    "prepare": "vp config --no-agent",
+    "prepare": "vp config",
     "publish:dry-run": "node ./scripts/publish-packages.ts --dry-run",
     "publish:packages": "node ./scripts/publish-packages.ts"
   },
@@ -21,14 +21,13 @@
     "vite-plus": "catalog:"
   },
   "devEngines": {
-    "runtime": {
-      "name": "node",
-      "version": "26.8.2",
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.15.0",
       "onFail": "download"
     }
   },
   "engines": {
     "node": ">=26"
-  },
-  "packageManager": "pnpm@12.5.1"
+  }
 }

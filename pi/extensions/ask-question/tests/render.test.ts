@@ -47,10 +47,10 @@ describe("questionnaire presentation", () => {
     initTheme("dark");
     const item = fresh();
     const q = request.questions[0];
-    const a = item.draft?.answers.target;
+    const a = item.draft?.answers["target"];
     assert(a);
     a.selected = ["cloud"];
-    a.notes.local = "Keep the local data\nSecond line";
+    a.notes["local"] = "Keep the local data\nSecond line";
     const result = optionLines(q, a, 0, 60, theme);
     const text = displayText(result.join("\n"));
     expect(text).toContain("> ( ) 1. Local\u00a0★");
@@ -91,7 +91,7 @@ describe("questionnaire presentation", () => {
   });
   it("shows a required marker for a selected but blank custom draft", () => {
     const item = fresh();
-    const answer = item.draft?.answers.target;
+    const answer = item.draft?.answers["target"];
     assert(answer);
     answer.custom_selected = true;
 
@@ -190,7 +190,7 @@ describe("questionnaire presentation", () => {
   it("clips long written answers and notes to one line with a single ellipsis", () => {
     initTheme("dark");
     const item = fresh();
-    const draft = item.draft?.answers.target;
+    const draft = item.draft?.answers["target"];
     assert(draft);
     const a = { ...draft, custom: "word ".repeat(80), custom_selected: true };
 

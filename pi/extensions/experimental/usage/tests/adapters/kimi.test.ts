@@ -81,6 +81,6 @@ describe("kimi usage", () => {
 
     const [url, , headers] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://api.kimi.com/coding/v1/usages");
-    expect(headers?.Authorization).toBe("Bearer kimi-token");
+    expect(headers?.["Authorization"]).toBe("Bearer kimi-token");
   });
 });

@@ -106,7 +106,7 @@ export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =
     });
 
 export const getDataVersion = (database: DatabaseSync): number => {
-  const version: unknown = database.prepare("PRAGMA data_version").get()?.data_version;
+  const version: unknown = database.prepare("PRAGMA data_version").get()?.["data_version"];
 
   if (typeof version !== "number" || !Number.isFinite(version)) {
     throw new TypeError("SQLite did not return a data version");

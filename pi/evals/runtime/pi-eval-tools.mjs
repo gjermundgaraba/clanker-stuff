@@ -5,19 +5,19 @@ import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
 
 /** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi */
 export default async function evaluationExtension(pi) {
-  const mode = process.env.PI_EVAL_TOOL_MODE;
+  const mode = process.env["PI_EVAL_TOOL_MODE"];
 
   if (mode !== "direct" && mode !== "code_mode_only") {
     throw new Error("PI_EVAL_TOOL_MODE must be explicit");
   }
 
-  const controlled = process.env.PI_EVAL_EXPERIMENT === "code-mode";
+  const controlled = process.env["PI_EVAL_EXPERIMENT"] === "code-mode";
 
   if (mode === "code_mode_only")
     await createCodemodeExtension(controlled ? { mode: "only", models: false } : {})(pi);
 
   /** @type {unknown} */
-  const direct = controlled ? JSON.parse(process.env.PI_EVAL_DIRECT_TOOLS ?? "null") : undefined;
+  const direct = controlled ? JSON.parse(process.env["PI_EVAL_DIRECT_TOOLS"] ?? "null") : undefined;
 
   const names = Array.isArray(direct) ? direct.filter((name) => typeof name === "string") : [];
 
@@ -75,8 +75,9 @@ export default async function evaluationExtension(pi) {
 
     const valid =
       (!controlled || !compacted) &&
-      model === process.env.PI_EVAL_MODEL &&
-      (process.env.PI_EVAL_THINKING === undefined || thinking === process.env.PI_EVAL_THINKING) &&
+      model === process.env["PI_EVAL_MODEL"] &&
+      (process.env["PI_EVAL_THINKING"] === undefined ||
+        thinking === process.env["PI_EVAL_THINKING"]) &&
       matchesTools();
 
     await emit({

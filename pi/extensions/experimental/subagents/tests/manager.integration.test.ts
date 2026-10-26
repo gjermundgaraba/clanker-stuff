@@ -127,7 +127,7 @@ describe("root delivery", () => {
           (pi) => {
             pi.on("before_agent_start", (event, ctx) => {
               starts.push({ messageType: event.messageType, idle: ctx.isIdle() });
-              event.systemPromptOptions.sections.wake_test = `wake-${event.messageType}`;
+              event.systemPromptOptions.sections["wake_test"] = `wake-${event.messageType}`;
             });
           },
         ],

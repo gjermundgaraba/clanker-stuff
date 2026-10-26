@@ -133,9 +133,9 @@ describe("the third-party gate", () => {
 
     // A reworded preamble or moved doc paths leave the gate matching nothing: update
     // PI_PREAMBLE or the trigger pair in prompt.ts.
-    expect(sections.preamble).toContain(PI_PREAMBLE);
-    expect(sections.docs).toContain("docs/custom-provider.md");
-    expect(sections.docs).toContain("docs/packages.md");
+    expect(sections["preamble"]).toContain(PI_PREAMBLE);
+    expect(sections["docs"]).toContain("docs/custom-provider.md");
+    expect(sections["docs"]).toContain("docs/packages.md");
   });
 });
 

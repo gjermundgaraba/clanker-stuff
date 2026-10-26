@@ -160,7 +160,8 @@ for (const { dir, packageJson } of experimentalPackages) {
 
   if (
     [...actual.matchAll(NPM_INSTALL_PATTERN)].some(
-      ({ groups }) => groups?.source === ownSource || groups?.source?.startsWith(`${ownSource}@`),
+      ({ groups }) =>
+        groups?.["source"] === ownSource || groups?.["source"]?.startsWith(`${ownSource}@`),
     )
   )
     errors.push(

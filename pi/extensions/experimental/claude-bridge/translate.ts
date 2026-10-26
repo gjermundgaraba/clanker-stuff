@@ -94,14 +94,23 @@ export class Turn {
   private streamBlockStart = 0;
   private readonly openBlocks = new Map<TurnBlock, OpenBlock>();
 
+  private readonly model: Model<Api>;
+  readonly stream: AssistantMessageEventStream;
+  /** The pi names of the tools the query serves. */
+  private readonly served: ReadonlySet<string>;
+  /** A one-off asks for text: a reply without any is a failure, not an answer. */
+  private readonly options: { requireText?: boolean };
+
   constructor(
-    private readonly model: Model<Api>,
-    readonly stream: AssistantMessageEventStream,
-    /** The pi names of the tools the query serves. */
-    private readonly served: ReadonlySet<string>,
-    /** A one-off asks for text: a reply without any is a failure, not an answer. */
-    private readonly options: { requireText?: boolean } = {},
+    model: Model<Api>,
+    stream: AssistantMessageEventStream,
+    served: ReadonlySet<string>,
+    options: { requireText?: boolean } = {},
   ) {
+    this.model = model;
+    this.stream = stream;
+    this.served = served;
+    this.options = options;
     this.output = newAssistantOutput(model, "stop");
   }
 

@@ -41,26 +41,26 @@ const isRecord = (value) => typeof value === "object" && value !== null && !Arra
 // The task generator owns these required seed and sizing settings. Fail before creating a ledger or cursor loop.
 if (
   !isRecord(settings) ||
-  typeof settings.count !== "number" ||
-  !Number.isSafeInteger(settings.count) ||
-  settings.count < 7 ||
-  typeof settings.seed !== "string" ||
-  settings.seed.length === 0 ||
-  typeof settings.page_size !== "number" ||
-  !Number.isSafeInteger(settings.page_size) ||
-  settings.page_size < 1 ||
-  typeof settings.budget !== "number" ||
-  !Number.isSafeInteger(settings.budget) ||
-  settings.budget < 1
+  typeof settings["count"] !== "number" ||
+  !Number.isSafeInteger(settings["count"]) ||
+  settings["count"] < 7 ||
+  typeof settings["seed"] !== "string" ||
+  settings["seed"].length === 0 ||
+  typeof settings["page_size"] !== "number" ||
+  !Number.isSafeInteger(settings["page_size"]) ||
+  settings["page_size"] < 1 ||
+  typeof settings["budget"] !== "number" ||
+  !Number.isSafeInteger(settings["budget"]) ||
+  settings["budget"] < 1
 ) {
   throw new TypeError("Invalid scaling case settings");
 }
 
 export const SETTINGS = {
-  count: settings.count,
-  seed: settings.seed,
-  page_size: settings.page_size,
-  budget: settings.budget,
+  count: settings["count"],
+  seed: settings["seed"],
+  page_size: settings["page_size"],
+  budget: settings["budget"],
 };
 
 export const FIXTURE = `scaling-ledger-${SETTINGS.count}-${SETTINGS.seed}-v1`;
@@ -128,9 +128,9 @@ export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
       else if (name === "list_records") {
         const offset =
           isRecord(args) &&
-          args.collection === "ledger" &&
-          (args.cursor === null || typeof args.cursor === "string")
-            ? cursors.get(args.cursor)
+          args["collection"] === "ledger" &&
+          (args["cursor"] === null || typeof args["cursor"] === "string")
+            ? cursors.get(args["cursor"])
             : undefined;
 
         result =
@@ -145,9 +145,9 @@ export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
         let report;
 
         try {
-          if (!isRecord(args) || typeof args.json !== "string")
+          if (!isRecord(args) || typeof args["json"] !== "string")
             throw new TypeError("Missing report JSON");
-          report = JSON.parse(args.json);
+          report = JSON.parse(args["json"]);
         } catch {
           result = fail("invalid_json");
         }

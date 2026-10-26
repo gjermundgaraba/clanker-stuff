@@ -2,9 +2,9 @@
 
 import { appendFileSync, readFileSync } from "node:fs";
 
-const schemaPath = process.env.MEM2ACT_SCHEMA_PATH ?? "/app/.mem2act-schema.json";
+const schemaPath = process.env["MEM2ACT_SCHEMA_PATH"] ?? "/app/.mem2act-schema.json";
 
-const callsPath = process.env.MEM2ACT_CALLS_PATH ?? "/app/.mem2act-calls.jsonl";
+const callsPath = process.env["MEM2ACT_CALLS_PATH"] ?? "/app/.mem2act-calls.jsonl";
 
 /** @param {string} text @returns {unknown} */
 const parseJson = (text) => /** @type {unknown} */ (JSON.parse(text));
@@ -40,7 +40,7 @@ if (command === "describe" && args.length === 0) {
   }
 
   const schema = parseJson(readFileSync(schemaPath, "utf-8"));
-  const tool = isObject(schema) && "name" in schema ? schema.name : null;
+  const tool = isObject(schema) && "name" in schema ? schema["name"] : null;
 
   if (typeof tool !== "string" || tool.length === 0) {
     fail("tool schema must have a name");

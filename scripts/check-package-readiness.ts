@@ -26,7 +26,7 @@ const ROOT_PACKAGE_NAME = "clanker-stuff";
 
 const EXPECTED_NODE_ENGINE = ">=26";
 
-const EXPECTED_PACKAGE_MANAGER_PREFIX = "pnpm@";
+const EXPECTED_PACKAGE_MANAGER = "pnpm";
 
 const EXPECTED_LICENSE = "MIT";
 
@@ -57,7 +57,7 @@ const importedPiProvidedPackages = (directory: string, files: readonly string[])
     const text = readFileSync(file, "utf-8");
 
     for (const match of text.matchAll(importRe)) {
-      const specifier = match.groups?.specifier;
+      const specifier = match.groups?.["specifier"];
 
       if (specifier === undefined) {
         continue;
@@ -109,10 +109,8 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
       errors.push(`${label}: root package must stay private`);
     }
 
-    if (pkg.packageManager?.startsWith(EXPECTED_PACKAGE_MANAGER_PREFIX) !== true) {
-      errors.push(
-        `${label}: expected packageManager to start with ${EXPECTED_PACKAGE_MANAGER_PREFIX}`,
-      );
+    if (pkg.devEngines?.packageManager?.name !== EXPECTED_PACKAGE_MANAGER) {
+      errors.push(`${label}: expected devEngines.packageManager.name ${EXPECTED_PACKAGE_MANAGER}`);
     }
 
     continue;

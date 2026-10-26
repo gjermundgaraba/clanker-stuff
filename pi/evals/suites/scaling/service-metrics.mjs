@@ -4,39 +4,39 @@ export const isRecord = (value) =>
 
 /** @param {Record<string, unknown>} event @returns {event is import('./services.mjs').ServiceStart} */
 const isStart = (event) =>
-  event.type === "pi_eval_service_start" &&
-  typeof event.operation === "number" &&
-  Number.isSafeInteger(event.operation) &&
-  event.operation > 0 &&
-  typeof event.name === "string" &&
-  typeof event.start_ms === "number" &&
-  Number.isFinite(event.start_ms) &&
-  typeof event.concurrent === "number" &&
-  Number.isSafeInteger(event.concurrent) &&
-  event.concurrent > 0;
+  event["type"] === "pi_eval_service_start" &&
+  typeof event["operation"] === "number" &&
+  Number.isSafeInteger(event["operation"]) &&
+  event["operation"] > 0 &&
+  typeof event["name"] === "string" &&
+  typeof event["start_ms"] === "number" &&
+  Number.isFinite(event["start_ms"]) &&
+  typeof event["concurrent"] === "number" &&
+  Number.isSafeInteger(event["concurrent"]) &&
+  event["concurrent"] > 0;
 
 /** @param {Record<string, unknown>} event @returns {event is import('./services.mjs').ServiceEnd} */
 const isEnd = (event) =>
-  event.type === "pi_eval_service_end" &&
-  typeof event.operation === "number" &&
-  Number.isSafeInteger(event.operation) &&
-  event.operation > 0 &&
-  typeof event.name === "string" &&
-  typeof event.start_ms === "number" &&
-  Number.isFinite(event.start_ms) &&
-  typeof event.end_ms === "number" &&
-  Number.isFinite(event.end_ms) &&
-  typeof event.success === "boolean" &&
-  (event.error === null || typeof event.error === "string") &&
-  typeof event.response_bytes === "number" &&
-  Number.isSafeInteger(event.response_bytes) &&
-  event.response_bytes >= 0;
+  event["type"] === "pi_eval_service_end" &&
+  typeof event["operation"] === "number" &&
+  Number.isSafeInteger(event["operation"]) &&
+  event["operation"] > 0 &&
+  typeof event["name"] === "string" &&
+  typeof event["start_ms"] === "number" &&
+  Number.isFinite(event["start_ms"]) &&
+  typeof event["end_ms"] === "number" &&
+  Number.isFinite(event["end_ms"]) &&
+  typeof event["success"] === "boolean" &&
+  (event["error"] === null || typeof event["error"] === "string") &&
+  typeof event["response_bytes"] === "number" &&
+  Number.isSafeInteger(event["response_bytes"]) &&
+  event["response_bytes"] >= 0;
 
 /** @param {unknown[]} events Untrusted journal records; malformed rows invalidate completeness without hiding independent counts. */
 export function serviceMetrics(events) {
   const records = events.filter(isRecord);
-  const rawStarts = records.filter((e) => e.type === "pi_eval_service_start");
-  const rawEnds = records.filter((e) => e.type === "pi_eval_service_end");
+  const rawStarts = records.filter((e) => e["type"] === "pi_eval_service_start");
+  const rawEnds = records.filter((e) => e["type"] === "pi_eval_service_end");
   const starts = rawStarts.filter(isStart);
   const ends = rawEnds.filter(isEnd);
 
@@ -68,6 +68,6 @@ export function serviceMetrics(events) {
     response_bytes: ends.reduce((sum, e) => sum + e.response_bytes, 0),
     max_concurrency: Math.max(0, ...starts.map((e) => e.concurrent)),
     service_elapsed_ms: ends.reduce((sum, e) => sum + e.end_ms - e.start_ms, 0),
-    submissions: records.filter((e) => e.type === "pi_eval_submission").length,
+    submissions: records.filter((e) => e["type"] === "pi_eval_submission").length,
   };
 }

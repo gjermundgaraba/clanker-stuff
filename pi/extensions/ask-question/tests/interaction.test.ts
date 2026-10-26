@@ -29,10 +29,10 @@ describe("questionnaire transitions", () => {
     apply({ type: "select", question: "target", option: "local" });
     apply({ type: "note", question: "target", option: "local", text: "my local note" });
     apply({ type: "select", question: "target", option: "remote" });
-    expect(item.draft?.answers.target?.notes.local).toBe("my local note");
+    expect(item.draft?.answers["target"]?.notes["local"]).toBe("my local note");
     apply({ type: "note", text: "overall" });
     apply({ type: "submit" });
-    expect(item.submissions[0]?.answers.target?.selections).toEqual([
+    expect(item.submissions[0]?.answers["target"]?.selections).toEqual([
       { option_id: "remote", label: "Remote" },
     ]);
     expect(item.submissions[0]?.note).toBe("overall");
@@ -91,7 +91,7 @@ describe("questionnaire transitions", () => {
   it("rejects a persisted draft missing the question's answer record without mutating it", () => {
     const item = createInteraction("question_test", request, "call1", "async");
     assert.ok(item.draft);
-    delete item.draft.answers.target;
+    delete item.draft.answers["target"];
     const before = structuredClone(item);
     expect(() => transition(item, { type: "select", question: "target", option: "local" })).toThrow(
       "Missing draft answer: target",
@@ -104,7 +104,7 @@ describe("questionnaire transitions", () => {
     item = transition(item, { type: "submit" });
     const [submission] = item.submissions;
     assert.ok(submission);
-    delete submission.answers.target;
+    delete submission.answers["target"];
     const before = structuredClone(item);
     expect(() =>
       transition(item, {
@@ -130,7 +130,7 @@ describe("questionnaire transitions", () => {
       { type: "note", question: "target", text: "custom rationale" },
     ] satisfies Action[])
       item = transition(item, action);
-    expect(collectAnswers(item).target).toMatchObject({
+    expect(collectAnswers(item)["target"]).toMatchObject({
       selections: [{ option_id: "local" }],
       custom: { text: "also a third", note: "custom rationale" },
     });

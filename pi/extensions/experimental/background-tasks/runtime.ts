@@ -47,7 +47,10 @@ export class TaskRuntime {
   private prompting = false;
   private readonly check = createScheduledCheck(() => this.tick());
 
-  constructor(private pi: ExtensionAPI) {
+  private pi: ExtensionAPI;
+
+  constructor(pi: ExtensionAPI) {
+    this.pi = pi;
     this.supervisor = new Supervisor(() => this.schedule());
   }
 

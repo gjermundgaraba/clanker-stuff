@@ -87,7 +87,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       async getSuggestions(lines, cursorLine, cursorCol, options) {
         const currentLine = lines[cursorLine] ?? "";
         const beforeCursor = currentLine.slice(0, cursorCol);
-        const query = SKILL_COMPLETION.exec(beforeCursor)?.groups?.query;
+        const query = SKILL_COMPLETION.exec(beforeCursor)?.groups?.["query"];
 
         if (query === undefined) {
           return await current.getSuggestions(lines, cursorLine, cursorCol, options);

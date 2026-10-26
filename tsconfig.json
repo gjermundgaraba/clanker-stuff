@@ -1,6 +1,7 @@
 {
   "exclude": ["node_modules", "skills/install-anti-slop"],
   "compilerOptions": {
+    "target": "ESNext",
     "allowImportingTsExtensions": true,
     "allowJs": true,
     "checkJs": true,
@@ -8,7 +9,7 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "lib": ["ES2025"],
+    "lib": ["ESNext"],
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
@@ -40,6 +41,17 @@
       "/app/src/ledger.js": [
         "./pi/evals/suites/smoke/tasks/coding/inventory-ledger/solution/ledger.js"
       ]
-    }
+    },
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true
   }
 }

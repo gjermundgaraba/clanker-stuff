@@ -55,7 +55,10 @@ export class Insertion {
   private oldEnd = 0;
   private newEnd = 0;
   private readonly origin: number;
-  constructor(private readonly before: View) {
+  private readonly before: View;
+
+  constructor(before: View) {
+    this.before = before;
     this.origin = units(before).filter((u) => u.start < before.cursor).length;
   }
   record(before: View, after: View) {

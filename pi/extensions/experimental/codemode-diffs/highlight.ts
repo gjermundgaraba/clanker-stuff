@@ -75,9 +75,9 @@ export interface DiffLine {
 
 export function parseDiffLine(line: string): DiffLine | undefined {
   const match = /^(?<kind>[ +-])(?<number>\s*\d+) (?<text>.*)$/su.exec(line);
-  const kind = match?.groups?.kind;
-  const number = match?.groups?.number;
-  const text = match?.groups?.text;
+  const kind = match?.groups?.["kind"];
+  const number = match?.groups?.["number"];
+  const text = match?.groups?.["text"];
 
   if ((kind !== " " && kind !== "+" && kind !== "-") || number === undefined || text === undefined)
     return;

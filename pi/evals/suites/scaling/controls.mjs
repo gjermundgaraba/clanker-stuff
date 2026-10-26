@@ -16,9 +16,12 @@ assert.deepEqual(Object.keys(summaries).sort(), ["code", "direct"]);
 
 for (const metrics of Object.values(summaries)) {
   assert.ok(isRecord(metrics));
-  assert.equal(metrics.underlying_operations, Math.ceil(SETTINGS.count / SETTINGS.page_size) + 1);
-  assert.equal(metrics.max_concurrency, 1);
-  assert.equal(metrics.ledger_complete, true);
+  assert.equal(
+    metrics["underlying_operations"],
+    Math.ceil(SETTINGS.count / SETTINGS.page_size) + 1,
+  );
+  assert.equal(metrics["max_concurrency"], 1);
+  assert.equal(metrics["ledger_complete"], true);
 }
 
 /** @type {import("./services.mjs").ServiceEvent[]} */

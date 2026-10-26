@@ -39,14 +39,21 @@ class SharedEditor extends CustomEditor {
   private kind: Kind = "input";
   private before: DocumentView | undefined;
 
+  readonly keys: KeybindingsManager;
+  private readonly contributions: Contributions;
+  private readonly uiTheme: () => Theme;
+
   constructor(
     tui: TUI,
     theme: EditorTheme,
-    readonly keys: KeybindingsManager,
-    private readonly contributions: Contributions,
-    private readonly uiTheme: () => Theme,
+    keys: KeybindingsManager,
+    contributions: Contributions,
+    uiTheme: () => Theme,
   ) {
     super(tui, theme, keys, { embedWorkingStatus: true });
+    this.keys = keys;
+    this.contributions = contributions;
+    this.uiTheme = uiTheme;
 
     try {
       this.document = connect(this);
@@ -172,7 +179,11 @@ export class EditorHost {
   private readonly contributions: Contributions = {};
   private history: string[] = [];
   private readonly mounts = new Set<(editor: SharedEditor) => void>();
-  constructor(private readonly theme: () => Theme) {}
+  private readonly theme: () => Theme;
+
+  constructor(theme: () => Theme) {
+    this.theme = theme;
+  }
   create(tui: TUI, theme: EditorTheme, keys: KeybindingsManager) {
     if (this.editor) return this.editor;
 

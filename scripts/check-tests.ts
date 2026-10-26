@@ -35,8 +35,8 @@ const getImportSpecifiers = (sourceText: string): string[] => {
 
   for (const pattern of [IMPORT_SPECIFIER_PATTERN, DYNAMIC_IMPORT_PATTERN]) {
     for (const match of sourceText.matchAll(pattern)) {
-      if (match.groups?.specifier !== undefined) {
-        specifiers.push(match.groups.specifier);
+      if (match.groups?.["specifier"] !== undefined) {
+        specifiers.push(match.groups["specifier"]);
       }
     }
   }

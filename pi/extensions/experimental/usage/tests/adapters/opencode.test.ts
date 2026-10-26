@@ -111,7 +111,7 @@ describe("opencode go usage", () => {
 
     const [url, , headers] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://opencode.ai/zen/go/v1/usage");
-    expect(headers?.Authorization).toBe("Bearer opencode-key");
+    expect(headers?.["Authorization"]).toBe("Bearer opencode-key");
     expect(result.ok).toBeTruthy();
   });
 });

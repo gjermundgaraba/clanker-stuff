@@ -82,9 +82,11 @@ const strip = (node: unknown): unknown => {
 
   if (summary.length > 0) {
     const description =
-      typeof node.description === "string" ? `${node.description.replace(/[.\s]*$/, "")}. ` : "";
+      typeof node["description"] === "string"
+        ? `${node["description"].replace(/[.\s]*$/, "")}. `
+        : "";
 
-    result.description = `${description}Limits: ${summary.join("; ")}.`;
+    result["description"] = `${description}Limits: ${summary.join("; ")}.`;
   }
 
   return result;

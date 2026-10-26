@@ -52,7 +52,7 @@ function findNamed(root, names, maxDepth, type) {
 }
 
 function opencodeLocations() {
-  const configured = process.env.OPENCODE_DB;
+  const configured = process.env["OPENCODE_DB"];
 
   if (configured) return existing(path.resolve(configured));
 
@@ -93,7 +93,7 @@ const tools = new Map(
       name: "Claude Code",
       detect: () =>
         existing(
-          path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, ".claude"), "projects"),
+          path.join(process.env["CLAUDE_CONFIG_DIR"] || path.join(HOME, ".claude"), "projects"),
         ),
     },
     {
@@ -107,7 +107,7 @@ const tools = new Map(
     {
       name: "Codex",
       detect: () => {
-        const root = process.env.CODEX_HOME || path.join(HOME, ".codex");
+        const root = process.env["CODEX_HOME"] || path.join(HOME, ".codex");
 
         return existing(path.join(root, "sessions"), path.join(root, "archived_sessions"));
       },
@@ -125,7 +125,7 @@ const tools = new Map(
     {
       name: "Grok Build",
       detect: () =>
-        existing(path.join(process.env.GROK_HOME || path.join(HOME, ".grok"), "sessions")),
+        existing(path.join(process.env["GROK_HOME"] || path.join(HOME, ".grok"), "sessions")),
     },
     { name: "OpenCode", detect: opencodeLocations },
     {

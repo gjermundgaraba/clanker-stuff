@@ -89,19 +89,19 @@ describe("child runtime results", () => {
 });
 
 describe("child model runtime", () => {
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
   afterEach(() => {
     if (previousAgentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
+      delete process.env["PI_CODING_AGENT_DIR"];
     } else {
-      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
     }
   });
 
   it("keeps usable credentials when another provider lookup fails", async () => {
     const agentDir = await mkdtemp(path.join(os.tmpdir(), "subagents-runtime-"));
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = agentDir;
 
     const source = {
       getAll: () =>
@@ -133,7 +133,7 @@ describe("child model runtime", () => {
 
   it("fails when the selected provider credential cannot be copied", async () => {
     const agentDir = await mkdtemp(path.join(os.tmpdir(), "subagents-runtime-"));
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = agentDir;
 
     const source = {
       getAll: () => [fauxProvider({ models: [{ id: "model" }], provider: "broken" }).getModel()],

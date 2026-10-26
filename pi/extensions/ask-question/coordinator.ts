@@ -20,7 +20,11 @@ export class Coordinator {
   private flushView: (() => void) | undefined;
   private inboxOpen = false;
   readonly prompt = createPromptQueue();
-  constructor(private readonly pi: ExtensionAPI) {}
+  private readonly pi: ExtensionAPI;
+
+  constructor(pi: ExtensionAPI) {
+    this.pi = pi;
+  }
   attach(ctx: ExtensionContext): void {
     this.lifetime.abort();
     this.lifetime = new AbortController();

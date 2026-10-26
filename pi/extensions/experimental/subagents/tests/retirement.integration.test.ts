@@ -12,11 +12,11 @@ import type { ChildRuntime, ChildRuntimeRequest } from "../runtime.js";
 import { openTree } from "../store.js";
 
 describe("retired child selections", () => {
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
   afterEach(() => {
-    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    if (previousAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
+    else process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
   });
 
   it.each(["completion", "interruption", "shutdown"])(
@@ -38,7 +38,7 @@ describe("retired child selections", () => {
         ],
       });
 
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const finalModel = harness.faux.getModel("final");
 
       if (rootCtx === undefined || finalModel === undefined) throw new Error("Missing fixture");

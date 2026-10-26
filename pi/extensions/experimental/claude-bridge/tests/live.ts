@@ -20,9 +20,9 @@ import {
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import claudeBridge from "../index.js";
 
-export const LIVE = process.env.CLAUDE_BRIDGE_LIVE === "1";
+export const LIVE = process.env["CLAUDE_BRIDGE_LIVE"] === "1";
 
-export const LIVE_MODEL = process.env.CLAUDE_BRIDGE_LIVE_MODEL ?? "claude-haiku-5-5";
+export const LIVE_MODEL = process.env["CLAUDE_BRIDGE_LIVE_MODEL"] ?? "claude-haiku-5-5";
 
 /** Real Claude Code round trips: process start, API latency, and tool waits. */
 export const LIVE_TIMEOUT = 240_000;

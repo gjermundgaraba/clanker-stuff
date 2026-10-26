@@ -24,7 +24,7 @@ export function parseEvents(input) {
       throw lineError(TypeError, line, "event must be an object");
     }
 
-    const sku = typeof event.sku === "string" ? event.sku.trim().toUpperCase() : "";
+    const sku = typeof event["sku"] === "string" ? event["sku"].trim().toUpperCase() : "";
     const { type, quantity } = event;
     const validType = type === "receive" || type === "ship" || type === "adjust";
 

@@ -16,26 +16,26 @@ let steps = [];
 try {
   /** @type {unknown} */
   const value = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
-  steps = isRecord(value) && Array.isArray(value.steps) ? value.steps : [];
+  steps = isRecord(value) && Array.isArray(value["steps"]) ? value["steps"] : [];
 } catch {}
 
 /** @type {unknown[]} */
 const evidence = steps.flatMap(
   /** @returns {unknown[]} */ (step) =>
-    isRecord(step) && Array.isArray(step.tool_calls) ? step.tool_calls : [],
+    isRecord(step) && Array.isArray(step["tool_calls"]) ? step["tool_calls"] : [],
 );
 
 const calls = evidence.filter(isRecord);
 
 /** @param {Record<string, unknown>} call @param {string} name @param {string} filename */
 const targets = (call, name, filename) => {
-  const args = call.arguments;
+  const args = call["arguments"];
 
   return (
-    call.function_name === name &&
+    call["function_name"] === name &&
     isRecord(args) &&
-    typeof args.path === "string" &&
-    path.basename(args.path) === filename
+    typeof args["path"] === "string" &&
+    path.basename(args["path"]) === filename
   );
 };
 
@@ -45,8 +45,8 @@ const usedWrite = calls.some((call) => targets(call, "write", "answer.txt"));
 
 const usedForbiddenBash = calls.some(
   (call) =>
-    call.function_name === "bash" &&
-    /(?:clue|answer)\.txt/u.test(JSON.stringify(call.arguments) ?? ""),
+    call["function_name"] === "bash" &&
+    /(?:clue|answer)\.txt/u.test(JSON.stringify(call["arguments"]) ?? ""),
 );
 
 const toolContract = usedRead && usedWrite && !usedForbiddenBash;

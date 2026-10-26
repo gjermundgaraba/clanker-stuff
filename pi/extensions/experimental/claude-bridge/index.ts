@@ -62,7 +62,7 @@ function recording(run: QueryFunction, recordPath: string): QueryFunction {
   };
 }
 
-const recordPath = process.env.CLAUDE_BRIDGE_RECORD_STREAM;
+const recordPath = process.env["CLAUDE_BRIDGE_RECORD_STREAM"];
 
 export default createClaudeBridge(
   recordPath === undefined || recordPath === "" ? query : recording(query, recordPath),

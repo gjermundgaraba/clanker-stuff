@@ -64,13 +64,13 @@ const hasUserTask = (sessionFile: string, harness: AgentSessionHarness, text: st
   );
 
 describe("child runtime", () => {
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
   afterEach(() => {
     if (previousAgentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
+      delete process.env["PI_CODING_AGENT_DIR"];
     } else {
-      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
     }
   });
 
@@ -78,7 +78,7 @@ describe("child runtime", () => {
     "inherits native code-only execution and read permissions (blocked=%s)",
     async (blocked) => {
       const harness = await createAgentSessionHarness();
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const probe = path.join(harness.agentDir, "code-mode-probe.txt");
       await writeFile(probe, "child-code-mode-marker");
       await writeFile(
@@ -111,6 +111,8 @@ describe("child runtime", () => {
           pi.on("tool_call", (event) => {
             if (blocked && event.toolName === "read")
               return { block: true, reason: "child read denied" };
+
+            return undefined;
           });
         },
       });
@@ -153,7 +155,7 @@ describe("child runtime", () => {
         extensionFactories: [createCodemodeExtension(), createToolSearchExtension()],
       });
 
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const pidFile = path.join(harness.agentDir, "mcp.pid");
 
       const server = `
@@ -214,6 +216,8 @@ describe("child runtime", () => {
           pi.on("tool_call", (event) => {
             if (blocked && event.toolName === "mcp__probe__ping")
               return { block: true, reason: "MCP child denied" };
+
+            return undefined;
           });
           pi.on("tool_execution_end", (event) => {
             if (event.toolName === "codemode") results.push(JSON.stringify(event.result));
@@ -252,7 +256,7 @@ describe("child runtime", () => {
     "loads discovered personal policies while applying native project trust (trusted=%s)",
     async (trusted) => {
       const harness = await createAgentSessionHarness();
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const cwd = path.dirname(harness.agentDir);
       const projectMarker = path.join(cwd, "project-extension-loaded");
       const protectedPath = path.join(cwd, "protected.txt");
@@ -341,7 +345,7 @@ describe("child runtime", () => {
   it("runs a fresh child on another registered provider with native credentials", async () => {
     const parent = await createAgentSessionHarness({ provider: "parent-provider" });
     const other = await createAgentSessionHarness({ provider: "worker-provider" });
-    process.env.PI_CODING_AGENT_DIR = parent.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = parent.agentDir;
     const model = other.faux.getModel();
 
     const provider = other.session.extensionRunner
@@ -375,7 +379,7 @@ describe("child runtime", () => {
       ],
     });
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const selected = harness.faux.getModel("selected");
 
     if (selected === undefined) {
@@ -404,7 +408,7 @@ describe("child runtime", () => {
 
   it("returns the final answer of a persisted user turn", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     harness.setResponses([fauxAssistantMessage("child answer")]);
     const runtime = await createChildRuntime(runtimeRequest(harness));
 
@@ -422,7 +426,7 @@ describe("child runtime", () => {
 
   it("finishes a turn whose presentation listener throws, reporting the failure", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     harness.setResponses([fauxAssistantMessage("child answer")]);
     const errors: unknown[] = [];
 
@@ -451,7 +455,7 @@ describe("child runtime", () => {
 
   it("resumes a child from its session file", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     harness.setResponses([
       fauxAssistantMessage("first answer"),
       (context) => {
@@ -481,7 +485,7 @@ describe("child runtime", () => {
 
   it("fails before starting when the child model is not in the cloned runtime", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const model = { ...harness.faux.getModel(), id: "unregistered" };
 
     try {
@@ -499,7 +503,7 @@ describe("child runtime", () => {
     [["-builtin:mcp"], false],
   ] as const)("follows the user's built-in extension settings %j", async (extensions, loaded) => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     await writeFile(path.join(harness.agentDir, "settings.json"), JSON.stringify({ extensions }));
     let commands: string[] = [];
 
@@ -522,7 +526,7 @@ describe("child runtime", () => {
 
   it("lets a user extension replace a built-in tool", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     await mkdir(path.join(harness.agentDir, "extensions"));
     await writeFile(
       path.join(harness.agentDir, "extensions", "my-codemode.ts"),
@@ -552,13 +556,13 @@ describe("child runtime", () => {
 });
 
 describe("child mail", () => {
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
   afterEach(() => {
     if (previousAgentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
+      delete process.env["PI_CODING_AGENT_DIR"];
     } else {
-      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
     }
   });
 
@@ -595,7 +599,7 @@ describe("child mail", () => {
 
   it("acknowledges mail an idle child transcribes at once", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const delivered: string[] = [];
     harness.setResponses([fauxAssistantMessage("answer")]);
 
@@ -624,7 +628,7 @@ describe("child mail", () => {
 
   it("holds mail for a running turn until its boundary and includes it in the next request", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const delivered: string[] = [];
     const block = blockingTool();
     let nextRequest = "";
@@ -666,7 +670,7 @@ describe("child mail", () => {
 
   it("steers a follow-up task into the running turn", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const block = blockingTool();
     let nextRequest = "";
 
@@ -711,7 +715,7 @@ describe("child mail", () => {
 
   it("steers a follow-up task into a turn still starting, after its prompt", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const preflightStarted = Promise.withResolvers<undefined>();
     const releasePreflight = Promise.withResolvers<undefined>();
     const requests: string[] = [];
@@ -767,7 +771,7 @@ describe("child mail", () => {
 
   it("reports a turn a child extension aborts as failed", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     harness.setResponses([fauxAssistantMessage("unreached")]);
 
     const runtime = await createChildRuntime({
@@ -790,7 +794,7 @@ describe("child mail", () => {
 
   it("reports a turn a child tool aborts as failed, not as its preliminary text", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
 
     harness.setResponses([
       fauxAssistantMessage([fauxText("About to do the work"), fauxToolCall("stop", {})], {
@@ -830,7 +834,7 @@ describe("child mail", () => {
 
   it("reports a task steered after an aborted run's last read as unread", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     let steer: ChildRuntime["steer"] | undefined;
     let read: Promise<boolean> | undefined;
 
@@ -876,7 +880,7 @@ describe("child mail", () => {
 
   it("steers a task into a run that a settle hook continues", async () => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const requests: string[] = [];
     let continued = false;
     let steer: ChildRuntime["steer"] | undefined;
@@ -944,13 +948,13 @@ describe("child mail", () => {
 });
 
 describe("child cancellation", () => {
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
   afterEach(() => {
     if (previousAgentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
+      delete process.env["PI_CODING_AGENT_DIR"];
     } else {
-      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
     }
   });
 
@@ -967,7 +971,7 @@ describe("child cancellation", () => {
       models: [{ contextWindow, id: "faux-1", maxTokens: 100 }],
     });
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     await writeFile(path.join(harness.agentDir, "settings.json"), JSON.stringify({ compaction }));
 
     return harness;
@@ -1010,7 +1014,7 @@ describe("child cancellation", () => {
     ["dispose", "before_agent_start"],
   ] as const)("%s cancels a turn suspended in %s preflight", async (operation, preflightEvent) => {
     const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
     const preflightStarted = Promise.withResolvers<undefined>();
     const releasePreflight = Promise.withResolvers<undefined>();
     harness.setResponses([fauxAssistantMessage("detached answer")]);
@@ -1069,7 +1073,7 @@ describe("child cancellation", () => {
     "dispose emits shutdown once while fencing a turn suspended in %s",
     async (preflightEvent) => {
       const harness = await createAgentSessionHarness();
-      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const preflightStarted = Promise.withResolvers<undefined>();
       const shutdownStarted = Promise.withResolvers<undefined>();
       const releasePreflight = Promise.withResolvers<undefined>();

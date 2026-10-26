@@ -10,7 +10,7 @@ let directory: string;
 
 beforeEach(async () => {
   directory = await realpath(await mkdtemp(path.join(tmpdir(), "plannotator-cli-")));
-  vi.stubEnv("PATH", `${directory}${path.delimiter}${process.env.PATH ?? ""}`);
+  vi.stubEnv("PATH", `${directory}${path.delimiter}${process.env["PATH"] ?? ""}`);
 });
 
 afterEach(async () => {

@@ -8,7 +8,7 @@ let trajectory;
 
 try {
   trajectory = JSON.parse(
-    readFileSync(process.env.EVAL_TRAJECTORY ?? "/logs/agent/trajectory.json", "utf8"),
+    readFileSync(process.env["EVAL_TRAJECTORY"] ?? "/logs/agent/trajectory.json", "utf8"),
   );
 } catch {
   // Oracle and baseline checks have no runtime evidence.

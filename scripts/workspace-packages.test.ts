@@ -12,7 +12,11 @@ import {
 
 const tempDirs: string[] = [];
 
-const rootManifest = { name: "workspace-test", packageManager: "pnpm@12.3.4", private: true };
+const rootManifest = {
+  name: "workspace-test",
+  devEngines: { packageManager: { name: "pnpm", version: "12.3.4" } },
+  private: true,
+};
 
 const fixture = (patterns = ['"packages/*"']) => {
   const root = mkdtempSync(path.join(tmpdir(), "workspace-packages-test-"));
@@ -187,7 +191,7 @@ describe("workspace package discovery", () => {
     const bin = path.join(root, "bin");
     mkdirSync(bin);
     writeFileSync(path.join(bin, "pnpm"), `#!/bin/sh\nprintf '%s' '${output}'\n`, { mode: 0o755 });
-    vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH ?? ""}`);
+    vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env["PATH"] ?? ""}`);
     expect(() => readWorkspacePackages(root)).toThrow();
   });
 

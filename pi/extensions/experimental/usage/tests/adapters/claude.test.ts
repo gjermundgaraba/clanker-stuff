@@ -81,7 +81,7 @@ describe("claude usage", () => {
 
     const [url, , headers] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://api.anthropic.com/api/oauth/usage");
-    expect(headers?.Authorization).toBe("Bearer claude-token");
+    expect(headers?.["Authorization"]).toBe("Bearer claude-token");
     expect(headers?.["anthropic-beta"]).toBe("oauth-2025-04-20");
   });
 

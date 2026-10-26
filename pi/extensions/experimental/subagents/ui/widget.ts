@@ -48,16 +48,31 @@ export interface WidgetSource {
 export class AgentsWidget implements Component {
   readonly #timer: ReturnType<typeof setInterval>;
 
+  private readonly tui: TUI;
+  private readonly theme: Theme;
+  private readonly source: WidgetSource;
+  private readonly marks: Marks;
+  /** When the widget appeared; agents that finished earlier are not part of this burst. */
+  private readonly since: number;
+  private readonly hint: string;
+  private readonly now: () => number;
+
   constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    private readonly source: WidgetSource,
-    private readonly marks: Marks,
-    /** When the widget appeared; agents that finished earlier are not part of this burst. */
-    private readonly since: number,
-    private readonly hint: string,
-    private readonly now: () => number = Date.now,
+    tui: TUI,
+    theme: Theme,
+    source: WidgetSource,
+    marks: Marks,
+    since: number,
+    hint: string,
+    now: () => number = Date.now,
   ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.source = source;
+    this.marks = marks;
+    this.since = since;
+    this.hint = hint;
+    this.now = now;
     this.#timer = setInterval(() => {
       this.tui.requestRender();
     }, FRAME_MS);

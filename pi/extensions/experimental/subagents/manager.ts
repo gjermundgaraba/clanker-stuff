@@ -154,6 +154,8 @@ export class SubagentManager {
     ]);
 
     if (!this.#pendingFinals.isDisjointFrom(available)) return { continue: true };
+
+    return undefined;
   }
 
   /** Pi appends passive messages at turn boundaries; acknowledge whatever has landed. */

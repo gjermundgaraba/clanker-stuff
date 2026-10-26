@@ -158,7 +158,9 @@ describe("mcp-skills", () => {
     );
 
     const refused = await callTool("read", { path: refundsPath() }, ctx);
-    const newPath = /Read (?<path>\S+SKILL\.md)/u.exec(refused?.reason ?? "")?.groups?.path ?? "";
+
+    const newPath =
+      /Read (?<path>\S+SKILL\.md)/u.exec(refused?.reason ?? "")?.groups?.["path"] ?? "";
 
     expect(refused?.reason).toContain("changed on its server");
     expect(existsSync(path.dirname(refundsPath()))).toBe(false);

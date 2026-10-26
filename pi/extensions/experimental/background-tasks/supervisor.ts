@@ -68,10 +68,13 @@ export class Supervisor {
   private tasks = new Map<string, Task>();
   private closing = false;
   private shutdownPromise?: Promise<void>;
-  constructor(
-    private changed: () => void,
-    private limits: ProcessLimits = DEFAULT_LIMITS,
-  ) {}
+  private changed: () => void;
+  private limits: ProcessLimits;
+
+  constructor(changed: () => void, limits: ProcessLimits = DEFAULT_LIMITS) {
+    this.changed = changed;
+    this.limits = limits;
+  }
 
   async start(spec: StartTask, signal?: AbortSignal): Promise<Task> {
     if (process.platform === "win32")

@@ -54,15 +54,30 @@ export class ContextOverlay implements Component, Focusable {
   private maxPreviewScroll = 0;
   private layout: Layout | undefined;
 
+  private readonly tui: TUI;
+  private readonly theme: Theme;
+  private readonly keybindings: KeybindingsManager;
+  private readonly snapshot: InspectorSnapshot;
+  private readonly ui: Pick<ExtensionUIContext, "notify">;
+  private readonly done: () => void;
+  private readonly nextView: { label: string; open: () => void };
+
   constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    private readonly keybindings: KeybindingsManager,
-    private readonly snapshot: InspectorSnapshot,
-    private readonly ui: Pick<ExtensionUIContext, "notify">,
-    private readonly done: () => void,
-    private readonly nextView: { label: string; open: () => void },
+    tui: TUI,
+    theme: Theme,
+    keybindings: KeybindingsManager,
+    snapshot: InspectorSnapshot,
+    ui: Pick<ExtensionUIContext, "notify">,
+    done: () => void,
+    nextView: { label: string; open: () => void },
   ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.keybindings = keybindings;
+    this.snapshot = snapshot;
+    this.ui = ui;
+    this.done = done;
+    this.nextView = nextView;
     this.tree = buildTree(snapshot);
     this.expanded = new Set(
       this.tree.flatMap((node) => (node.children.length > 0 ? [node.id] : [])),

@@ -77,7 +77,7 @@ export class EditDiffs {
     if (event.isError || !event.parentToolCallId) return;
     const edits = this.calls.get(event.parentToolCallId);
     const details: unknown = event.details;
-    const path = event.input.path;
+    const path = event.input["path"];
 
     if (!edits || typeof path !== "string" || !Value.Check(EditDetailsSchema, details)) return;
     edits.push({
@@ -86,6 +86,8 @@ export class EditDiffs {
       diff: details.diff,
       ...(syntax?.diff === details.diff ? { syntax: syntax.rows } : {}),
     });
+
+    return undefined;
   }
 
   isCapturing(id: string): boolean {

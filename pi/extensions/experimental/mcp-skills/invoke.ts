@@ -48,7 +48,7 @@ export const expandSkillCommand = async (
   ctx: ExtensionContext,
 ): Promise<InputEventResult | undefined> => {
   const match = SKILL_COMMAND.exec(event.text);
-  const name = match?.groups?.name;
+  const name = match?.groups?.["name"];
 
   const skill =
     name === undefined ? undefined : skills.catalog().find((candidate) => candidate.name === name);
@@ -63,7 +63,7 @@ export const expandSkillCommand = async (
     return { action: "handled" };
   }
 
-  const args = match?.groups?.args?.trim();
+  const args = match?.groups?.["args"]?.trim();
   const block = skillBlock([{ ...loaded, name: skill.name }]);
 
   return { action: "transform", text: args ? `${block}\n\n${args}` : block };
@@ -118,7 +118,7 @@ export const skillCommandCompletion =
 
       const query = options.force
         ? undefined
-        : COMMAND_PREFIX.exec((lines[cursorLine] ?? "").slice(0, cursorCol))?.groups?.query;
+        : COMMAND_PREFIX.exec((lines[cursorLine] ?? "").slice(0, cursorCol))?.groups?.["query"];
 
       if (query === undefined || cursorLine !== 0) return suggestions;
 

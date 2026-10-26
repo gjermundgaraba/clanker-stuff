@@ -32,15 +32,15 @@ export function oracle(data = fixture()) {
 export function score(submitted, expected = oracle(), events = []) {
   const report = isRecord(submitted) ? submitted : undefined;
   /** @type {unknown[]} */
-  const rows = Array.isArray(report?.rows) ? report.rows : [];
+  const rows = Array.isArray(report?.["rows"]) ? report["rows"] : [];
 
   const correct = expected.rows.filter((r) => rows.some((s) => equal(s, r))).length;
 
   const supplemental = {
     row_accuracy: correct / expected.rows.length,
-    total_correct: Number(report?.total_cents === expected.total_cents),
+    total_correct: Number(report?.["total_cents"] === expected.total_cents),
     within_budget: Number(
-      events.filter((e) => isRecord(e) && e.type === "pi_eval_service_start").length <=
+      events.filter((e) => isRecord(e) && e["type"] === "pi_eval_service_start").length <=
         SETTINGS.budget,
     ),
   };

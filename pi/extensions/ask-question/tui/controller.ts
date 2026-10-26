@@ -68,15 +68,28 @@ export class QuestionnaireView {
 
     this.finish("stopped");
   };
+  private readonly tui: TUI;
+  private readonly theme: Theme;
+  private readonly keys: KeybindingsManager;
+  private readonly port: FormPort;
+  private readonly done: (result: FormOutcome) => void;
+  private readonly signal: AbortSignal;
+
   constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    private readonly keys: KeybindingsManager,
+    tui: TUI,
+    theme: Theme,
+    keys: KeybindingsManager,
     item: Interaction,
-    private readonly port: FormPort,
-    private readonly done: (result: FormOutcome) => void,
-    private readonly signal: AbortSignal,
+    port: FormPort,
+    done: (result: FormOutcome) => void,
+    signal: AbortSignal,
   ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.keys = keys;
+    this.port = port;
+    this.done = done;
+    this.signal = signal;
     this.item = item;
 
     const open = item.request.questions.findIndex(

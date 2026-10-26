@@ -639,7 +639,7 @@ class RpcClient {
 /** @param {string} configPath @param {RunnerHooks} hooks */
 export const run = async (configPath, hooks = {}) => {
   const config = evalConfig(JSON.parse(await readFile(configPath, "utf-8")));
-  const codexHome = process.env.CODEX_HOME;
+  const codexHome = process.env["CODEX_HOME"];
 
   if (codexHome === undefined || codexHome.length === 0) {
     throw new Error("CODEX_HOME is required");

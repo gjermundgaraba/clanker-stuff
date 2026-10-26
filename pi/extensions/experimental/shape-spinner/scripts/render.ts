@@ -18,7 +18,7 @@ if (!destination) throw new Error("Usage: node scripts/render.ts output.json");
 const profile = await mkdtemp(path.join(os.tmpdir(), "shape-spinner-chrome-"));
 
 const chrome = spawn(
-  process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  process.env["CHROME"] || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   [
     "--headless",
     "--disable-gpu",

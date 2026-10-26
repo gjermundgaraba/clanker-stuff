@@ -91,10 +91,10 @@ const server = createServer(async (req, res) => {
   /** @type {unknown} */
   const body = JSON.parse(Buffer.concat(chunks).toString());
   assert.ok(
-    isRecord(body) && Array.isArray(body.input) && body.input.every(isRecord),
+    isRecord(body) && Array.isArray(body["input"]) && body["input"].every(isRecord),
     "native request must contain input items",
   );
-  requests.push({ ...body, input: body.input });
+  requests.push({ ...body, input: body["input"] });
   writeFileSync("/logs/requests.json", JSON.stringify(requests, null, 2));
   const index = requests.length - 1;
 
@@ -181,16 +181,16 @@ const records = stdout
 
 assert.equal(records.length, 3);
 
-assert.ok(records.every((record) => isRecord(record) && record.type === "eval_event"));
+assert.ok(records.every((record) => isRecord(record) && record["type"] === "eval_event"));
 
 const outputs = requests
   .flatMap((r) => r.input ?? [])
-  .filter((item) => item.type === "custom_tool_call_output");
+  .filter((item) => item["type"] === "custom_tool_call_output");
 
 assert.equal(outputs.length >= 2, true);
 
 assert.ok(
-  outputs.every((item) => (JSON.stringify(item.output) ?? "").includes("Script completed")),
+  outputs.every((item) => (JSON.stringify(item["output"]) ?? "").includes("Script completed")),
 );
 
 assert.ok(!JSON.stringify(outputs).includes("Script error"));
@@ -200,18 +200,18 @@ const [firstRequest] = requests;
 assert.ok(firstRequest);
 
 const topTools = firstRequest.input
-  .filter((item) => item.type === "additional_tools")
+  .filter((item) => item["type"] === "additional_tools")
   .flatMap((item) => {
-    assert.ok(Array.isArray(item.tools) && item.tools.every(isRecord));
+    assert.ok(Array.isArray(item["tools"]) && item["tools"].every(isRecord));
 
-    return item.tools.flatMap((tool) => {
-      const group = tool.tools ?? [tool];
+    return item["tools"].flatMap((tool) => {
+      const group = tool["tools"] ?? [tool];
       assert.ok(Array.isArray(group) && group.every(isRecord));
 
       return group.map((entry) => {
-        assert.ok(typeof entry.name === "string");
+        assert.ok(typeof entry["name"] === "string");
 
-        return entry.name;
+        return entry["name"];
       });
     });
   })
@@ -224,7 +224,9 @@ const events = readFileSync("/logs/agent/service-events.jsonl", "utf8")
   .split("\n")
   .map(/** @returns {unknown} */ (line) => JSON.parse(line));
 
-const submission = events.filter(isRecord).findLast((e) => e.type === "pi_eval_submission")?.report;
+const submission = events.filter(isRecord).findLast((e) => e["type"] === "pi_eval_submission")?.[
+  "report"
+];
 
 assert.equal(
   score(submission, oracle(fixture()), events).quality,

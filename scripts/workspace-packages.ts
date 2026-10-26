@@ -12,6 +12,16 @@ const PackageJsonSchema = Type.Object(
     ),
     dependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
     description: Type.Optional(Type.String()),
+    devEngines: Type.Optional(
+      Type.Object(
+        {
+          packageManager: Type.Optional(
+            Type.Object({ name: Type.Optional(Type.String()) }, { additionalProperties: true }),
+          ),
+        },
+        { additionalProperties: true },
+      ),
+    ),
     engines: Type.Optional(
       Type.Object({ node: Type.Optional(Type.String()) }, { additionalProperties: true }),
     ),
@@ -22,7 +32,6 @@ const PackageJsonSchema = Type.Object(
     keywords: Type.Optional(Type.Array(Type.String())),
     license: Type.Optional(Type.String()),
     name: Type.String(),
-    packageManager: Type.Optional(Type.String()),
     peerDependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
     pi: Type.Optional(
       Type.Object(

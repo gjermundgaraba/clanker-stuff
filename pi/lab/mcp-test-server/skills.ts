@@ -65,7 +65,7 @@ const discoverSkills = async (root: string): Promise<SkillEntry[]> => {
       );
 
       const text = await readFile(path.join(root, skillDir, SKILL_FILE), "utf8");
-      const yaml = FRONTMATTER.exec(text)?.groups?.yaml;
+      const yaml = FRONTMATTER.exec(text)?.groups?.["yaml"];
 
       return {
         frontmatter: Frontmatter.parse(yaml === undefined ? {} : parse(yaml)),

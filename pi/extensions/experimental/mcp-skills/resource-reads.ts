@@ -18,7 +18,7 @@ export const checkResourceRead = async (
 ): Promise<ToolCallEventResult | undefined> => {
   if (event.toolName !== "read_mcp_resource") return undefined;
 
-  const server = "server" in event.input ? event.input.server : undefined;
+  const server = "server" in event.input ? event.input["server"] : undefined;
 
   if (typeof server !== "string") return undefined;
 

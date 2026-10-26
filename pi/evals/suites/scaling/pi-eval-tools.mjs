@@ -35,7 +35,7 @@ export function definitions(backend) {
 
 /** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi */
 export default async function extension(pi) {
-  const mode = process.env.PI_EVAL_TOOL_MODE;
+  const mode = process.env["PI_EVAL_TOOL_MODE"];
 
   if (mode !== "direct" && mode !== "code_mode_only") throw new Error("Invalid evaluation mode");
 
@@ -66,6 +66,8 @@ export default async function extension(pi) {
   pi.on("tool_call", (event) => {
     if (!expected.includes(event.toolName))
       return { block: true, reason: "Capability not available in this diagnostic" };
+
+    return undefined;
   });
   pi.on("session_before_compact", async () => {
     compacted = true;
@@ -81,8 +83,8 @@ export default async function extension(pi) {
 
     const valid =
       !compacted &&
-      model === process.env.PI_EVAL_MODEL &&
-      thinking === process.env.PI_EVAL_THINKING &&
+      model === process.env["PI_EVAL_MODEL"] &&
+      thinking === process.env["PI_EVAL_THINKING"] &&
       JSON.stringify(activeTools) === JSON.stringify(expected);
 
     await emit({

@@ -26,7 +26,11 @@ interface PiSession {
 export class Sessions {
   private readonly byId = new Map<string, PiSession>();
 
-  constructor(private readonly run: QueryFunction) {}
+  private readonly run: QueryFunction;
+
+  constructor(run: QueryFunction) {
+    this.run = run;
+  }
 
   start(piSessionId: string, cwd: string, ui?: ExtensionUIContext): void {
     this.byId.set(piSessionId, {

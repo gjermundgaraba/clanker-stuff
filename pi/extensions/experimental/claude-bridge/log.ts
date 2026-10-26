@@ -12,11 +12,11 @@ const EXTENSION_ID = "claude-bridge";
 // Unique per module evaluation: shows whether subagents share module state.
 const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
-const isDebugEnabled = (): boolean => process.env.CLAUDE_BRIDGE_DEBUG === "1";
+const isDebugEnabled = (): boolean => process.env["CLAUDE_BRIDGE_DEBUG"] === "1";
 
 /** Paths resolve per call so tests can swap the environment mid-process. */
 export function debugLogPath(): string {
-  const override = process.env.CLAUDE_BRIDGE_DEBUG_PATH;
+  const override = process.env["CLAUDE_BRIDGE_DEBUG_PATH"];
 
   return override || path.join(getExtensionStoragePaths(EXTENSION_ID).dataDir, "logs", "debug.log");
 }

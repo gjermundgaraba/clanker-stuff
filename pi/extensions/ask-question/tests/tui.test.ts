@@ -410,8 +410,10 @@ describe("bounded questionnaire TUI", () => {
       expect(displayText(e.view.render(80).join("\n"))).toContain("Answer note");
       e.press(close);
       expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 2. Second");
-      expect(e.item.draft?.answers.choice?.notes.second).toBe(close === "\r" ? "Answer note" : "");
-      expect(e.item.draft?.answers.choice?.selected).toEqual([]);
+      expect(e.item.draft?.answers["choice"]?.notes["second"]).toBe(
+        close === "\r" ? "Answer note" : "",
+      );
+      expect(e.item.draft?.answers["choice"]?.selected).toEqual([]);
       expect(e.done).not.toHaveBeenCalled();
     } finally {
       e.view.dispose();
@@ -450,7 +452,7 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).not.toContain("Terminal too small");
       expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
       expect(lines.length).toBeLessThanOrEqual(20);
-      expect(e.item.draft?.answers.choice?.selected).toEqual(["o4"]);
+      expect(e.item.draft?.answers["choice"]?.selected).toEqual(["o4"]);
     } finally {
       e.view.dispose();
     }
@@ -465,7 +467,7 @@ describe("bounded questionnaire TUI", () => {
       expect(e.view.render(80).join("\n")).toContain("> ( ) 1. First");
       expect(e.mutations).toBe(0);
       e.press("g", "jk", "\r", "j", "\r", "k");
-      expect(e.item.submissions[0]?.answers.choice?.selections[0]?.option_id).toBe("second");
+      expect(e.item.submissions[0]?.answers["choice"]?.selections[0]?.option_id).toBe("second");
       expect(e.item.submissions[0]?.note).toBe("jk");
       expect(e.send).not.toHaveBeenCalled();
       expect(intent(createKeybindings({ "tui.select.confirm": ["k"] }), "k", true)).toBe("confirm");
@@ -536,7 +538,7 @@ describe("bounded questionnaire TUI", () => {
         "r",
         "k",
       );
-      expect(e.item.submissions[0]?.answers.choice?.selections).toEqual([
+      expect(e.item.submissions[0]?.answers["choice"]?.selections).toEqual([
         { option_id: "second", label: "Second", note: "second note" },
         { option_id: "first", label: "First", note: "first note" },
       ]);
@@ -559,10 +561,10 @@ describe("bounded questionnaire TUI", () => {
         "\u001b[200~r1s\u001b[201~",
         "\u001bd",
       );
-      expect(e.item.draft?.answers.choice?.custom).toBe("123\nr1s");
+      expect(e.item.draft?.answers["choice"]?.custom).toBe("123\nr1s");
       expect(e.done).not.toHaveBeenCalled();
       e.press("r", "k");
-      expect(e.item.submissions[0]?.answers.choice?.custom?.text).toBe("123\nr1s");
+      expect(e.item.submissions[0]?.answers["choice"]?.custom?.text).toBe("123\nr1s");
     } finally {
       e.view.dispose();
     }
@@ -586,7 +588,7 @@ describe("bounded questionnaire TUI", () => {
         "r",
         "k",
       );
-      expect(e.item.submissions[0]?.answers.choice).toMatchObject({
+      expect(e.item.submissions[0]?.answers["choice"]).toMatchObject({
         selections: [],
         custom: { text: "Saved alternative" },
       });
@@ -633,17 +635,20 @@ describe("bounded questionnaire TUI", () => {
 
     try {
       e.press("\u001b[B", "\u001b[B", "\r", "typed then dropped", "\u001b");
-      expect(e.item.draft?.answers.choice?.custom).toBe("");
-      expect(e.item.draft?.answers.choice?.custom_selected).toBe(false);
+      expect(e.item.draft?.answers["choice"]?.custom).toBe("");
+      expect(e.item.draft?.answers["choice"]?.custom_selected).toBe(false);
       expect(e.view.render(80).join("\n")).toContain("Write answer");
       e.press("\r", "kept", "\r");
-      expect(e.item.draft?.answers.choice).toMatchObject({ custom: "kept", custom_selected: true });
+      expect(e.item.draft?.answers["choice"]).toMatchObject({
+        custom: "kept",
+        custom_selected: true,
+      });
       expect(e.view.render(80).join("\n")).toContain("Send answers");
       e.press("1");
       expect(e.view.render(80).join("\n")).toContain("> (•) Write another answer");
       expect(e.view.render(80).join("\n")).toContain("Edit answer · → Next");
       e.press("\r", "\u001b");
-      expect(e.item.draft?.answers.choice?.custom).toBe("kept");
+      expect(e.item.draft?.answers["choice"]?.custom).toBe("kept");
       expect(e.view.render(80).join("\n")).not.toContain("Send answers");
     } finally {
       e.view.dispose();
@@ -661,7 +666,7 @@ describe("bounded questionnaire TUI", () => {
       expect(editor).toContain("11/1000");
       expect(editor).toContain("Save");
       e.press("\r");
-      expect(e.item.draft?.answers.choice?.notes.second).toBe("inline note");
+      expect(e.item.draft?.answers["choice"]?.notes["second"]).toBe("inline note");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Note: inline note");
       e.press("g", "overall");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Questionnaire note");

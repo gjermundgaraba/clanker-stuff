@@ -11,7 +11,7 @@ import type { Session } from "cc-session-io";
 import { debug } from "../log.js";
 import { convertPiMessages } from "./convert.js";
 
-const claudeDir = (): string | undefined => process.env.CLAUDE_CONFIG_DIR;
+const claudeDir = (): string | undefined => process.env["CLAUDE_CONFIG_DIR"];
 
 // Lossy: only text, image, thinking and toolCall blocks survive, and thinking only when
 // Claude Code minted its signature.

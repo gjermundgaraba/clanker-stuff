@@ -17,8 +17,10 @@ export class ContextViews implements Component, Focusable {
   private active = 0;
   private hasFocus = false;
 
+  private readonly tui: TUI;
+
   constructor(
-    private readonly tui: TUI,
+    tui: TUI,
     theme: Theme,
     keys: KeybindingsManager,
     state: ContextSnapshot,
@@ -27,6 +29,7 @@ export class ContextViews implements Component, Focusable {
     ui: Pick<ExtensionUIContext, "notify">,
     done: () => void,
   ) {
+    this.tui = tui;
     const snapshots: readonly InspectorSnapshot[] = [state, request, tools];
 
     this.views = snapshots.map((snapshot, index) => {

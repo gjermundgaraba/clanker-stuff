@@ -83,7 +83,7 @@ export default function (pi: ExtensionAPI) {
           ),
       ),
     ).toBeTruthy();
-    expect(process.env.HOME).toBe(activeHarness.homeDir);
+    expect(process.env["HOME"]).toBe(activeHarness.homeDir);
     expect(JSON.stringify(activeHarness.messages())).toContain("[linked:isolated] hello smoke");
     expect(JSON.stringify(activeHarness.messages())).not.toContain("[linked:outer]");
 
@@ -92,7 +92,7 @@ export default function (pi: ExtensionAPI) {
     harness = undefined;
 
     expect({
-      home: process.env.HOME,
+      home: process.env["HOME"],
       homeExists: existsSync(homeDir),
       projectExists: existsSync(projectDir),
     }).toStrictEqual({

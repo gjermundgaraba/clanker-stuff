@@ -39,12 +39,19 @@ class SpinnerPreview implements Component {
   private tick = 0;
   private readonly timer: ReturnType<typeof setInterval>;
 
+  private readonly config: Config;
+  frames: readonly string[];
+  private readonly accent: (text: string) => string;
+
   constructor(
-    private readonly config: Config,
-    public frames: readonly string[],
-    private readonly accent: (text: string) => string,
+    config: Config,
+    frames: readonly string[],
+    accent: (text: string) => string,
     requestRender: () => void,
   ) {
+    this.config = config;
+    this.frames = frames;
+    this.accent = accent;
     this.timer = setInterval(() => {
       this.tick += 1;
       requestRender();

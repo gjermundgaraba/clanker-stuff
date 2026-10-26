@@ -32,7 +32,7 @@ const createHarness = async (sessionDirectory?: string) => {
   const ctx = host.createContext();
 
   const directory =
-    sessionDirectory ?? path.join(process.env.PI_CODING_AGENT_DIR ?? "", "sessions", "test");
+    sessionDirectory ?? path.join(process.env["PI_CODING_AGENT_DIR"] ?? "", "sessions", "test");
 
   Object.assign(ctx.sessionManager, { getSessionDir: () => directory });
   await host.emitSessionStart(ctx);
@@ -135,8 +135,8 @@ describe("history runtime", () => {
   });
 
   it("falls back to in-memory history when the store cannot open", async () => {
-    process.env.PI_CODING_AGENT_DIR = path.join(agentDir, "not-a-directory");
-    await writeFile(process.env.PI_CODING_AGENT_DIR, "blocked", "utf-8");
+    process.env["PI_CODING_AGENT_DIR"] = path.join(agentDir, "not-a-directory");
+    await writeFile(process.env["PI_CODING_AGENT_DIR"], "blocked", "utf-8");
     const { ctx, host, prompt } = await createHarness();
     await prompt("current prompt");
 

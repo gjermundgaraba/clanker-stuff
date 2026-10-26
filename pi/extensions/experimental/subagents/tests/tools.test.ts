@@ -161,7 +161,7 @@ describe("collaboration tools", () => {
       roles: { reviewer: { description: "Reviews the requested implementation." } },
     });
 
-    expect(JSON.stringify(spawnProperties(extension).agent_type)).toContain(
+    expect(JSON.stringify(spawnProperties(extension)["agent_type"])).toContain(
       "Reviews the requested implementation.",
     );
     await extension.runTool("spawn_agent", {

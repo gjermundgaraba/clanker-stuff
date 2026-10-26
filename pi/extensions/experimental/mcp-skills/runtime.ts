@@ -42,10 +42,12 @@ export class McpSkills {
   readonly approvals: SkillApprovals;
   readonly mountRoot: string;
 
-  constructor(
-    private readonly pi: ExtensionAPI,
-    private readonly options: { agentDir: string; dataDir: string },
-  ) {
+  private readonly pi: ExtensionAPI;
+  private readonly options: { agentDir: string; dataDir: string };
+
+  constructor(pi: ExtensionAPI, options: { agentDir: string; dataDir: string }) {
+    this.pi = pi;
+    this.options = options;
     this.mountRoot = mountRoot(options.agentDir);
     this.approvals = new SkillApprovals(options.dataDir);
   }

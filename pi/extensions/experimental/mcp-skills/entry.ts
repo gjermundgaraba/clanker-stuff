@@ -66,8 +66,8 @@ export type DecodedEntry = { skill: SkillEntry } | { declined: DeclinedSkill };
 /** The scheme and the `/`-separated path after `scheme://` of a URI that is safe to map to a path. */
 const splitSkillUri = (uri: string): { scheme: string; segments: string[] } | undefined => {
   const match = URI.exec(uri);
-  const scheme = match?.groups?.scheme;
-  const path = match?.groups?.path;
+  const scheme = match?.groups?.["scheme"];
+  const path = match?.groups?.["path"];
 
   if (scheme === undefined || path === undefined) return undefined;
 

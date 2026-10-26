@@ -36,7 +36,7 @@ describe("package publication", () => {
       encoding: "utf-8",
       env: {
         ...process.env,
-        PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
+        PATH: `${directory}${path.delimiter}${process.env["PATH"] ?? ""}`,
       },
     });
 

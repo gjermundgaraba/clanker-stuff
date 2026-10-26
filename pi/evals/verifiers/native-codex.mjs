@@ -4,11 +4,15 @@ const isRecord = (value) => typeof value === "object" && value !== null && !Arra
 /** @param {unknown} trajectory @param {{model: string, thinking: string}} comparison */
 // Native Codex is a harness comparison, not a third Pi tool-mode arm.
 export function validateNativeCodex(trajectory, comparison) {
-  if (!isRecord(trajectory) || !isRecord(trajectory.agent) || !isRecord(trajectory.agent.extra)) {
+  if (
+    !isRecord(trajectory) ||
+    !isRecord(trajectory["agent"]) ||
+    !isRecord(trajectory["agent"]["extra"])
+  ) {
     return { valid_experiment: 0 };
   }
 
-  const { pi_evals: manifest, native_turn_contexts: contexts } = trajectory.agent.extra;
+  const { pi_evals: manifest, native_turn_contexts: contexts } = trajectory["agent"]["extra"];
 
   const expected = {
     platform: "codex-native",
@@ -27,14 +31,16 @@ export function validateNativeCodex(trajectory, comparison) {
     contexts.every(
       (context) =>
         isRecord(context) &&
-        context.model === comparison.model.slice(7) &&
-        context.effort === comparison.thinking,
+        context["model"] === comparison.model.slice(7) &&
+        context["effort"] === comparison.thinking,
     ) &&
-    Array.isArray(trajectory?.steps) &&
-    trajectory.steps.length > 0 &&
-    !trajectory.steps.some(
+    Array.isArray(trajectory?.["steps"]) &&
+    trajectory["steps"].length > 0 &&
+    !trajectory["steps"].some(
       (step) =>
-        isRecord(step) && isRecord(step.extra) && step.extra.event_type === "context_compaction",
+        isRecord(step) &&
+        isRecord(step["extra"]) &&
+        step["extra"]["event_type"] === "context_compaction",
     );
 
   return { valid_experiment: Number(valid) };

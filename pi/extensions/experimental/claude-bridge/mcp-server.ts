@@ -80,9 +80,9 @@ const ROOT_COMBINATORS = ["anyOf", "oneOf", "allOf"] as const;
 type RootCombinator = (typeof ROOT_COMBINATORS)[number];
 
 function resolveLocalRef(branch: JsonValue, root: JsonObject): JsonValue {
-  if (!isJsonObject(branch) || typeof branch.$ref !== "string") return branch;
+  if (!isJsonObject(branch) || typeof branch["$ref"] !== "string") return branch;
 
-  const match = /^#\/(\$defs|definitions)\/([^/]+)$/.exec(branch.$ref);
+  const match = /^#\/(\$defs|definitions)\/([^/]+)$/.exec(branch["$ref"]);
   const defs = match?.[1] === undefined ? undefined : root[match[1]];
   const target = isJsonObject(defs) && match?.[2] !== undefined ? defs[match[2]] : undefined;
 
@@ -153,17 +153,17 @@ export function flattenRootCombinators(schema: JsonObject): {
   const required: string[] = [];
 
   const addProperties = (source: JsonValue): void => {
-    if (!isJsonObject(source) || !isJsonObject(source.properties)) return;
+    if (!isJsonObject(source) || !isJsonObject(source["properties"])) return;
 
-    for (const [key, value] of Object.entries(source.properties)) {
+    for (const [key, value] of Object.entries(source["properties"])) {
       if (!(key in properties)) properties[key] = value;
     }
   };
 
   const addRequired = (source: JsonValue): void => {
-    if (!isJsonObject(source) || !isJsonArray(source.required)) return;
+    if (!isJsonObject(source) || !isJsonArray(source["required"])) return;
 
-    for (const key of source.required) {
+    for (const key of source["required"]) {
       if (typeof key === "string" && !required.includes(key)) required.push(key);
     }
   };

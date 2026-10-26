@@ -119,7 +119,7 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
     let provider: string | undefined;
 
     if (auth !== undefined) {
-      if (!isEntry(auth) || typeof auth.provider !== "string" || !auth.provider) {
+      if (!isEntry(auth) || typeof auth["provider"] !== "string" || !auth["provider"]) {
         return `server "${name}": auth.provider must be a provider name`;
       }
 
@@ -129,7 +129,7 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
         return `server "${name}": auth requires an https URL, or http on a loopback host`;
       }
 
-      provider = auth.provider;
+      provider = auth["provider"];
     }
 
     return {
@@ -192,9 +192,9 @@ const readConfigFile = (path: string, project: boolean, servers: Map<string, Acc
     if (
       project &&
       isEntry(value) &&
-      value.command === undefined &&
-      value.url === undefined &&
-      value.type === undefined
+      value["command"] === undefined &&
+      value["url"] === undefined &&
+      value["type"] === undefined
     ) {
       const base = servers.get(name);
 

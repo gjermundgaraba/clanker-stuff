@@ -1,4 +1,4 @@
-FROM node:26.8.2-bookworm-slim AS runtime
+FROM node:26.12.1-bookworm-slim AS runtime
 
 RUN npm install --global pnpm@12.5.1
 WORKDIR /workspace
@@ -7,7 +7,7 @@ COPY pi/evals/runtime ./pi/evals/runtime
 RUN pnpm --filter @clanker-stuff/pi-evals-runtime deploy \
     --prod --legacy --frozen-lockfile --ignore-scripts /out
 
-FROM node:26.8.2-bookworm-slim
+FROM node:26.12.1-bookworm-slim
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates git ripgrep \

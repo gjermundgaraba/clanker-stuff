@@ -27,8 +27,8 @@ if (duplicates.size > 0) {
 
 const rootPkg = readJson("package.json");
 
-if (rootPkg.packageManager?.startsWith("pnpm@") !== true) {
-  throw new Error("Root package.json must declare packageManager: pnpm@...");
+if (rootPkg.devEngines?.packageManager?.name !== "pnpm") {
+  throw new Error("Root package.json must declare devEngines.packageManager.name: pnpm");
 }
 
 const publishablePackages = publishableWorkspacePackages();

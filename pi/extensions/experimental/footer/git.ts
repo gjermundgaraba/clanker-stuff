@@ -20,8 +20,8 @@ export const parseGitDetails = (output: string): GitDetails => {
     const ab = BRANCH_AB_PATTERN.exec(line);
 
     if (ab) {
-      details.ahead = Number(ab.groups?.ahead ?? 0);
-      details.behind = Number(ab.groups?.behind ?? 0);
+      details.ahead = Number(ab.groups?.["ahead"] ?? 0);
+      details.behind = Number(ab.groups?.["behind"] ?? 0);
     } else if (line.startsWith("? ")) {
       details.untracked += 1;
     } else if (line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u ")) {

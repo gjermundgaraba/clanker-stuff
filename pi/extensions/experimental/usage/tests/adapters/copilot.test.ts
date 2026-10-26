@@ -65,7 +65,7 @@ describe("copilot usage", () => {
 
     const [url, , headers] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://api.github.com/copilot_internal/user");
-    expect(headers?.Authorization).toBe("token copilot-token");
+    expect(headers?.["Authorization"]).toBe("token copilot-token");
     expect(headers?.["Editor-Version"]).toBe("vscode/1.96.2");
   });
 });
