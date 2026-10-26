@@ -34,6 +34,6 @@ const factory = createTestServer(values["no-skills"] ? {} : { skillsDir: values.
 if (values.http === undefined) {
   serveStdio(factory);
 } else {
-  await serveHttp(factory, { host: values.host, port: Number(values.http) });
-  process.stderr.write(`mcp-test-server listening on http://${values.host}:${values.http}/mcp\n`);
+  const { url } = await serveHttp(factory, { host: values.host, port: Number(values.http) });
+  process.stderr.write(`mcp-test-server listening on ${url}\n`);
 }

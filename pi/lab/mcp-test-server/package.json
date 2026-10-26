@@ -14,7 +14,6 @@
     "http.ts",
     "index.ts",
     "pi.ts",
-    "skills.ts",
     "skills",
     "README.md",
     "LICENSE"
@@ -22,9 +21,8 @@
   "type": "module",
   "exports": "./index.ts",
   "dependencies": {
-    "@modelcontextprotocol/server": "2.4.0",
-    "yaml": "2.9.1",
-    "zod": "4.6.7"
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0"
   },
   "devDependencies": {
     "vite": "catalog:",

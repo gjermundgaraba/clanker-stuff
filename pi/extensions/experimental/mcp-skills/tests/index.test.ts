@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
+import { createTestServer, serveHttp } from "@clanker-stuff/mcp-test-server";
+import type { HttpServer } from "@clanker-stuff/mcp-test-server";
 import { collectSkillProviders } from "@clanker-stuff/pi-skill-providers";
 import type { SkillProvider } from "@clanker-stuff/pi-skill-providers";
 import { getAgentDir, parseSkillBlock } from "@earendil-works/pi-coding-agent";
@@ -29,6 +31,8 @@ const SERVER_DIR = path.dirname(
 let cwd: string;
 
 let skillsDir: string;
+
+let server: HttpServer;
 
 let host: ExtensionHost;
 
@@ -77,17 +81,12 @@ beforeEach(async () => {
   cwd = await mkdtemp(path.join(os.tmpdir(), "mcp-skills-"));
   skillsDir = path.join(cwd, "skills");
   await cp(path.join(SERVER_DIR, "skills"), skillsDir, { recursive: true });
+  // Over HTTP the server reads the skills on every request, so a test can change them mid-session.
+  server = await serveHttp(createTestServer({ skillsDir }), { host: "127.0.0.1", port: 0 });
   await mkdir(getAgentDir(), { recursive: true });
   await writeFile(
     path.join(getAgentDir(), "mcp.json"),
-    JSON.stringify({
-      mcpServers: {
-        test: {
-          args: [path.join(SERVER_DIR, "cli.ts"), "--skills", skillsDir],
-          command: process.execPath,
-        },
-      },
-    }),
+    JSON.stringify({ mcpServers: { test: { url: server.url } } }),
   );
   host = createExtensionHost(mcpSkills);
   providers = collectSkillProviders(host.events);
@@ -98,6 +97,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await host.emitSessionShutdown();
+  await server.close();
   await rm(path.join(getAgentDir(), "data"), { force: true, recursive: true });
   await rm(path.join(getAgentDir(), "mcp-skills"), { force: true, recursive: true });
   await rm(cwd, { force: true, recursive: true });

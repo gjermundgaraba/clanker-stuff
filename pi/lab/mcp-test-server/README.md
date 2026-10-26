@@ -13,4 +13,4 @@ Workspace-only: run `vp install` at the repository root; the server runs from so
 
 ## Configuration
 
-It serves the dummy skills in `skills/` with the MCP Skills extension; `--skills <dir>` serves another folder and `--no-skills` turns skills off.
+It serves the dummy skills in `skills/` with the MCP Skills extension; `--skills <dir>` serves another folder and `--no-skills` turns skills off. Over stdio it reads the skills when it starts, so restart it to pick up edits; over HTTP it reads them on every request.
