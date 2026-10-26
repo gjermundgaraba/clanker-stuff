@@ -176,9 +176,9 @@ describe("a turn", () => {
     await settle("idle");
 
     expect(query().closed).toBe(true);
-    // The turn's own output, so its final content is what the next request compares.
+    // The turn's final content, in a copy: pi goes on writing to the message it was handed.
     expect(held()).toEqual([prompt, lastDone(pi)]);
-    expect(held()[1]).toBe(lastDone(pi));
+    expect(held()[1]).not.toBe(lastDone(pi));
     expect(syncState(actor.getSnapshot()).session).toBe("cc-session");
   });
 
@@ -385,7 +385,7 @@ describe("a steer", () => {
 
     expect(textOf(await call.answer)).toBe("a");
     await settle({ active: "streaming" });
-    expect(held().at(-1)).toBe(result);
+    expect(held().at(-1)).toEqual(result);
   });
 });
 

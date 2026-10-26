@@ -161,6 +161,10 @@ const pushSteer = createCallbackLogic<EventObject, SteerInput>(({ input, sendBac
   );
 });
 
+// XState freezes context, and pi goes on writing to its own messages (it records the requested
+// thinking level on a turn's output), so the conversation keeps copies.
+const copies = (messages: readonly Message[]): Message[] => structuredClone([...messages]);
+
 const resolveAll = (handlers: ReadonlyMap<string, ResolveToolCall>, text: string): void => {
   for (const resolve of handlers.values()) resolve({ content: [{ type: "text", text }] });
 };
@@ -316,7 +320,7 @@ export const conversationMachine = setup({
               signal: event.signal,
             },
             turn: event.turn,
-            held: event.held,
+            held: copies(event.held),
             // A rejection that labelled no failure in its own query says nothing about
             // the next one.
             rateLimit: null,
@@ -418,14 +422,14 @@ export const conversationMachine = setup({
 
           if (turn === null) return { target: ".closing", context: { ...IDLE, query } };
 
-          // Finish the turn before `held` records its output: XState freezes context.
+          // Finish the turn before `held` copies its output, so the copy has the result's text.
           if (message.subtype === "success") turn.result(message);
 
           turn.finish();
 
           return {
             target: ".closing",
-            context: { ...IDLE, query, held: [...context.held, turn.output] },
+            context: { ...IDLE, query, held: [...context.held, ...copies([turn.output])] },
           };
         },
         // In `closing` the turn is already answered: an end is the expected exit.
@@ -503,7 +507,7 @@ export const conversationMachine = setup({
                   turn: null,
                   callSignal: undefined,
                   waiting: new Set(turn.toolCallIds),
-                  held: [...context.held, turn.output],
+                  held: [...context.held, ...copies([turn.output])],
                 },
               };
             },
@@ -525,13 +529,13 @@ export const conversationMachine = setup({
                   turn: event.turn,
                   // A distinct signal only; pi usually aborts one signal for the whole run.
                   callSignal: event.signal === context.query.signal ? undefined : event.signal,
-                  held: [...context.held, ...event.results],
+                  held: [...context.held, ...copies(event.results)],
                   waiting: NO_CALLS,
                   pending: {
                     results: new Map(
                       event.results.map((result) => [result.toolCallId, toMcpResult(result)]),
                     ),
-                    steer: event.steer,
+                    steer: copies(event.steer),
                     message: blocks === undefined ? undefined : userMessage(blocks, "next"),
                   },
                 },

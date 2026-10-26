@@ -11,9 +11,7 @@ import { systemText } from "./prompt.js";
 import { turnStart } from "./turn.js";
 
 /** A pi message's identity for sync: its role and content, plus the tool call a result
- *  answers. Timestamps, usage, stop reason and model fields are not part of it. Read when
- *  compared, never cached: a turn's output gains the result's text after it is recorded,
- *  and a message reloaded from disk is a copy. */
+ *  answers. Timestamps, usage, stop reason and model fields are not part of it. */
 const identity = (message: Message): string =>
   JSON.stringify([
     message.role,
@@ -22,15 +20,12 @@ const identity = (message: Message): string =>
   ]);
 
 /** How many messages from the start of `history` match `held`. Equal to `held.length`
- *  when `history` continues it. Within one pi process the messages are the very objects
- *  the conversation holds, so content is compared only for a copy. */
+ *  when `history` continues it. The conversation holds copies, so content is compared. */
 export function matchedPrefix(history: readonly Message[], held: readonly Message[]): number {
   const index = held.findIndex((message, at) => {
     const current = history[at];
 
-    return (
-      current === undefined || (current !== message && identity(current) !== identity(message))
-    );
+    return current === undefined || identity(current) !== identity(message);
   });
 
   return index === -1 ? held.length : index;
