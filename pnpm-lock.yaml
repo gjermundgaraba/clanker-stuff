@@ -338,8 +338,8 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       xstate:
-        specifier: 6.0.0-alpha.66
-        version: 6.0.0-alpha.66
+        specifier: 6.0.0-alpha.70
+        version: 6.0.0-alpha.70
     devDependencies:
       '@anthropic-ai/sdk':
         specifier: 0.124.0
@@ -3102,8 +3102,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  xstate@6.0.0-alpha.66:
-    resolution: {integrity: sha512-SfbhdplVpjX/D+LEWKmHcxLZFvIpIgS0b0ZTAEx/FKouNzEfIfEVQEXC/0t3vcjw0JQ55brbyBMN1uOI1ZDjEQ==}
+  xstate@6.0.0-alpha.70:
+    resolution: {integrity: sha512-TSFfXYaTNz+ylEpguNsu0L5vDy8cjHRXAqpZBKQnJI++Jm61Vb41TAg1HzeEbC+Mnq9XelKs2dQNOizTwcnssQ==}
     hasBin: true
 
   yaml@2.9.0:
@@ -5538,7 +5538,7 @@ snapshots:
 
   ws@8.22.0: {}
 
-  xstate@6.0.0-alpha.66: {}
+  xstate@6.0.0-alpha.70: {}
 
   yaml@2.9.0: {}
 

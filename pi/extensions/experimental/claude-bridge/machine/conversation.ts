@@ -418,11 +418,10 @@ export const conversationMachine = setup({
 
           if (turn === null) return { target: ".closing", context: { ...IDLE, query } };
 
-          enq(() => {
-            if (message.subtype === "success") turn.result(message);
+          // Finish the turn before `held` records its output: XState freezes context.
+          if (message.subtype === "success") turn.result(message);
 
-            turn.finish();
-          });
+          turn.finish();
 
           return {
             target: ".closing",

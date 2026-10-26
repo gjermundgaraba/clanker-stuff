@@ -47,7 +47,7 @@
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@modelcontextprotocol/sdk": "1.31.0",
     "cc-session-io": "0.4.0",
-    "xstate": "6.0.0-alpha.66"
+    "xstate": "6.0.0-alpha.70"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.124.0",
