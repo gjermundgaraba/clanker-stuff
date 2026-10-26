@@ -33,7 +33,7 @@
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@clanker-stuff/pi-tool-schema": "workspace:^",
     "@pierre/highlights": "0.2.0",
-    "diff": "8.0.4"
+    "diff": "9.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
