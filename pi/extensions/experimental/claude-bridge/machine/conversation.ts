@@ -71,10 +71,7 @@ const ENDED = "Claude Code query ended";
 /** How long Claude Code may take to exit after its result before it is killed. */
 export const CLOSE_GRACE_MS = 10_000;
 
-const CLOSE_TIMEOUT = "closeTimeout";
-
-// Handlers for what `closing` shares with the other `active` states live on `active`:
-// a transition out of a nested state may only target its own siblings.
+// Handlers for what `closing` shares with the other `active` states live on `active`.
 const isClosing = (value: StateValue): boolean =>
   typeof value === "object" && value["active"] === "closing";
 
@@ -254,14 +251,16 @@ export const conversationMachine = setup({
       "cc.end": types<{}>(),
       "cc.error": types<{ message: string }>(),
       "steer.done": types<{ error: string | undefined }>(),
-      "close.timeout": types<{}>(),
       /** The turn ended on tool calls Claude was cut off in the middle of. */
       "turn.truncated": types<{}>(),
     },
     input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
   },
   states: {
-    idle: { schemas: { context: types<{ query: null; turn: null; pending: null }>() } },
+    idle: {
+      id: "idle",
+      schemas: { context: types<{ query: null; turn: null; pending: null }>() },
+    },
     active: {
       schemas: { context: types<{ query: ActiveQuery }>() },
       states: {
@@ -304,6 +303,7 @@ export const conversationMachine = setup({
   },
   states: {
     idle: {
+      id: "idle",
       on: {
         "pi.start": ({ event }) => ({
           target: "active.streaming",
@@ -445,13 +445,6 @@ export const conversationMachine = setup({
           enq(() => {
             context.turn?.fail(event.message);
           });
-
-          return { target: "idle", context: { ...IDLE, held: [] } };
-        },
-        "close.timeout": ({ value }) => {
-          if (!isClosing(value)) return {};
-
-          debug("conversation: Claude Code did not exit after its result, killing it");
 
           return { target: "idle", context: { ...IDLE, held: [] } };
         },
@@ -599,11 +592,13 @@ export const conversationMachine = setup({
         // pi has its answer. Claude Code finishes writing its session file and exits once
         // its stdin closes; stopping it sooner could cut that file short.
         closing: {
-          entry: (_, enq) => {
-            enq.raise({ type: "close.timeout" }, { id: CLOSE_TIMEOUT, delay: CLOSE_GRACE_MS });
-          },
-          exit: (_, enq) => {
-            enq.cancel(CLOSE_TIMEOUT);
+          timeout: CLOSE_GRACE_MS,
+          onTimeout: (_, enq) => {
+            enq(() => {
+              debug("conversation: Claude Code did not exit after its result, killing it");
+            });
+
+            return { target: "#idle", context: { ...IDLE, held: [] } };
           },
           on: {
             "cc.message": ({ event }) => (event.message.type === "result" ? {} : undefined),
