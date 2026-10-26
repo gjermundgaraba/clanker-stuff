@@ -603,6 +603,9 @@ export class Controller {
       delegation: DelegationPolicy | undefined;
     },
   ): Promise<ChildRuntime> {
+    // Children share Pi's two process-wide codemode workers: a third concurrent script waits 60 s, then fails.
+    process.env["PI_CODEMODE_MAX_WORKERS"] ??= String(this.#config.maxConcurrent + 2);
+
     return await this.#createRuntime({
       bridge: (api) => {
         inheritDelegation(api, child.delegation);

@@ -87,6 +87,8 @@ Create `~/.pi/agent/subagents.json`:
 
 `delegation` supplies the [branch policy fallback](delegation.md#branch-policy). `agent_type` is offered only when roles exist. `wake_on_final_answer` defaults to `true`. Invalid configuration produces a warning and the defaults.
 
+Children run in Pi's process and share its codemode workers. Unless `PI_CODEMODE_MAX_WORKERS` is already set, the first child raises it to `max_concurrent_threads_per_session` + 2, so every child can run a script at once. Each worker may use up to 256 MB.
+
 ## Differences from Codex
 
 Pi delivers mail at its own turn boundaries rather than between response items, uses explicit `provider/model-id` references across providers, has no tree-wide token budget, and does not reproduce Codex's app-server items, hooks, or residency cache. Statuses cut a completed answer to 1,000 characters rather than repeating it in full, because every listing and tree save would otherwise carry each answer again.
