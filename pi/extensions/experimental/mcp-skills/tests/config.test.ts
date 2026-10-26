@@ -17,7 +17,10 @@ const withConfigs = async (
   const cwd = path.join(agentDir, "project");
 
   try {
-    await writeFile(path.join(agentDir, "mcp.json"), JSON.stringify(configs.global));
+    await writeFile(
+      path.join(agentDir, "mcp.json"),
+      typeof configs.global === "string" ? configs.global : JSON.stringify(configs.global),
+    );
 
     if (configs.project !== undefined) {
       await mkdir(path.join(cwd, CONFIG_DIR_NAME), { recursive: true });
@@ -67,6 +70,19 @@ it("ignores settings skills do not use without weakening connection validation",
           transport: { kind: "http", url, headers: {}, authProvider: "example" },
         },
       ]);
+    },
+  );
+});
+
+it("reads an mcp.json that starts with a UTF-8 BOM", async () => {
+  await withConfigs(
+    { global: `\uFEFF${JSON.stringify({ mcpServers: { bom: { url } } })}` },
+    ({ agentDir, cwd }) => {
+      expect(
+        loadServers({ agentDir, cwd, projectTrusted: false, registered: [] }).map(
+          ({ name }) => name,
+        ),
+      ).toEqual(["bom"]);
     },
   );
 });

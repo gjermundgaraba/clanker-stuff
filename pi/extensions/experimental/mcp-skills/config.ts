@@ -181,7 +181,8 @@ const readConfigFile = (path: string, project: boolean, servers: Map<string, Acc
   let parsed: unknown;
 
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
+    // Like Pi, accept the UTF-8 BOM that Windows PowerShell 5.1 writes.
+    parsed = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/u, ""));
   } catch {
     return;
   }
