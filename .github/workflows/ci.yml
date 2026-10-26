@@ -30,6 +30,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: vp install --frozen-lockfile
       - run: vp run ready
+      - name: Check that the build left the tree clean
+        run: git diff --exit-code
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv sync --project pi/evals --frozen
       - run: |

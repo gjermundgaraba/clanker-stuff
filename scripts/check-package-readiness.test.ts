@@ -40,7 +40,7 @@ const createFixture = (
   writeFileSync(
     path.join(root, "package.json"),
     JSON.stringify({
-      engines: { node: ">=26" },
+      engines: { node: ">=26.12.0" },
       name: "clanker-stuff",
       devEngines: { packageManager: { name: "pnpm", version: "12.3.4" } },
       private: true,
@@ -54,7 +54,7 @@ const createFixture = (
         ? { url: "https://github.com/gjermundgaraba/clanker-stuff/issues" }
         : undefined,
     description: valid ? "Adds a sample extension." : undefined,
-    engines: { node: ">=26" },
+    engines: { node: ">=26.12.0" },
     exports: valid ? "./index.ts" : undefined,
     files: valid ? ["index.ts", "README.md", "LICENSE"] : undefined,
     homepage:
@@ -123,7 +123,7 @@ describe("package readiness", () => {
       description: "Pinned native evaluation deployment.",
       private: true,
       license: "MIT",
-      engines: { node: ">=26" },
+      engines: { node: ">=26.12.0" },
       dependencies: { "@earendil-works/pi-coding-agent": "catalog:" },
     };
 
@@ -157,7 +157,7 @@ describe("package readiness", () => {
       description: "Standalone skill helper.",
       private: true,
       license: "MIT",
-      engines: { node: ">=26" },
+      engines: { node: ">=26.12.0" },
     };
 
     const manifestPath = path.join(skill, "package.json");

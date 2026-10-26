@@ -48,7 +48,6 @@ allowBuilds:
   protobufjs: true
 # Registry releases wait one day unless explicitly approved below.
 minimumReleaseAge: 1440
-minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeExclude:
   - vite-plus
   - "@voidzero-dev/*"
@@ -62,5 +61,5 @@ minimumReleaseAgeExclude:
   - "@vitest/*"
   - "@gjermundgaraba/*"
   - "@gjermundgaraba-designs/*"
+  - effect
   - "@effect/*"
-  - "@pierre/highlights@0.2.0"

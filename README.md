@@ -52,7 +52,7 @@ Experimental extensions are not published to npm and are not stable daily driver
 
 ## Development
 
-Requires Vite+, Node.js 26 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
+Requires Vite+, Node.js 26.12 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
 
 ## License
 

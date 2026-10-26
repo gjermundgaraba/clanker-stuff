@@ -20,7 +20,7 @@ Read the procedure relevant to the request; follow another route when the work r
 
 ## Link-checker setup
 
-The link checker uses Node.js 26+ and maintained Markdown/GitHub-slug libraries.
+The link checker uses Node.js 26.12+ and maintained Markdown/GitHub-slug libraries.
 Run `npm install --prefix <skill-directory>` once for a standalone installation;
 workspace development uses `vp install`. See [helper usage](README.md).
 

@@ -11,7 +11,7 @@ remain separate experiments, not Code Mode comparisons.
 
 ## Setup
 
-Requires Node 26+, Python 3.12+, uv, and Docker with Linux AMD64 support.
+Requires Node 26.12+, Python 3.12+, uv, and Docker with Linux AMD64 support.
 
 ```bash
 uv sync

@@ -4,7 +4,7 @@ Product-description workflows and a GitHub Markdown link checker.
 
 ## Helper setup
 
-Requires Node.js 26 or newer. In this workspace, `vp install` installs dependencies.
+Requires Node.js 26.12 or newer. In this workspace, `vp install` installs dependencies.
 For a standalone skill folder, run `npm install --prefix <skill-directory>`.
 
 ## Check links

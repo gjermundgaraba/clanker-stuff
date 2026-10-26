@@ -4,7 +4,7 @@ Runtime loads only the glyph metadata, `shapes.json` in the shared [`@clanker-st
 
 ## Rebuild and inspect
 
-From the repository root, with Node 26+, [uv](https://docs.astral.sh/uv/), Chrome, and the repository toolchain installed (`vp install`):
+From the repository root, with Node 26.12+, [uv](https://docs.astral.sh/uv/), Chrome, and the repository toolchain installed (`vp install`):
 
 ```bash
 uv run pi/extensions/experimental/shape-spinner/tests/build_test.py
