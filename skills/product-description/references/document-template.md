@@ -66,16 +66,16 @@ The rows are the product's variant axis recorded in the README (modifier keys; t
 
 ## Cancel and interrupt
 
-| Event                                                                                                                        | {Before extended} | {While extended} |
-| ---------------------------------------------------------------------------------------------------------------------------- | ----------------- | ---------------- |
-| {The user's explicit abort: Escape, Stop, Ctrl+C, Cancel}                                                                    |                   |                  |
-| {The user doing something else mid-way: switching tools, modes, tabs, or conversations; navigating; sending another message} |                   |                  |
-| {The events the product treats as a clean "complete": a menu opening, undo or redo, a submit from elsewhere}                 |                   |                  |
-| {The environment failing: window loses focus, network lost, request fails or times out, session expires, process killed}     |                   |                  |
-| {The page or process going away: reload, tab closed, terminal closed, app backgrounded}                                      |                   |                  |
-| {Something else changing the target: deleted, locked, moved, edited by another user or tab, changed on disk}                 |                   |                  |
-| {The input channel changing: a second input device, autofill, a pipe closing, touch cancel}                                  |                   |                  |
-| {Any product-specific mode that changes what happens after the interaction}                                                  |                   |                  |
+| Event | {Before extended} | {While extended} |
+| --- | --- | --- |
+| {The user's explicit abort: Escape, Stop, Ctrl+C, Cancel} |  |  |
+| {The user doing something else mid-way: switching tools, modes, tabs, or conversations; navigating; sending another message} |  |  |
+| {The events the product treats as a clean "complete": a menu opening, undo or redo, a submit from elsewhere} |  |  |
+| {The environment failing: window loses focus, network lost, request fails or times out, session expires, process killed} |  |  |
+| {The page or process going away: reload, tab closed, terminal closed, app backgrounded} |  |  |
+| {Something else changing the target: deleted, locked, moved, edited by another user or tab, changed on disk} |  |  |
+| {The input channel changing: a second input device, autofill, a pipe closing, touch cancel} |  |  |
+| {Any product-specific mode that changes what happens after the interaction} |  |  |
 
 The rows are the product's interrupt list recorded in the README. They are the same rows in the same order in every document in the repo; establish them once and coordinate any later change across affected documents. The columns are the interaction's phases before and after it became extended. Fill every cell, distinguishing "No effect." from "Not applicable: {reason}" as in the modifier table. Follow with a sentence or two on what happens _after_ the interrupt (does the user stay in the feature or return to the default? is a draft kept? is partial work left on disk?) and a `> Technical note:` only if the mechanism produces a result the user would not expect.
 

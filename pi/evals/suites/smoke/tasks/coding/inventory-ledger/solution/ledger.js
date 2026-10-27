@@ -1,32 +1,48 @@
 /** @typedef {{type: "receive"|"ship"|"adjust", sku: string, quantity: number, line: number}} LedgerEvent */
 /** @param {ErrorConstructor} ErrorType @param {number} line @param {string} message */
-const lineError = (ErrorType, line, message) => new ErrorType(`line ${line}: ${message}`);
+const lineError = (ErrorType, line, message) =>
+  new ErrorType(`line ${line}: ${message}`);
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+const isRecord = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @param {string} input @returns {LedgerEvent[]} */
-export function parseEvents(input) {
+export const parseEvents = (input) => {
   /** @type {LedgerEvent[]} */
   const events = [];
 
   for (const [index, source] of input.split("\n").entries()) {
     const line = index + 1;
 
-    if (!source.trim() || source.trimStart().startsWith("#")) continue;
+    if (!source.trim() || source.trimStart().startsWith("#")) {
+      continue;
+    }
+
     /** @type {unknown} */
     let event;
 
     try {
       event = JSON.parse(source);
     } catch (error) {
-      throw lineError(SyntaxError, line, error instanceof Error ? error.message : String(error));
+      throw lineError(
+        SyntaxError,
+        line,
+        error instanceof Error ? error.message : String(error)
+      );
     }
 
     if (!isRecord(event)) {
       throw lineError(TypeError, line, "event must be an object");
     }
 
-    const sku = typeof event["sku"] === "string" ? event["sku"].trim().toUpperCase() : "";
+    const sku =
+      typeof event["sku"] === "string" ? event["sku"].trim().toUpperCase() : "";
+
     const { type, quantity } = event;
-    const validType = type === "receive" || type === "ship" || type === "adjust";
+
+    const validType =
+      type === "receive" || type === "ship" || type === "adjust";
 
     const validQuantity =
       typeof quantity === "number" &&
@@ -41,10 +57,10 @@ export function parseEvents(input) {
   }
 
   return events;
-}
+};
 
-/** @param {LedgerEvent[]} events */
-export function applyEvents(events) {
+/** @param {LedgerEvent[]} events Parsed events in ledger order. */
+export const applyEvents = (events) => {
   /** @type {Map<string, number>} */
   const stock = new Map();
 
@@ -54,14 +70,15 @@ export function applyEvents(events) {
     const next =
       event.type === "adjust"
         ? event.quantity
-        : current + (event.type === "receive" ? event.quantity : -event.quantity);
+        : current +
+          (event.type === "receive" ? event.quantity : -event.quantity);
 
-    if (next < 0) throw new RangeError(`${event.sku} below zero at line ${event.line}`);
+    if (next < 0) {
+      throw new RangeError(`${event.sku} below zero at line ${event.line}`);
+    }
+
     stock.set(event.sku, next);
   }
 
   return stock;
-}
-
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+};

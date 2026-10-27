@@ -33,14 +33,14 @@ Design or review an Effect codebase's organization and project conventions. This
 
 ## Rules
 
-| #   | Rule                                                                                                      | Standing                                                                                                                                                                                            |
-| --- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Group files by domain, not mechanism: `src/coding/edit.ts`, not `src/tools/edit.ts`.                      | Layout choice. Effect leaves folder layout to the application.                                                                                                                                      |
-| 2   | A service captures its dependencies when it is built, so its methods require nothing extra from callers.  | Effect idiom. Request-scoped context, such as the current user, stays explicit at the call, as a parameter or as a requirement of the method.                                                       |
-| 3   | Each entrypoint has a composition root that chooses and provides the Layers.                              | Effect idiom.                                                                                                                                                                                       |
-| 4   | Ports, the service interfaces named for an application job, live in the domain. Adapters live outside it. | Effect idiom.                                                                                                                                                                                       |
-| 5   | Schemas, expected failures, and tests live with the domain they describe.                                 | Effect idiom. Tests may sit beside the code or in a tree that mirrors it; keep the repository's choice.                                                                                             |
-| 6   | One service per file, with its Layer beside it.                                                           | Default, not a rule. Split them when the Layer is an adapter (rule 4), or when keeping the Layer beside the interface would pull server-only code into a client bundle or a published type surface. |
+| # | Rule | Standing |
+| --- | --- | --- |
+| 1 | Group files by domain, not mechanism: `src/coding/edit.ts`, not `src/tools/edit.ts`. | Layout choice. Effect leaves folder layout to the application. |
+| 2 | A service captures its dependencies when it is built, so its methods require nothing extra from callers. | Effect idiom. Request-scoped context, such as the current user, stays explicit at the call, as a parameter or as a requirement of the method. |
+| 3 | Each entrypoint has a composition root that chooses and provides the Layers. | Effect idiom. |
+| 4 | Ports, the service interfaces named for an application job, live in the domain. Adapters live outside it. | Effect idiom. |
+| 5 | Schemas, expected failures, and tests live with the domain they describe. | Effect idiom. Tests may sit beside the code or in a tree that mirrors it; keep the repository's choice. |
+| 6 | One service per file, with its Layer beside it. | Default, not a rule. Split them when the Layer is an adapter (rule 4), or when keeping the Layer beside the interface would pull server-only code into a client bundle or a published type surface. |
 
 ## House style
 

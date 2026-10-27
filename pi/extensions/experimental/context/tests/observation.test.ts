@@ -1,16 +1,28 @@
 import { describe, expect, it } from "vite-plus/test";
+
 import { MAX_REQUEST_BYTES, observeRequest } from "../observation.js";
 
 describe(observeRequest, () => {
   it("snapshots JSON without retaining it, omitting media but keeping credential-named arguments", () => {
     const payload = {
       model: "model",
-      tools: [{ name: "login", input_schema: { properties: { token: { type: "string" } } } }],
+      tools: [
+        {
+          name: "login",
+          input_schema: { properties: { token: { type: "string" } } },
+        },
+      ],
       messages: [
         { role: "user", content: "original prompt" },
         {
           role: "assistant",
-          content: [{ type: "tool_use", name: "login", input: { token: "TOOL-ARGUMENT" } }],
+          content: [
+            {
+              type: "tool_use",
+              name: "login",
+              input: { token: "TOOL-ARGUMENT" },
+            },
+          ],
         },
         { type: "image", source: { type: "base64", data: "IMAGE-BYTES" } },
         { inlineData: { mimeType: "image/png", data: "GOOGLE-BYTES" } },
@@ -21,16 +33,23 @@ describe(observeRequest, () => {
 
     const before = structuredClone(payload);
     const captured = observeRequest(payload);
-    expect(payload).toEqual(before);
+    expect(payload).toStrictEqual(before);
     payload.messages[0] = { role: "user", content: "later mutation" };
 
     const expected = {
       ...before,
       messages: [
         ...before.messages.slice(0, 2),
-        { type: "image", source: { type: "base64", data: "[base64 media omitted]" } },
-        { inlineData: { mimeType: "image/png", data: "[base64 media omitted]" } },
-        { inlineData: { mimeType: "audio/mp3", data: "[base64 media omitted]" } },
+        {
+          type: "image",
+          source: { type: "base64", data: "[base64 media omitted]" },
+        },
+        {
+          inlineData: { mimeType: "image/png", data: "[base64 media omitted]" },
+        },
+        {
+          inlineData: { mimeType: "audio/mp3", data: "[base64 media omitted]" },
+        },
         { image_url: "[base64 media omitted]" },
       ],
     };
@@ -53,7 +72,11 @@ describe(observeRequest, () => {
 
     const json = JSON.stringify(payload, null, 2);
     expect(Buffer.byteLength(json)).toBeLessThan(MAX_REQUEST_BYTES);
-    expect(observeRequest(payload)).toMatchObject({ body: json, format: "json", truncated: false });
+    expect(observeRequest(payload)).toMatchObject({
+      body: json,
+      format: "json",
+      truncated: false,
+    });
   });
 
   it("caps retained UTF-8 bytes rather than prematurely clipping characters or fields", () => {
@@ -62,7 +85,10 @@ describe(observeRequest, () => {
     const payload = {
       text:
         "a".repeat(
-          MAX_REQUEST_BYTES - Buffer.byteLength(suffix) - Buffer.byteLength('{\n  "text": "') - 11,
+          MAX_REQUEST_BYTES -
+            Buffer.byteLength(suffix) -
+            Buffer.byteLength('{\n  "text": "') -
+            11
         ) + "€🦄".repeat(MAX_REQUEST_BYTES),
     };
 
@@ -71,14 +97,18 @@ describe(observeRequest, () => {
 
     expect(captured.format).toBe("text");
     expect(captured.truncated).toBe(true);
-    expect(captured.body.includes("€")).toBe(true);
-    expect(captured.body.includes("🦄")).toBe(true);
-    expect(captured.body.includes("�")).toBe(false);
+    expect(captured.body).toContain("€");
+    expect(captured.body).toContain("🦄");
+    expect(captured.body).not.toContain("�");
     expect(captured.body.endsWith(suffix)).toBe(true);
     const prefix = captured.body.slice(0, -suffix.length);
     expect(full.startsWith(prefix)).toBe(true);
-    expect(Buffer.byteLength(captured.body)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
-    expect(Buffer.byteLength(captured.body)).toBeGreaterThan(MAX_REQUEST_BYTES - 4);
+    expect(Buffer.byteLength(captured.body)).toBeLessThanOrEqual(
+      MAX_REQUEST_BYTES
+    );
+    expect(Buffer.byteLength(captured.body)).toBeGreaterThan(
+      MAX_REQUEST_BYTES - 4
+    );
 
     const exact = "x".repeat(MAX_REQUEST_BYTES - 2);
     expect(observeRequest(exact)).toMatchObject({
@@ -93,7 +123,7 @@ describe(observeRequest, () => {
 
     const payload = {
       get input() {
-        calls++;
+        calls += 1;
 
         return "getter value";
       },
@@ -107,12 +137,12 @@ describe(observeRequest, () => {
           serializable: { input: "toJSON value" },
         },
         null,
-        2,
-      ),
+        2
+      )
     );
     expect(calls).toBe(1);
 
-    const cyclic: { self?: object } = {};
+    const cyclic = { self: {} };
     cyclic.self = cyclic;
 
     for (const value of [
@@ -132,7 +162,8 @@ describe(observeRequest, () => {
       });
     }
 
-    for (const value of [null, false, 0, "hello"])
+    for (const value of [null, false, 0, "hello"]) {
       expect(observeRequest(value).body).toBe(JSON.stringify(value));
+    }
   });
 });

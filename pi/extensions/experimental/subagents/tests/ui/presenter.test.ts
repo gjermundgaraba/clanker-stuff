@@ -3,7 +3,10 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
-import { createIdentityTheme, createMockTui } from "../../../../../tests/harness/tui.js";
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../../tests/harness/tui.js";
 import { Monitor } from "../../monitor.js";
 import { emptyUsage } from "../../protocol.js";
 import type { AgentNode } from "../../protocol.js";
@@ -29,7 +32,7 @@ const setup = (mode: ExtensionContext["mode"] = "tui") => {
   let nodes: AgentNode[] = [];
 
   const presenter = new Presenter({
-    live: () => undefined,
+    live: (): undefined => undefined,
     monitor,
     nodes: () => nodes,
     rootRunning: () => false,
@@ -58,7 +61,7 @@ describe(Presenter, () => {
     set([node("running")]);
     expect(shown()).toBe(true);
     set([node("running")]);
-    expect(setWidget).toHaveBeenCalledTimes(1);
+    expect(setWidget).toHaveBeenCalledOnce();
 
     set([node("completed")]);
     expect(setWidget).toHaveBeenCalledTimes(2);
@@ -70,20 +73,27 @@ describe(Presenter, () => {
     const running = [node("running")];
     presenter.start(
       ctx,
-      orbMarks(() => running),
+      orbMarks(() => running)
     );
     set(running);
 
     const factory = setWidget.mock.calls.at(-1)?.[1];
     const theme = createIdentityTheme();
-    const widget = typeof factory === "function" ? factory(createMockTui(), theme) : undefined;
+
+    const widget =
+      typeof factory === "function"
+        ? factory(createMockTui(), theme)
+        : undefined;
+
     const text = widget?.render(100).join("\n") ?? "";
     widget?.dispose?.();
     presenter.stop();
 
-    expect(wireframe("orb", "cyan", "dark").frames.some((frame) => text.includes(frame))).toBe(
-      true,
-    );
+    expect(
+      wireframe("orb", "cyan", "dark").frames.some((frame) =>
+        text.includes(frame)
+      )
+    ).toBe(true);
   });
 
   it("removes a visible widget on stop and stays silent outside the TUI", () => {

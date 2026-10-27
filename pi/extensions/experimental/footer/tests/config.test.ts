@@ -1,4 +1,12 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -26,7 +34,9 @@ describe("footer config store", () => {
   it("uses the default for a missing file without creating one", async () => {
     const configPath = path.join(directory, "footer.json");
 
-    expect(await createFooterConfigStore(configPath).load()).toStrictEqual({
+    await expect(
+      createFooterConfigStore(configPath).load()
+    ).resolves.toStrictEqual({
       config: DEFAULT_CONFIG,
     });
     await expect(lstat(configPath)).rejects.toMatchObject({ code: "ENOENT" });
@@ -54,8 +64,12 @@ describe("footer config store", () => {
 
     await createFooterConfigStore(linkPath).save(DEFAULT_CONFIG);
 
-    expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
-    await expect(readFile(targetPath, "utf-8")).resolves.toBe(formatFooterConfig(DEFAULT_CONFIG));
+    const link = await lstat(linkPath);
+
+    expect(link.isSymbolicLink()).toBe(true);
+    await expect(readFile(targetPath, "utf-8")).resolves.toBe(
+      formatFooterConfig(DEFAULT_CONFIG)
+    );
   });
 
   it("creates the parent directory on save", async () => {
@@ -63,20 +77,27 @@ describe("footer config store", () => {
 
     await createFooterConfigStore(configPath).save(DEFAULT_CONFIG);
 
-    expect((await createFooterConfigStore(configPath).load()).config).toStrictEqual(DEFAULT_CONFIG);
+    const { config } = await createFooterConfigStore(configPath).load();
+
+    expect(config).toStrictEqual(DEFAULT_CONFIG);
   });
 });
 
-describe(parseFooterConfig, () => {
-  const text = (overrides: Partial<FooterConfig>) =>
-    JSON.stringify({ ...DEFAULT_CONFIG, ...overrides });
+const text = (overrides: Partial<FooterConfig>) =>
+  JSON.stringify({ ...DEFAULT_CONFIG, ...overrides });
 
+describe(parseFooterConfig, () => {
   it("round-trips the default", () => {
-    expect(parseFooterConfig(formatFooterConfig(DEFAULT_CONFIG))).toStrictEqual(DEFAULT_CONFIG);
+    expect(parseFooterConfig(formatFooterConfig(DEFAULT_CONFIG))).toStrictEqual(
+      DEFAULT_CONFIG
+    );
   });
 
   it("accepts any number of rows", () => {
-    for (const rows of [[], Array.from({ length: 4 }, () => ({ left: [], right: [] }))]) {
+    for (const rows of [
+      [],
+      Array.from({ length: 4 }, () => ({ left: [], right: [] })),
+    ]) {
       expect(parseFooterConfig(text({ rows })).rows).toStrictEqual(rows);
     }
   });
@@ -88,7 +109,11 @@ describe(parseFooterConfig, () => {
   });
 
   it.each([
-    ["the previous shape", JSON.stringify({ ...DEFAULT_CONFIG, version: 1 }), "additional"],
+    [
+      "the previous shape",
+      JSON.stringify({ ...DEFAULT_CONFIG, version: 1 }),
+      "additional",
+    ],
     [
       "a center group",
       '{"iconFamily":"ascii","rows":[{"left":[],"center":[],"right":[]}],"border":[],"hidden":[]}',
@@ -97,7 +122,10 @@ describe(parseFooterConfig, () => {
     ["a control character", text({ hidden: ["status:a\u001B"] }), "/hidden/0"],
     [
       "a duplicate",
-      text({ border: ["status:vim"], rows: [{ left: ["status:vim"], right: [] }] }),
+      text({
+        border: ["status:vim"],
+        rows: [{ left: ["status:vim"], right: [] }],
+      }),
       "listed twice",
     ],
     [
@@ -107,12 +135,18 @@ describe(parseFooterConfig, () => {
     ],
     [
       "hiding the status aggregate",
-      text({ hidden: ["footer.statuses"], rows: [{ left: ["footer.cwd"], right: [] }] }),
+      text({
+        hidden: ["footer.statuses"],
+        rows: [{ left: ["footer.cwd"], right: [] }],
+      }),
       "hidden accepts only status:<key> IDs",
     ],
     [
       "the status aggregate in the border",
-      text({ border: ["footer.statuses"], rows: [{ left: ["footer.cwd"], right: [] }] }),
+      text({
+        border: ["footer.statuses"],
+        rows: [{ left: ["footer.cwd"], right: [] }],
+      }),
       "footer.statuses can only be placed in a row",
     ],
   ])("rejects %s", (_name, source, message) => {

@@ -1,9 +1,8 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import { newAssistantOutput } from "../../translate.js";
 import { updateUsage } from "../../query/usage.js";
-
+import { newAssistantOutput } from "../../translate.js";
 import { testModel } from "../helpers.js";
 
 const model = testModel();
@@ -29,7 +28,7 @@ describe("updateUsage", () => {
         cache_read_input_tokens: 30,
         cache_creation_input_tokens: 40,
       },
-      model,
+      model
     );
 
     expect(output.usage).toMatchObject({
@@ -47,7 +46,7 @@ describe("updateUsage", () => {
     updateUsage(
       output,
       { output_tokens: 100, output_tokens_details: { thinking_tokens: 40 } },
-      model,
+      model
     );
 
     expect(output.usage.reasoning).toBe(40);
@@ -73,7 +72,7 @@ describe("updateUsage", () => {
     updateUsage(
       output,
       { output_tokens: 100, output_tokens_details: { thinking_tokens: 40 } },
-      model,
+      model
     );
 
     expect(output.usage.totalTokens).toBe(100);
@@ -84,8 +83,12 @@ describe("updateUsage", () => {
 
     updateUsage(
       output,
-      { input_tokens: 10, output_tokens: 100, output_tokens_details: { thinking_tokens: 40 } },
-      pricedModel,
+      {
+        input_tokens: 10,
+        output_tokens: 100,
+        output_tokens_details: { thinking_tokens: 40 },
+      },
+      pricedModel
     );
 
     // 10 input at 1 plus 100 output at 2. Folding the 40 reasoning tokens into output
@@ -95,9 +98,15 @@ describe("updateUsage", () => {
 
   it("reports the cache share of the prompt, zero without a prompt", () => {
     expect(
-      updateUsage(emptyOutput(), { input_tokens: 25, cache_read_input_tokens: 75 }, model).cachePct,
+      updateUsage(
+        emptyOutput(),
+        { input_tokens: 25, cache_read_input_tokens: 75 },
+        model
+      ).cachePct
     ).toBe(75);
-    expect(updateUsage(emptyOutput(), { output_tokens: 10 }, model).cachePct).toBe(0);
+    expect(
+      updateUsage(emptyOutput(), { output_tokens: 10 }, model).cachePct
+    ).toBe(0);
   });
 
   // message_start, message_delta and the complete message each carry a different subset.
@@ -107,7 +116,12 @@ describe("updateUsage", () => {
     updateUsage(output, { input_tokens: 5, cache_read_input_tokens: 3 }, model);
     updateUsage(output, { output_tokens: 7, input_tokens: null }, model);
 
-    expect(output.usage).toMatchObject({ input: 5, cacheRead: 3, output: 7, totalTokens: 15 });
+    expect(output.usage).toMatchObject({
+      input: 5,
+      cacheRead: 3,
+      output: 7,
+      totalTokens: 15,
+    });
   });
 
   it("reports only the thinking count this frame carries", () => {
@@ -116,7 +130,7 @@ describe("updateUsage", () => {
     const first = updateUsage(
       output,
       { output_tokens: 100, output_tokens_details: { thinking_tokens: 40 } },
-      model,
+      model
     );
 
     const second = updateUsage(output, { output_tokens: 120 }, model);

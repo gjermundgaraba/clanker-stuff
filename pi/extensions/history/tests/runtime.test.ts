@@ -2,18 +2,34 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { StatementSync } from "node:sqlite";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 import extension from "../index.js";
-import { loadHistory, openHistoryDatabase, saveHistoryBatch } from "../storage.js";
-import { createEditor, nonPromptEntries, search, userEntry } from "./fixtures.js";
+import {
+  loadHistory,
+  openHistoryDatabase,
+  saveHistoryBatch,
+} from "../storage.js";
+import {
+  createEditor,
+  nonPromptEntries,
+  search,
+  userEntry,
+} from "./fixtures.js";
 
 const ESCAPE = "\u001B";
 
-const shutdowns: (() => Promise<void>)[] = [];
+const shutdowns: Array<() => Promise<void>> = [];
 
 const sessionFile = (id: string, ...lines: unknown[]) =>
   [
@@ -24,7 +40,9 @@ const sessionFile = (id: string, ...lines: unknown[]) =>
       type: "session",
       version: 3,
     }),
-    ...lines.map((line) => (typeof line === "string" ? line : JSON.stringify(line))),
+    ...lines.map((line) =>
+      typeof line === "string" ? line : JSON.stringify(line)
+    ),
   ].join("\n");
 
 const createHarness = async (sessionDirectory?: string) => {
@@ -32,14 +50,19 @@ const createHarness = async (sessionDirectory?: string) => {
   const ctx = host.createContext();
 
   const directory =
-    sessionDirectory ?? path.join(process.env["PI_CODING_AGENT_DIR"] ?? "", "sessions", "test");
+    sessionDirectory ??
+    path.join(process.env["PI_CODING_AGENT_DIR"] ?? "", "sessions", "test");
 
   Object.assign(ctx.sessionManager, { getSessionDir: () => directory });
   await host.emitSessionStart(ctx);
-  shutdowns.push(() => host.emitSessionShutdown(ctx));
+  shutdowns.push(async () => {
+    await host.emitSessionShutdown(ctx);
+  });
 
-  const prompt = (text: string, source: "interactive" | "extension" | "rpc" = "interactive") =>
-    host.emitInput({ source, text, type: "input" }, ctx);
+  const prompt = async (
+    text: string,
+    source: "interactive" | "extension" | "rpc" = "interactive"
+  ) => await host.emitInput({ source, text, type: "input" }, ctx);
 
   return { ctx, host, prompt };
 };
@@ -54,7 +77,11 @@ describe("history runtime", () => {
   });
 
   afterEach(async () => {
-    await Promise.all(shutdowns.splice(0).map((shutdown) => shutdown()));
+    await Promise.all(
+      shutdowns.splice(0).map(async (shutdown) => {
+        await shutdown();
+      })
+    );
     vi.restoreAllMocks();
     restoreAgentDir?.();
     await rm(agentDir, { force: true, recursive: true });
@@ -71,10 +98,16 @@ describe("history runtime", () => {
     });
 
     const ctx = host.createContext();
-    Object.assign(ctx.sessionManager, { getSessionDir: () => path.join(agentDir, "sessions") });
+    Object.assign(ctx.sessionManager, {
+      getSessionDir: () => path.join(agentDir, "sessions"),
+    });
     await host.emitSessionStart(ctx, "resume");
-    shutdowns.push(() => host.emitSessionShutdown(ctx));
-    expect([...host.getRegisteredCommands().keys()]).toEqual(["history-import"]);
+    shutdowns.push(async () => {
+      await host.emitSessionShutdown(ctx);
+    });
+    expect([...host.getRegisteredCommands().keys()]).toStrictEqual([
+      "history-import",
+    ]);
 
     const editor = createEditor(host);
     editor.handleInput("\u001B[A");
@@ -88,13 +121,20 @@ describe("history runtime", () => {
     await prompt("rpc prompt", "rpc");
     await host.emit(
       "user_bash",
-      { command: "pnpm test", cwd: ctx.cwd, excludeFromContext: true, type: "user_bash" },
-      ctx,
+      {
+        command: "pnpm test",
+        cwd: ctx.cwd,
+        excludeFromContext: true,
+        type: "user_bash",
+      },
+      ctx
     );
 
     ctx.ui.setEditorText("unsent draft");
-    expect(await search(host, ["extension", ESCAPE])).toContain("no match");
-    expect(await search(host, ["rpc", ESCAPE])).toContain("no match");
+    await expect(search(host, ["extension", ESCAPE])).resolves.toContain(
+      "no match"
+    );
+    await expect(search(host, ["rpc", ESCAPE])).resolves.toContain("no match");
     expect(ctx.ui.getEditorText()).toBe("unsent draft");
 
     await search(host, ["local", "\r"]);
@@ -108,22 +148,32 @@ describe("history runtime", () => {
     await prompt("saved prompt");
     ctx.ui.setEditorText("unsent draft");
 
-    await search(host, ["saved"], () => host.emitSessionShutdown(ctx));
+    await search(host, ["saved"], async () => {
+      await host.emitSessionShutdown(ctx);
+    });
     expect(ctx.ui.getEditorText()).toBe("unsent draft");
   });
 
-  it.each(["print", "json", "rpc"] as const)("does nothing in %s mode", async (mode) => {
-    const host = createExtensionHost(extension);
-    const ctx = host.createContext({ mode });
-    await host.emitSessionStart(ctx);
-    await host.emitInput({ source: "interactive", text: "automated", type: "input" }, ctx);
-    await host.runShortcut("ctrl+r", ctx);
-    await host.runCommand("history-import", "", ctx);
-    await host.emitSessionShutdown(ctx);
-    expect(host.getEditorFactory()).toBeUndefined();
-    expect(host.getNotifications()).toEqual([]);
-    await expect(access(path.join(agentDir, "data"))).rejects.toThrow();
-  });
+  it.each(["print", "json", "rpc"] as const)(
+    "does nothing in %s mode",
+    async (mode) => {
+      const host = createExtensionHost(extension);
+      const ctx = host.createContext({ mode });
+      await host.emitSessionStart(ctx);
+      await host.emitInput(
+        { source: "interactive", text: "automated", type: "input" },
+        ctx
+      );
+      await host.runShortcut("ctrl+r", ctx);
+      await host.runCommand("history-import", "", ctx);
+      await host.emitSessionShutdown(ctx);
+      expect(host.getEditorFactory()).toBeUndefined();
+      expect(host.getNotifications()).toStrictEqual([]);
+      await expect(access(path.join(agentDir, "data"))).rejects.toThrow(
+        "ENOENT"
+      );
+    }
+  );
 
   it("keeps --no-session history in memory without touching the store", async () => {
     const { ctx, host, prompt } = await createHarness("");
@@ -131,7 +181,7 @@ describe("history runtime", () => {
 
     await search(host, ["private", "\r"]);
     expect(ctx.ui.getEditorText()).toBe("private prompt");
-    await expect(access(path.join(agentDir, "data"))).rejects.toThrow();
+    await expect(access(path.join(agentDir, "data"))).rejects.toThrow("ENOENT");
   });
 
   it("falls back to in-memory history when the store cannot open", async () => {
@@ -143,7 +193,10 @@ describe("history runtime", () => {
     await search(host, ["current", "\r"]);
     expect(ctx.ui.getEditorText()).toBe("current prompt");
     await host.runCommand("history-import", "", ctx);
-    expect(host.getNotifications().map(({ type }) => type)).toEqual(["warning", "warning"]);
+    expect(host.getNotifications().map(({ type }) => type)).toStrictEqual([
+      "warning",
+      "warning",
+    ]);
   });
 
   it("deduplicates repeated prompts and moves them to the front", async () => {
@@ -165,7 +218,7 @@ describe("history runtime", () => {
   it("records the prompt as typed when an earlier handler expanded skills into it", async () => {
     const { ctx, host, prompt } = await createHarness();
     await prompt(
-      '<skill name="a, b" location="/skills/a/SKILL.md, /skills/b/SKILL.md">\nReferences are relative to /skills/a.\n\nInstructions.\n</skill>\n\nuse $a and $b',
+      '<skill name="a, b" location="/skills/a/SKILL.md, /skills/b/SKILL.md">\nReferences are relative to /skills/a.\n\nInstructions.\n</skill>\n\nuse $a and $b'
     );
 
     await search(host, ["use", "\r"]);
@@ -189,7 +242,13 @@ describe("history runtime", () => {
   });
 
   it("imports prompts and bash commands without modifying session files", async () => {
-    const sessionPath = path.join(agentDir, "sessions", "project", "legacy.jsonl");
+    const sessionPath = path.join(
+      agentDir,
+      "sessions",
+      "project",
+      "legacy.jsonl"
+    );
+
     await mkdir(path.dirname(sessionPath), { recursive: true });
 
     const original = sessionFile(
@@ -208,7 +267,7 @@ describe("history runtime", () => {
         timestamp: new Date(300).toISOString(),
         type: "message",
       },
-      ...nonPromptEntries("bash", 400),
+      ...nonPromptEntries("bash", 400)
     );
 
     await writeFile(sessionPath, original, "utf-8");
@@ -220,7 +279,9 @@ describe("history runtime", () => {
     expect(ctx.ui.getEditorText()).toBe("legacy prompt");
     await search(host, ["pnpm", "\r"]);
     expect(ctx.ui.getEditorText()).toBe("!!pnpm test");
-    expect(await search(host, ["non-prompt", ESCAPE])).toContain("no match");
+    await expect(search(host, ["non-prompt", ESCAPE])).resolves.toContain(
+      "no match"
+    );
     expect(host.getNotifications()).toContainEqual({
       message: "Imported prompt history from 1 session files.",
       type: "info",
@@ -233,7 +294,10 @@ describe("history runtime", () => {
     await mkdir(custom, { recursive: true });
     await writeFile(
       path.join(custom, "session.jsonl"),
-      sessionFile("custom", userEntry("custom", null, "custom directory prompt", 100)),
+      sessionFile(
+        "custom",
+        userEntry("custom", null, "custom directory prompt", 100)
+      )
     );
 
     const { ctx, host } = await createHarness(custom);
@@ -247,11 +311,11 @@ describe("history runtime", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(
       path.join(directory, "a.jsonl"),
-      sessionFile("a", userEntry("a", null, "committed before failure", 300)),
+      sessionFile("a", userEntry("a", null, "committed before failure", 300))
     );
     await writeFile(
       path.join(directory, "z.jsonl"),
-      sessionFile("z", userEntry("z", null, "blocked after commit", 200)),
+      sessionFile("z", userEntry("z", null, "blocked after commit", 200))
     );
     const { ctx, host } = await createHarness();
     await search(host, [ESCAPE]);
@@ -276,11 +340,15 @@ describe("history runtime", () => {
       { text: "alpha older", timestamp: 100 },
       { text: "alpha newer", timestamp: 200 },
     ]);
-    expect(loadHistory(writer, 1)).toEqual([{ text: "alpha newer", timestamp: 200 }]);
+    expect(loadHistory(writer, 1)).toStrictEqual([
+      { text: "alpha newer", timestamp: 200 },
+    ]);
     writer.close();
 
     const { ctx, host } = await createHarness();
-    expect(await search(host, ["alpha", "\u001B[A", "\r"])).toContain("2/2");
+    await expect(search(host, ["alpha", "\u001B[A", "\r"])).resolves.toContain(
+      "2/2"
+    );
     expect(ctx.ui.getEditorText()).toBe("alpha older");
   });
 });

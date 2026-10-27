@@ -50,8 +50,7 @@ Every feature document follows the same skeleton so that documents are comparabl
    - {The environment failing: window loses focus, network lost, request fails or times out, session expires}
    - {The page or process going away: reload, tab closed, terminal closed, app backgrounded}
    - {Something else changing the target: deleted, locked, edited by another user or tab, changed on disk}
-   - {The input channel changing: a second input device, autofill, a pipe closing, touch cancel}
-     {Rewrite this list for the product, drawing on the five families in the skill's product-kinds.md: the user's explicit abort, the user doing something else mid-way, the environment failing, something else changing the target, the input channel changing. It must be identical, and in the same order, in every document.}
+   - {The input channel changing: a second input device, autofill, a pipe closing, touch cancel} {Rewrite this list for the product, drawing on the five families in the skill's product-kinds.md: the user's explicit abort, the user doing something else mid-way, the environment failing, something else changing the target, the input channel changing. It must be identical, and in the same order, in every document.}
 6. **Interactions with other systems.** {The product's cross-cutting concerns, in a fixed order: permissions, history or undo, containers or parents, locked or readonly state, offline, collaboration or multi-device, notifications, configuration and preferences.}
 7. **Edge cases.** Anything a user could notice that is not covered above.
 8. **Open questions and verification.** Open questions, source commit provenance, and a separate observed-verification status. Source inspection alone does not verify running behavior.

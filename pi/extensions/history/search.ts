@@ -7,9 +7,8 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
-  type Component,
-  type Focusable,
 } from "@earendil-works/pi-tui";
+import type { Component, Focusable } from "@earendil-works/pi-tui";
 
 import type { HistoryItem } from "./history.js";
 
@@ -29,7 +28,7 @@ const MIN_QUERY_WIDTH = 20;
 export const createSearch = (
   history: readonly HistoryItem[],
   theme: Theme,
-  done: (text: string | undefined) => void,
+  done: (text: string | undefined) => void
 ): Component & Focusable => {
   const input = new Input({ prompt: "history: " });
   let matches: readonly HistoryItem[] = [];
@@ -40,7 +39,10 @@ export const createSearch = (
     input.handleInput(data);
     const query = input.getValue();
 
-    if (query === previous) return;
+    if (query === previous) {
+      return;
+    }
+
     const pattern = new RegExp(RegExp.escape(query), "iu");
     matches = query ? history.filter(({ text }) => pattern.test(text)) : [];
     selected = 0;
@@ -53,11 +55,22 @@ export const createSearch = (
   const hint = () => {
     const bindings = getKeybindings();
     const accept = bindings.getKeys("tui.input.submit").join("/");
-    const cancel = [...new Set([...bindings.getKeys("tui.select.cancel"), "ctrl+c"])].join("/");
-    const actions = [accept ? `${accept} accept` : "", `${cancel} cancel`].filter(Boolean);
 
-    if (matches.length > 0)
-      return theme.fg("dim", `  ${selected + 1}/${matches.length} · ${actions.join(" · ")}`);
+    const cancel = [
+      ...new Set([...bindings.getKeys("tui.select.cancel"), "ctrl+c"]),
+    ].join("/");
+
+    const actions = [
+      accept ? `${accept} accept` : "",
+      `${cancel} cancel`,
+    ].filter(Boolean);
+
+    if (matches.length > 0) {
+      return theme.fg(
+        "dim",
+        `  ${selected + 1}/${matches.length} · ${actions.join(" · ")}`
+      );
+    }
 
     return input.getValue() ? theme.fg("error", "  no match") : "";
   };
@@ -72,7 +85,9 @@ export const createSearch = (
     ];
 
     // Stored and imported history is arbitrary text; terminal controls in it must not reach the screen.
-    return rows.map((row) => theme.fg("dim", truncateToWidth(displayText(row), width)));
+    return rows.map((row) =>
+      theme.fg("dim", truncateToWidth(displayText(row), width))
+    );
   };
 
   return {
@@ -83,10 +98,17 @@ export const createSearch = (
       input.focused = value;
     },
     render: (width) => {
-      const suffix = truncateToWidth(hint(), Math.max(0, width - MIN_QUERY_WIDTH), "");
+      const suffix = truncateToWidth(
+        hint(),
+        Math.max(0, width - MIN_QUERY_WIDTH),
+        ""
+      );
 
       return [
-        theme.fg("accent", input.render(width - visibleWidth(suffix)).join("")) + suffix,
+        theme.fg(
+          "accent",
+          input.render(width - visibleWidth(suffix)).join("")
+        ) + suffix,
         ...preview(width),
       ];
     },
@@ -99,23 +121,39 @@ export const createSearch = (
         return;
       }
 
-      if (isKeyRelease(data)) return;
+      if (isKeyRelease(data)) {
+        return;
+      }
+
       const bindings = getKeybindings();
 
-      if (bindings.matches(data, "tui.select.cancel") || matchesKey(data, "ctrl+c")) {
+      if (
+        bindings.matches(data, "tui.select.cancel") ||
+        matchesKey(data, "ctrl+c")
+      ) {
         done(undefined);
       } else if (bindings.matches(data, "tui.input.submit") || data === "\n") {
         const match = matches[selected];
 
-        if (match) done(match.text);
-      } else if (matchesKey(data, "ctrl+r") || bindings.matches(data, "tui.select.up")) {
+        if (match) {
+          done(match.text);
+        }
+      } else if (
+        matchesKey(data, "ctrl+r") ||
+        bindings.matches(data, "tui.select.up")
+      ) {
         move(1);
-      } else if (matchesKey(data, "ctrl+s") || bindings.matches(data, "tui.select.down")) {
+      } else if (
+        matchesKey(data, "ctrl+s") ||
+        bindings.matches(data, "tui.select.down")
+      ) {
         move(-1);
       } else {
         edit(data);
       }
     },
-    invalidate: () => input.invalidate(),
+    invalidate: () => {
+      input.invalidate();
+    },
   };
 };

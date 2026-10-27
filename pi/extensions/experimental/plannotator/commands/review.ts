@@ -1,4 +1,7 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
@@ -20,7 +23,10 @@ export const createReviewHandler =
         const output = stdout.trim();
 
         if (output.length === 0 || output === REVIEW_CLOSED_SENTINEL) {
-          ctx.ui.notify("Plannotator code review closed without feedback.", "info");
+          ctx.ui.notify(
+            "Plannotator code review closed without feedback.",
+            "info"
+          );
 
           return;
         }

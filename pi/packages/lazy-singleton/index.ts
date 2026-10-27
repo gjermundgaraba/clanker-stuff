@@ -1,6 +1,6 @@
 export const createLazySingleton = <T extends object>(
   create: (signal: AbortSignal) => Promise<T>,
-  onLoad?: (value: T) => void,
+  onLoad?: (value: T) => void
 ) => {
   const lifetime = new AbortController();
   let current: T | undefined;
@@ -16,7 +16,8 @@ export const createLazySingleton = <T extends object>(
       return current;
     }
 
-    const attempt = (pending ??= create(lifetime.signal));
+    pending ??= create(lifetime.signal);
+    const attempt = pending;
 
     try {
       const value = await attempt;
@@ -44,8 +45,11 @@ export const createLazySingleton = <T extends object>(
     }
   };
 
-  const stop = (dispose?: (value: T) => Promise<void> | void): Promise<void> =>
-    (stopping ??= (async () => {
+  // Every call waits on the first call's stop, so dispose runs once.
+  const stop = async (
+    dispose?: (value: T) => Promise<void> | void
+  ): Promise<void> => {
+    stopping ??= (async () => {
       lifetime.abort();
       let loaded: T | undefined;
 
@@ -58,7 +62,10 @@ export const createLazySingleton = <T extends object>(
       if (loaded !== undefined) {
         await dispose?.(loaded);
       }
-    })());
+    })();
+
+    await stopping;
+  };
 
   return {
     get: (): T | undefined => current,

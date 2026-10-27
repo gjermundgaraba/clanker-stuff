@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -17,8 +24,10 @@ describe("Fast read-only default", () => {
   });
 
   it("returns off for a missing file without creating directories", async () => {
-    expect(await loadFastDefault(path.join(root, "agent", "fast.json"))).toBe(false);
-    expect(await readdir(root)).toStrictEqual([]);
+    await expect(
+      loadFastDefault(path.join(root, "agent", "fast.json"))
+    ).resolves.toBe(false);
+    await expect(readdir(root)).resolves.toStrictEqual([]);
   });
 
   it.each([
@@ -28,8 +37,8 @@ describe("Fast read-only default", () => {
   ] as const)("reads %s without altering its bytes", async (text, expected) => {
     const configPath = path.join(root, "fast.json");
     await writeFile(configPath, text);
-    expect(await loadFastDefault(configPath)).toBe(expected);
-    expect(await readFile(configPath, "utf8")).toBe(text);
+    await expect(loadFastDefault(configPath)).resolves.toBe(expected);
+    await expect(readFile(configPath, "utf-8")).resolves.toBe(text);
   });
 
   it.each(['{"fast":"true"}', "{}", "not json", "null", "[]", "true"])(
@@ -38,16 +47,18 @@ describe("Fast read-only default", () => {
       const configPath = path.join(root, "fast.json");
       await writeFile(configPath, text);
 
-      await expect(loadFastDefault(configPath)).rejects.toThrow();
-      expect(await readFile(configPath, "utf8")).toBe(text);
-    },
+      await expect(loadFastDefault(configPath)).rejects.toThrow(
+        /Expected an object with "fast": boolean|is not valid JSON/u
+      );
+      await expect(readFile(configPath, "utf-8")).resolves.toBe(text);
+    }
   );
 
   it("reports a real I/O failure", async () => {
     const configPath = path.join(root, "fast.json");
     await mkdir(configPath);
 
-    await expect(loadFastDefault(configPath)).rejects.toThrow();
-    expect(await readdir(root)).toStrictEqual(["fast.json"]);
+    await expect(loadFastDefault(configPath)).rejects.toThrow("EISDIR");
+    await expect(readdir(root)).resolves.toStrictEqual(["fast.json"]);
   });
 });

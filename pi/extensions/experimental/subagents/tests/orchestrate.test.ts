@@ -5,7 +5,7 @@ import { loadSkills } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 const ORCHESTRATE_SKILL_PATH = fileURLToPath(
-  new URL("../vendor/orchestrate/SKILL.md", import.meta.url),
+  new URL("../vendor/orchestrate/SKILL.md", import.meta.url)
 );
 
 describe("orchestrate skill", () => {
@@ -29,19 +29,29 @@ describe("orchestrate skill", () => {
 
     const contents = await readFile(ORCHESTRATE_SKILL_PATH, "utf-8");
     expect({
-      conditionalOverride: contents.includes("When `spawn_agent` exposes `reasoning_effort`"),
+      conditionalOverride: contents.includes(
+        "When `spawn_agent` exposes `reasoning_effort`"
+      ),
       omissionFallback: contents.includes("otherwise omit that field"),
-      v2Fork: contents.includes('use `fork_turns: "none"` when `spawn_agent` exposes `fork_turns`'),
+      v2Fork: contents.includes(
+        'use `fork_turns: "none"` when `spawn_agent` exposes `fork_turns`'
+      ),
     }).toStrictEqual({
       conditionalOverride: true,
       omissionFallback: true,
       v2Fork: true,
     });
     await expect(
-      readFile(new URL("../vendor/orchestrate/LICENSE", import.meta.url), "utf-8"),
+      readFile(
+        new URL("../vendor/orchestrate/LICENSE", import.meta.url),
+        "utf-8"
+      )
     ).resolves.toContain("Copyright (c) 2026 Eric Provencher");
     await expect(
-      readFile(new URL("../vendor/orchestrate/UPSTREAM", import.meta.url), "utf-8"),
+      readFile(
+        new URL("../vendor/orchestrate/UPSTREAM", import.meta.url),
+        "utf-8"
+      )
     ).resolves.toContain("1fe93e920cbd99173eedd22e94d10d49e2c76da7");
   });
 });

@@ -3,21 +3,42 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { layoutOverlay, renderOverlay, renderUsageBar } from "../render.js";
-import { fixtureMessage, fixturePart, fixtureSnapshot } from "./fixtures/snapshot.js";
+import {
+  fixtureMessage,
+  fixturePart,
+  fixtureSnapshot,
+} from "./fixtures/snapshot.js";
 
 const theme = createIdentityTheme();
 
 describe("render", () => {
   it("sanitizes display labels without changing the captured context", () => {
-    const controls = "\x1b[2J\u061c\u200e\u200f\u202e\u2066";
-    const snapshot = fixtureSnapshot({ modelLabel: "provider" + controls });
+    const controls = "\u001B[2J\u061C\u200E\u200F\u202E\u2066";
+    const snapshot = fixtureSnapshot({ modelLabel: `provider${controls}` });
     const before = structuredClone(snapshot);
-    const lines = renderOverlay(theme, snapshot, layoutOverlay(100, 20, false), [], "");
+
+    const lines = renderOverlay(
+      theme,
+      snapshot,
+      layoutOverlay(100, 20, false),
+      [],
+      ""
+    );
+
     expect(lines.join("\n")).toContain("provider");
 
-    for (const control of ["\x1b[2J", "\u061c", "\u200e", "\u200f", "\u202e", "\u2066"])
+    for (const control of [
+      "\u001B[2J",
+      "\u061C",
+      "\u200E",
+      "\u200F",
+      "\u202E",
+      "\u2066",
+    ]) {
       expect(lines.join("\n")).not.toContain(control);
-    expect(snapshot).toEqual(before);
+    }
+
+    expect(snapshot).toStrictEqual(before);
   });
 
   it.each([0, 1, 2, 10, 66, 100])(
@@ -25,16 +46,27 @@ describe("render", () => {
     (width) => {
       for (const tokens of [0, 2, 48, 64, 1000]) {
         expect(
-          visibleWidth(renderUsageBar(theme, { tokens, contextWindow: 64, percent: 0 }, width)),
+          visibleWidth(
+            renderUsageBar(
+              theme,
+              { tokens, contextWindow: 64, percent: 0 },
+              width
+            )
+          )
         ).toBe(width);
       }
 
-      expect(renderUsageBar(theme, { tokens: null, contextWindow: 64, percent: null }, width)).toBe(
-        "░".repeat(width),
-      );
+      expect(
+        renderUsageBar(
+          theme,
+          { tokens: null, contextWindow: 64, percent: null },
+          width
+        )
+      ).toBe("░".repeat(width));
       expect(renderUsageBar(theme, undefined, width)).toBe("░".repeat(width));
-    },
+    }
   );
+
   it("fills every accepted size exactly and clips sizes below the minimum", () => {
     const body = ["BODY".repeat(100)];
     const footer = "HELP".repeat(100);
@@ -46,13 +78,13 @@ describe("render", () => {
           fixtureSnapshot(),
           layoutOverlay(width, height, false),
           body,
-          footer,
+          footer
         );
 
         expect(lines, `${width}x${height}`).toHaveLength(height);
         expect(
           lines.every((line) => visibleWidth(line) === width),
-          `${width}x${height}`,
+          `${width}x${height}`
         ).toBe(true);
       }
     }
@@ -67,14 +99,17 @@ describe("render", () => {
         fixtureSnapshot(),
         layoutOverlay(width, height, false),
         body,
-        footer,
+        footer
       );
 
       expect(lines).toHaveLength(1);
 
-      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      for (const line of lines) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      }
     }
   });
+
   it("draws a titled frame with a measured usage bar, estimate legend and joined pane divider", () => {
     const snapshot = fixtureSnapshot({
       prompt: "x".repeat(400),
@@ -88,18 +123,32 @@ describe("render", () => {
     };
 
     const layout = layoutOverlay(120, 24, false);
-    const lines = renderOverlay(theme, withParts, layout, ["System prompt"], "help");
-    expect(lines[0]).toMatch(/^╭─ \/context · state · test\/model ─+╮$/);
+
+    const lines = renderOverlay(
+      theme,
+      withParts,
+      layout,
+      ["System prompt"],
+      "help"
+    );
+
+    expect(lines[0]).toMatch(/^╭─ \/context · state · test\/model ─+╮$/u);
     expect(lines[1]).toBe(`│${" ".repeat(118)}│`);
     expect(lines[2]).toContain("400 / 1,000 tokens · 40.0% used · 600 free");
     expect(lines[3]).toBe(`│  ${"█".repeat(46)}${"░".repeat(68)}  │`);
-    expect(lines[4]).toContain("system ~100 · 25%   tools ~200 · 50%   messages ~100 · 25%");
+    expect(lines[4]).toContain(
+      "system ~100 · 25%   tools ~200 · 50%   messages ~100 · 25%"
+    );
     expect(lines[5]).toBe(`│${" ".repeat(118)}│`);
-    expect(lines[6]).toBe(`├${"─".repeat(layout.treeWidth)}┬${"─".repeat(layout.previewWidth)}┤`);
-    expect(lines[7]).toBe(`│${" ".repeat(layout.treeWidth)}│${" ".repeat(layout.previewWidth)}│`);
+    expect(lines[6]).toBe(
+      `├${"─".repeat(layout.treeWidth)}┬${"─".repeat(layout.previewWidth)}┤`
+    );
+    expect(lines[7]).toBe(
+      `│${" ".repeat(layout.treeWidth)}│${" ".repeat(layout.previewWidth)}│`
+    );
     expect(lines[8]).toContain("System prompt");
     expect(lines.at(-3)).toBe(
-      `├${"─".repeat(layout.treeWidth)}┴${"─".repeat(layout.previewWidth)}┤`,
+      `├${"─".repeat(layout.treeWidth)}┴${"─".repeat(layout.previewWidth)}┤`
     );
     expect(lines.at(-2)).toBe(`│  help${" ".repeat(112)}│`);
     expect(lines).toHaveLength(24);
@@ -108,7 +157,10 @@ describe("render", () => {
 
   it("splits into tree and preview panes from 80 columns", () => {
     expect(layoutOverlay(79, 24, false).previewWidth).toBe(0);
-    expect(layoutOverlay(80, 24, false)).toMatchObject({ treeWidth: 32, previewWidth: 45 });
+    expect(layoutOverlay(80, 24, false)).toMatchObject({
+      treeWidth: 32,
+      previewWidth: 45,
+    });
     expect(layoutOverlay(80, 24, true).previewWidth).toBe(0);
   });
 
@@ -133,10 +185,18 @@ describe("render", () => {
       bodyHeight: 3,
       previewHeaderRows: 1,
     });
-    const short = renderOverlay(theme, fixtureSnapshot(), layoutOverlay(120, 10, false), [], "");
+
+    const short = renderOverlay(
+      theme,
+      fixtureSnapshot(),
+      layoutOverlay(120, 10, false),
+      [],
+      ""
+    );
+
     expect(short).toHaveLength(10);
     expect(short.join("\n")).not.toContain("system ~");
-    expect(short[3]).toMatch(/^├─+┬─+┤$/);
+    expect(short[3]).toMatch(/^├─+┬─+┤$/u);
   });
 
   it("reports unknown usage in the header", () => {
@@ -145,7 +205,7 @@ describe("render", () => {
       fixtureSnapshot({ usage: undefined }),
       layoutOverlay(120, 24, false),
       [],
-      "",
+      ""
     ).join("\n");
 
     expect(lines).toContain("Pi context usage: unknown");

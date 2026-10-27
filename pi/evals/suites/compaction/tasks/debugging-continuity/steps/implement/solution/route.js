@@ -1,5 +1,5 @@
 /** @param {unknown} input The task explicitly includes non-string route rejection. */
-export function parseRoute(input) {
+export const parseRoute = (input) => {
   if (typeof input !== "string") {
     throw new TypeError("route must be a string");
   }
@@ -10,11 +10,13 @@ export function parseRoute(input) {
     throw new TypeError("route must contain exactly one slash");
   }
 
-  const [service, region] = parts.map((part) => part.trim().toLowerCase());
+  const [service = "", region = ""] = parts.map((part) =>
+    part.trim().toLowerCase()
+  );
 
-  if (!service || !region) {
+  if (service === "" || region === "") {
     throw new TypeError("route parts cannot be empty");
   }
 
   return { region, service };
-}
+};

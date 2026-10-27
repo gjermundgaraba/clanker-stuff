@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  fauxAssistantMessage,
+} from "@earendil-works/pi-ai";
 import type {
   AssistantMessage,
   Message,
@@ -15,13 +18,14 @@ import { onTestFinished, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
 
 import type { RecapConfig } from "../config.js";
+import type { Snapshot } from "../entry.js";
 import { ROLLING_PAIRS } from "../font.js";
 
 type StreamModel = ExtensionContext["modelRegistry"]["streamSimple"];
 
 export type ResponseStep = (
   context: Parameters<StreamModel>[1],
-  options: SimpleStreamOptions | undefined,
+  options: SimpleStreamOptions | undefined
 ) => AssistantMessage | Promise<AssistantMessage>;
 
 /**
@@ -38,8 +42,10 @@ export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
 
     options?.signal?.addEventListener(
       "abort",
-      () => aborted.resolve(fauxAssistantMessage("", { stopReason: "aborted" })),
-      { once: true },
+      () => {
+        aborted.resolve(fauxAssistantMessage("", { stopReason: "aborted" }));
+      },
+      { once: true }
     );
 
     void (async () => {
@@ -48,13 +54,16 @@ export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
           throw new Error("No more test responses queued");
         }
 
-        stream.end(await Promise.race([step(context, options), aborted.promise]));
+        stream.end(
+          await Promise.race([step(context, options), aborted.promise])
+        );
       } catch (error) {
         stream.end(
           fauxAssistantMessage("", {
-            errorMessage: error instanceof Error ? error.message : String(error),
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
             stopReason: "error",
-          }),
+          })
         );
       }
     })();
@@ -75,14 +84,16 @@ export const userMessage = (content: string): Message => ({
 export const appendTurn = (
   session: SessionManager,
   number: number,
-  stopReason: StopReason = "stop",
+  stopReason: StopReason = "stop"
 ): void => {
   session.appendMessage(userMessage(`request ${number}`));
   session.appendMessage(
     fauxAssistantMessage(`answer ${number}`, {
-      ...(stopReason === "error" || stopReason === "aborted" ? { errorMessage: "failed" } : {}),
+      ...(stopReason === "error" || stopReason === "aborted"
+        ? { errorMessage: "failed" }
+        : {}),
       stopReason,
-    }),
+    })
   );
 };
 
@@ -96,21 +107,41 @@ export const sessionWithTurns = (count: number): SessionManager => {
   return session;
 };
 
-export const createRecapConfigFile = async (
-  config: { model: RecapConfig["model"]; thinking?: RecapConfig["thinking"] } = {
-    model: { id: "small", provider: "cheap" },
-  },
-): Promise<{
+export const createRecapConfigFile = async ({
+  model = { id: "small", provider: "cheap" },
+  thinking,
+}: {
+  model?: RecapConfig["model"];
+  thinking?: RecapConfig["thinking"];
+} = {}): Promise<{
   configPath: string;
   directory: string;
 }> => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "recap-test-"));
-  onTestFinished(() => rm(directory, { force: true, recursive: true }));
+  onTestFinished(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
   const configPath = path.join(directory, "turn-recap.json");
-  await writeFile(configPath, JSON.stringify(config), "utf-8");
+  await writeFile(configPath, JSON.stringify({ model, thinking }), "utf-8");
 
   return { configPath, directory };
 };
+
+export const sampleUsage = () => ({
+  input: 100,
+  output: 50,
+  cacheRead: 200,
+  cacheWrite: 20,
+  reasoning: 10,
+  totalTokens: 370,
+  cost: {
+    input: 0.1,
+    output: 0.2,
+    cacheRead: 0.01,
+    cacheWrite: 0.02,
+    total: 0.33,
+  },
+});
 
 /** A response reporting `prompt` uncached context tokens plus its output. */
 export const measuredResponse = (
@@ -120,7 +151,12 @@ export const measuredResponse = (
     reasoning = 0,
     stopReason = "stop",
     totalTokens = prompt + output,
-  }: { output?: number; reasoning?: number; stopReason?: StopReason; totalTokens?: number } = {},
+  }: {
+    output?: number;
+    reasoning?: number;
+    stopReason?: StopReason;
+    totalTokens?: number;
+  } = {}
 ): AssistantMessage => ({
   ...fauxAssistantMessage("answer", { stopReason }),
   usage: {
@@ -134,17 +170,7 @@ export const measuredResponse = (
   },
 });
 
-export const sampleUsage = () => ({
-  input: 100,
-  output: 50,
-  cacheRead: 200,
-  cacheWrite: 20,
-  reasoning: 10,
-  totalTokens: 370,
-  cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33 },
-});
-
-export const snapshot = (): import("../entry.js").Snapshot => ({
+export const snapshot = (): Snapshot => ({
   runId: "run-1",
   startedAt: 1000,
   finishedAt: 3000,
@@ -169,7 +195,7 @@ export const snapshot = (): import("../entry.js").Snapshot => ({
     contextGrowth: 400,
     modelMs: 900,
     toolMs: 400,
-    context: { tokens: 1000, contextWindow: 10000, percent: 10 },
+    context: { tokens: 1000, contextWindow: 10_000, percent: 10 },
   },
 });
 
@@ -180,7 +206,10 @@ export const fontManifest = (steps = 8) => ({
   transitions: Object.fromEntries(
     ROLLING_PAIRS.map((pair, index) => [
       pair,
-      Array.from({ length: steps + 1 }, (_, frame) => 0xf1000 + index * 0x100 + frame),
-    ]),
+      Array.from(
+        { length: steps + 1 },
+        (_, frame) => 0xf_10_00 + index * 0x1_00 + frame
+      ),
+    ])
   ),
 });

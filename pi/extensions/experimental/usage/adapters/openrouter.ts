@@ -17,7 +17,7 @@ const OpenRouterCreditsPayloadSchema = Type.Object({
 
 export const mapOpenRouterCreditsPayload = (
   payload: Static<typeof OpenRouterCreditsPayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const available = payload.data.total_credits - payload.data.total_usage;
 
@@ -29,10 +29,12 @@ export const mapOpenRouterCreditsPayload = (
   });
 };
 
-export const fetchOpenRouterUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchOpenRouterUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "openrouter",
     { url: OPENROUTER_CREDITS_URL, schema: OpenRouterCreditsPayloadSchema },
-    mapOpenRouterCreditsPayload,
+    mapOpenRouterCreditsPayload
   );

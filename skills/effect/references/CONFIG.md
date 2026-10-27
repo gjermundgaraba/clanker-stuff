@@ -12,10 +12,12 @@ export const layerFromEnvironment = Layer.effect(
   Effect.gen(function* () {
     const apiKey = yield* Config.Redacted("API_KEY");
     const optionalModel = yield* Config.option(Config.String("MODEL"));
-    const enabled = yield* Config.Boolean("FEATURE_ENABLED").pipe(Config.withDefault(false));
+    const enabled = yield* Config.Boolean("FEATURE_ENABLED").pipe(
+      Config.withDefault(false)
+    );
 
     return Configuration.Service.of({ apiKey, optionalModel, enabled });
-  }),
+  })
 );
 ```
 
@@ -51,8 +53,8 @@ export const layerConfig = (config: Config.Wrap<ClientOptions>) =>
     Client.Service,
     Config.unwrap(config).pipe(
       Effect.flatMap(makeClient),
-      Effect.map((client) => Client.Service.of(client)),
-    ),
+      Effect.map((client) => Client.Service.of(client))
+    )
   );
 ```
 

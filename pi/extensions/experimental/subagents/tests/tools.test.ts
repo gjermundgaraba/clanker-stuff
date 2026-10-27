@@ -15,19 +15,26 @@ const spawned = {
   thinkingLevel: "high" as const,
 };
 
-const controller = (overrides: Partial<ToolController> = {}): ToolController => ({
-  followUp: () => Promise.resolve(),
-  interrupt: () => Promise.resolve({ previous_status: "not_found" }),
+const controller = (
+  overrides: Partial<ToolController> = {}
+): ToolController => ({
+  followUp: async () => {},
+  interrupt: async () => ({ previous_status: "not_found" }),
   list: () => [],
-  sendMessage: () => Promise.resolve(),
-  spawn: () => Promise.resolve(spawned),
-  wait: () => Promise.resolve({ message: "Wait completed.", timed_out: false }),
+  sendMessage: async () => {},
+  spawn: async () => spawned,
+  wait: async () => ({ message: "Wait completed.", timed_out: false }),
   ...overrides,
 });
 
-const PropertiesSchema = Type.Object({ properties: Type.Record(Type.String(), Type.Unknown()) });
+const PropertiesSchema = Type.Object({
+  properties: Type.Record(Type.String(), Type.Unknown()),
+});
 
-const host = async (tools: ToolController, config: SubagentsConfig = DEFAULT_CONFIG) => {
+const host = async (
+  tools: ToolController,
+  config: SubagentsConfig = DEFAULT_CONFIG
+) => {
   const extension = createExtensionHost((pi) => {
     registerTools(pi, tools, "/root", config);
   });
@@ -38,7 +45,8 @@ const host = async (tools: ToolController, config: SubagentsConfig = DEFAULT_CON
 };
 
 const spawnProperties = (extension: Awaited<ReturnType<typeof host>>) => {
-  const parameters = extension.getRegisteredTools().get("spawn_agent")?.definition.parameters;
+  const parameters = extension.getRegisteredTools().get("spawn_agent")
+    ?.definition.parameters;
 
   if (!Value.Check(PropertiesSchema, parameters)) {
     throw new Error("Expected spawn_agent object parameters");
@@ -49,7 +57,7 @@ const spawnProperties = (extension: Awaited<ReturnType<typeof host>>) => {
 
 describe("collaboration tools", () => {
   it("matches Codex argument names and result shapes", async () => {
-    const spawn = vi.fn<ToolController["spawn"]>(() => Promise.resolve(spawned));
+    const spawn = vi.fn<ToolController["spawn"]>(async () => spawned);
 
     const extension = await host(
       controller({
@@ -59,7 +67,7 @@ describe("collaboration tools", () => {
           { agent_name: "/root/old", agent_status: "interrupted" },
         ],
         spawn,
-      }),
+      })
     );
 
     expect(Object.keys(spawnProperties(extension)).toSorted()).toStrictEqual([
@@ -80,7 +88,7 @@ describe("collaboration tools", () => {
         message: "work",
         reasoning_effort: "high",
         task_name: "worker",
-      }),
+      })
     ).resolves.toMatchObject({
       content: [{ text: '{"task_name":"/root/worker"}', type: "text" }],
       details: spawned,
@@ -96,7 +104,10 @@ describe("collaboration tools", () => {
     });
 
     await expect(
-      extension.runTool("send_message", { message: "context", target: "worker" }),
+      extension.runTool("send_message", {
+        message: "context",
+        target: "worker",
+      })
     ).resolves.toStrictEqual({
       content: [{ text: "", type: "text" }],
       details: {},
@@ -106,14 +117,18 @@ describe("collaboration tools", () => {
       extension.runTool("send_message", {
         message: "x".repeat(MAX_DURABLE_TEXT + 1),
         target: "worker",
-      }),
-    ).rejects.toThrow(/Validation failed for tool "send_message":\n {2}- message:/u);
+      })
+    ).rejects.toThrow(
+      /Validation failed for tool "send_message":\n {2}- message:/u
+    );
     await expect(
       extension.runTool("spawn_agent", {
         message: "x".repeat(MAX_DURABLE_TEXT + 1),
         task_name: "large",
-      }),
-    ).rejects.toThrow(/Validation failed for tool "spawn_agent":\n {2}- message:/u);
+      })
+    ).rejects.toThrow(
+      /Validation failed for tool "spawn_agent":\n {2}- message:/u
+    );
     // Every node is listed, not only those with a loaded runtime.
     await expect(extension.runTool("list_agents", {})).resolves.toMatchObject({
       details: {
@@ -127,42 +142,67 @@ describe("collaboration tools", () => {
   });
 
   it("distinguishes queued context from follow-up work in descriptions and dispatch", async () => {
-    const sendMessage = vi.fn<ToolController["sendMessage"]>(() => Promise.resolve());
-    const followUp = vi.fn<ToolController["followUp"]>(() => Promise.resolve());
+    const sendMessage = vi.fn<ToolController["sendMessage"]>(async () => {});
+
+    const followUp = vi.fn<ToolController["followUp"]>(async () => {});
     const extension = await host(controller({ followUp, sendMessage }));
     const definitions = extension.getRegisteredTools();
-    const sendDescription = definitions.get("send_message")?.definition.description;
-    const followupDescription = definitions.get("followup_task")?.definition.description;
+
+    const sendDescription =
+      definitions.get("send_message")?.definition.description;
+
+    const followupDescription =
+      definitions.get("followup_task")?.definition.description;
 
     expect(sendDescription).toMatch(/without starting a turn/iu);
-    expect(sendDescription).toMatch(/an idle recipient will not act until its next task/iu);
-    expect(sendDescription).toMatch(/use followup_task when a non-root agent needs to act/iu);
+    expect(sendDescription).toMatch(
+      /an idle recipient will not act until its next task/iu
+    );
+    expect(sendDescription).toMatch(
+      /use followup_task when a non-root agent needs to act/iu
+    );
     expect(followupDescription).toMatch(/existing non-root agent/iu);
     expect(followupDescription).toMatch(/if idle[,:]?\s+start a turn/iu);
     expect(followupDescription).toMatch(
-      /if running[,:]?\s+deliver the task at a safe input boundary/iu,
+      /if running[,:]?\s+deliver the task at a safe input boundary/iu
     );
 
-    await extension.runTool("send_message", { message: "context", target: "worker" });
-    expect(sendMessage).toHaveBeenCalledExactlyOnceWith("/root", "worker", "context");
+    await extension.runTool("send_message", {
+      message: "context",
+      target: "worker",
+    });
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+      "/root",
+      "worker",
+      "context"
+    );
     expect(followUp).not.toHaveBeenCalled();
 
-    await extension.runTool("followup_task", { message: "continue", target: "worker" });
-    expect(followUp).toHaveBeenCalledTimes(1);
-    expect(followUp.mock.calls[0]?.slice(0, 3)).toStrictEqual(["/root", "worker", "continue"]);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    await extension.runTool("followup_task", {
+      message: "continue",
+      target: "worker",
+    });
+    expect(followUp).toHaveBeenCalledOnce();
+    expect(followUp.mock.calls[0]?.slice(0, 3)).toStrictEqual([
+      "/root",
+      "worker",
+      "continue",
+    ]);
+    expect(sendMessage).toHaveBeenCalledOnce();
   });
 
   it("offers agent_type only when roles are configured", async () => {
-    const spawn = vi.fn<ToolController["spawn"]>(() => Promise.resolve(spawned));
+    const spawn = vi.fn<ToolController["spawn"]>(async () => spawned);
 
     const extension = await host(controller({ spawn }), {
       ...DEFAULT_CONFIG,
-      roles: { reviewer: { description: "Reviews the requested implementation." } },
+      roles: {
+        reviewer: { description: "Reviews the requested implementation." },
+      },
     });
 
     expect(JSON.stringify(spawnProperties(extension)["agent_type"])).toContain(
-      "Reviews the requested implementation.",
+      "Reviews the requested implementation."
     );
     await extension.runTool("spawn_agent", {
       agent_type: "reviewer",
@@ -170,7 +210,9 @@ describe("collaboration tools", () => {
       task_name: "worker",
     });
     expect(spawn.mock.calls[0]?.[1]).toMatchObject({ agentType: "reviewer" });
-    expect(spawnProperties(await host(controller()))).not.toHaveProperty("agent_type");
+    expect(spawnProperties(await host(controller()))).not.toHaveProperty(
+      "agent_type"
+    );
   });
 
   it.each([
@@ -180,7 +222,8 @@ describe("collaboration tools", () => {
     ["3", 3],
     ["18446744073709551616", Number.MAX_SAFE_INTEGER],
   ] as const)("accepts fork_turns %j", async (value, expected) => {
-    const spawn = vi.fn<ToolController["spawn"]>(() => Promise.resolve(spawned));
+    const spawn = vi.fn<ToolController["spawn"]>(async () => spawned);
+
     const extension = await host(controller({ spawn }));
 
     await extension.runTool("spawn_agent", {
@@ -192,15 +235,20 @@ describe("collaboration tools", () => {
     expect(spawn.mock.calls[0]?.[1]).toMatchObject({ forkTurns: expected });
   });
 
-  it.each(["0", "003", "+3", "0x10", "-1", ""])("rejects fork_turns %j", async (forkTurns) => {
-    const extension = await host(controller());
+  it.each(["0", "003", "+3", "0x10", "-1", ""])(
+    "rejects fork_turns %j",
+    async (forkTurns) => {
+      const extension = await host(controller());
 
-    await expect(
-      extension.runTool("spawn_agent", {
-        fork_turns: forkTurns,
-        message: "work",
-        task_name: "worker",
-      }),
-    ).rejects.toThrow("fork_turns must be `none`, `all`, or a positive integer string");
-  });
+      await expect(
+        extension.runTool("spawn_agent", {
+          fork_turns: forkTurns,
+          message: "work",
+          task_name: "worker",
+        })
+      ).rejects.toThrow(
+        "fork_turns must be `none`, `all`, or a positive integer string"
+      );
+    }
+  );
 });

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -8,7 +9,10 @@ import { Value } from "typebox/value";
 const PackageJsonSchema = Type.Object(
   {
     bugs: Type.Optional(
-      Type.Object({ url: Type.Optional(Type.String()) }, { additionalProperties: true }),
+      Type.Object(
+        { url: Type.Optional(Type.String()) },
+        { additionalProperties: true }
+      )
     ),
     dependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
     description: Type.Optional(Type.String()),
@@ -16,14 +20,20 @@ const PackageJsonSchema = Type.Object(
       Type.Object(
         {
           packageManager: Type.Optional(
-            Type.Object({ name: Type.Optional(Type.String()) }, { additionalProperties: true }),
+            Type.Object(
+              { name: Type.Optional(Type.String()) },
+              { additionalProperties: true }
+            )
           ),
         },
-        { additionalProperties: true },
-      ),
+        { additionalProperties: true }
+      )
     ),
     engines: Type.Optional(
-      Type.Object({ node: Type.Optional(Type.String()) }, { additionalProperties: true }),
+      Type.Object(
+        { node: Type.Optional(Type.String()) },
+        { additionalProperties: true }
+      )
     ),
     // The readiness checker owns the supported export formats.
     exports: Type.Optional(Type.Unknown()),
@@ -36,12 +46,15 @@ const PackageJsonSchema = Type.Object(
     pi: Type.Optional(
       Type.Object(
         { extensions: Type.Optional(Type.Array(Type.String())) },
-        { additionalProperties: true },
-      ),
+        { additionalProperties: true }
+      )
     ),
     private: Type.Optional(Type.Boolean()),
     publishConfig: Type.Optional(
-      Type.Object({ access: Type.Optional(Type.String()) }, { additionalProperties: true }),
+      Type.Object(
+        { access: Type.Optional(Type.String()) },
+        { additionalProperties: true }
+      )
     ),
     repository: Type.Optional(
       Type.Object(
@@ -50,12 +63,12 @@ const PackageJsonSchema = Type.Object(
           type: Type.Optional(Type.String()),
           url: Type.Optional(Type.String()),
         },
-        { additionalProperties: true },
-      ),
+        { additionalProperties: true }
+      )
     ),
     version: Type.Optional(Type.String()),
   },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 export type PackageJson = Static<typeof PackageJsonSchema>;
@@ -69,15 +82,22 @@ export interface WorkspacePackage {
 
 export const readJson = (filePath: string): PackageJson => {
   try {
-    return Value.Parse(PackageJsonSchema, JSON.parse(readFileSync(filePath, "utf-8")));
+    return Value.Parse(
+      PackageJsonSchema,
+      JSON.parse(readFileSync(filePath, "utf-8"))
+    );
   } catch {
     throw new TypeError(`${filePath} does not contain package metadata`);
   }
 };
 
-const WorkspaceInventorySchema = Type.Array(Type.Object({ path: Type.String() }));
+const WorkspaceInventorySchema = Type.Array(
+  Type.Object({ path: Type.String() })
+);
 
-export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] => {
+export const readWorkspacePackages = (
+  root = process.cwd()
+): WorkspacePackage[] => {
   const workspaceRoot = realpathSync(root);
 
   const inventory: unknown = JSON.parse(
@@ -85,7 +105,7 @@ export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] 
       cwd: workspaceRoot,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
-    }),
+    })
   );
 
   if (!Value.Check(WorkspaceInventorySchema, inventory)) {
@@ -102,5 +122,9 @@ export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] 
   });
 };
 
-export const publishableWorkspacePackages = (root = process.cwd()): WorkspacePackage[] =>
-  readWorkspacePackages(root).filter(({ packageJson }) => packageJson.private === false);
+export const publishableWorkspacePackages = (
+  root = process.cwd()
+): WorkspacePackage[] =>
+  readWorkspacePackages(root).filter(
+    ({ packageJson }) => packageJson.private === false
+  );

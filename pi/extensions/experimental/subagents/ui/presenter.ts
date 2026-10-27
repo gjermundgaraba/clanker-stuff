@@ -28,7 +28,10 @@ export class Presenter {
   start(ctx: PresenterContext, marks: Marks): void {
     this.stop();
 
-    if (ctx.mode !== "tui") return;
+    if (ctx.mode !== "tui") {
+      return;
+    }
+
     this.#ctx = ctx;
     this.#marks = marks;
     this.#unsubscribe = this.#source.monitor.onChange(() => {
@@ -41,7 +44,10 @@ export class Presenter {
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
 
-    if (this.#shown) this.#ctx?.ui.setWidget(WIDGET_KEY, undefined);
+    if (this.#shown) {
+      this.#ctx?.ui.setWidget(WIDGET_KEY, undefined);
+    }
+
     this.#shown = false;
     this.#ctx = undefined;
   }
@@ -59,8 +65,13 @@ export class Presenter {
   #sync(): void {
     const ctx = this.#ctx;
 
-    if (ctx === undefined) return;
-    const running = this.#source.nodes().some((node) => node.status === "running");
+    if (ctx === undefined) {
+      return;
+    }
+
+    const running = this.#source
+      .nodes()
+      .some((node) => node.status === "running");
 
     if (running && !this.#shown) {
       // Agents that finished before the widget appeared are not part of this burst.
@@ -69,7 +80,14 @@ export class Presenter {
       ctx.ui.setWidget(
         WIDGET_KEY,
         (tui, theme) =>
-          new AgentsWidget(tui, theme, this.#source, this.#marks, since, VIEWER_SHORTCUT),
+          new AgentsWidget(
+            tui,
+            theme,
+            this.#source,
+            this.#marks,
+            since,
+            VIEWER_SHORTCUT
+          )
       );
     } else if (!running && this.#shown) {
       this.#shown = false;

@@ -29,8 +29,10 @@ const makeResolver = Effect.gen(function* () {
     {
       capacity: 300,
       timeToLive: (exit) =>
-        Exit.isSuccess(exit) && exit.value.cacheable ? "10 minutes" : Duration.zero,
-    },
+        Exit.isSuccess(exit) && exit.value.cacheable
+          ? "10 minutes"
+          : Duration.zero,
+    }
   );
   return (channelRef: string) =>
     Cache.get(cache, channelRef).pipe(Effect.map((resolved) => resolved.where));
@@ -43,7 +45,10 @@ For a single value, construct the cached effect once in its owning layer:
 
 ```ts
 const cachedLookup =
-  yield * Effect.cachedWithTTL(lookup, (exit) => (Exit.isSuccess(exit) ? "10 minutes" : 0));
+  yield *
+  Effect.cachedWithTTL(lookup, (exit) =>
+    Exit.isSuccess(exit) ? "10 minutes" : 0
+  );
 ```
 
 Reuse `cachedLookup` on each call. The TTL callback runs after a fresh computation, including failed or interrupted exits; zero avoids retaining those results. TTL begins at completion, and concurrent callers share the pending computation.
@@ -54,7 +59,8 @@ A cache cannot fix a lookup that pays a scoped acquisition per call, such as SDK
 
 ```ts
 // Bad: every cache miss acquires a fresh client
-const lookup = (id: string) => getRecord(id).pipe(Effect.provide(apiClientLayer(options)));
+const lookup = (id: string) =>
+  getRecord(id).pipe(Effect.provide(apiClientLayer(options)));
 
 // Good: client built once for the layer's lifetime; misses are one API call
 // Layer.build requires Scope.Scope; acquire this inside the owning layer's scope.

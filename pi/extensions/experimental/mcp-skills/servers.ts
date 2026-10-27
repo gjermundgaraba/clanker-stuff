@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import path from "node:path";
 
 import {
   McpAuthRequiredError,
@@ -16,9 +16,9 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { createStoredTokenAuth, hasAuthorizationHeader } from "./auth.js";
+import { resolveConfigValues } from "./config-value.js";
 import { serverOrigin } from "./config.js";
 import type { SkillServerConfig } from "./config.js";
-import { resolveConfigValues } from "./config-value.js";
 import { decodeSkillEntry } from "./entry.js";
 import type { DeclinedSkill, DecodedEntry, SkillEntry } from "./entry.js";
 import { expandHome } from "./mount.js";
@@ -45,7 +45,12 @@ const DeclaresSkills = Type.Object({
   extensions: Type.Object({ [SKILLS_EXTENSION]: Type.Object({}) }),
 });
 
-type ServerState = "connecting" | "ready" | "no-skills" | "needs-sign-in" | "failed";
+type ServerState =
+  | "connecting"
+  | "ready"
+  | "no-skills"
+  | "needs-sign-in"
+  | "failed";
 
 export interface ServerStatus {
   name: string;
@@ -72,11 +77,13 @@ const httpAuth = (
   name: string,
   transport: Extract<SkillServerConfig["transport"], { kind: "http" }>,
   headers: Readonly<Record<string, string>>,
-  context: ServerContext,
+  context: ServerContext
 ): AuthProvider | undefined => {
   const { authProvider, url } = transport;
 
-  if (hasAuthorizationHeader(headers)) return undefined;
+  if (hasAuthorizationHeader(headers)) {
+    return undefined;
+  }
 
   if (authProvider !== undefined) {
     return { token: async () => await context.providerToken(authProvider) };
@@ -86,11 +93,18 @@ const httpAuth = (
 };
 
 /** Stdio and streamable HTTP transports, built like Pi builds them, with a larger message limit. */
-const createTransport = (server: SkillServerConfig, context: ServerContext): McpTransport => {
+const createTransport = (
+  server: SkillServerConfig,
+  context: ServerContext
+): McpTransport => {
   const { transport } = server;
 
   if (transport.kind === "http") {
-    const headers = resolveConfigValues(transport.headers, `MCP server "${server.name}" header`);
+    const headers = resolveConfigValues(
+      transport.headers,
+      `MCP server "${server.name}" header`
+    );
+
     const authProvider = httpAuth(server.name, transport, headers, context);
 
     return new StreamableHttpTransport({
@@ -104,7 +118,7 @@ const createTransport = (server: SkillServerConfig, context: ServerContext): Mcp
   return new StdioTransport({
     args: transport.args.map(expandHome),
     command: expandHome(transport.command),
-    cwd: resolve(context.cwd, expandHome(transport.cwd ?? ".")),
+    cwd: path.resolve(context.cwd, expandHome(transport.cwd ?? ".")),
     env: resolveConfigValues(transport.env, `MCP server "${server.name}" env`),
     maxMessageBytes: MAX_MESSAGE_BYTES,
     stderr: "pipe",
@@ -128,9 +142,46 @@ interface Connection {
 
 /** How to sign in to a server again, for a status that needs it. */
 const signInHint = (config: SkillServerConfig): string =>
-  config.transport.kind === "http" && config.transport.authProvider !== undefined
+  config.transport.kind === "http" &&
+  config.transport.authProvider !== undefined
     ? `log in with /login ${config.transport.authProvider}`
     : "sign in with /mcp, or use one of its tools so Pi refreshes its token";
+
+const listSkills = async (client: McpClient): Promise<DecodedEntry[]> => {
+  const entries: DecodedEntry[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+
+  for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    const result: unknown = await client.request(
+      "skills/list",
+      cursor === undefined ? {} : { cursor }
+    );
+
+    if (!Value.Check(ListPage, result)) {
+      throw new Error("invalid skills/list result");
+    }
+
+    entries.push(...result.skills.map(decodeSkillEntry));
+
+    const next = result.nextCursor ?? undefined;
+
+    if (next === undefined || next === "") {
+      return entries;
+    }
+
+    if (cursors.has(next)) {
+      throw new Error("skills/list repeated a cursor");
+    }
+
+    cursors.add(next);
+    cursor = next;
+  }
+
+  throw new Error(
+    `skills/list returned more than ${String(MAX_LIST_PAGES)} pages`
+  );
+};
 
 /**
  * One MCP connection per configured server, separate from Pi's own, that declares the skills
@@ -149,20 +200,31 @@ export class SkillServers {
    * Connect these servers in the background, closing the current connections first, unless they
    * are the servers already connected. Changes apply in the order they were asked for.
    */
-  async apply(servers: readonly SkillServerConfig[], context: ServerContext): Promise<void> {
+  async apply(
+    servers: readonly SkillServerConfig[],
+    context: ServerContext
+  ): Promise<void> {
     const key = JSON.stringify([servers, context.cwd]);
+    const previous = this.applying;
 
-    this.applying = this.applying.then(async () => {
-      if (key === this.applied) return;
+    this.applying = (async () => {
+      await previous;
+
+      if (key === this.applied) {
+        return;
+      }
 
       await this.close();
       this.applied = key;
       this.start(servers, context);
-    });
+    })();
     await this.applying;
   }
 
-  private start(servers: readonly SkillServerConfig[], context: ServerContext): void {
+  private start(
+    servers: readonly SkillServerConfig[],
+    context: ServerContext
+  ): void {
     for (const config of servers) {
       const connection: Connection = {
         attemptedAt: 0,
@@ -170,7 +232,12 @@ export class SkillServers {
         config,
         context,
         opening: undefined,
-        status: { declined: [], name: config.name, skills: [], state: "connecting" },
+        status: {
+          declined: [],
+          name: config.name,
+          skills: [],
+          state: "connecting",
+        },
       };
 
       this.connections.set(config.name, connection);
@@ -195,24 +262,27 @@ export class SkillServers {
   /** Wait until no server is still connecting, or until the timeout. */
   async settled(timeoutMs: number): Promise<void> {
     const opening = [...this.connections.values()].flatMap((connection) =>
-      connection.opening ? [connection.opening] : [],
+      connection.opening ? [connection.opening] : []
     );
 
-    if (opening.length === 0) return;
+    if (opening.length === 0) {
+      return;
+    }
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const elapsed = Promise.withResolvers<undefined>();
 
-    await Promise.race([
-      Promise.allSettled(opening),
-      new Promise<void>((done) => {
-        timer = setTimeout(done, timeoutMs);
-      }),
-    ]);
+    const timer = setTimeout(() => {
+      elapsed.resolve(undefined);
+    }, timeoutMs);
+
+    await Promise.race([Promise.allSettled(opening), elapsed.promise]);
     clearTimeout(timer);
   }
 
   statuses(): ServerStatus[] {
-    return [...this.connections.values()].map((connection) => connection.status);
+    return [...this.connections.values()].map(
+      (connection) => connection.status
+    );
   }
 
   /** Host identity of a connected server, which approvals are bound to. */
@@ -226,7 +296,9 @@ export class SkillServers {
   replaceSkill(server: string, uri: string, decoded: DecodedEntry): void {
     const connection = this.connections.get(server);
 
-    if (!connection) return;
+    if (!connection) {
+      return;
+    }
 
     const { status } = connection;
 
@@ -247,7 +319,7 @@ export class SkillServers {
   async readResource(
     server: string,
     uri: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<ReadResourceResult> {
     const client = await this.client(server);
 
@@ -255,25 +327,47 @@ export class SkillServers {
   }
 
   /** The server's current entry for one skill, by the URI of its `SKILL.md`. */
-  async getSkill(server: string, uri: string, signal?: AbortSignal): Promise<DecodedEntry> {
+  async getSkill(
+    server: string,
+    uri: string,
+    signal?: AbortSignal
+  ): Promise<DecodedEntry> {
     const client = await this.client(server);
-    const result: unknown = await client.request("skills/get", { uri }, signal ? { signal } : {});
 
-    if (!Value.Check(GetResult, result))
-      throw new Error(`MCP server "${server}" sent an invalid skills/get result`);
+    const result: unknown = await client.request(
+      "skills/get",
+      { uri },
+      signal ? { signal } : {}
+    );
+
+    if (!Value.Check(GetResult, result)) {
+      throw new Error(
+        `MCP server "${server}" sent an invalid skills/get result`
+      );
+    }
 
     const decoded = decodeSkillEntry(result.skill);
-    const decodedUri = "skill" in decoded ? decoded.skill.uri : decoded.declined.uri;
 
-    if (decodedUri !== uri)
-      throw new Error(`MCP server "${server}" answered skills/get for ${uri} with ${decodedUri}`);
+    const decodedUri =
+      "skill" in decoded ? decoded.skill.uri : decoded.declined.uri;
+
+    if (decodedUri !== uri) {
+      throw new Error(
+        `MCP server "${server}" answered skills/get for ${uri} with ${decodedUri}`
+      );
+    }
 
     return decoded;
   }
 
   /** Close every connection, after any change still being applied. */
   async stop(): Promise<void> {
-    this.applying = this.applying.then(async () => await this.close());
+    const previous = this.applying;
+
+    this.applying = (async () => {
+      await previous;
+      await this.close();
+    })();
     await this.applying;
   }
 
@@ -284,24 +378,33 @@ export class SkillServers {
     this.applied = "";
     await Promise.allSettled(
       connections.map(async (connection) => {
-        const client = connection.client ?? (await connection.opening?.catch(() => undefined));
+        const client =
+          connection.client ??
+          (await connection.opening?.catch((): undefined => undefined));
 
         await client?.close();
-      }),
+      })
     );
   }
 
   private async client(server: string): Promise<McpClient> {
     const connection = this.connections.get(server);
 
-    if (!connection) throw new Error(`MCP server "${server}" is not connected`);
+    if (!connection) {
+      throw new Error(`MCP server "${server}" is not connected`);
+    }
 
-    if (connection.client?.connectionState === "connected") return connection.client;
+    if (connection.client?.connectionState === "connected") {
+      return connection.client;
+    }
 
     const client = await this.open(connection);
 
-    if (!client)
-      throw new Error(connection.status.error ?? `MCP server "${server}" serves no skills`);
+    if (!client) {
+      throw new Error(
+        connection.status.error ?? `MCP server "${server}" serves no skills`
+      );
+    }
 
     return client;
   }
@@ -314,18 +417,28 @@ export class SkillServers {
     return await connection.opening;
   }
 
-  private update(connection: Connection, status: Omit<ServerStatus, "name">): void {
-    if (this.connections.get(connection.config.name) !== connection) return;
+  private update(
+    connection: Connection,
+    status: Omit<ServerStatus, "name">
+  ): void {
+    if (this.connections.get(connection.config.name) !== connection) {
+      return;
+    }
+
     connection.status = { ...status, name: connection.config.name };
   }
 
-  private async connect(connection: Connection): Promise<McpClient | undefined> {
+  private async connect(
+    connection: Connection
+  ): Promise<McpClient | undefined> {
     const { config } = connection;
 
     connection.attemptedAt = Date.now();
 
     // Pi's client types predate extension negotiation (SEP-2133) but send unknown capabilities as given.
-    const capabilities: ClientCapabilities & { extensions: { [SKILLS_EXTENSION]: object } } = {
+    const capabilities: ClientCapabilities & {
+      extensions: { [SKILLS_EXTENSION]: object };
+    } = {
       extensions: { [SKILLS_EXTENSION]: {} },
     };
 
@@ -341,12 +454,16 @@ export class SkillServers {
 
       if (!Value.Check(DeclaresSkills, client.serverCapabilities)) {
         await client.close();
-        this.update(connection, { declined: [], skills: [], state: "no-skills" });
+        this.update(connection, {
+          declined: [],
+          skills: [],
+          state: "no-skills",
+        });
 
         return undefined;
       }
 
-      const listed = await this.list(client);
+      const listed = await listSkills(client);
 
       if (this.connections.get(config.name) !== connection) {
         await client.close();
@@ -356,14 +473,18 @@ export class SkillServers {
 
       connection.client = client;
       this.update(connection, {
-        declined: listed.flatMap((entry) => ("declined" in entry ? [entry.declined] : [])),
-        skills: listed.flatMap((entry) => ("skill" in entry ? [entry.skill] : [])),
+        declined: listed.flatMap((entry) =>
+          "declined" in entry ? [entry.declined] : []
+        ),
+        skills: listed.flatMap((entry) =>
+          "skill" in entry ? [entry.skill] : []
+        ),
         state: "ready",
       });
 
       return client;
     } catch (error) {
-      await client.close().catch(() => undefined);
+      await client.close().catch((): undefined => undefined);
       this.update(connection, {
         declined: connection.status.declined,
         error:
@@ -371,36 +492,11 @@ export class SkillServers {
             ? `MCP server "${config.name}" needs sign-in; ${signInHint(config)}`
             : describeError(error),
         skills: connection.status.skills,
-        state: error instanceof McpAuthRequiredError ? "needs-sign-in" : "failed",
+        state:
+          error instanceof McpAuthRequiredError ? "needs-sign-in" : "failed",
       });
 
       return undefined;
     }
-  }
-
-  private async list(client: McpClient): Promise<DecodedEntry[]> {
-    const entries: DecodedEntry[] = [];
-    const cursors = new Set<string>();
-    let cursor: string | undefined;
-
-    for (let page = 0; page < MAX_LIST_PAGES; page++) {
-      const result: unknown = await client.request(
-        "skills/list",
-        cursor === undefined ? {} : { cursor },
-      );
-
-      if (!Value.Check(ListPage, result)) throw new Error("invalid skills/list result");
-      entries.push(...result.skills.map(decodeSkillEntry));
-
-      const next = result.nextCursor ?? undefined;
-
-      if (next === undefined || next === "") return entries;
-
-      if (cursors.has(next)) throw new Error("skills/list repeated a cursor");
-      cursors.add(next);
-      cursor = next;
-    }
-
-    throw new Error(`skills/list returned more than ${String(MAX_LIST_PAGES)} pages`);
   }
 }

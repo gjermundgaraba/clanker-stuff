@@ -19,7 +19,12 @@ import {
 } from "./config.js";
 import type { FooterConfig, FooterConfigStore } from "./config.js";
 import type { GitDetails, readGitDetails } from "./git.js";
-import { layoutFooter, renderBorder, renderBuiltin, statusWidgets } from "./layout.js";
+import {
+  layoutFooter,
+  renderBorder,
+  renderBuiltin,
+  statusWidgets,
+} from "./layout.js";
 import type { FooterTheme, LiveWidget } from "./layout.js";
 import { buildBuiltinWidgets } from "./widgets.js";
 import type { BuiltinWidget } from "./widgets.js";
@@ -30,7 +35,10 @@ const RETAINED_ERRORS = 20;
 
 const ARGS = [
   { value: "reset", description: "Restore the default layout" },
-  { value: "inspect", description: "Show each widget's value, placement, and recent errors" },
+  {
+    value: "inspect",
+    description: "Show each widget's value, placement, and recent errors",
+  },
 ];
 
 const USAGE = `Usage: /footer [${ARGS.map((arg) => arg.value).join("|")}]`;
@@ -52,15 +60,23 @@ interface Runtime {
 }
 
 const placement = (config: FooterConfig, id: string): string => {
-  if (config.hidden.includes(id)) return "hidden";
-
-  for (const [index, row] of config.rows.entries()) {
-    if (row.left.includes(id)) return `row ${index + 1} left`;
-
-    if (row.right.includes(id)) return `row ${index + 1} right`;
+  if (config.hidden.includes(id)) {
+    return "hidden";
   }
 
-  if (config.border.includes(id)) return "border";
+  for (const [index, row] of config.rows.entries()) {
+    if (row.left.includes(id)) {
+      return `row ${index + 1} left`;
+    }
+
+    if (row.right.includes(id)) {
+      return `row ${index + 1} right`;
+    }
+  }
+
+  if (config.border.includes(id)) {
+    return "border";
+  }
 
   return id.startsWith(STATUS_PREFIX) && placedIds(config).includes(STATUSES_ID)
     ? STATUSES_ID
@@ -69,14 +85,15 @@ const placement = (config: FooterConfig, id: string): string => {
 
 /** The layout as drawn: unless Pi still shows the shared editor, border statuses fall back to `footer.statuses`. */
 const drawn = (active: Runtime): FooterConfig =>
-  active.border !== undefined && currentEditorHost(active.ctx) === active.border.host
+  active.border !== undefined &&
+  currentEditorHost(active.ctx) === active.border.host
     ? active.config
     : { ...active.config, border: [] };
 
 export const createFooterHost = (
   pi: ExtensionAPI,
   store: FooterConfigStore,
-  readGit: typeof readGitDetails,
+  readGit: typeof readGitDetails
 ) => {
   let runtime: Runtime | undefined;
   let generation = 0;
@@ -84,11 +101,15 @@ export const createFooterHost = (
   const addError = (active: Runtime, error: unknown): void => {
     const text = errorMessage(error);
 
-    if (active.errors.at(-1) === text) return;
+    if (active.errors.at(-1) === text) {
+      return;
+    }
 
     active.errors.push(text);
 
-    if (active.errors.length > RETAINED_ERRORS) active.errors.shift();
+    if (active.errors.length > RETAINED_ERRORS) {
+      active.errors.shift();
+    }
   };
 
   /** Recomputed only when what they show can have changed, like Pi's own footer. */
@@ -113,7 +134,12 @@ export const createFooterHost = (
     if (active.builtins?.key !== key) {
       active.builtins = {
         key,
-        widgets: buildBuiltinWidgets(ctx, { branch, details: active.details, now, thinkingLevel }),
+        widgets: buildBuiltinWidgets(ctx, {
+          branch,
+          details: active.details,
+          now,
+          thinkingLevel,
+        }),
       };
     }
 
@@ -126,36 +152,48 @@ export const createFooterHost = (
     const known = builtins(active);
 
     const unknown = placedIds(config).filter(
-      (id) => id !== STATUSES_ID && !id.startsWith(STATUS_PREFIX) && !known.has(id),
+      (id) =>
+        id !== STATUSES_ID && !id.startsWith(STATUS_PREFIX) && !known.has(id)
     );
 
     return [
-      ...(loadError === undefined ? [] : [`${loadError}; using the default footer layout`]),
-      ...(unknown.length === 0 ? [] : [`Footer ignores unknown widget IDs: ${unknown.join(", ")}`]),
+      ...(loadError === undefined
+        ? []
+        : [`${loadError}; using the default footer layout`]),
+      ...(unknown.length === 0
+        ? []
+        : [`Footer ignores unknown widget IDs: ${unknown.join(", ")}`]),
     ];
   };
 
-  const liveWidgets = (active: Runtime, theme: FooterTheme): Map<string, LiveWidget> => {
+  const liveWidgets = (
+    active: Runtime,
+    theme: FooterTheme
+  ): Map<string, LiveWidget> => {
     const live = new Map<string, LiveWidget>();
 
     for (const widget of builtins(active).values()) {
       const text = renderBuiltin(widget, active.config.iconFamily, theme);
       live.set(
         widget.id,
-        widget.truncate === undefined ? { text } : { text, truncate: widget.truncate },
+        widget.truncate === undefined
+          ? { text }
+          : { text, truncate: widget.truncate }
       );
     }
 
     for (const [id, widget] of statusWidgets(
-      active.footerData?.getExtensionStatuses() ?? new Map<string, string>(),
-    ))
+      active.footerData?.getExtensionStatuses() ?? new Map<string, string>()
+    )) {
       live.set(id, widget);
+    }
 
     return live;
   };
 
   const refreshGit = (active: Runtime): void => {
-    const current = ++active.gitGeneration;
+    active.gitGeneration += 1;
+    const current = active.gitGeneration;
 
     // Pi's footer data names the branch; only the change counts need a repository scan.
     if (
@@ -167,30 +205,43 @@ export const createFooterHost = (
       return;
     }
 
-    void readGit(pi, active.ctx.cwd).then(
-      (details) => {
-        if (runtime !== active || current !== active.gitGeneration) return;
+    void (async () => {
+      let details: GitDetails;
 
-        active.details = details;
-        active.requestRender();
-      },
-      (error: unknown) => {
-        if (runtime !== active || current !== active.gitGeneration) return;
+      try {
+        details = await readGit(pi, active.ctx.cwd);
+      } catch (error) {
+        if (runtime !== active || current !== active.gitGeneration) {
+          return;
+        }
 
         active.details = undefined;
         addError(active, error);
         active.requestRender();
-      },
-    );
+
+        return;
+      }
+
+      if (runtime !== active || current !== active.gitGeneration) {
+        return;
+      }
+
+      active.details = details;
+      active.requestRender();
+    })();
   };
 
   const install = (active: Runtime): void => {
     active.ctx.ui.setFooter((tui, theme, footerData) => {
       active.footerData = footerData;
-      active.requestRender = () => tui.requestRender();
+      active.requestRender = () => {
+        tui.requestRender();
+      };
 
       const unsubscribe = footerData.onBranchChange(() => {
-        if (runtime !== active) return;
+        if (runtime !== active) {
+          return;
+        }
 
         active.requestRender();
         refreshGit(active);
@@ -198,12 +249,22 @@ export const createFooterHost = (
 
       return {
         dispose: unsubscribe,
-        invalidate() {},
+        invalidate() {
+          // Nothing is cached: every render lays the footer out again.
+        },
         render(width: number): string[] {
-          if (runtime !== active) return [];
+          if (runtime !== active) {
+            return [];
+          }
 
           try {
-            const layout = layoutFooter(drawn(active), liveWidgets(active, theme), width, theme);
+            const layout = layoutFooter(
+              drawn(active),
+              liveWidgets(active, theme),
+              width,
+              theme
+            );
+
             active.truncated = layout.truncated;
 
             return layout.lines;
@@ -226,18 +287,28 @@ export const createFooterHost = (
       return;
     }
 
-    if (active.border !== undefined) return;
+    if (active.border !== undefined) {
+      return;
+    }
+
     const host = acquireEditorHost(active.ctx);
 
-    if (host === undefined) return;
+    if (host === undefined) {
+      return;
+    }
 
     const release = host.contribute("border", {
       render: (line, width, color) => {
-        if (runtime !== active) return line;
+        if (runtime !== active) {
+          return line;
+        }
 
         const { theme } = active.ctx.ui;
         const live = liveWidgets(active, theme);
-        const entries = active.config.border.flatMap((id) => live.get(id)?.text ?? []);
+
+        const entries = active.config.border.flatMap(
+          (id) => live.get(id)?.text ?? []
+        );
 
         return renderBorder(line, width, entries, theme, color);
       },
@@ -249,17 +320,22 @@ export const createFooterHost = (
   const save = async (
     active: Runtime,
     ctx: ExtensionCommandContext,
-    config: FooterConfig,
+    config: FooterConfig
   ): Promise<void> => {
     try {
       await store.save(config);
     } catch (error) {
-      ctx.ui.notify(`Footer layout was not saved: ${errorMessage(error)}`, "error");
+      ctx.ui.notify(
+        `Footer layout was not saved: ${errorMessage(error)}`,
+        "error"
+      );
 
       return;
     }
 
-    if (runtime !== active) return;
+    if (runtime !== active) {
+      return;
+    }
 
     active.config = config;
     active.loadError = undefined;
@@ -267,17 +343,25 @@ export const createFooterHost = (
     refreshGit(active);
     active.requestRender();
     const [warning] = configWarnings(active);
-    ctx.ui.notify(warning ?? `Saved ${store.path}`, warning === undefined ? "info" : "warning");
+    ctx.ui.notify(
+      warning ?? `Saved ${store.path}`,
+      warning === undefined ? "info" : "warning"
+    );
   };
 
-  const edit = async (active: Runtime, ctx: ExtensionCommandContext): Promise<void> => {
+  const edit = async (
+    active: Runtime,
+    ctx: ExtensionCommandContext
+  ): Promise<void> => {
     const loaded = await store.load();
     let text = loaded.text ?? formatFooterConfig(loaded.config);
 
     for (;;) {
       const edited = await ctx.ui.editor("footer.json", text);
 
-      if (edited === undefined || runtime !== active) return;
+      if (edited === undefined || runtime !== active) {
+        return;
+      }
 
       try {
         await save(active, ctx, parseFooterConfig(edited));
@@ -294,7 +378,10 @@ export const createFooterHost = (
     const live = liveWidgets(active, ctx.ui.theme);
     const layout = drawn(active);
     const truncated = new Set(active.truncated);
-    const ids = [...new Set([...live.keys(), ...placedIds(active.config)])].toSorted();
+
+    const ids = [
+      ...new Set([...live.keys(), ...placedIds(active.config)]),
+    ].toSorted();
 
     return [
       `config: ${store.path}`,
@@ -302,10 +389,15 @@ export const createFooterHost = (
       ...ids.map((id) => {
         const text = live.get(id)?.text;
 
-        const state =
-          text === undefined ? " · not present" : truncated.has(id) ? " · truncated" : "";
+        let state = "";
 
-        return `${id} · ${placement(layout, id)}${state}${text ? `: ${stripTerminalSequences(text)}` : ""}`;
+        if (text === undefined) {
+          state = " · not present";
+        } else if (truncated.has(id)) {
+          state = " · truncated";
+        }
+
+        return `${id} · ${placement(layout, id)}${state}${text !== undefined && text !== "" ? `: ${stripTerminalSequences(text)}` : ""}`;
       }),
       ...(active.errors.length === 0
         ? ["errors: none"]
@@ -316,7 +408,9 @@ export const createFooterHost = (
   const stop = (): void => {
     const active = runtime;
 
-    if (!active) return;
+    if (!active) {
+      return;
+    }
 
     // Pi removes the custom footer itself after session_shutdown handlers run.
     runtime = undefined;
@@ -326,8 +420,14 @@ export const createFooterHost = (
 
   return {
     completions: (prefix: string) =>
-      fuzzyFilter(ARGS, prefix, (arg) => arg.value).map((arg) => ({ label: arg.value, ...arg })),
-    command: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+      fuzzyFilter(ARGS, prefix, (arg) => arg.value).map((arg) => ({
+        label: arg.value,
+        ...arg,
+      })),
+    command: async (
+      args: string,
+      ctx: ExtensionCommandContext
+    ): Promise<void> => {
       const active = runtime;
 
       if (ctx.mode !== "tui" || !active) {
@@ -361,7 +461,9 @@ export const createFooterHost = (
       }
     },
     refreshGit: (): void => {
-      if (runtime) refreshGit(runtime);
+      if (runtime) {
+        refreshGit(runtime);
+      }
     },
     requestRender: (): void => {
       runtime?.requestRender();
@@ -371,14 +473,19 @@ export const createFooterHost = (
       stop();
     },
     start: async (ctx: ExtensionContext): Promise<void> => {
-      const current = ++generation;
+      generation += 1;
+      const current = generation;
       stop();
 
-      if (ctx.mode !== "tui") return;
+      if (ctx.mode !== "tui") {
+        return;
+      }
 
       const loaded = await store.load();
 
-      if (current !== generation) return;
+      if (current !== generation) {
+        return;
+      }
 
       const active: Runtime = {
         builtins: undefined,
@@ -390,15 +497,21 @@ export const createFooterHost = (
         gitGeneration: 0,
         loadError: loaded.error,
         border: undefined,
-        requestRender: () => {},
-        timer: setInterval(() => active.requestRender(), TICK_MS),
+        requestRender: () => {
+          // Pi has not installed the footer yet; install() replaces this.
+        },
+        timer: setInterval(() => {
+          active.requestRender();
+        }, TICK_MS),
         truncated: [],
       };
 
       active.timer.unref();
       runtime = active;
 
-      for (const warning of configWarnings(active)) ctx.ui.notify(warning, "warning");
+      for (const warning of configWarnings(active)) {
+        ctx.ui.notify(warning, "warning");
+      }
 
       install(active);
       syncBorder(active);

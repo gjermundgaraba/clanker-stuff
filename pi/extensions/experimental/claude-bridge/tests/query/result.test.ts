@@ -12,7 +12,9 @@ const RATE_LIMITED =
 
 describe(resultErrorText, () => {
   it("treats is_error on a success-shaped result as a failure", () => {
-    expect(resultErrorText(successResult(RATE_LIMITED, true))).toBe(RATE_LIMITED);
+    expect(resultErrorText(successResult(RATE_LIMITED, true))).toBe(
+      RATE_LIMITED
+    );
   });
 
   it("returns undefined for a genuine success", () => {
@@ -20,14 +22,16 @@ describe(resultErrorText, () => {
   });
 
   it("joins errors[] for the dedicated error subtypes", () => {
-    expect(resultErrorText(errorResult("error_during_execution", ["boom", "bang"]))).toBe(
-      "boom\nbang",
-    );
+    expect(
+      resultErrorText(errorResult("error_during_execution", ["boom", "bang"]))
+    ).toBe("boom\nbang");
   });
 
   // An empty message marks the turn errored with nothing to show the user.
   it("never returns an empty message for a failure", () => {
     expect(resultErrorText(successResult("", true))).toMatch(/\S/u);
-    expect(resultErrorText(errorResult("error_max_budget_usd", []))).toMatch(/\S/u);
+    expect(resultErrorText(errorResult("error_max_budget_usd", []))).toMatch(
+      /\S/u
+    );
   });
 });

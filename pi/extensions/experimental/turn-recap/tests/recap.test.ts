@@ -4,10 +4,10 @@ import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { generateRecap, RECAP_REQUEST_TIMEOUT_MS } from "../recap.js";
 import { queuedStream, sampleUsage, unresponsiveStream } from "./fixtures.js";
 import type { ResponseStep } from "./fixtures.js";
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 
 const setupStream = (stream: ReturnType<typeof queuedStream>) => {
   const model = fauxProvider({
@@ -25,11 +25,12 @@ const setupStream = (stream: ReturnType<typeof queuedStream>) => {
   return { model, stream, ctx, signal: new AbortController().signal };
 };
 
-const setup = (...responses: ResponseStep[]) => setupStream(queuedStream(...responses));
-
-afterEach(() => vi.useRealTimers());
+const setup = (...responses: ResponseStep[]) =>
+  setupStream(queuedStream(...responses));
 
 describe("isolated recap requests", () => {
+  afterEach(() => vi.useRealTimers());
+
   it.each(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const)(
     "maps %s thinking without inheriting the active model",
     async (thinking) => {
@@ -44,7 +45,7 @@ describe("isolated recap requests", () => {
         env.ctx,
         { model: { provider: "cheap", id: "small" }, thinking },
         "Prompt",
-        env.signal,
+        env.signal
       );
 
       expect(result).toMatchObject({
@@ -52,15 +53,19 @@ describe("isolated recap requests", () => {
         text: "Ready",
         usage: { input: 100, output: 50 },
       });
-      const request = env.stream.mock.calls[0];
+      const [request] = env.stream.mock.calls;
       expect(request?.[0]).toBe(env.model);
       expect(request?.[1]).not.toHaveProperty("tools");
       expect(request?.[1]).not.toHaveProperty("systemPrompt");
       expect(request?.[2]).toMatchObject({ cacheRetention: "none" });
-      expect(request?.[2]?.sessionId).not.toBe(env.ctx.sessionManager.getSessionId());
-      expect(request?.[2]?.reasoning).toBe(thinking === "off" ? undefined : thinking);
+      expect(request?.[2]?.sessionId).not.toBe(
+        env.ctx.sessionManager.getSessionId()
+      );
+      expect(request?.[2]?.reasoning).toBe(
+        thinking === "off" ? undefined : thinking
+      );
       expect(getEventListeners(env.signal, "abort")).toHaveLength(0);
-    },
+    }
   );
 
   it("clamps unsupported thinking", async () => {
@@ -70,21 +75,25 @@ describe("isolated recap requests", () => {
       env.ctx,
       { model: { provider: "cheap", id: "small" }, thinking: "high" },
       "Prompt",
-      env.signal,
+      env.signal
     );
     expect(env.stream.mock.calls[0]?.[2]).not.toHaveProperty("reasoning");
   });
 
   it("reports an unavailable model as a request failure without falling back", async () => {
     const ctx = createExtensionHost(() => {}).createContext({
-      modelRegistry: { find: () => undefined },
+      modelRegistry: {
+        find: () => {
+          // No model matches the configured provider and ID.
+        },
+      },
     });
 
     const result = await generateRecap(
       ctx,
       { model: { provider: "cheap", id: "small" }, thinking: "off" },
       "Prompt",
-      new AbortController().signal,
+      new AbortController().signal
     );
 
     expect(result).toMatchObject({
@@ -101,14 +110,14 @@ describe("isolated recap requests", () => {
 
     response.usage = { ...response.usage, input: 1001 };
     const env = setup(() => response);
-    expect(
-      await generateRecap(
+    await expect(
+      generateRecap(
         env.ctx,
         { model: { provider: "cheap", id: "small" }, thinking: "off" },
         "Prompt",
-        env.signal,
-      ),
-    ).toMatchObject({
+        env.signal
+      )
+    ).resolves.toMatchObject({
       status: "failed",
       error: "Your input exceeds the context window of this model",
       usage: { input: 1001 },
@@ -118,28 +127,34 @@ describe("isolated recap requests", () => {
   it.each(["length", "toolUse", "deferred", "error", "aborted"] as const)(
     "rejects textual %s responses",
     async (stopReason) => {
-      const env = setup(() => fauxAssistantMessage("Not final", { stopReason }));
-      expect(
-        await generateRecap(
+      const env = setup(() =>
+        fauxAssistantMessage("Not final", { stopReason })
+      );
+
+      await expect(
+        generateRecap(
           env.ctx,
           { model: { provider: "cheap", id: "small" }, thinking: "off" },
           "Prompt",
-          env.signal,
-        ),
-      ).toMatchObject({ status: "failed" });
-    },
+          env.signal
+        )
+      ).resolves.toMatchObject({ status: "failed" });
+    }
   );
 
   it("rejects empty text", async () => {
     const env = setup(() => fauxAssistantMessage("   "));
-    expect(
-      await generateRecap(
+    await expect(
+      generateRecap(
         env.ctx,
         { model: { provider: "cheap", id: "small" }, thinking: "off" },
         "Prompt",
-        env.signal,
-      ),
-    ).toMatchObject({ status: "failed", error: "Recap model returned no text" });
+        env.signal
+      )
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: "Recap model returned no text",
+    });
   });
 
   it.each([
@@ -148,19 +163,23 @@ describe("isolated recap requests", () => {
   ])("aborts the request on %s and names the cause", async (action, error) => {
     vi.useFakeTimers();
     const response = Promise.withResolvers<AssistantMessage>();
-    const env = setup(() => response.promise);
+    const env = setup(async () => await response.promise);
     const controller = new AbortController();
 
     const request = generateRecap(
       env.ctx,
       { model: { provider: "cheap", id: "small" }, thinking: "off" },
       "Prompt",
-      controller.signal,
+      controller.signal
     );
 
-    if (action === "cancel") controller.abort(new Error("Stopped"));
-    else await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
-    expect(await request).toMatchObject({ status: "failed", error });
+    if (action === "cancel") {
+      controller.abort(new Error("Stopped"));
+    } else {
+      await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
+    }
+
+    await expect(request).resolves.toMatchObject({ status: "failed", error });
     expect(env.stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -168,36 +187,43 @@ describe("isolated recap requests", () => {
   it.each([
     ["cancel", "Stopped"],
     ["timeout", "Recap request timed out"],
-  ])("stops waiting on %s when the provider ignores cancellation", async (action, error) => {
-    vi.useFakeTimers();
-    const env = setupStream(unresponsiveStream());
-    const controller = new AbortController();
+  ])(
+    "stops waiting on %s when the provider ignores cancellation",
+    async (action, error) => {
+      vi.useFakeTimers();
+      const env = setupStream(unresponsiveStream());
+      const controller = new AbortController();
 
-    const request = generateRecap(
-      env.ctx,
-      { model: { provider: "cheap", id: "small" }, thinking: "off" },
-      "Prompt",
-      controller.signal,
-    );
+      const request = generateRecap(
+        env.ctx,
+        { model: { provider: "cheap", id: "small" }, thinking: "off" },
+        "Prompt",
+        controller.signal
+      );
 
-    if (action === "cancel") controller.abort(new Error("Stopped"));
-    else await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
-    expect(await request).toStrictEqual({ status: "failed", error });
-    expect(vi.getTimerCount()).toBe(0);
-  });
+      if (action === "cancel") {
+        controller.abort(new Error("Stopped"));
+      } else {
+        await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
+      }
+
+      await expect(request).resolves.toStrictEqual({ status: "failed", error });
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
 
   it("ends at once when the recap was already aborted", async () => {
     const env = setupStream(unresponsiveStream());
     const controller = new AbortController();
     controller.abort(new Error("Stopped"));
 
-    expect(
-      await generateRecap(
+    await expect(
+      generateRecap(
         env.ctx,
         { model: { provider: "cheap", id: "small" }, thinking: "off" },
         "Prompt",
-        controller.signal,
-      ),
-    ).toStrictEqual({ status: "failed", error: "Stopped" });
+        controller.signal
+      )
+    ).resolves.toStrictEqual({ status: "failed", error: "Stopped" });
   });
 });

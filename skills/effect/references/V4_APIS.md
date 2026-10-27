@@ -10,9 +10,9 @@ Stable v4 groups modules by domain without the prerelease `unstable` segment:
 import { Config, Context, Effect, Layer, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "effect/http";
 import { HttpApi, HttpApiBuilder } from "effect/http-api";
-import { SqlClient } from "effect/sql";
-import { Rpc, RpcGroup } from "effect/rpc";
 import { Atom } from "effect/reactivity";
+import { Rpc, RpcGroup } from "effect/rpc";
+import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 ```
 
@@ -20,18 +20,18 @@ Direct imports such as `effect/http/HttpClient` also work. Check the project's `
 
 ## Common Migration Traps
 
-| Older API or assumption                              | Stable v4 checkpoint                                                                                                                                                                      |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Config.string`, `boolean`, `redacted`               | `Config.String`, `Boolean`, `Redacted`; combinators remain lowercase                                                                                                                      |
-| `Config.mapOrFail`                                   | `Config.mapEffect`; failure must be `Config.ConfigError`                                                                                                                                  |
-| `effect/unstable/http`                               | `effect/http`                                                                                                                                                                             |
-| Root `TestClock` import                              | `effect/testing`                                                                                                                                                                          |
-| `Context.Tag` / `Effect.Service` service definitions | `Context.Service` plus explicit `Layer` implementations                                                                                                                                   |
-| `Effect.catchAll`                                    | `Effect.catch`; prefer `catchTag` for selected tagged errors                                                                                                                              |
-| `Effect.fork` / `forkDaemon`                         | `Effect.forkChild` / `forkDetach`; prefer `forkScoped` for layer-owned work                                                                                                               |
-| `Either`                                             | `Result`; inspect constructors and payload fields rather than just renaming the import                                                                                                    |
-| `Schema.TaggedErrorClass`                            | `Schema.TaggedError`                                                                                                                                                                      |
-| Constructor validation is wire decoding              | Instance `schema.makeEffect` validates typed constructor input and fails with `SchemaIssue.Issue`; `Schema.decodeUnknownEffect` decodes unknown input and fails with `Schema.SchemaError` |
+| Older API or assumption | Stable v4 checkpoint |
+| --- | --- |
+| `Config.string`, `boolean`, `redacted` | `Config.String`, `Boolean`, `Redacted`; combinators remain lowercase |
+| `Config.mapOrFail` | `Config.mapEffect`; failure must be `Config.ConfigError` |
+| `effect/unstable/http` | `effect/http` |
+| Root `TestClock` import | `effect/testing` |
+| `Context.Tag` / `Effect.Service` service definitions | `Context.Service` plus explicit `Layer` implementations |
+| `Effect.catchAll` | `Effect.catch`; prefer `catchTag` for selected tagged errors |
+| `Effect.fork` / `forkDaemon` | `Effect.forkChild` / `forkDetach`; prefer `forkScoped` for layer-owned work |
+| `Either` | `Result`; inspect constructors and payload fields rather than just renaming the import |
+| `Schema.TaggedErrorClass` | `Schema.TaggedError` |
+| Constructor validation is wire decoding | Instance `schema.makeEffect` validates typed constructor input and fails with `SchemaIssue.Issue`; `Schema.decodeUnknownEffect` decodes unknown input and fails with `Schema.SchemaError` |
 
 ## Detailed References
 

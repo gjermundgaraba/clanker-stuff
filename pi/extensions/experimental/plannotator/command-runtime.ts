@@ -15,7 +15,11 @@ interface LaunchOptions {
 }
 
 export interface CommandRuntime {
-  launch: (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions) => void;
+  launch: (
+    args: string[],
+    ctx: ExtensionCommandContext,
+    options: LaunchOptions
+  ) => void;
   shutdown: () => Promise<void>;
 }
 
@@ -85,14 +89,18 @@ export const tokenizeArguments = (input: string): string[] => {
   return tokens;
 };
 
-const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
+const notifyError = (
+  ctx: ExtensionCommandContext,
+  label: string,
+  cause: unknown
+): void => {
   const message = cause instanceof Error ? cause.message : String(cause);
   ctx.ui.notify(`${label}: ${message}`, "error");
 };
 
 export const parseArguments = (
   args: string,
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionCommandContext
 ): string[] | undefined => {
   try {
     return tokenizeArguments(args);
@@ -103,12 +111,18 @@ export const parseArguments = (
   }
 };
 
-export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli): CommandRuntime => {
+export const createCommandRuntime = (
+  starter: CliStarter = startPlannotatorCli
+): CommandRuntime => {
   /** Aborted at shutdown, which ends every run; Pi builds a new runtime for the next session. */
   const lifetime = new AbortController();
   const activeRuns = new Set<Promise<void>>();
 
-  const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
+  const launch = (
+    args: string[],
+    ctx: ExtensionCommandContext,
+    options: LaunchOptions
+  ): void => {
     const { signal } = lifetime;
 
     const completion = starter(args, {
@@ -116,7 +130,9 @@ export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli):
       onStderrLine: (line) => {
         const message = line.trim();
 
-        if (message !== "" && !signal.aborted) ctx.ui.notify(message, "info");
+        if (message !== "" && !signal.aborted) {
+          ctx.ui.notify(message, "info");
+        }
       },
       signal,
       stdin: options.stdin,
@@ -126,21 +142,32 @@ export const createCommandRuntime = (starter: CliStarter = startPlannotatorCli):
       try {
         const { code, signal: exitSignal, stdout } = await completion;
 
-        if (signal.aborted) return;
+        if (signal.aborted) {
+          return;
+        }
 
-        if (code === 0) options.onOutput(stdout);
-        else
+        if (code === 0) {
+          options.onOutput(stdout);
+        } else {
           notifyError(
             ctx,
             options.failureLabel,
-            exitSignal ? `terminated by ${exitSignal}` : `exited with code ${code}`,
+            exitSignal
+              ? `terminated by ${exitSignal}`
+              : `exited with code ${code}`
           );
+        }
       } catch (error) {
-        if (!signal.aborted) notifyError(ctx, options.failureLabel, error);
+        if (!signal.aborted) {
+          notifyError(ctx, options.failureLabel, error);
+        }
       }
     };
 
-    const run = settleRun().finally(() => activeRuns.delete(run));
+    const run = settleRun().finally(() => {
+      activeRuns.delete(run);
+    });
+
     activeRuns.add(run);
 
     ctx.ui.notify(options.openedMessage, "info");

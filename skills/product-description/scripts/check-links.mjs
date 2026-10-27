@@ -9,48 +9,60 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { toString } from "mdast-util-to-string";
 import { gfm } from "micromark-extension-gfm";
 
-/** @param {import("mdast").Nodes} node
- * @returns {Generator<import("mdast").Nodes>}
+/** @param {import("mdast").Nodes} node Root of the tree to walk.
+ * @returns {Generator<import("mdast").Nodes>} A lazy pre-order traversal of the tree.
+ * @yields {import("mdast").Nodes} The root, then each descendant in document order.
  */
-function* walk(node) {
+const walk = function* (node) {
   yield node;
 
   if ("children" in node) {
-    for (const child of node.children) yield* walk(child);
+    for (const child of node.children) {
+      yield* walk(child);
+    }
   }
-}
+};
 
-/** @param {string} directory
- * @returns {Generator<string>}
+/** @param {string} directory Directory to search recursively.
+ * @returns {Generator<string>} A lazy depth-first listing that skips dot entries and `node_modules`.
+ * @yields {string} Path of each `.md` file, in directory-listing order; callers sort them.
  */
-function* markdownFiles(directory) {
+const markdownFiles = function* (directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    if (entry.name.startsWith(".") || entry.name === "node_modules") {
+      continue;
+    }
+
     const file = path.join(directory, entry.name);
 
-    if (entry.isDirectory()) yield* markdownFiles(file);
-    else if (entry.isFile() && /\.md$/iu.test(entry.name)) yield file;
+    if (entry.isDirectory()) {
+      yield* markdownFiles(file);
+    } else if (entry.isFile() && /\.md$/iu.test(entry.name)) {
+      yield file;
+    }
   }
-}
+};
 
-/** @param {string} root */
-function checkLinks(root) {
-  const files = [...markdownFiles(root)].sort();
+/** @param {string} root Description repository to check. */
+const checkLinks = (root) => {
+  const files = [...markdownFiles(root)].toSorted();
   /** @type {Map<string, { nodes: import("mdast").Nodes[], anchors: Set<string> }>} */
   const documents = new Map();
 
-  /** @param {string} file */
+  /** @param {string} file Markdown file to parse once. */
   const document = (file) => {
     const cached = documents.get(file);
 
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
 
     const nodes = [
       ...walk(
-        fromMarkdown(readFileSync(file, "utf8"), {
+        fromMarkdown(readFileSync(file, "utf-8"), {
           extensions: [gfm()],
           mdastExtensions: [gfmFromMarkdown()],
-        }),
+        })
       ),
     ];
 
@@ -60,8 +72,9 @@ function checkLinks(root) {
       nodes,
       anchors: new Set(
         nodes
+          .values()
           .filter((node) => node.type === "heading")
-          .map((node) => slugger.slug(toString(node, { includeHtml: false }))),
+          .map((node) => slugger.slug(toString(node, { includeHtml: false })))
       ),
     };
 
@@ -87,15 +100,26 @@ function checkLinks(root) {
     }
 
     for (const node of nodes) {
-      const target =
-        node.type === "link" || node.type === "image"
-          ? node.url
-          : node.type === "linkReference" || node.type === "imageReference"
-            ? definitions.get(node.identifier)
-            : undefined;
+      /** @type {string | undefined} */
+      let target;
 
-      if (target === undefined || /^[a-z][a-z0-9+.-]*:/iu.test(target) || target.startsWith("//"))
+      if (node.type === "link" || node.type === "image") {
+        target = node.url;
+      } else if (
+        node.type === "linkReference" ||
+        node.type === "imageReference"
+      ) {
+        target = definitions.get(node.identifier);
+      }
+
+      if (
+        target === undefined ||
+        /^[a-z][a-z0-9+.-]*:/iu.test(target) ||
+        target.startsWith("//")
+      ) {
         continue;
+      }
+
       checked += 1;
       const context = `${path.relative(root, file)}:${node.position?.start.line ?? 1}`;
       const hash = target.indexOf("#");
@@ -112,12 +136,13 @@ function checkLinks(root) {
         continue;
       }
 
-      const destination =
-        decodedPath === ""
-          ? file
-          : decodedPath.startsWith("/")
-            ? path.resolve(root, `.${decodedPath}`)
-            : path.resolve(path.dirname(file), decodedPath);
+      let destination = file;
+
+      if (decodedPath !== "") {
+        destination = decodedPath.startsWith("/")
+          ? path.resolve(root, `.${decodedPath}`)
+          : path.resolve(path.dirname(file), decodedPath);
+      }
 
       if (!existsSync(destination)) {
         problems.push(`${context}: missing file: ${target}`);
@@ -131,22 +156,27 @@ function checkLinks(root) {
     }
   }
 
-  for (const problem of problems) console.log(problem);
-  console.log(`${files.length} files, ${checked} relative links, ${problems.length} broken`);
+  for (const problem of problems) {
+    console.log(problem);
+  }
+
+  console.log(
+    `${files.length} files, ${checked} relative links, ${problems.length} broken`
+  );
 
   return problems.length === 0 ? 0 : 1;
-}
+};
 
 const [root = process.cwd(), ...extra] = process.argv.slice(2);
 
-if (extra.length !== 0) {
-  console.error("Usage: check-links.mjs [description-repository]");
-  process.exitCode = 2;
-} else {
+if (extra.length === 0) {
   try {
     process.exitCode = checkLinks(path.resolve(root));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 2;
   }
+} else {
+  console.error("Usage: check-links.mjs [description-repository]");
+  process.exitCode = 2;
 }

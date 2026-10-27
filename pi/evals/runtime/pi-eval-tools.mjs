@@ -1,9 +1,11 @@
 // Evaluation policy only; execution is Pi's unmodified built-in Code Mode.
 import { createHash } from "node:crypto";
-import { createJournal } from "./eval-journal.mjs";
+
 import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
 
-/** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi */
+import { createJournal } from "./eval-journal.mjs";
+
+/** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi Extension API of the Pi session under evaluation. */
 export default async function evaluationExtension(pi) {
   const mode = process.env["PI_EVAL_TOOL_MODE"];
 
@@ -13,13 +15,20 @@ export default async function evaluationExtension(pi) {
 
   const controlled = process.env["PI_EVAL_EXPERIMENT"] === "code-mode";
 
-  if (mode === "code_mode_only")
-    await createCodemodeExtension(controlled ? { mode: "only", models: false } : {})(pi);
+  if (mode === "code_mode_only") {
+    await createCodemodeExtension(
+      controlled ? { mode: "only", models: false } : {}
+    )(pi);
+  }
 
   /** @type {unknown} */
-  const direct = controlled ? JSON.parse(process.env["PI_EVAL_DIRECT_TOOLS"] ?? "null") : undefined;
+  const direct = controlled
+    ? JSON.parse(process.env["PI_EVAL_DIRECT_TOOLS"] ?? "null")
+    : undefined;
 
-  const names = Array.isArray(direct) ? direct.filter((name) => typeof name === "string") : [];
+  const names = Array.isArray(direct)
+    ? direct.filter((name) => typeof name === "string")
+    : [];
 
   if (
     controlled &&
@@ -28,21 +37,27 @@ export default async function evaluationExtension(pi) {
       names.length !== direct.length ||
       names.some((name) => !name.trim() || name === "codemode") ||
       new Set(names).size !== names.length)
-  )
-    throw new Error("Controlled comparisons require an explicit direct tool inventory");
+  ) {
+    throw new Error(
+      "Controlled comparisons require an explicit direct tool inventory"
+    );
+  }
 
   const expected = controlled
-    ? (mode === "direct" ? names : [...names, "codemode"]).sort()
+    ? (mode === "direct" ? names : [...names, "codemode"]).toSorted()
     : undefined;
 
   const matchesTools = () =>
     expected === undefined
       ? pi.getActiveTools().includes("codemode") === (mode === "code_mode_only")
-      : JSON.stringify(pi.getActiveTools().sort()) === JSON.stringify(expected);
+      : JSON.stringify(pi.getActiveTools().toSorted()) ===
+        JSON.stringify(expected);
 
   pi.registerCommand("eval-preflight", {
     description: "Check evaluation startup without making a model request",
-    handler: () => Promise.resolve(),
+    handler: async () => {
+      // Loading the extension is the check; the command itself has nothing to do.
+    },
   });
 
   let compacted = false;
@@ -54,22 +69,26 @@ export default async function evaluationExtension(pi) {
     return controlled ? { cancel: true } : undefined;
   });
   pi.on("session_start", async (_event, ctx) => {
-    if (expected !== undefined) pi.setActiveTools(expected);
+    if (expected !== undefined) {
+      pi.setActiveTools(expected);
+    }
 
     if (!matchesTools()) {
-      throw new Error("Evaluation arm does not match the effective native tool loadout");
+      throw new Error(
+        "Evaluation arm does not match the effective native tool loadout"
+      );
     }
 
     await emit({
       type: "pi_eval_setup",
       mode: controlled ? mode : "native",
-      activeTools: pi.getActiveTools().sort(),
+      activeTools: pi.getActiveTools().toSorted(),
       model: `${ctx.model?.provider}/${ctx.model?.id}`,
       thinking: pi.getThinkingLevel(),
     });
   });
   pi.on("before_provider_request", async (_event, ctx) => {
-    const activeTools = pi.getActiveTools().sort();
+    const activeTools = pi.getActiveTools().toSorted();
     const model = `${ctx.model?.provider}/${ctx.model?.id}`;
     const thinking = pi.getThinkingLevel();
 
@@ -88,7 +107,9 @@ export default async function evaluationExtension(pi) {
       thinking,
       activeTools,
       valid,
-      systemPromptSha256: createHash("sha256").update(ctx.getSystemPrompt()).digest("hex"),
+      systemPromptSha256: createHash("sha256")
+        .update(ctx.getSystemPrompt())
+        .digest("hex"),
     });
 
     if (!valid) {

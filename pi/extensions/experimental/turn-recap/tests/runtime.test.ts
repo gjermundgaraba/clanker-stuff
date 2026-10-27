@@ -3,17 +3,36 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
-
-import { renderCard } from "../card.js";
-import { getRollingFontDirectory, getRollingFontPath } from "../font.js";
-import { ENTRY_TYPE, RECAP_ENTRY_TYPE, RecapEntrySchema, SnapshotSchema } from "../entry.js";
-import { TurnRecapRuntime } from "../runtime.js";
-import { RECAP_REQUEST_TIMEOUT_MS } from "../recap.js";
 import { Value } from "typebox/value";
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vite-plus/test";
+
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../tests/harness/tui.js";
+import { renderCard } from "../card.js";
+import {
+  ENTRY_TYPE,
+  RECAP_ENTRY_TYPE,
+  RecapEntrySchema,
+  SnapshotSchema,
+} from "../entry.js";
+import { getRollingFontDirectory, getRollingFontPath } from "../font.js";
+import { RECAP_REQUEST_TIMEOUT_MS } from "../recap.js";
+import { TurnRecapRuntime } from "../runtime.js";
 import {
   appendTurn,
   createRecapConfigFile,
@@ -24,8 +43,6 @@ import {
   userMessage,
 } from "./fixtures.js";
 import type { ResponseStep } from "./fixtures.js";
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
 
 const setup = async (...responses: ResponseStep[]) => {
   const { configPath, directory } = await createRecapConfigFile();
@@ -35,12 +52,19 @@ const setup = async (...responses: ResponseStep[]) => {
   });
   const session = SessionManager.inMemory();
   const stream = queuedStream(...responses);
-  const model = fauxProvider({ models: [{ id: "small" }], provider: "cheap" }).getModel();
+
+  const model = fauxProvider({
+    models: [{ id: "small" }],
+    provider: "cheap",
+  }).getModel();
+
   const find = vi.fn<ExtensionContext["modelRegistry"]["find"]>(() => model);
 
-  const auth = vi.fn(async () => {
-    throw new Error("Authentication belongs to streamSimple");
-  });
+  const auth = vi.fn<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>(
+    async () => {
+      throw new Error("Authentication belongs to streamSimple");
+    }
+  );
 
   let api: ExtensionAPI | undefined;
 
@@ -55,13 +79,16 @@ const setup = async (...responses: ResponseStep[]) => {
 
   await host.ready;
 
-  if (!api) throw new Error("Missing extension API");
+  if (!api) {
+    throw new Error("Missing extension API");
+  }
+
   const readyApi = api;
   const createRuntime = () => new TurnRecapRuntime(readyApi, configPath);
   let runtime = createRuntime();
   const tui = createMockTui();
   const theme = createIdentityTheme();
-  let component: (Component & { dispose?(): void }) | undefined;
+  let component: (Component & { dispose?: () => void }) | undefined;
 
   const ctx = host.createContext({
     sessionManager: session,
@@ -73,12 +100,15 @@ const setup = async (...responses: ResponseStep[]) => {
     ui: {
       setWidget: (_key, content) => {
         component?.dispose?.();
-        component = typeof content === "function" ? content(tui, theme) : undefined;
+        component =
+          typeof content === "function" ? content(tui, theme) : undefined;
       },
     },
   });
 
-  onTestFinished(() => runtime.shutdown(ctx));
+  onTestFinished(() => {
+    runtime.shutdown(ctx);
+  });
 
   const snapshots = () =>
     session
@@ -88,7 +118,7 @@ const setup = async (...responses: ResponseStep[]) => {
         entry.customType === ENTRY_TYPE &&
         Value.Check(SnapshotSchema, entry.data)
           ? [entry.data]
-          : [],
+          : []
       );
 
   const recaps = () =>
@@ -99,7 +129,7 @@ const setup = async (...responses: ResponseStep[]) => {
         entry.customType === RECAP_ENTRY_TYPE &&
         Value.Check(RecapEntrySchema, entry.data)
           ? [entry.data.recap]
-          : [],
+          : []
       );
 
   return {
@@ -129,7 +159,13 @@ const setup = async (...responses: ResponseStep[]) => {
       const latest = snapshots().at(-1);
 
       return latest
-        ? renderCard(latest, runtime.recap(latest.runId), 100, theme, expanded).join("\n")
+        ? renderCard(
+            latest,
+            runtime.recap(latest.runId),
+            100,
+            theme,
+            expanded
+          ).join("\n")
         : "";
     },
   };
@@ -143,9 +179,7 @@ const started = async (...responses: ResponseStep[]) => {
   return env;
 };
 
-afterEach(() => vi.useRealTimers());
-
-const glyph = String.fromCodePoint(0xf1004);
+const glyph = String.fromCodePoint(0xf_10_04);
 
 const installFont = async (manifest: unknown = fontManifest()) => {
   await mkdir(getRollingFontDirectory(), { recursive: true });
@@ -153,6 +187,8 @@ const installFont = async (manifest: unknown = fontManifest()) => {
 };
 
 describe("turn recap runtime", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("rolls live digits whenever a font manifest exists", async () => {
     vi.useFakeTimers();
     const env = await setup();
@@ -167,7 +203,7 @@ describe("turn recap runtime", () => {
     vi.advanceTimersByTime(370);
     expect(env.render()).toContain("1s elapsed");
 
-    expect(env.host.getNotifications()).toEqual([]);
+    expect(env.host.getNotifications()).toStrictEqual([]);
     env.runtime.shutdown(env.ctx);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -193,29 +229,43 @@ describe("turn recap runtime", () => {
     expect(env.render()).toContain("0s elapsed");
   });
 
-  it.each(["missing", "invalid"])("keeps recaps working with a %s font manifest", async (kind) => {
-    vi.useFakeTimers();
-    const env = await setup(() => fauxAssistantMessage("Recap still works"));
+  it.each<{
+    kind: string;
+    manifest: { version: number } | undefined;
+    notifications: Array<{ message: unknown; type: string }>;
+  }>([
+    { kind: "missing", manifest: undefined, notifications: [] },
+    {
+      kind: "invalid",
+      manifest: { version: 1 },
+      notifications: [
+        {
+          message: expect.stringContaining("Rolling numbers disabled"),
+          type: "error",
+        },
+      ],
+    },
+  ])(
+    "keeps recaps working with a $kind font manifest",
+    async ({ manifest, notifications }) => {
+      vi.useFakeTimers();
+      const env = await setup(() => fauxAssistantMessage("Recap still works"));
 
-    if (kind === "invalid") await installFont({ version: 1 });
-    await env.runtime.start(env.ctx);
-    env.runtime.begin(env.ctx);
-    vi.advanceTimersByTime(1000);
-    expect(env.render()).toContain("1s elapsed");
+      if (manifest !== undefined) {
+        await installFont(manifest);
+      }
 
-    const notifications = env.host.getNotifications();
+      await env.runtime.start(env.ctx);
+      env.runtime.begin(env.ctx);
+      vi.advanceTimersByTime(1000);
+      expect(env.render()).toContain("1s elapsed");
+      expect(env.host.getNotifications()).toStrictEqual(notifications);
 
-    if (kind === "missing") expect(notifications).toEqual([]);
-    else {
-      expect(notifications).toHaveLength(1);
-      expect(notifications[0]?.message).toContain("Rolling numbers disabled");
-      expect(notifications[0]?.type).toBe("error");
+      appendTurn(env.session, 1);
+      await env.runtime.settled({ aborted: false }, env.ctx);
+      expect(env.card()).toContain("Recap still works");
     }
-
-    appendTurn(env.session, 1);
-    await env.runtime.settled({ aborted: false }, env.ctx);
-    expect(env.card()).toContain("Recap still works");
-  });
+  );
 
   it("keeps rolling numbers when the recap configuration is invalid", async () => {
     vi.useFakeTimers();
@@ -232,22 +282,27 @@ describe("turn recap runtime", () => {
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()).toHaveLength(1);
-    expect(env.recaps()).toEqual([]);
+    expect(env.recaps()).toStrictEqual([]);
     expect(env.host.getNotifications()).toHaveLength(1);
-    expect(env.host.getNotifications()[0]?.message).toContain("generated recaps disabled");
+    expect(env.host.getNotifications()[0]?.message).toContain(
+      "generated recaps disabled"
+    );
     expect(env.stream).not.toHaveBeenCalled();
   });
 
   it("writes the card when the run settles and fills in its recap when it arrives", async () => {
     vi.useFakeTimers();
     const response = Promise.withResolvers<AssistantMessage>();
-    const env = await started(() => response.promise);
+    const env = await started(async () => await response.promise);
     expect(env.render()).toBe("");
     env.runtime.begin(env.ctx);
     expect(env.render()).toContain("0s elapsed");
     vi.advanceTimersByTime(1200);
     appendTurn(env.session, 1);
-    env.session.appendMessage({ ...fauxAssistantMessage("finished"), usage: sampleUsage() });
+    env.session.appendMessage({
+      ...fauxAssistantMessage("finished"),
+      usage: sampleUsage(),
+    });
     env.runtime.refresh(env.ctx);
     expect(env.render()).toContain("370 processed");
     const completion = env.runtime.settled({ aborted: false }, env.ctx);
@@ -260,10 +315,15 @@ describe("turn recap runtime", () => {
     expect(env.card()).toContain("Generating recap…");
     expect(env.card()).toContain("370 processed");
     vi.advanceTimersByTime(5000);
-    response.resolve({ ...fauxAssistantMessage("Ready for review"), usage: sampleUsage() });
+    response.resolve({
+      ...fauxAssistantMessage("Ready for review"),
+      usage: sampleUsage(),
+    });
     await completion;
     expect(env.snapshots()).toHaveLength(1);
-    expect(env.recaps()).toMatchObject([{ status: "ready", text: "Ready for review" }]);
+    expect(env.recaps()).toMatchObject([
+      { status: "ready", text: "Ready for review" },
+    ]);
     expect(env.card()).toContain("Ready for review");
     expect(env.card()).not.toContain("Generating");
     expect(env.card(true)).toContain("Recap only: 370 tokens");
@@ -291,8 +351,8 @@ describe("turn recap runtime", () => {
     await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]).toMatchObject({ wallMs: 7000 });
-    expect(env.recaps()).toEqual([]);
-    expect(env.host.getNotifications()).toEqual([]);
+    expect(env.recaps()).toStrictEqual([]);
+    expect(env.host.getNotifications()).toStrictEqual([]);
     expect(env.stream).not.toHaveBeenCalled();
     expect(env.render()).toBe("");
     expect(vi.getTimerCount()).toBe(0);
@@ -307,9 +367,9 @@ describe("turn recap runtime", () => {
       await env.runtime.settled({ aborted: false }, env.ctx);
       expect(env.snapshots()[0]?.outcome).toBe(outcome);
       expect(env.card()).not.toContain("Generating");
-      expect(env.recaps()).toEqual([]);
+      expect(env.recaps()).toStrictEqual([]);
       expect(env.stream).not.toHaveBeenCalled();
-    },
+    }
   );
 
   it("measures growth from the size reported before the run, from +0 on the first frame", async () => {
@@ -338,8 +398,8 @@ describe("turn recap runtime", () => {
     const first = Promise.withResolvers<AssistantMessage>();
 
     const env = await started(
-      () => first.promise,
-      () => fauxAssistantMessage("Second recap"),
+      async () => await first.promise,
+      () => fauxAssistantMessage("Second recap")
     );
 
     env.runtime.begin(env.ctx);
@@ -352,18 +412,27 @@ describe("turn recap runtime", () => {
 
     const [earlier, later] = env.snapshots();
 
-    if (!earlier || !later) throw new Error("Missing cards");
-    expect(env.runtime.recap(earlier.runId)).toEqual({ status: "generating" });
-    expect(env.runtime.recap(later.runId)).toMatchObject({ text: "Second recap" });
+    if (!earlier || !later) {
+      throw new Error("Missing cards");
+    }
+
+    expect(env.runtime.recap(earlier.runId)).toStrictEqual({
+      status: "generating",
+    });
+    expect(env.runtime.recap(later.runId)).toMatchObject({
+      text: "Second recap",
+    });
     first.resolve(fauxAssistantMessage("First recap"));
     await pending;
-    expect(env.runtime.recap(earlier.runId)).toMatchObject({ text: "First recap" });
+    expect(env.runtime.recap(earlier.runId)).toMatchObject({
+      text: "First recap",
+    });
     expect(env.recaps()).toHaveLength(2);
   });
 
   it("abandons pending recaps on shutdown, leaving their cards without one", async () => {
     const response = Promise.withResolvers<AssistantMessage>();
-    const env = await started(() => response.promise);
+    const env = await started(async () => await response.promise);
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     const completion = env.runtime.settled({ aborted: false }, env.ctx);
@@ -372,9 +441,9 @@ describe("turn recap runtime", () => {
     expect(env.stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
     response.resolve(fauxAssistantMessage("Stale result"));
     await completion;
-    expect(env.snapshots()).toEqual(cards);
-    expect(env.recaps()).toEqual([]);
-    expect(env.host.getNotifications()).toEqual([]);
+    expect(env.snapshots()).toStrictEqual(cards);
+    expect(env.recaps()).toStrictEqual([]);
+    expect(env.host.getNotifications()).toStrictEqual([]);
   });
 
   it.each(["missing", "invalid"])(
@@ -382,29 +451,38 @@ describe("turn recap runtime", () => {
     async (kind) => {
       const env = await setup();
 
-      if (kind === "missing") await rm(env.configPath);
-      else await writeFile(env.configPath, "{");
+      await (kind === "missing"
+        ? rm(env.configPath)
+        : writeFile(env.configPath, "{"));
+
       await env.runtime.start(env.ctx);
-      const project = vi.spyOn(env.ctx.sessionManager, "buildSessionProjection");
+
+      const project = vi.spyOn(
+        env.ctx.sessionManager,
+        "buildSessionProjection"
+      );
+
       const start = { tokens: 60, contextWindow: 1000, percent: 6 };
       const context = { tokens: 100, contextWindow: 1000, percent: 10 };
 
       // Pi's real context accounting also projects history; only recap preparation is skipped.
-      const contextUsage = vi.spyOn(env.ctx, "getContextUsage").mockImplementation(() => {
-        env.ctx.sessionManager.buildSessionProjection();
+      const contextUsage = vi
+        .spyOn(env.ctx, "getContextUsage")
+        .mockImplementation(() => {
+          env.ctx.sessionManager.buildSessionProjection();
 
-        return contextUsage.mock.calls.length === 1 ? start : context;
-      });
+          return contextUsage.mock.calls.length === 1 ? start : context;
+        });
 
       env.runtime.begin(env.ctx);
       appendTurn(env.session, 1);
       await env.runtime.settled({ aborted: false }, env.ctx);
       expect(contextUsage).toHaveBeenCalledTimes(2);
       expect(project).toHaveBeenCalledTimes(2);
-      expect(env.snapshots()[0]?.metrics.context).toEqual(context);
-      expect(env.recaps()).toEqual([]);
+      expect(env.snapshots()[0]?.metrics.context).toStrictEqual(context);
+      expect(env.recaps()).toStrictEqual([]);
       expect(env.stream).not.toHaveBeenCalled();
-    },
+    }
   );
 
   it("recovers from request-time authentication failure without reinitialization", async () => {
@@ -412,7 +490,7 @@ describe("turn recap runtime", () => {
       () => {
         throw new Error("No credentials");
       },
-      () => fauxAssistantMessage("Authenticated"),
+      () => fauxAssistantMessage("Authenticated")
     );
 
     expect(env.find).not.toHaveBeenCalled();
@@ -420,14 +498,20 @@ describe("turn recap runtime", () => {
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
-    expect(env.recaps().at(-1)).toMatchObject({ status: "failed", error: "No credentials" });
+    expect(env.recaps().at(-1)).toMatchObject({
+      status: "failed",
+      error: "No credentials",
+    });
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 2);
     await env.runtime.settled({ aborted: false }, env.ctx);
-    expect(env.recaps().at(-1)).toMatchObject({ status: "ready", text: "Authenticated" });
+    expect(env.recaps().at(-1)).toMatchObject({
+      status: "ready",
+      text: "Authenticated",
+    });
     expect(env.find).toHaveBeenCalledTimes(2);
     expect(env.auth).not.toHaveBeenCalled();
-    expect(env.host.getNotifications()).toEqual([]);
+    expect(env.host.getNotifications()).toStrictEqual([]);
   });
 
   it("re-resolves models on each request and recovers when a model becomes available", async () => {
@@ -441,19 +525,27 @@ describe("turn recap runtime", () => {
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 2);
     await env.runtime.settled({ aborted: false }, env.ctx);
-    expect(env.recaps().at(-1)).toMatchObject({ status: "ready", text: "Model available" });
+    expect(env.recaps().at(-1)).toMatchObject({
+      status: "ready",
+      text: "Model available",
+    });
   });
 
   it("keeps the card if optional prompt preparation fails", async () => {
     const env = await started();
-    vi.spyOn(env.ctx.sessionManager, "buildSessionProjection").mockImplementation(() => {
+    vi.spyOn(
+      env.ctx.sessionManager,
+      "buildSessionProjection"
+    ).mockImplementation(() => {
       throw new Error("Projection failed");
     });
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
     expect(env.snapshots()).toHaveLength(1);
-    expect(env.recaps()).toEqual([{ status: "failed", error: "Projection failed" }]);
+    expect(env.recaps()).toStrictEqual([
+      { status: "failed", error: "Projection failed" },
+    ]);
     expect(env.card()).toContain("Recap unavailable: Projection failed");
     expect(env.stream).not.toHaveBeenCalled();
   });
@@ -466,9 +558,11 @@ describe("turn recap runtime", () => {
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
-    const recap = env.recaps()[0];
+    const [recap] = env.recaps();
 
-    expect(recap?.status === "failed" && Array.from(recap.error).length).toBe(1000);
+    expect(recap?.status === "failed" && Array.from(recap.error).length).toBe(
+      1000
+    );
   });
 
   it("times out without retrying and recovers on the next run", async () => {
@@ -476,8 +570,8 @@ describe("turn recap runtime", () => {
     const response = Promise.withResolvers<AssistantMessage>();
 
     const env = await started(
-      () => response.promise,
-      () => fauxAssistantMessage("Recovered"),
+      async () => await response.promise,
+      () => fauxAssistantMessage("Recovered")
     );
 
     env.runtime.begin(env.ctx);

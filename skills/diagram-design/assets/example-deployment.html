@@ -67,7 +67,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -83,15 +89,27 @@
       >
         <title id="deployment-title">Checkout service, production</title>
         <desc id="deployment-desc">
-          Deployment diagram placing the checkout service across an edge CDN zone, a production
-          Kubernetes zone running ingress and API pods, and a data zone with a primary Postgres
-          instance replicating to a standby.
+          Deployment diagram placing the checkout service across an edge CDN
+          zone, a production Kubernetes zone running ingress and API pods, and a
+          data zone with a primary Postgres instance replicating to a standby.
         </desc>
         <defs>
-          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            id="dots"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
           </pattern>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0, 8 3, 0 6" fill="#4f5d75" />
           </marker>
           <marker
@@ -104,7 +122,14 @@
           >
             <polygon points="0 0, 8 3, 0 6" fill="#eb6c36" />
           </marker>
-          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow-link"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8" />
           </marker>
         </defs>
@@ -684,7 +709,14 @@
           16.2
         </text>
 
-        <line x1="40" y1="340" x2="1000" y2="340" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
+        <line
+          x1="40"
+          y1="340"
+          x2="1000"
+          y2="340"
+          stroke="rgba(45,49,66,0.10)"
+          stroke-width="0.8"
+        />
         <text
           x="40"
           y="356"

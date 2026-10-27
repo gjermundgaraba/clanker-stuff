@@ -4,7 +4,13 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 export type Activity =
   | {
       kind: "phase";
-      label: "compacting" | "retrying" | "starting" | "thinking" | "waiting" | "writing";
+      label:
+        | "compacting"
+        | "retrying"
+        | "starting"
+        | "thinking"
+        | "waiting"
+        | "writing";
     }
   | { kind: "tool"; label: string; target: string | undefined };
 
@@ -25,17 +31,22 @@ const TARGET_KEYS = [
 
 /** Picks the argument that best names a call's target. The text is raw; sanitize it where rendered. */
 export const callTarget = (args: unknown): string | undefined => {
-  if (typeof args !== "object" || args === null) return undefined;
+  if (typeof args !== "object" || args === null) {
+    return undefined;
+  }
 
   const strings = new Map(
     Object.entries(args).flatMap(([name, value]: [string, unknown]) =>
-      typeof value === "string" && value.trim() !== "" ? [[name, value] as const] : [],
-    ),
+      typeof value === "string" && value.trim() !== ""
+        ? [[name, value] as const]
+        : []
+    )
   );
 
   return (
-    TARGET_KEYS.map((key) => strings.get(key)).find((value) => value !== undefined) ??
-    strings.values().next().value
+    TARGET_KEYS.map((key) => strings.get(key)).find(
+      (value) => value !== undefined
+    ) ?? strings.values().next().value
   );
 };
 
@@ -54,57 +65,83 @@ export interface Track {
 export const trackActivity = (track: Track): Activity =>
   [...track.executing.values()].at(-1) ?? track.phase;
 
-const withPhase = (track: Track, phase: Activity): Track => ({ ...track, phase });
+const withPhase = (track: Track, phase: Activity): Track => ({
+  ...track,
+  phase,
+});
 
 /** Folds one session event into an agent's run; undefined once the run ends. */
 export const nextTrack = (
   track: Track | undefined,
-  event: AgentSessionEvent,
+  event: AgentSessionEvent
 ): Track | undefined => {
-  if (event.type === "agent_start")
-    return { executing: new Map(), phase: { kind: "phase", label: "starting" } };
+  if (event.type === "agent_start") {
+    return {
+      executing: new Map(),
+      phase: { kind: "phase", label: "starting" },
+    };
+  }
 
   // Pi also compacts before a prompt's run starts and after it ends, while the turn is still running.
-  if (event.type === "compaction_start")
+  if (event.type === "compaction_start") {
     return {
       executing: track?.executing ?? new Map(),
       phase: { kind: "phase", label: "compacting" },
     };
+  }
 
-  if (event.type === "compaction_end")
+  if (event.type === "compaction_end") {
     return { executing: track?.executing ?? new Map(), phase: WAITING };
+  }
 
   // A failed run Pi will retry keeps its turn running through the backoff.
-  if (event.type === "agent_end")
-    return event.willRetry ? { executing: new Map(), phase: RETRYING } : undefined;
+  if (event.type === "agent_end") {
+    return event.willRetry
+      ? { executing: new Map(), phase: RETRYING }
+      : undefined;
+  }
 
-  if (event.type === "auto_retry_start") return { executing: new Map(), phase: RETRYING };
+  if (event.type === "auto_retry_start") {
+    return { executing: new Map(), phase: RETRYING };
+  }
 
-  if (track === undefined) return undefined;
+  if (track === undefined) {
+    return undefined;
+  }
 
   switch (event.type) {
-    case "turn_start":
+    case "turn_start": {
       return withPhase(track, WAITING);
+    }
+
     case "message_update": {
-      if (event.message.role !== "assistant") return track;
+      if (event.message.role !== "assistant") {
+        return track;
+      }
+
       const block = event.message.content.at(-1);
 
-      if (block?.type === "thinking") return withPhase(track, { kind: "phase", label: "thinking" });
+      if (block?.type === "thinking") {
+        return withPhase(track, { kind: "phase", label: "thinking" });
+      }
 
-      if (block?.type === "text") return withPhase(track, { kind: "phase", label: "writing" });
+      if (block?.type === "text") {
+        return withPhase(track, { kind: "phase", label: "writing" });
+      }
 
-      if (block?.type === "toolCall")
+      if (block?.type === "toolCall") {
         return withPhase(track, {
           kind: "tool",
           label: block.name,
           target: callTarget(block.arguments),
         });
+      }
 
       return track;
     }
 
     // Calls nested in a Code Mode script belong to their parent's row.
-    case "tool_execution_start":
+    case "tool_execution_start": {
       return event.parentToolCallId === undefined
         ? {
             executing: new Map(track.executing).set(event.toolCallId, {
@@ -115,17 +152,39 @@ export const nextTrack = (
             phase: WAITING,
           }
         : track;
+    }
+
     case "tool_execution_end": {
-      if (event.parentToolCallId !== undefined) return track;
+      if (event.parentToolCallId !== undefined) {
+        return track;
+      }
+
       const executing = new Map(track.executing);
       executing.delete(event.toolCallId);
 
       return { executing, phase: WAITING };
     }
 
-    default:
-      return track;
+    case "agent_settled":
+    case "auto_retry_end":
+    case "bash_execution_update":
+    case "entry_appended":
+    case "message_end":
+    case "message_start":
+    case "queue_update":
+    case "session_info_changed":
+    case "summarization_retry_attempt_start":
+    case "summarization_retry_finished":
+    case "summarization_retry_scheduled":
+    case "thinking_level_changed":
+    case "tool_execution_update":
+    case "turn_end": {
+      break;
+    }
+    // no default
   }
+
+  return track;
 };
 
 /**
@@ -154,7 +213,9 @@ export class Monitor {
   onChange(listener: () => void): () => void {
     this.#listeners.add(listener);
 
-    return () => this.#listeners.delete(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   follow(path: string, listener: AgentEventListener): () => void {
@@ -162,15 +223,21 @@ export class Monitor {
     followers.add(listener);
     this.#followers.set(path, followers);
 
-    return () => followers.delete(listener);
+    return () => {
+      followers.delete(listener);
+    };
   }
 
   /** Throws the first follower failure, after every follower has run; a failing follower is dropped. */
   record(path: string, event: AgentSessionEvent): void {
     const track = nextTrack(this.#tracks.get(path), event);
 
-    if (track === undefined) this.#tracks.delete(path);
-    else this.#tracks.set(path, track);
+    if (track === undefined) {
+      this.#tracks.delete(path);
+    } else {
+      this.#tracks.set(path, track);
+    }
+
     const followers = this.#followers.get(path);
     const failures: unknown[] = [];
 
@@ -184,7 +251,9 @@ export class Monitor {
       }
     }
 
-    if (failures.length > 0) throw failures[0];
+    if (failures.length > 0) {
+      throw failures[0];
+    }
   }
 
   /** Forgets the activity of a runtime that is going away. */

@@ -18,12 +18,12 @@ Last verified: local macOS, storage format verified without transcript bodies.
 
 ## Sources
 
-| Priority | Location                                                         | Kind  | Authority      | Contains           | Parser State  | Collection Policy       | Sensitivity |
-| -------- | ---------------------------------------------------------------- | ----- | -------------- | ------------------ | ------------- | ----------------------- | ----------- |
-| 1        | `$CLAUDE_BASE/projects/<encoded-cwd>/<session-id>.jsonl`         | JSONL | primary        | session transcript | partial       | collect                 | private     |
-| 2        | `$CLAUDE_BASE/projects/<encoded-cwd>/<session-id>/tool-results/` | files | artifact store | large tool outputs | partial       | collect_when_referenced | private     |
-| 2        | `$CLAUDE_BASE/projects/<encoded-cwd>/<session-id>/subagents/`    | files | secondary      | subagent state     | partial       | collect_when_referenced | private     |
-| 3        | `$CLAUDE_BASE/history.jsonl`                                     | JSONL | prompt history | input history      | metadata_only | ignore_by_default       | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$CLAUDE_BASE/projects/<encoded-cwd>/<session-id>.jsonl` | JSONL | primary | session transcript | partial | collect | private |
+| 2 | `$CLAUDE_BASE/projects/<encoded-cwd>/<session-id>/tool-results/` | files | artifact store | large tool outputs | partial | collect_when_referenced | private |
+| 2 | `$CLAUDE_BASE/projects/<encoded-cwd>/<session-id>/subagents/` | files | secondary | subagent state | partial | collect_when_referenced | private |
+| 3 | `$CLAUDE_BASE/history.jsonl` | JSONL | prompt history | input history | metadata_only | ignore_by_default | private |
 
 ## Find
 

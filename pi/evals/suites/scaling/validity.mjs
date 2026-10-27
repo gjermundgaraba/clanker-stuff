@@ -1,14 +1,20 @@
+import {
+  SERVICE_NAMES as names,
+  FIXTURE as fixtureId,
+} from "/opt/pi-evals/services.mjs";
+
 import { readComparison } from "./comparison.mjs";
 import { validateNativeCodex } from "./native-codex.mjs";
 import { isRecord, serviceMetrics } from "./service-metrics.mjs";
-import { SERVICE_NAMES as names, FIXTURE as fixtureId } from "/opt/pi-evals/services.mjs";
 
 /** @param {unknown} trajectory @param {unknown[]} events */
-export function validateNativeDiagnostic(trajectory, events) {
+export const validateNativeDiagnostic = (trajectory, events) => {
   const comparison = readComparison();
 
   const agent =
-    isRecord(trajectory) && isRecord(trajectory["agent"]) ? trajectory["agent"] : undefined;
+    isRecord(trajectory) && isRecord(trajectory["agent"])
+      ? trajectory["agent"]
+      : undefined;
 
   const extra = isRecord(agent?.["extra"]) ? agent["extra"] : undefined;
 
@@ -19,24 +25,41 @@ export function validateNativeDiagnostic(trajectory, events) {
 
   const records = audit.filter(isRecord);
   const starts = records.filter((e) => e["type"] === "thread_started");
-  const setups = events.filter(isRecord).filter((e) => e["type"] === "pi_eval_diagnostic");
-  const finished = events.filter(isRecord).filter((e) => e["type"] === "native_finished");
 
-  const [start] = starts,
-    [setup] = setups,
-    [finish] = finished;
+  const setups = events
+    .filter(isRecord)
+    .filter((e) => e["type"] === "pi_eval_diagnostic");
 
-  const response = isRecord(start?.["response"]) ? start["response"] : undefined;
-  const thread = isRecord(response?.["thread"]) ? response["thread"] : undefined;
+  const finished = events
+    .filter(isRecord)
+    .filter((e) => e["type"] === "native_finished");
+
+  const [start] = starts;
+  const [setup] = setups;
+  const [finish] = finished;
+
+  const response = isRecord(start?.["response"])
+    ? start["response"]
+    : undefined;
+
+  const thread = isRecord(response?.["thread"])
+    ? response["thread"]
+    : undefined;
+
   /** @type {unknown[]} */
-  const dynamicTools = Array.isArray(start?.["dynamicTools"]) ? start["dynamicTools"] : [];
+  const dynamicTools = Array.isArray(start?.["dynamicTools"])
+    ? start["dynamicTools"]
+    : [];
 
   const calls = records.flatMap((e) => {
     const item =
-      isRecord(e["params"]) && isRecord(e["params"]["item"]) ? e["params"]["item"] : undefined;
+      isRecord(e["params"]) && isRecord(e["params"]["item"])
+        ? e["params"]["item"]
+        : undefined;
 
     return e["method"] === "rawResponseItem/completed" &&
-      (item?.["type"] === "function_call" || item?.["type"] === "custom_tool_call")
+      (item?.["type"] === "function_call" ||
+        item?.["type"] === "custom_tool_call")
       ? [item]
       : [];
   });
@@ -51,7 +74,9 @@ export function validateNativeDiagnostic(trajectory, events) {
     JSON.stringify(thread?.["environments"]) === "[]" &&
     dynamicTools.every(isRecord) &&
     JSON.stringify(
-      dynamicTools.map((t) => t["name"]).sort((a, b) => String(a).localeCompare(String(b))),
+      dynamicTools
+        .map((t) => t["name"])
+        .toSorted((a, b) => String(a).localeCompare(String(b)))
     ) === JSON.stringify(names) &&
     setups.length === 1 &&
     setup !== undefined &&
@@ -64,7 +89,9 @@ export function validateNativeDiagnostic(trajectory, events) {
     finish["nativeVersion"] === start["nativeVersion"] &&
     typeof agent?.["version"] === "string" &&
     start["nativeVersion"] === `codex-cli ${agent["version"]}` &&
-    !records.some((e) => e["type"] === "runner_error" || e["method"] === "error") &&
+    !records.some(
+      (e) => e["type"] === "runner_error" || e["method"] === "error"
+    ) &&
     calls.length > 0 &&
     calls.every((e) => e["name"] === "exec" || e["name"] === "wait") &&
     records.some(
@@ -72,7 +99,7 @@ export function validateNativeDiagnostic(trajectory, events) {
         e["method"] === "turn/completed" &&
         isRecord(e["params"]) &&
         isRecord(e["params"]["turn"]) &&
-        e["params"]["turn"]["status"] === "completed",
+        e["params"]["turn"]["status"] === "completed"
     )
   );
-}
+};

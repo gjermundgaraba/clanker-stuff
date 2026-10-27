@@ -7,18 +7,25 @@ export const fixturePart = (
   label: string,
   body: string,
   estimatedTokens: number,
-  overrides: Partial<ContextPart> = {},
-): ContextPart => ({ label, body, format: "text", tone: "text", estimatedTokens, ...overrides });
+  overrides: Partial<ContextPart> = {}
+): ContextPart => ({
+  label,
+  body,
+  format: "text",
+  tone: "text",
+  estimatedTokens,
+  ...overrides,
+});
 
 export const fixtureJsonTools = (count: number): ContextPart[] =>
   Array.from({ length: count }, (_, i) =>
-    fixturePart(`tool-${i}`, `{"index": ${i}}`, 10, { format: "json" }),
+    fixturePart(`tool-${i}`, `{"index": ${i}}`, 10, { format: "json" })
   );
 
 export const fixtureMessage = (
   label: string,
   body: string,
-  estimatedTokens: number,
+  estimatedTokens: number
 ): ContextMessagePart => ({
   ...fixturePart(label, body, estimatedTokens),
   sourceEntryId: label,

@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
@@ -15,8 +16,11 @@ describe("retired child selections", () => {
   const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
   afterEach(() => {
-    if (previousAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
-    else process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
+    if (previousAgentDir === undefined) {
+      delete process.env["PI_CODING_AGENT_DIR"];
+    } else {
+      process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
+    }
   });
 
   it.each(["completion", "interruption", "shutdown"])(
@@ -41,7 +45,10 @@ describe("retired child selections", () => {
       process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const finalModel = harness.faux.getModel("final");
 
-      if (rootCtx === undefined || finalModel === undefined) throw new Error("Missing fixture");
+      if (rootCtx === undefined || finalModel === undefined) {
+        throw new Error("Missing fixture");
+      }
+
       const ctx = rootCtx;
       harness.session.setThinkingLevel("low");
       const started = Promise.withResolvers<undefined>();
@@ -52,12 +59,13 @@ describe("retired child selections", () => {
           if (ending !== "completion") {
             const signal = options?.signal;
 
-            if (signal === undefined) throw new Error("Missing native abort signal");
+            if (signal === undefined) {
+              throw new Error("Missing native abort signal");
+            }
 
-            await new Promise<void>((resolve) => {
-              if (signal.aborted) resolve();
-              else signal.addEventListener("abort", () => resolve(), { once: true });
-            });
+            if (!signal.aborted) {
+              await once(signal, "abort");
+            }
           }
 
           return fauxAssistantMessage("first outcome");
@@ -76,7 +84,9 @@ describe("retired child selections", () => {
         dataDir,
         deliverRoot: () => {},
         rootRunning: () => false,
-        onBackgroundError: (cause) => errors.push(cause),
+        onBackgroundError: (cause) => {
+          errors.push(cause);
+        },
         createRuntime: async (request) => {
           requests.push(request);
 
@@ -89,12 +99,18 @@ describe("retired child selections", () => {
                   childCtx.sessionManager
                     .getBranch()
                     .some(
-                      (entry) => entry.type === "custom" && entry.customType === "selection-once",
+                      (entry) =>
+                        entry.type === "custom" &&
+                        entry.customType === "selection-once"
                     )
-                )
+                ) {
                   return;
+                }
 
-                if (!(await pi.setModel(finalModel))) throw new Error("Native selection failed");
+                if (!(await pi.setModel(finalModel))) {
+                  throw new Error("Native selection failed");
+                }
+
                 pi.setThinkingLevel("high");
                 pi.appendEntry("selection-once", true);
                 mutations += 1;
@@ -123,14 +139,21 @@ describe("retired child selections", () => {
             thinking: undefined,
             tools: [],
           },
-          ctx,
+          ctx
         );
         await started.promise;
 
-        if (ending === "interruption") await controller.interrupt("/root", "worker");
+        if (ending === "interruption") {
+          await controller.interrupt("/root", "worker");
+        }
 
-        if (ending === "shutdown") await controller.shutdown();
-        else await vi.waitFor(() => expect(mutations).toBe(1));
+        if (ending === "shutdown") {
+          await controller.shutdown();
+        }
+
+        await vi.waitFor(() => {
+          expect(mutations).toBe(1);
+        });
 
         await controller.shutdown();
         const saved = await openTree(dataDir, sessionId, true);
@@ -147,11 +170,11 @@ describe("retired child selections", () => {
         expect(requests[1]?.thinkingLevel).toBe("high");
         expect(runtimes[1]?.model).toBe(`${finalModel.provider}/final`);
         expect(runtimes[1]?.thinkingLevel).toBe("high");
-        await vi.waitFor(() =>
+        await vi.waitFor(() => {
           expect(controller.list("/root", "worker")).toMatchObject([
             { agent_status: { completed: "reused outcome" } },
-          ]),
-        );
+          ]);
+        });
         await controller.shutdown();
         expect(mutations).toBe(1);
         expect(errors).toStrictEqual([]);
@@ -161,6 +184,6 @@ describe("retired child selections", () => {
         await controller.shutdown();
         harness.cleanup();
       }
-    },
+    }
   );
 });

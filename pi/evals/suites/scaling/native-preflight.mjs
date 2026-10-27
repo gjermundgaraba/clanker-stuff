@@ -1,20 +1,23 @@
 // Real native app-server + Code Mode host, scripted local model: no paid requests.
-import { readComparison } from "./comparison.mjs";
-import { once } from "node:events";
-import { isRecord } from "./service-metrics.mjs";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+
 import * as services from "/opt/pi-evals/services.mjs";
+import { solve } from "/solution/solve.mjs";
+import { oracle, score, serviceMetrics } from "/tests/scoring.mjs";
+
+import { readComparison } from "./comparison.mjs";
+import { isRecord } from "./service-metrics.mjs";
 
 const { fixture, SERVICE_NAMES } = services;
 
 /** @type {unknown} */
-const expectedMetrics = JSON.parse(readFileSync("/tests/native-preflight.json", "utf8"));
-
-import { oracle, score, serviceMetrics } from "/tests/scoring.mjs";
-import { solve } from "/solution/solve.mjs";
+const expectedMetrics = JSON.parse(
+  readFileSync("/tests/native-preflight.json", "utf-8")
+);
 
 const home = "/tmp/native-preflight-home";
 
@@ -55,10 +58,13 @@ base_url="http://127.0.0.1:41974/v1"
 wire_api="responses"
 requires_openai_auth=false
 supports_websockets=false
-`,
+`
 );
 
-writeFileSync(`${home}/instruction.md`, "Use the service APIs to aggregate the ledger.");
+writeFileSync(
+  `${home}/instruction.md`,
+  "Use the service APIs to aggregate the ledger."
+);
 
 writeFileSync(
   `${home}/run.json`,
@@ -67,7 +73,7 @@ writeFileSync(
     effort: comparison.thinking,
     instructionPath: `${home}/instruction.md`,
     compactBefore: false,
-  }),
+  })
 );
 
 /** @type {(Record<string, unknown> & {input: Record<string, unknown>[]})[]} */
@@ -75,11 +81,15 @@ const requests = [];
 
 const snippets = [
   // Same inputs are checked inside native V8, with actual guessed-call rejection.
-  `let invalid; try {invalid=await tools.list_records({collection:"ledger"});} catch(e) {invalid=String(e);} if(!JSON.stringify(invalid).includes("Validation failed"))throw Error("Missing argument-error feedback"); text({invalidArguments:invalid}); const names=ALL_TOOLS.map(t=>t.name).sort(); if(JSON.stringify(names)!==${JSON.stringify(JSON.stringify(["clock__curr_time", ...SERVICE_NAMES].sort((a, b) => a.localeCompare(b))))})throw Error('Unexpected capabilities '+names); text({names,process:typeof process,fetch:typeof fetch}); for(const name of ['exec_command','apply_patch','view_image','read_file']){try{await tools[name]({cmd:'cat /opt/pi-evals/services.mjs',path:'/opt/pi-evals/services.mjs'});throw Error('BYPASS '+name)}catch(e){if(String(e).includes('BYPASS'))throw e;}}`,
+  `let invalid; try {invalid=await tools.list_records({collection:"ledger"});} catch(e) {invalid=String(e);} if(!JSON.stringify(invalid).includes("Validation failed"))throw Error("Missing argument-error feedback"); text({invalidArguments:invalid}); const names=ALL_TOOLS.map(t=>t.name).sort(); if(JSON.stringify(names)!==${JSON.stringify(JSON.stringify(["clock__curr_time", ...SERVICE_NAMES].toSorted((a, b) => a.localeCompare(b))))})throw Error('Unexpected capabilities '+names); text({names,process:typeof process,fetch:typeof fetch}); for(const name of ['exec_command','apply_patch','view_image','read_file']){try{await tools[name]({cmd:'cat /opt/pi-evals/services.mjs',path:'/opt/pi-evals/services.mjs'});throw Error('BYPASS '+name)}catch(e){if(String(e).includes('BYPASS'))throw e;}}`,
   `const solve=${solve.toString()};text(await solve(async(name,args)=>{const r=await tools[name](args);text({native_result_type:typeof r,name});return typeof r==='string'?JSON.parse(r):r}));`,
 ];
 
-const server = createServer(async (req, res) => {
+/**
+ * @param {import("node:http").IncomingMessage} req Request from the native runner.
+ * @param {import("node:http").ServerResponse} res Scripted model response stream.
+ */
+const respond = async (req, res) => {
   /** @type {Buffer[]} */
   const chunks = [];
 
@@ -91,8 +101,10 @@ const server = createServer(async (req, res) => {
   /** @type {unknown} */
   const body = JSON.parse(Buffer.concat(chunks).toString());
   assert.ok(
-    isRecord(body) && Array.isArray(body["input"]) && body["input"].every(isRecord),
-    "native request must contain input items",
+    isRecord(body) &&
+      Array.isArray(body["input"]) &&
+      body["input"].every(isRecord),
+    "native request must contain input items"
   );
   requests.push({ ...body, input: body["input"] });
   writeFileSync("/logs/requests.json", JSON.stringify(requests, null, 2));
@@ -135,10 +147,18 @@ const server = createServer(async (req, res) => {
   ];
 
   res.writeHead(200, { "content-type": "text/event-stream" });
-  res.end(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""));
+  res.end(
+    events
+      .map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`)
+      .join("")
+  );
+};
+
+const server = createServer((req, res) => {
+  void respond(req, res);
 });
 
-server.listen(41974, "127.0.0.1");
+server.listen(41_974, "127.0.0.1");
 
 await once(server, "listening");
 
@@ -147,8 +167,8 @@ const child = spawn("codex-eval", [`${home}/run.json`], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 
-let stderr = "",
-  stdout = "";
+let stderr = "";
+let stdout = "";
 
 child.stderr.on("data", (chunk) => {
   stderr += chunk;
@@ -158,7 +178,9 @@ child.stdout.on("data", (chunk) => {
   stdout += chunk;
 });
 
-const timeout = setTimeout(() => child.kill("SIGKILL"), 90000);
+const timeout = setTimeout(() => {
+  child.kill("SIGKILL");
+}, 90_000);
 
 await once(child, "exit");
 
@@ -177,11 +199,13 @@ assert.equal(code, 0, stderr);
 const records = stdout
   .trim()
   .split("\n")
-  .map(/** @returns {unknown} */ (line) => JSON.parse(line));
+  .map(/** @returns {unknown} Unchecked record. */ (line) => JSON.parse(line));
 
 assert.equal(records.length, 3);
 
-assert.ok(records.every((record) => isRecord(record) && record["type"] === "eval_event"));
+assert.ok(
+  records.every((record) => isRecord(record) && record["type"] === "eval_event")
+);
 
 const outputs = requests
   .flatMap((r) => r.input ?? [])
@@ -190,7 +214,9 @@ const outputs = requests
 assert.equal(outputs.length >= 2, true);
 
 assert.ok(
-  outputs.every((item) => (JSON.stringify(item["output"]) ?? "").includes("Script completed")),
+  outputs.every((item) =>
+    (JSON.stringify(item["output"]) ?? "").includes("Script completed")
+  )
 );
 
 assert.ok(!JSON.stringify(outputs).includes("Script error"));
@@ -215,23 +241,28 @@ const topTools = firstRequest.input
       });
     });
   })
-  .sort();
+  .toSorted();
 
-assert.deepEqual(topTools, ["exec", "request_user_input", "request_user_input_async", "wait"]);
+assert.deepEqual(topTools, [
+  "exec",
+  "request_user_input",
+  "request_user_input_async",
+  "wait",
+]);
 
-const events = readFileSync("/logs/agent/service-events.jsonl", "utf8")
+const events = readFileSync("/logs/agent/service-events.jsonl", "utf-8")
   .trim()
   .split("\n")
-  .map(/** @returns {unknown} */ (line) => JSON.parse(line));
+  .map(/** @returns {unknown} Unchecked record. */ (line) => JSON.parse(line));
 
-const submission = events.filter(isRecord).findLast((e) => e["type"] === "pi_eval_submission")?.[
-  "report"
-];
+const submission = events
+  .filter(isRecord)
+  .findLast((e) => e["type"] === "pi_eval_submission")?.["report"];
 
 assert.equal(
   score(submission, oracle(fixture()), events).quality,
   1,
-  "native reference must produce exact report",
+  "native reference must produce exact report"
 );
 
 const metrics = serviceMetrics(events);
@@ -244,7 +275,9 @@ assert.ok(metrics.ledger_complete);
 
 writeFileSync(
   "/logs/preflight.json",
-  JSON.stringify({ metrics, requests: requests.length }, null, 2),
+  JSON.stringify({ metrics, requests: requests.length }, null, 2)
 );
 
-console.log("Native API reference and ledger passed using a local scripted model.");
+console.log(
+  "Native API reference and ledger passed using a local scripted model."
+);

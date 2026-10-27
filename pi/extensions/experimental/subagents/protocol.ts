@@ -31,7 +31,7 @@ const MailSchema = Type.Object(
     kind: Type.Union([Type.Literal("MESSAGE"), Type.Literal("FINAL_ANSWER")]),
     to: AgentPathSchema,
   },
-  STRICT,
+  STRICT
 );
 
 const TimestampSchema = Type.Integer({ minimum: 0 });
@@ -47,7 +47,7 @@ const UsageSchema = Type.Object(
     input: AmountSchema,
     output: AmountSchema,
   },
-  STRICT,
+  STRICT
 );
 
 const NodeSchema = Type.Object(
@@ -72,7 +72,7 @@ const NodeSchema = Type.Object(
     tools: Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }),
     usage: UsageSchema,
   },
-  STRICT,
+  STRICT
 );
 
 /** Persisted tree for one root session. Bump `version` on any shape change. */
@@ -82,7 +82,7 @@ export const TreeSchema = Type.Object(
     outbox: Type.Array(MailSchema),
     version: Type.Literal(4),
   },
-  STRICT,
+  STRICT
 );
 
 /** Identifies delivered mail in a transcript; the outcome and other details are display-only. */
@@ -100,7 +100,11 @@ export type AgentUsage = Static<typeof UsageSchema>;
 export type Tree = Static<typeof TreeSchema>;
 
 /** Every envelope kind; `readEnvelope` recognizes exactly these. */
-const ENVELOPE_KINDS = { FINAL_ANSWER: true, MESSAGE: true, NEW_TASK: true } as const;
+const ENVELOPE_KINDS = {
+  FINAL_ANSWER: true,
+  MESSAGE: true,
+  NEW_TASK: true,
+} as const;
 
 export interface Envelope {
   content: string;
@@ -129,16 +133,30 @@ export const emptyUsage = (): AgentUsage => ({
 export const envelopeText = (envelope: Envelope): string =>
   `Message Type: ${envelope.kind}\nTask name: ${envelope.to}\nSender: ${envelope.from}\nPayload:\n${envelope.content}`;
 
-const ENVELOPE_PATTERN = /^Message Type: (.*)\nTask name: (.*)\nSender: (.*)\nPayload:\n/u;
+const ENVELOPE_PATTERN =
+  /^Message Type: (?<kind>.*)\nTask name: (?<to>.*)\nSender: (?<from>.*)\nPayload:\n/u;
 
 const isEnvelopeKind = (value: string): value is Envelope["kind"] =>
   Object.hasOwn(ENVELOPE_KINDS, value);
 
 /** Reads an envelope back for display; the model always receives the text itself. */
 export const readEnvelope = (text: string): Envelope | undefined => {
-  const [header = "", kind = "", to = "", from = ""] = ENVELOPE_PATTERN.exec(text) ?? [];
+  const match = ENVELOPE_PATTERN.exec(text);
+  const kind = match?.groups?.["kind"];
+  const to = match?.groups?.["to"];
+  const from = match?.groups?.["from"];
 
-  return isEnvelopeKind(kind) ? { content: text.slice(header.length), from, kind, to } : undefined;
+  if (
+    match === null ||
+    kind === undefined ||
+    !isEnvelopeKind(kind) ||
+    to === undefined ||
+    from === undefined
+  ) {
+    return undefined;
+  }
+
+  return { content: text.slice(match[0].length), from, kind, to };
 };
 
 export const mailMessage = (mail: Mail) => ({
@@ -155,7 +173,9 @@ export const mailMessage = (mail: Mail) => ({
   display: true,
 });
 
-export const publicStatus = (node: AgentNode | undefined): PublicAgentStatus => {
+export const publicStatus = (
+  node: AgentNode | undefined
+): PublicAgentStatus => {
   if (node === undefined) {
     return "not_found";
   }
@@ -175,7 +195,9 @@ export const isAgentPath = (value: string): boolean => PATH_PATTERN.test(value);
 
 export const childAgentPath = (caller: string, taskName: string): string => {
   if (!SEGMENT_PATTERN.test(taskName)) {
-    throw new Error("task_name must contain only lowercase letters, digits, and underscores");
+    throw new Error(
+      "task_name must contain only lowercase letters, digits, and underscores"
+    );
   }
 
   if (taskName === "root") {

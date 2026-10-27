@@ -28,26 +28,33 @@ const parseForkTurns = (value: string | undefined): ForkTurns => {
   }
 
   if (!/^[1-9][0-9]*$/u.test(normalized)) {
-    throw new Error("fork_turns must be `none`, `all`, or a positive integer string");
+    throw new Error(
+      "fork_turns must be `none`, `all`, or a positive integer string"
+    );
   }
 
   return Math.min(Number(normalized), Number.MAX_SAFE_INTEGER);
 };
 
 const SPAWN_PROPERTIES = {
-  fork_turns: Type.Optional(Type.String({ description: FORK_TURNS_DESCRIPTION })),
+  fork_turns: Type.Optional(
+    Type.String({ description: FORK_TURNS_DESCRIPTION })
+  ),
   message: Type.String({
     description: "Initial plain-text task for the new agent.",
     maxLength: MAX_DURABLE_TEXT,
     minLength: 1,
   }),
-  model: Type.Optional(Type.String({ description: MODEL_DESCRIPTION, minLength: 1 })),
+  model: Type.Optional(
+    Type.String({ description: MODEL_DESCRIPTION, minLength: 1 })
+  ),
   reasoning_effort: Type.Optional({
     ...ThinkingSchema,
     description: REASONING_EFFORT_DESCRIPTION,
   }),
   task_name: Type.String({
-    description: "Task name for the child. Use lowercase letters, digits, and underscores.",
+    description:
+      "Task name for the child. Use lowercase letters, digits, and underscores.",
     pattern: "^[a-z0-9_]+$",
   }),
 };
@@ -63,28 +70,34 @@ const spawnParameters = (config: SubagentsConfig) =>
             Type.String({
               description: [
                 "Agent type override. Omit unless an explicit role is needed.",
-                ...Object.entries(config.roles).map(([name, role]) => roleDescription(name, role)),
+                ...Object.entries(config.roles).map(([name, role]) =>
+                  roleDescription(name, role)
+                ),
               ].join("\n"),
               minLength: 1,
-            }),
+            })
           ),
         },
-        STRICT,
+        STRICT
       );
 
 /** Message text shares the spawn task and final-answer limit: the tree or child session keeps it. */
 const TargetMessageParameters = (target: string, message: string) =>
   Type.Object(
     {
-      message: Type.String({ description: message, maxLength: MAX_DURABLE_TEXT, minLength: 1 }),
+      message: Type.String({
+        description: message,
+        maxLength: MAX_DURABLE_TEXT,
+        minLength: 1,
+      }),
       target: Type.String({ description: target, minLength: 1 }),
     },
-    STRICT,
+    STRICT
   );
 
 type SpawnParameters = Static<ReturnType<typeof spawnParameters>>;
 
-const json = <Visible, Details>(visible: Visible, details: Details) => ({
+const json = <Details>(visible: unknown, details: Details) => ({
   content: [{ text: JSON.stringify(visible), type: "text" as const }],
   details,
 });
@@ -94,7 +107,10 @@ export type ToolController = Pick<
   "followUp" | "interrupt" | "list" | "sendMessage" | "spawn" | "wait"
 >;
 
-const empty = () => ({ content: [{ text: "", type: "text" as const }], details: {} });
+const empty = () => ({
+  content: [{ text: "", type: "text" as const }],
+  details: {},
+});
 
 interface ToolScope {
   caller: string;
@@ -124,7 +140,7 @@ const TOOLS = {
             tools: pi.getActiveTools(),
           },
           ctx,
-          signal,
+          signal
         );
 
         return json({ task_name: spawned.task_name }, spawned);
@@ -152,7 +168,7 @@ const TOOLS = {
       name,
       parameters: TargetMessageParameters(
         "Relative or canonical task name to message, from spawn_agent.",
-        "Message text to queue on the target agent.",
+        "Message text to queue on the target agent."
       ),
       promptSnippet: "Queue a message for another known agent",
     }),
@@ -162,7 +178,13 @@ const TOOLS = {
         "Send a follow-up task to an existing non-root agent. If idle, start a turn; if running, deliver the task at a safe input boundary.",
       execute: async (_id, params, signal, _update, ctx) => {
         signal?.throwIfAborted();
-        await controller.followUp(caller, params.target, params.message, ctx, signal);
+        await controller.followUp(
+          caller,
+          params.target,
+          params.message,
+          ctx,
+          signal
+        );
 
         return empty();
       },
@@ -172,7 +194,7 @@ const TOOLS = {
       name,
       parameters: TargetMessageParameters(
         "Relative or canonical non-root task name, from spawn_agent.",
-        "Follow-up task text for the target agent.",
+        "Follow-up task text for the target agent."
       ),
       promptSnippet: "Wake or continue a known agent with another task",
     }),
@@ -181,7 +203,11 @@ const TOOLS = {
       description:
         "Wait for mailbox activity from any agent or for steered user input. Returns a summary and timeout flag, never the message content.",
       execute: async (_id, params, signal) => {
-        const waited = await controller.wait(caller, params.timeout_ms ?? 30_000, signal);
+        const waited = await controller.wait(
+          caller,
+          params.timeout_ms ?? 30_000,
+          signal
+        );
 
         return json(waited, waited);
       },
@@ -193,11 +219,12 @@ const TOOLS = {
         {
           timeout_ms: Type.Optional(
             Type.Number({
-              description: "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
-            }),
+              description:
+                "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
+            })
           ),
         },
-        STRICT,
+        STRICT
       ),
       promptSnippet: "Wait for incoming agent communication",
     }),
@@ -215,16 +242,19 @@ const TOOLS = {
       exposure: "model-only",
       label: "Interrupt Agent",
       name,
-      parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
+      parameters: Type.Object(
+        { target: Type.String({ minLength: 1 }) },
+        STRICT
+      ),
       promptSnippet: "Interrupt another known agent's active turn",
     }),
   list_agents: ({ caller, controller }: ToolScope, name: string) =>
     defineTool({
       description: `List agents in the current root task tree with their latest status, optionally filtered by task-path prefix. Completed answers are cut to ${MAX_STATUS_TEXT} characters; the parent receives each in full as FINAL_ANSWER mail.`,
-      execute: (_id, params) => {
+      execute: async (_id, params) => {
         const agents = { agents: controller.list(caller, params.path_prefix) };
 
-        return Promise.resolve(json(agents, agents));
+        return json(agents, agents);
       },
       executionMode: "parallel",
       exposure: "model-only",
@@ -234,29 +264,32 @@ const TOOLS = {
         {
           path_prefix: Type.Optional(
             Type.String({
-              description: "Task-path prefix without a trailing slash. Omit to list every agent.",
+              description:
+                "Task-path prefix without a trailing slash. Omit to list every agent.",
               minLength: 1,
-            }),
+            })
           ),
         },
-        STRICT,
+        STRICT
       ),
       promptSnippet: "List the subagent tree and statuses",
     }),
 };
 
 /** Whether the named tool is one this extension registers and draws. */
-export const isCollaborationTool = (name: string): boolean => Object.hasOwn(TOOLS, name);
+export const isCollaborationTool = (name: string): boolean =>
+  Object.hasOwn(TOOLS, name);
 
 /** Registers the collaboration tools for one agent; `caller` is its canonical path. */
 export const registerTools = (
   pi: ExtensionAPI,
   controller: ToolController,
   caller: string,
-  config: SubagentsConfig,
+  config: SubagentsConfig
 ): void => {
   const scope = { caller, config, controller, pi };
 
-  for (const [name, define] of Object.entries(TOOLS))
+  for (const [name, define] of Object.entries(TOOLS)) {
     pi.registerTool({ ...define(scope, name), ...agentRenderers(name) });
+  }
 };

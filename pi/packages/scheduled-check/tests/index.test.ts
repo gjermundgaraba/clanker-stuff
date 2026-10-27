@@ -1,14 +1,21 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { createScheduledCheck } from "../index.js";
 
-beforeEach(() => vi.useFakeTimers());
-
-afterEach(() => vi.useRealTimers());
-
 describe("scheduled check", () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => vi.useRealTimers());
+
   it("coalesces work without postponing the first deadline", () => {
-    const callback = vi.fn();
+    const callback = vi.fn<() => void>();
     const check = createScheduledCheck(callback);
 
     check.request(100);
@@ -23,7 +30,7 @@ describe("scheduled check", () => {
   });
 
   it("replaces a readiness recheck with an earlier deadline", () => {
-    const callback = vi.fn();
+    const callback = vi.fn<() => void>();
     const check = createScheduledCheck(callback);
 
     check.request(1000);
@@ -37,11 +44,14 @@ describe("scheduled check", () => {
   });
 
   it("allows the callback to request another check", () => {
-    const callback = vi.fn(() => {
-      if (callback.mock.calls.length === 1) check.request(10);
-    });
-
+    const callback = vi.fn<() => void>();
     const check = createScheduledCheck(callback);
+
+    callback.mockImplementation(() => {
+      if (callback.mock.calls.length === 1) {
+        check.request(10);
+      }
+    });
 
     check.request(100);
     vi.advanceTimersByTime(100);
@@ -51,7 +61,7 @@ describe("scheduled check", () => {
   });
 
   it("clears pending work without disabling future requests", () => {
-    const callback = vi.fn();
+    const callback = vi.fn<() => void>();
     const check = createScheduledCheck(callback);
 
     check.request(100);

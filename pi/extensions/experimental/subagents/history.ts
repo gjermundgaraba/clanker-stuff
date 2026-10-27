@@ -6,7 +6,9 @@ type ContextMessage = SessionProjection["messages"][number];
 
 type ForkedMessage = Extract<ContextMessage, { role: "assistant" | "user" }>;
 
-const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => {
+const sanitizeMessage = (
+  message: ContextMessage
+): ForkedMessage | undefined => {
   if (message.role === "user") {
     return structuredClone(message);
   }
@@ -59,7 +61,7 @@ const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => 
 
 export const forkHistory = (
   contextMessages: readonly ContextMessage[],
-  turns: ForkTurns,
+  turns: ForkTurns
 ): ForkedMessage[] => {
   if (turns === "none") {
     return [];

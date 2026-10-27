@@ -2,14 +2,14 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { callTarget, Monitor, nextTrack, trackActivity } from "../monitor.js";
-import type { Activity } from "../monitor.js";
+import type { Activity, AgentEventListener, Track } from "../monitor.js";
 
 const START: AgentSessionEvent = { type: "agent_start" };
 
 const toolStart = (
   toolName: string,
   args: unknown,
-  parentToolCallId?: string,
+  parentToolCallId?: string
 ): AgentSessionEvent => ({
   args,
   toolCallId: `${toolName}-call`,
@@ -18,7 +18,10 @@ const toolStart = (
   ...(parentToolCallId === undefined ? {} : { parentToolCallId }),
 });
 
-const toolEnd = (toolName: string, parentToolCallId?: string): AgentSessionEvent => ({
+const toolEnd = (
+  toolName: string,
+  parentToolCallId?: string
+): AgentSessionEvent => ({
   ...(parentToolCallId === undefined ? {} : { parentToolCallId }),
   isError: false,
   result: { content: [] },
@@ -27,16 +30,28 @@ const toolEnd = (toolName: string, parentToolCallId?: string): AgentSessionEvent
   type: "tool_execution_end",
 });
 
-/** Activity after a run that starts and then sees `events`; undefined once it ends. */
-const fold = (events: readonly AgentSessionEvent[]): Activity | undefined => {
-  const track = [START, ...events].reduce(nextTrack, undefined);
+/** Activity after `events`; undefined once the run ends. */
+const activity = (
+  events: readonly AgentSessionEvent[]
+): Activity | undefined => {
+  let track: Track | undefined;
+
+  for (const event of events) {
+    track = nextTrack(track, event);
+  }
 
   return track === undefined ? undefined : trackActivity(track);
 };
 
+/** Activity after a run that starts and then sees `events`; undefined once it ends. */
+const fold = (events: readonly AgentSessionEvent[]): Activity | undefined =>
+  activity([START, ...events]);
+
 describe(callTarget, () => {
   it("prefers the argument that names what the call acts on", () => {
-    expect(callTarget({ limit: 5, offset: 1, path: "src/a.ts" })).toBe("src/a.ts");
+    expect(callTarget({ limit: 5, offset: 1, path: "src/a.ts" })).toBe(
+      "src/a.ts"
+    );
     expect(callTarget({ command: "vp test", timeout: 30 })).toBe("vp test");
     expect(callTarget({ flags: "-i", other: "first string" })).toBe("-i");
     expect(callTarget({ path: "  ", count: 3 })).toBeUndefined();
@@ -52,7 +67,9 @@ describe(nextTrack, () => {
       label: "read",
       target: "a.ts",
     });
-    expect(fold([toolStart("read", { path: "a.ts" }), toolEnd("read")])).toStrictEqual({
+    expect(
+      fold([toolStart("read", { path: "a.ts" }), toolEnd("read")])
+    ).toStrictEqual({
       kind: "phase",
       label: "waiting",
     });
@@ -61,27 +78,35 @@ describe(nextTrack, () => {
         toolStart("read", { path: "a.ts" }),
         toolEnd("read"),
         { reason: "threshold", type: "compaction_start" },
-      ]),
+      ])
     ).toStrictEqual({ kind: "phase", label: "compacting" });
     expect(
-      fold([toolStart("read", {}), { messages: [], type: "agent_end", willRetry: false }]),
+      fold([
+        toolStart("read", {}),
+        { messages: [], type: "agent_end", willRetry: false },
+      ])
     ).toBeUndefined();
   });
 
   it("shows compaction and retries Pi runs between a turn's runs", () => {
     const compacting = { kind: "phase", label: "compacting" };
     const retrying = { kind: "phase", label: "retrying" };
-    const end: AgentSessionEvent = { messages: [], type: "agent_end", willRetry: false };
-    const compactionStart: AgentSessionEvent = { reason: "threshold", type: "compaction_start" };
 
-    const activity = (events: readonly AgentSessionEvent[]) => {
-      const track = events.reduce(nextTrack, undefined);
+    const end: AgentSessionEvent = {
+      messages: [],
+      type: "agent_end",
+      willRetry: false,
+    };
 
-      return track === undefined ? undefined : trackActivity(track);
+    const compactionStart: AgentSessionEvent = {
+      reason: "threshold",
+      type: "compaction_start",
     };
 
     expect(activity([compactionStart])).toStrictEqual(compacting);
-    expect(activity([START, { ...end, willRetry: true }])).toStrictEqual(retrying);
+    expect(activity([START, { ...end, willRetry: true }])).toStrictEqual(
+      retrying
+    );
     expect(
       activity([
         START,
@@ -93,7 +118,7 @@ describe(nextTrack, () => {
           maxAttempts: 3,
           type: "auto_retry_start",
         },
-      ]),
+      ])
     ).toStrictEqual(retrying);
     expect(activity([START, end, compactionStart])).toStrictEqual(compacting);
   });
@@ -104,24 +129,26 @@ describe(nextTrack, () => {
         toolStart("bash", { command: "sleep 9" }),
         toolStart("read", { path: "a.ts" }),
         toolEnd("read"),
-      ]),
+      ])
     ).toStrictEqual({ kind: "tool", label: "bash", target: "sleep 9" });
     expect(
       fold([
         toolStart("bash", { command: "sleep 9" }),
         toolStart("read", { path: "a.ts" }),
         toolEnd("bash"),
-      ]),
+      ])
     ).toStrictEqual({ kind: "tool", label: "read", target: "a.ts" });
   });
 
   it("keeps a Code Mode script as the activity while its nested calls run", () => {
     const script = toolStart("code", { code: "await read()" });
 
-    expect(fold([script, toolStart("read", { path: "a.ts" }, "code-call")])).toStrictEqual(
-      fold([script]),
+    expect(
+      fold([script, toolStart("read", { path: "a.ts" }, "code-call")])
+    ).toStrictEqual(fold([script]));
+    expect(fold([script, toolEnd("read", "code-call")])).toStrictEqual(
+      fold([script])
     );
-    expect(fold([script, toolEnd("read", "code-call")])).toStrictEqual(fold([script]));
   });
 });
 
@@ -131,9 +158,9 @@ describe(Monitor, () => {
       throw cause;
     });
 
-    const changed = vi.fn();
-    const followA = vi.fn();
-    const followB = vi.fn();
+    const changed = vi.fn<() => void>();
+    const followA = vi.fn<AgentEventListener>();
+    const followB = vi.fn<AgentEventListener>();
     monitor.onChange(changed);
     monitor.follow("/root/a", followA);
     const stop = monitor.follow("/root/b", followB);
@@ -166,16 +193,21 @@ describe(Monitor, () => {
 
     const failure = new Error("viewer broke");
 
-    const broken = vi.fn(() => {
+    const broken = vi.fn<AgentEventListener>(() => {
       throw failure;
     });
 
-    const healthy = vi.fn();
+    const healthy = vi.fn<AgentEventListener>();
     monitor.follow("/root/a", broken);
     monitor.follow("/root/a", healthy);
 
-    expect(() => monitor.record("/root/a", START)).toThrow(failure);
-    expect(monitor.activity("/root/a")).toStrictEqual({ kind: "phase", label: "starting" });
+    expect(() => {
+      monitor.record("/root/a", START);
+    }).toThrow(failure);
+    expect(monitor.activity("/root/a")).toStrictEqual({
+      kind: "phase",
+      label: "starting",
+    });
     expect(healthy).toHaveBeenCalledOnce();
 
     monitor.record("/root/a", toolStart("read", { path: "a.ts" }));
@@ -185,15 +217,22 @@ describe(Monitor, () => {
 
   it("reports a failing change listener without failing the change or the other listeners", () => {
     const errors: unknown[] = [];
-    const monitor = new Monitor((cause) => errors.push(cause));
+
+    const monitor = new Monitor((cause) => {
+      errors.push(cause);
+    });
+
     const failure = new Error("widget broke");
-    const healthy = vi.fn();
+    const healthy = vi.fn<() => void>();
+
     monitor.onChange(() => {
       throw failure;
     });
     monitor.onChange(healthy);
 
-    expect(() => monitor.changed()).not.toThrow();
+    expect(() => {
+      monitor.changed();
+    }).not.toThrow();
     expect(healthy).toHaveBeenCalledOnce();
     expect(errors).toStrictEqual([failure]);
   });

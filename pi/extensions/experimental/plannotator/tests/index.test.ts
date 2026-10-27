@@ -1,32 +1,31 @@
+import { setImmediate } from "node:timers/promises";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import extension from "../index.js";
-
-const runtime = vi.hoisted(() => ({
-  launch: vi.fn<() => void>(),
-  shutdown: vi.fn<() => Promise<void>>(async () => await Promise.resolve()),
-}));
-
-const createRuntime = vi.hoisted(() => vi.fn<() => void>());
-
-// oxlint-disable-next-line anti-slop/no-module-mocking -- Exercise the actual lazy import/shutdown race; injecting the loaded runtime would skip this boundary.
-vi.mock(import("../command-runtime.js"), () => ({
-  createCommandRuntime: () => {
-    createRuntime();
-
-    return runtime;
-  },
-  parseArguments: vi.fn<() => string[]>(() => []),
-}));
+import type { createCommandRuntime } from "../command-runtime.js";
+import type { CommandRuntimeLoader } from "../host.js";
+import { createPlannotatorExtension } from "../index.js";
 
 describe("plannotator registration", () => {
   it("does not finish loading after shutdown", async () => {
-    const host = createExtensionHost(extension);
+    const createRuntime = vi.fn<typeof createCommandRuntime>();
+
+    const loaded =
+      Promise.withResolvers<Awaited<ReturnType<CommandRuntimeLoader>>>();
+
+    const host = createExtensionHost(
+      createPlannotatorExtension(async () => await loaded.promise)
+    );
+
     const ctx = host.createContext();
 
     const command = host.runCommand("plannotator-review", "", ctx);
-    await host.emitSessionShutdown(ctx);
+    const shutdown = host.emitSessionShutdown(ctx);
+    // Shutdown reaches the extension while the runtime is still loading.
+    await setImmediate();
+    loaded.resolve({ createCommandRuntime: createRuntime });
+    await shutdown;
     await command;
 
     expect(createRuntime).not.toHaveBeenCalled();

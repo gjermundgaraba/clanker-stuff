@@ -21,7 +21,10 @@ const identity = (message: Message): string =>
 
 /** How many messages from the start of `history` match `held`. Equal to `held.length`
  *  when `history` continues it. The conversation holds copies, so content is compared. */
-export function matchedPrefix(history: readonly Message[], held: readonly Message[]): number {
+export const matchedPrefix = (
+  history: readonly Message[],
+  held: readonly Message[]
+): number => {
   const index = held.findIndex((message, at) => {
     const current = history[at];
 
@@ -29,20 +32,24 @@ export function matchedPrefix(history: readonly Message[], held: readonly Messag
   });
 
   return index === -1 ? held.length : index;
-}
+};
 
 /** What a query is fixed to once it starts: Claude Code's model and effort, the system
  *  prompt, and the MCP server's tools. A parked query only continues while it holds. */
 export const queryKey = (
   context: BridgeContext,
   model: string,
-  effort: string | undefined,
+  effort: string | undefined
 ): string =>
   JSON.stringify([
     model,
     effort ?? null,
     systemText(context.system) ?? null,
-    context.tools.map(({ name, description, parameters }) => [name, description, parameters]),
+    context.tools.map(({ name, description, parameters }) => [
+      name,
+      description,
+      parameters,
+    ]),
   ]);
 
 /** The conversation as the decision needs it. */
@@ -104,25 +111,35 @@ export type Plan =
  *  for its calls, then the user messages pi queued after them (a steer). Read from the end
  *  so a rewritten history (a compaction while the tool ran) is still recognised as the
  *  conversation's next step, not someone else's request. */
-function trailingDelivery(
+const trailingDelivery = (
   history: readonly Message[],
-  waiting: ReadonlySet<string>,
-): { at: number; results: ToolResultMessage[]; steer: Message[] } | undefined {
+  waiting: ReadonlySet<string>
+):
+  | { at: number; results: ToolResultMessage[]; steer: Message[] }
+  | undefined => {
   const steerAt = turnStart(history);
   const results: ToolResultMessage[] = [];
   let at = steerAt;
 
-  for (let message = history[at - 1]; message?.role === "toolResult"; message = history[at - 1]) {
-    if (!waiting.has(message.toolCallId)) return undefined;
+  for (
+    let message = history[at - 1];
+    message?.role === "toolResult";
+    message = history[at - 1]
+  ) {
+    if (!waiting.has(message.toolCallId)) {
+      return undefined;
+    }
 
     results.unshift(message);
-    at--;
+    at -= 1;
   }
 
-  return results.length === 0 ? undefined : { at, results, steer: history.slice(steerAt) };
-}
+  return results.length === 0
+    ? undefined
+    : { at, results, steer: history.slice(steerAt) };
+};
 
-export function plan(state: SyncState, request: SyncRequest): Plan {
+export const plan = (state: SyncState, request: SyncRequest): Plan => {
   const history = request.context.messages;
   const matched = matchedPrefix(history, state.held);
   const continues = matched === state.held.length;
@@ -139,29 +156,55 @@ export function plan(state: SyncState, request: SyncRequest): Plan {
   // The results the parked query waits on make this its conversation's next step; whether
   // the query can take them is another matter.
   const { parked } = state;
-  const delivered = parked === undefined ? undefined : trailingDelivery(history, parked.waiting);
+
+  const delivered =
+    parked === undefined
+      ? undefined
+      : trailingDelivery(history, parked.waiting);
 
   if (parked !== undefined && delivered !== undefined) {
-    if (!continues) return rebuild("diverged");
+    if (!continues) {
+      return rebuild("diverged");
+    }
 
-    if (delivered.at !== state.held.length) return rebuild("tail");
+    if (delivered.at !== state.held.length) {
+      return rebuild("tail");
+    }
 
-    if (request.key !== parked.key) return rebuild("changed");
+    if (request.key !== parked.key) {
+      return rebuild("changed");
+    }
 
-    return { kind: "deliver", results: delivered.results, steer: delivered.steer };
+    return {
+      kind: "deliver",
+      results: delivered.results,
+      steer: delivered.steer,
+    };
   }
 
-  if (state.busy && history.at(-1)?.role === "user") return { kind: "side" };
+  if (state.busy && history.at(-1)?.role === "user") {
+    return { kind: "side" };
+  }
 
-  if (request.aborted && history.at(-1)?.role === "toolResult") return { kind: "finish" };
+  if (request.aborted && history.at(-1)?.role === "toolResult") {
+    return { kind: "finish" };
+  }
 
-  if (state.held.length === 0 || state.session === undefined) return rebuild("none");
+  if (state.held.length === 0 || state.session === undefined) {
+    return rebuild("none");
+  }
 
-  if (!continues) return rebuild("diverged");
+  if (!continues) {
+    return rebuild("diverged");
+  }
 
   if (state.held.length === start && start < history.length) {
-    return { kind: "resume", session: state.session, turn: history.slice(start) };
+    return {
+      kind: "resume",
+      session: state.session,
+      turn: history.slice(start),
+    };
   }
 
   return rebuild("tail");
-}
+};

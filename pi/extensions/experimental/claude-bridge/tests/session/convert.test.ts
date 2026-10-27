@@ -30,7 +30,11 @@ const MCP = "mcp__custom-tools__";
 const convert = (messages: readonly Message[]): SessionMessage[] =>
   convertPiMessages(messages).anthropicMessages;
 
-const toolUse = (id: string, name: string, input: unknown = {}): ContentBlock => ({
+const toolUse = (
+  id: string,
+  name: string,
+  input: unknown = {}
+): ContentBlock => ({
   type: "tool_use",
   id,
   name,
@@ -40,15 +44,28 @@ const toolUse = (id: string, name: string, input: unknown = {}): ContentBlock =>
 const resultBlock = (
   toolUseId: string,
   content: ToolResultBlock["content"],
-  isError = false,
-): ContentBlock => ({ type: "tool_result", tool_use_id: toolUseId, content, is_error: isError });
+  isError = false
+): ContentBlock => ({
+  type: "tool_result",
+  tool_use_id: toolUseId,
+  content,
+  is_error: isError,
+});
 
-const toolResultBlocks = (messages: readonly SessionMessage[]): ToolResultBlock[] =>
+const toolResultBlocks = (
+  messages: readonly SessionMessage[]
+): ToolResultBlock[] =>
   messages
-    .flatMap((message) => (typeof message.content === "string" ? [] : message.content))
+    .flatMap((message) =>
+      typeof message.content === "string" ? [] : message.content
+    )
     .flatMap((block) => (block.type === "tool_result" ? [block] : []));
 
-const pngSource = { type: "base64", media_type: "image/png", data: "BASE64DATA" } as const;
+const pngSource = {
+  type: "base64",
+  media_type: "image/png",
+  data: "BASE64DATA",
+} as const;
 
 describe("tool ID sanitization", () => {
   it("rewrites Kimi-style ids with dots and colons on both halves of the pair", () => {
@@ -56,9 +73,12 @@ describe("tool ID sanitization", () => {
       convert([
         assistant([toolCall("functions.bash:0", "bash", { cmd: "ls" })]),
         toolResult("functions.bash:0", "file.txt"),
-      ]),
-    ).toEqual([
-      { role: "assistant", content: [toolUse("functions_bash_0", `${MCP}bash`, { cmd: "ls" })] },
+      ])
+    ).toStrictEqual([
+      {
+        role: "assistant",
+        content: [toolUse("functions_bash_0", `${MCP}bash`, { cmd: "ls" })],
+      },
       { role: "user", content: [resultBlock("functions_bash_0", "file.txt")] },
     ]);
   });
@@ -68,9 +88,12 @@ describe("tool ID sanitization", () => {
       convert([
         assistant([toolCall("tool call#1@foo", "bash")]),
         toolResult("tool call#1@foo", "ok"),
-      ]),
-    ).toEqual([
-      { role: "assistant", content: [toolUse("tool_call_1_foo", `${MCP}bash`)] },
+      ])
+    ).toStrictEqual([
+      {
+        role: "assistant",
+        content: [toolUse("tool_call_1_foo", `${MCP}bash`)],
+      },
       { role: "user", content: [resultBlock("tool_call_1_foo", "ok")] },
     ]);
   });
@@ -80,9 +103,12 @@ describe("tool ID sanitization", () => {
       convert([
         assistant([toolCall("toolu_abc123-XYZ", "read")]),
         toolResult("toolu_abc123-XYZ", "data"),
-      ]),
-    ).toEqual([
-      { role: "assistant", content: [toolUse("toolu_abc123-XYZ", `${MCP}read`)] },
+      ])
+    ).toStrictEqual([
+      {
+        role: "assistant",
+        content: [toolUse("toolu_abc123-XYZ", `${MCP}read`)],
+      },
       { role: "user", content: [resultBlock("toolu_abc123-XYZ", "data")] },
     ]);
   });
@@ -91,39 +117,53 @@ describe("tool ID sanitization", () => {
     const ids = ["fn.read:0", "fn.write:1", "fn.bash:2"];
 
     const converted = convert(
-      ids.flatMap((id) => [assistant([toolCall(id, "bash")]), toolResult(id, "ok")]),
+      ids.flatMap((id) => [
+        assistant([toolCall(id, "bash")]),
+        toolResult(id, "ok"),
+      ])
     );
 
     const useIds = converted
-      .flatMap((message) => (typeof message.content === "string" ? [] : message.content))
+      .flatMap((message) =>
+        typeof message.content === "string" ? [] : message.content
+      )
       .flatMap((block) => (block.type === "tool_use" ? [block.id] : []));
 
-    expect(useIds).toEqual(["fn_read_0", "fn_write_1", "fn_bash_2"]);
-    expect(toolResultBlocks(converted).map((block) => block.tool_use_id)).toEqual(useIds);
+    expect(useIds).toStrictEqual(["fn_read_0", "fn_write_1", "fn_bash_2"]);
+    expect(
+      toolResultBlocks(converted).map((block) => block.tool_use_id)
+    ).toStrictEqual(useIds);
   });
 });
 
 describe("empty text block filtering", () => {
   it("drops an empty text block beside a tool call", () => {
-    expect(convert([assistant([text(""), toolCall("abc", "read")])])).toEqual([
+    expect(
+      convert([assistant([text(""), toolCall("abc", "read")])])
+    ).toStrictEqual([
       { role: "assistant", content: [toolUse("abc", `${MCP}read`)] },
     ]);
   });
 
   it("replaces an assistant message holding only empty text with a placeholder", () => {
-    expect(convert([assistant([text("")])])).toEqual([
-      { role: "assistant", content: [{ type: "text", text: "[incompatible content omitted]" }] },
+    expect(convert([assistant([text("")])])).toStrictEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[incompatible content omitted]" }],
+      },
     ]);
   });
 
   it("preserves non-empty text", () => {
-    expect(convert([assistant([text("Hello world")])])).toEqual([
+    expect(convert([assistant([text("Hello world")])])).toStrictEqual([
       { role: "assistant", content: [{ type: "text", text: "Hello world" }] },
     ]);
   });
 
   it("keeps only the non-empty blocks among several", () => {
-    expect(convert([assistant([text(""), text("real content"), text("")])])).toEqual([
+    expect(
+      convert([assistant([text(""), text("real content"), text("")])])
+    ).toStrictEqual([
       { role: "assistant", content: [{ type: "text", text: "real content" }] },
     ]);
   });
@@ -132,12 +172,18 @@ describe("empty text block filtering", () => {
 describe("thinking block filtering", () => {
   it("drops thinking from another provider", () => {
     expect(
-      convert([assistant([thinking("let me think..."), text("answer")], "openrouter")]),
-    ).toEqual([{ role: "assistant", content: [{ type: "text", text: "answer" }] }]);
+      convert([
+        assistant([thinking("let me think..."), text("answer")], "openrouter"),
+      ])
+    ).toStrictEqual([
+      { role: "assistant", content: [{ type: "text", text: "answer" }] },
+    ]);
   });
 
   it("keeps signed thinking Claude Code produced", () => {
-    expect(convert([assistant([thinking("reasoning...", "sig123"), text("answer")])])).toEqual([
+    expect(
+      convert([assistant([thinking("reasoning...", "sig123"), text("answer")])])
+    ).toStrictEqual([
       {
         role: "assistant",
         content: [
@@ -151,33 +197,44 @@ describe("thinking block filtering", () => {
   // A signature minted by another provider isn't ours to replay into Claude Code's
   // session, so it is dropped even though the message is Anthropic's.
   it("drops signed thinking from pi's own Anthropic provider", () => {
-    expect(convert([assistant([thinking("hmm", "sig456"), text("done")], "anthropic")])).toEqual([
+    expect(
+      convert([
+        assistant([thinking("hmm", "sig456"), text("done")], "anthropic"),
+      ])
+    ).toStrictEqual([
       { role: "assistant", content: [{ type: "text", text: "done" }] },
     ]);
   });
 
   it("drops unsigned thinking from the bridge", () => {
-    expect(convert([assistant([thinking("no sig"), text("answer")])])).toEqual([
+    expect(
+      convert([assistant([thinking("no sig"), text("answer")])])
+    ).toStrictEqual([
       { role: "assistant", content: [{ type: "text", text: "answer" }] },
     ]);
   });
 
   it("replaces a message holding only foreign thinking with a placeholder", () => {
-    expect(convert([assistant([thinking("deep thoughts")], "deepseek")])).toEqual([
-      { role: "assistant", content: [{ type: "text", text: "[incompatible content omitted]" }] },
+    expect(
+      convert([assistant([thinking("deep thoughts")], "deepseek")])
+    ).toStrictEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[incompatible content omitted]" }],
+      },
     ]);
   });
 });
 
 describe("message structure", () => {
   it("converts a tool result into a user tool_result block", () => {
-    expect(convert([toolResult("id1", "result text")])).toEqual([
+    expect(convert([toolResult("id1", "result text")])).toStrictEqual([
       { role: "user", content: [resultBlock("id1", "result text")] },
     ]);
   });
 
   it("keeps the error flag", () => {
-    expect(convert([toolResult("id1", "oh no", true)])).toEqual([
+    expect(convert([toolResult("id1", "oh no", true)])).toStrictEqual([
       { role: "user", content: [resultBlock("id1", "oh no", true)] },
     ]);
   });
@@ -193,8 +250,8 @@ describe("message structure", () => {
         ]),
         toolResult("t1", "content a"),
         toolResult("t2", "content b"),
-      ]),
-    ).toEqual([
+      ])
+    ).toStrictEqual([
       {
         role: "assistant",
         content: [
@@ -202,7 +259,13 @@ describe("message structure", () => {
           toolUse("t2", `${MCP}read`, { path: "b.txt" }),
         ],
       },
-      { role: "user", content: [resultBlock("t1", "content a"), resultBlock("t2", "content b")] },
+      {
+        role: "user",
+        content: [
+          resultBlock("t1", "content a"),
+          resultBlock("t2", "content b"),
+        ],
+      },
     ]);
   });
 
@@ -215,14 +278,16 @@ describe("message structure", () => {
       toolResult("t2", "b"),
     ]);
 
-    expect(converted.map((message) => message.role)).toEqual([
+    expect(converted.map((message) => message.role)).toStrictEqual([
       "assistant",
       "user",
       "user",
       "assistant",
       "user",
     ]);
-    expect(toolResultBlocks(converted).map((block) => block.tool_use_id)).toEqual(["t1", "t2"]);
+    expect(
+      toolResultBlocks(converted).map((block) => block.tool_use_id)
+    ).toStrictEqual(["t1", "t2"]);
   });
 
   it("converts a mixed conversation, naming the call after the served tool", () => {
@@ -232,36 +297,50 @@ describe("message structure", () => {
         assistant([toolCall("call1", "read", { path: "file.txt" })]),
         toolResult("call1", "hello world"),
         assistant([text("The file says hello world.")]),
-      ]),
-    ).toEqual([
+      ])
+    ).toStrictEqual([
       { role: "user", content: "read file.txt" },
-      { role: "assistant", content: [toolUse("call1", `${MCP}read`, { path: "file.txt" })] },
+      {
+        role: "assistant",
+        content: [toolUse("call1", `${MCP}read`, { path: "file.txt" })],
+      },
       { role: "user", content: [resultBlock("call1", "hello world")] },
-      { role: "assistant", content: [{ type: "text", text: "The file says hello world." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "The file says hello world." }],
+      },
     ]);
   });
 
   it("keeps user string content", () => {
-    expect(convert([user("hello")])).toEqual([{ role: "user", content: "hello" }]);
+    expect(convert([user("hello")])).toStrictEqual([
+      { role: "user", content: "hello" },
+    ]);
   });
 
   it("replaces an empty user string with [empty]", () => {
-    expect(convert([user("")])).toEqual([{ role: "user", content: "[empty]" }]);
+    expect(convert([user("")])).toStrictEqual([
+      { role: "user", content: "[empty]" },
+    ]);
   });
 
   it("keeps user text blocks", () => {
-    expect(convert([user([text("hi")])])).toEqual([
+    expect(convert([user([text("hi")])])).toStrictEqual([
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ]);
   });
 
   it("replaces a user message with no content left with [empty]", () => {
-    expect(convert([user([text("")])])).toEqual([{ role: "user", content: "[empty]" }]);
+    expect(convert([user([text("")])])).toStrictEqual([
+      { role: "user", content: "[empty]" },
+    ]);
   });
 
   // The same blocks a prompt gets: an image the API rejects would fail every later turn.
   it("marks a user image Claude cannot take", () => {
-    expect(convert([user([text("look"), image("BASE64DATA", "image/tiff")])])).toEqual([
+    expect(
+      convert([user([text("look"), image("BASE64DATA", "image/tiff")])])
+    ).toStrictEqual([
       {
         role: "user",
         content: [
@@ -277,10 +356,14 @@ describe("message structure", () => {
   // that is no longer served is still a pi tool.
   it("names every call in the MCP namespace, never after a Claude Code builtin", () => {
     const [message] = convert([
-      assistant([toolCall("a", "read"), toolCall("b", "bash"), toolCall("c", "my_custom_tool")]),
+      assistant([
+        toolCall("a", "read"),
+        toolCall("b", "bash"),
+        toolCall("c", "my_custom_tool"),
+      ]),
     ]);
 
-    expect(message?.content).toEqual([
+    expect(message?.content).toStrictEqual([
       toolUse("a", `${MCP}read`),
       toolUse("b", `${MCP}bash`),
       toolUse("c", `${MCP}my_custom_tool`),
@@ -288,7 +371,9 @@ describe("message structure", () => {
   });
 
   it("joins text tool-result blocks with newlines", () => {
-    expect(convert([toolResult("x", [text("line 1"), text("line 2")])])).toEqual([
+    expect(
+      convert([toolResult("x", [text("line 1"), text("line 2")])])
+    ).toStrictEqual([
       { role: "user", content: [resultBlock("x", "line 1\nline 2")] },
     ]);
   });
@@ -297,8 +382,10 @@ describe("message structure", () => {
   // flattening to text would drop them from a rebuilt session.
   it("keeps image blocks in a tool result instead of flattening to text", () => {
     expect(
-      convert([toolResult("x", [text("captured"), image("BASE64DATA", "image/png")])]),
-    ).toEqual([
+      convert([
+        toolResult("x", [text("captured"), image("BASE64DATA", "image/png")]),
+      ])
+    ).toStrictEqual([
       {
         role: "user",
         content: [
@@ -314,15 +401,20 @@ describe("message structure", () => {
   // The string shape is what Claude Code writes for text-only results; switching to
   // blocks unconditionally would diverge from it and perturb the cache key.
   it("keeps a text-only tool result a flat string", () => {
-    expect(convert([toolResult("x", [text("just text")])])).toEqual([
+    expect(convert([toolResult("x", [text("just text")])])).toStrictEqual([
       { role: "user", content: [resultBlock("x", "just text")] },
     ]);
   });
 
   it("marks tool-result blocks that are neither text nor image", () => {
     expect(
-      convert([toolResult("x", [offTypeBlock("document"), image("BASE64DATA", "image/png")])]),
-    ).toEqual([
+      convert([
+        toolResult("x", [
+          offTypeBlock("document"),
+          image("BASE64DATA", "image/png"),
+        ]),
+      ])
+    ).toStrictEqual([
       {
         role: "user",
         content: [
@@ -336,11 +428,26 @@ describe("message structure", () => {
   });
 
   it("keeps an image-only tool result", () => {
-    expect(convert([toolResult("x", [image("BASE64DATA", "image/png")])])).toEqual([
-      { role: "user", content: [resultBlock("x", [{ type: "image", source: pngSource }])] },
+    expect(
+      convert([toolResult("x", [image("BASE64DATA", "image/png")])])
+    ).toStrictEqual([
+      {
+        role: "user",
+        content: [resultBlock("x", [{ type: "image", source: pngSource }])],
+      },
     ]);
   });
 });
+
+const parallelCall = (n: number): Message[] => {
+  const ids = Array.from({ length: n }, (_, index) => `t${index}`);
+
+  return [
+    user("read them all"),
+    assistant(ids.map((id) => toolCall(id, "read", { path: `${id}.txt` }))),
+    ...ids.map((id) => toolResult(id, `body of ${id}`)),
+  ];
+};
 
 // Every rebuild runs the conversion through repairToolPairing, once in the rebuild and
 // once more inside Session.importMessages. It only pairs results in the user message
@@ -348,26 +455,14 @@ describe("message structure", () => {
 // "[no tool result recorded]" error: that once destroyed the output of every parallel
 // tool call in a rebuilt session.
 describe("conversion survives repairToolPairing", () => {
-  const parallelCall = (n: number): Message[] => {
-    const ids = Array.from({ length: n }, (_, index) => `t${index}`);
-
-    return [
-      user("read them all"),
-      assistant(ids.map((id) => toolCall(id, "read", { path: `${id}.txt` }))),
-      ...ids.map((id) => toolResult(id, `body of ${id}`)),
-    ];
-  };
-
   it("keeps every result of a parallel tool call", () => {
     const converted = convert(parallelCall(3));
     const repaired = repairToolPairing(converted);
 
-    expect(repaired).toEqual(converted);
-    expect(toolResultBlocks(repaired).map((block) => block.content)).toEqual([
-      "body of t0",
-      "body of t1",
-      "body of t2",
-    ]);
+    expect(repaired).toStrictEqual(converted);
+    expect(
+      toolResultBlocks(repaired).map((block) => block.content)
+    ).toStrictEqual(["body of t0", "body of t1", "body of t2"]);
   });
 
   // Mid-turn steering puts a user message between the results, so adjacency alone does
@@ -380,14 +475,17 @@ describe("conversion survives repairToolPairing", () => {
         toolResult("t0", "first"),
         user("actually, also check X"),
         toolResult("t1", "second"),
-      ]),
+      ])
     );
 
-    expect(repaired.map((message) => message.role)).toEqual(["assistant", "user", "user"]);
-    expect(toolResultBlocks(repaired.slice(1, 2)).map((block) => block.content)).toEqual([
-      "first",
-      "second",
+    expect(repaired.map((message) => message.role)).toStrictEqual([
+      "assistant",
+      "user",
+      "user",
     ]);
+    expect(
+      toolResultBlocks(repaired.slice(1, 2)).map((block) => block.content)
+    ).toStrictEqual(["first", "second"]);
     expect(repaired[2]?.content).toBe("actually, also check X");
   });
 
@@ -401,35 +499,45 @@ describe("conversion survives repairToolPairing", () => {
         user("actually stop and check X"),
         toolResult("t0", "first"),
         toolResult("t1", "second"),
-      ]),
+      ])
     );
 
-    expect(repaired.map((message) => message.role)).toEqual(["assistant", "user", "user"]);
-    expect(toolResultBlocks(repaired.slice(1, 2)).map((block) => block.content)).toEqual([
-      "first",
-      "second",
+    expect(repaired.map((message) => message.role)).toStrictEqual([
+      "assistant",
+      "user",
+      "user",
     ]);
+    expect(
+      toolResultBlocks(repaired.slice(1, 2)).map((block) => block.content)
+    ).toStrictEqual(["first", "second"]);
     expect(repaired[2]?.content).toBe("actually stop and check X");
   });
 
   it("leaves no synthetic result stubs behind", () => {
-    const stubs = toolResultBlocks(repairToolPairing(convert(parallelCall(5)))).filter(
+    const stubs = toolResultBlocks(
+      repairToolPairing(convert(parallelCall(5)))
+    ).filter(
       (block) =>
-        typeof block.content === "string" && block.content.includes("no tool result recorded"),
+        typeof block.content === "string" &&
+        block.content.includes("no tool result recorded")
     );
 
-    expect(stubs).toEqual([]);
+    expect(stubs).toStrictEqual([]);
   });
 });
 
 describe("aborted assistant turns", () => {
   it("drops a turn aborted before anything streamed rather than fabricating one", () => {
-    expect(convert([user([text("first ask")]), assistant([]), user([text("second ask")])])).toEqual(
-      [
-        { role: "user", content: [{ type: "text", text: "first ask" }] },
-        { role: "user", content: [{ type: "text", text: "second ask" }] },
-      ],
-    );
+    expect(
+      convert([
+        user([text("first ask")]),
+        assistant([]),
+        user([text("second ask")]),
+      ])
+    ).toStrictEqual([
+      { role: "user", content: [{ type: "text", text: "first ask" }] },
+      { role: "user", content: [{ type: "text", text: "second ask" }] },
+    ]);
   });
 
   // The prompt cache is keyed on exact prefix bytes, so a rebuild must reproduce the
@@ -449,13 +557,17 @@ describe("aborted assistant turns", () => {
       assistant([text("answer")]),
     ]);
 
-    expect(rebuilt).toEqual(live);
+    expect(rebuilt).toStrictEqual(live);
   });
 
   it("lands a result stranded after an aborted turn on the real assistant", () => {
     expect(
-      convert([assistant([toolCall("t1", "bash")]), assistant([]), toolResult("t1", "ok")]),
-    ).toEqual([
+      convert([
+        assistant([toolCall("t1", "bash")]),
+        assistant([]),
+        toolResult("t1", "ok"),
+      ])
+    ).toStrictEqual([
       { role: "assistant", content: [toolUse("t1", `${MCP}bash`)] },
       { role: "user", content: [resultBlock("t1", "ok")] },
     ]);
@@ -471,15 +583,18 @@ describe("dropped-content accounting", () => {
     ]);
 
     expect(dropped.thinking).toBe(1);
-    expect([...dropped.providers]).toEqual(["openrouter"]);
+    expect([...dropped.providers]).toStrictEqual(["openrouter"]);
     expect(dropped.abortedTurns).toBe(1);
     expect(dropped.other.size).toBe(0);
   });
 
   it("reports nothing when everything converts", () => {
-    const { dropped } = convertPiMessages([user([text("hi")]), assistant([text("hello")])]);
+    const { dropped } = convertPiMessages([
+      user([text("hi")]),
+      assistant([text("hello")]),
+    ]);
 
-    expect(dropped).toEqual({
+    expect(dropped).toStrictEqual({
       thinking: 0,
       abortedTurns: 0,
       providers: new Set(),
@@ -499,10 +614,17 @@ describe("dropped-content accounting", () => {
 
 /** Record fields that legitimately differ between two builds of the same history:
  *  identity and clock, none of which reaches the Anthropic prompt. */
-const VOLATILE = new Set(["uuid", "parentUuid", "sessionId", "timestamp", "slug", "requestId"]);
+const VOLATILE = new Set([
+  "uuid",
+  "parentUuid",
+  "sessionId",
+  "timestamp",
+  "slug",
+  "requestId",
+]);
 
-function stableRecord(record: JsonlRecord): string {
-  const entries: [string, unknown][] = Object.entries(record);
+const stableRecord = (record: JsonlRecord): string => {
+  const entries: Array<[string, unknown]> = Object.entries(record);
   const kept = entries.filter(([key]) => !VOLATILE.has(key));
 
   return JSON.stringify(
@@ -511,45 +633,65 @@ function stableRecord(record: JsonlRecord): string {
       key === "message" && typeof value === "object" && value !== null
         ? Object.entries(value).filter(([field]) => field !== "id")
         : value,
-    ]),
+    ])
   );
-}
+};
 
 /** The whole write path reduced to the record content the prompt cache is keyed on. */
-function transcript(messages: readonly Message[]): string[] {
-  const repaired = repairToolPairing(convertPiMessages(messages).anthropicMessages);
+const transcript = (messages: readonly Message[]): string[] => {
+  const repaired = repairToolPairing(
+    convertPiMessages(messages).anthropicMessages
+  );
+
   const session = createSession({ projectPath: process.cwd() });
 
-  if (repaired.length > 0) session.importMessages(repaired);
+  if (repaired.length > 0) {
+    session.importMessages(repaired);
+  }
 
   return session.records.map(stableRecord);
-}
+};
 
 /** Prefix lengths at which every tool call issued so far has its result. Truncating
  *  mid-turn leaves repairToolPairing no choice but to stub the results that have not
  *  arrived, so only settled prefixes can be expected to extend cleanly. */
-function settledPrefixes(messages: readonly Message[]): number[] {
+const settledPrefixes = (messages: readonly Message[]): number[] => {
   const lengths: number[] = [];
   const pending = new Set<string>();
 
   for (const [index, message] of messages.entries()) {
     if (message.role === "assistant") {
-      for (const block of message.content) if (block.type === "toolCall") pending.add(block.id);
+      for (const block of message.content) {
+        if (block.type === "toolCall") {
+          pending.add(block.id);
+        }
+      }
     }
 
-    if (message.role === "toolResult") pending.delete(message.toolCallId);
+    if (message.role === "toolResult") {
+      pending.delete(message.toolCallId);
+    }
 
-    if (pending.size === 0) lengths.push(index + 1);
+    if (pending.size === 0) {
+      lengths.push(index + 1);
+    }
   }
 
   return lengths;
-}
+};
 
-function expectPrefix(shorter: readonly string[], longer: readonly string[], label: string): void {
-  expect(longer.slice(0, shorter.length), label).toEqual(shorter);
-}
+const expectPrefix = (
+  shorter: readonly string[],
+  longer: readonly string[],
+  label: string
+): void => {
+  expect(longer.slice(0, shorter.length), label).toStrictEqual(shorter);
+};
 
-const FixtureText = Type.Object({ type: Type.Literal("text"), text: Type.String() });
+const FixtureText = Type.Object({
+  type: Type.Literal("text"),
+  text: Type.String(),
+});
 
 const FixtureLine = Type.Union([
   Type.Object({ role: Type.Literal("user"), content: Type.Array(FixtureText) }),
@@ -570,7 +712,7 @@ const FixtureLine = Type.Union([
           thinking: Type.String(),
           thinkingSignature: Type.Optional(Type.String()),
         }),
-      ]),
+      ])
     ),
   }),
   Type.Object({
@@ -581,42 +723,52 @@ const FixtureLine = Type.Union([
   }),
 ]);
 
-function decodeFixtureLine(line: string): Message {
+const decodeFixtureLine = (line: string): Message => {
   const raw: unknown = JSON.parse(line);
   const decoded = Value.Parse(FixtureLine, raw);
 
-  if (decoded.role === "user") return user(decoded.content.map((block) => text(block.text)));
+  if (decoded.role === "user") {
+    return user(decoded.content.map((block) => text(block.text)));
+  }
 
   if (decoded.role === "toolResult") {
     return toolResult(
       decoded.toolCallId,
       decoded.content.map((block) => text(block.text)),
-      decoded.isError,
+      decoded.isError
     );
   }
 
   return assistant(
     decoded.content.map((block) => {
-      if (block.type === "text") return text(block.text);
+      if (block.type === "text") {
+        return text(block.text);
+      }
 
-      if (block.type === "thinking") return thinking(block.thinking, block.thinkingSignature);
+      if (block.type === "thinking") {
+        return thinking(block.thinking, block.thinkingSignature);
+      }
 
       const args = toJsonObject(block.arguments);
 
-      if (args === undefined)
+      if (args === undefined) {
         throw new Error(`fixture tool call ${block.id} has no JSON arguments`);
+      }
 
       return toolCall(block.id, block.name, args);
     }),
-    decoded.provider,
+    decoded.provider
   );
-}
+};
 
 // A real 310-message pi session with its content scrubbed: text bodies became
 // `t<n>:<length>` placeholders and tool arguments `a<n>:<length>` ones. Structure
 // (roles, block types, tool ids, providers, thinking signatures, parallel calls) is
 // verbatim, and structure is all these invariants read.
-const corpus = readFileSync(new URL("../fixtures/pi-history-310.jsonl", import.meta.url), "utf8")
+const corpus = readFileSync(
+  new URL("../fixtures/pi-history-310.jsonl", import.meta.url),
+  "utf-8"
+)
   .split("\n")
   .filter((line) => line !== "")
   .map(decodeFixtureLine);
@@ -637,7 +789,7 @@ const exotic: Message[] = [
   toolResult("functions.read:1", [text("shot"), image("BASE64", "image/png")]),
   assistant(
     [thinking("foreign", "sigB"), toolCall("tool call#2@x", "my_custom_tool")],
-    "openrouter",
+    "openrouter"
   ),
   toolResult("tool call#2@x", [], true),
   assistant([thinking("unsigned")]),
@@ -651,11 +803,11 @@ const exotic: Message[] = [
 describe("conversion is deterministic", () => {
   it("converts a real 310-message session identically twice", () => {
     expect(corpus).toHaveLength(310);
-    expect(transcript(corpus)).toEqual(transcript(corpus));
+    expect(transcript(corpus)).toStrictEqual(transcript(corpus));
   });
 
   it("converts parallel calls, images, errors and thinking blocks identically twice", () => {
-    expect(transcript(exotic)).toEqual(transcript(exotic));
+    expect(transcript(exotic)).toStrictEqual(transcript(exotic));
   });
 });
 
@@ -668,44 +820,55 @@ describe("rebuilds extend the transcript instead of rewriting it", () => {
 
     expect(lengths.length).toBeGreaterThan(100);
 
-    for (const n of lengths) expectPrefix(transcript(corpus.slice(0, n)), full, `history[0..${n}]`);
+    for (const n of lengths) {
+      expectPrefix(transcript(corpus.slice(0, n)), full, `history[0..${n}]`);
+    }
   });
 
   it("keeps a settled prefix through every longer history, mid-turn truncation included", () => {
     for (const n of settledPrefixes(exotic)) {
       const shorter = transcript(exotic.slice(0, n));
 
-      for (let m = n + 1; m <= exotic.length; m++) {
-        expectPrefix(shorter, transcript(exotic.slice(0, m)), `exotic[0..${n}] vs [0..${m}]`);
+      for (let m = n + 1; m <= exotic.length; m += 1) {
+        expectPrefix(
+          shorter,
+          transcript(exotic.slice(0, m)),
+          `exotic[0..${n}] vs [0..${m}]`
+        );
       }
     }
   });
 });
 
-// The rebuild repairs before calling importMessages, which repairs again, so a second
-// pass has to be a no-op or every rebuild would differ from the transcript the debug
-// log reports.
-it("repairToolPairing is idempotent over a converted session", () => {
-  const once = repairToolPairing(convertPiMessages(corpus).anthropicMessages);
+describe("convertPiMessages", () => {
+  // The rebuild repairs before calling importMessages, which repairs again, so a second
+  // pass has to be a no-op or every rebuild would differ from the transcript the debug
+  // log reports.
+  it("repairToolPairing is idempotent over a converted session", () => {
+    const once = repairToolPairing(convertPiMessages(corpus).anthropicMessages);
 
-  expect(repairToolPairing(once)).toEqual(once);
-});
+    expect(repairToolPairing(once)).toStrictEqual(once);
+  });
 
-// Prefix stability is satisfiable by a conversion that loses content consistently, so
-// pin the content too: a conversion that dropped every parallel result past the first
-// passed both invariants above.
-it("round-trips a real session with every tool result intact", () => {
-  const blocks = toolResultBlocks(repairToolPairing(convertPiMessages(corpus).anthropicMessages));
+  // Prefix stability is satisfiable by a conversion that loses content consistently, so
+  // pin the content too: a conversion that dropped every parallel result past the first
+  // passed both invariants above.
+  it("round-trips a real session with every tool result intact", () => {
+    const blocks = toolResultBlocks(
+      repairToolPairing(convertPiMessages(corpus).anthropicMessages)
+    );
 
-  const expected = corpus.flatMap((message) =>
-    message.role === "toolResult" ? [message.toolCallId] : [],
-  );
+    const expected = corpus.flatMap((message) =>
+      message.role === "toolResult" ? [message.toolCallId] : []
+    );
 
-  expect(blocks.map((block) => block.tool_use_id)).toEqual(expected);
-  expect(
-    blocks.filter(
-      (block) =>
-        typeof block.content === "string" && block.content.includes("no tool result recorded"),
-    ),
-  ).toEqual([]);
+    expect(blocks.map((block) => block.tool_use_id)).toStrictEqual(expected);
+    expect(
+      blocks.filter(
+        (block) =>
+          typeof block.content === "string" &&
+          block.content.includes("no tool result recorded")
+      )
+    ).toStrictEqual([]);
+  });
 });

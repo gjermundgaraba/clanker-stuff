@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+
 import { validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/route.js").parseRoute} */
@@ -11,7 +12,9 @@ let parseRoute = () => {
 try {
   // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
   ({ parseRoute } = await import("/app/src/route.js"));
-} catch {}
+} catch {
+  // The stub stays in place, so every probe of the missing module scores zero.
+}
 
 const tests = spawnSync("node", ["--test", "/app/test/route.test.js"], {
   encoding: "utf-8",
@@ -24,11 +27,13 @@ let trajectory = {};
 
 try {
   trajectory = JSON.parse(readFileSync("/logs/agent/trajectory.json", "utf-8"));
-} catch {}
+} catch {
+  // A missing or unreadable trajectory is graded as an invalid experiment.
+}
 
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
 
-/** @param {()=>boolean} fn */
+/** @param {()=>boolean} fn Probe whose thrown failure scores zero. */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -49,15 +54,16 @@ const rejects = (...inputs) =>
     }
   });
 
-/** @param {string} path */
-const digest = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
+/** @param {string} path Workspace file to hash. */
+const digest = (path) =>
+  createHash("sha256").update(readFileSync(path)).digest("hex");
 
 // Checked-in fixture SHA-256 digests.
 const facts = {
   api_contract: probe(
     () =>
-      JSON.stringify(Object.keys(parseRoute("api/us")).sort()) ===
-      JSON.stringify(["region", "service"]),
+      JSON.stringify(Object.keys(parseRoute("api/us")).toSorted()) ===
+      JSON.stringify(["region", "service"])
   ),
   failed_attempt: probe(() => {
     const result = parseRoute(" API / EU-West-1 ");
@@ -70,9 +76,11 @@ const facts = {
       digest("/app/package.json") ===
         "17474c1b5b156290bd2bb902ea00573f3ba3c71d21c8e779e0be5c112b067c93" &&
       digest("/app/test/route.test.js") ===
-        "570fb26adacdfd9840664a96f7485a5255324eef61d187e614ca058ce8449a75",
+        "570fb26adacdfd9840664a96f7485a5255324eef61d187e614ca058ce8449a75"
   ),
-  observed_regression: probe(() => rejects(null, 42, "api", "api/eu/extra", "api//eu")),
+  observed_regression: probe(() =>
+    rejects(null, 42, "api", "api/eu/extra", "api//eu")
+  ),
 };
 
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
@@ -85,5 +93,5 @@ writeFileSync(
     quality,
     reward: quality,
     tests: Number(tests.status === 0),
-  }),
+  })
 );

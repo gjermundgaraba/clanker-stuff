@@ -18,10 +18,10 @@ Last verified: local macOS, storage shape inspected without transcript bodies.
 
 ## Sources
 
-| Priority | Location                                                                | Kind  | Authority | Contains           | Parser State | Collection Policy   | Sensitivity |
-| -------- | ----------------------------------------------------------------------- | ----- | --------- | ------------------ | ------------ | ------------------- | ----------- |
-| 1        | `$HOME/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<session-id>.jsonl` | JSONL | primary   | session transcript | partial      | collect             | private     |
-| 2        | `$HOME/.pi/agent/running-summary/sessions/<session-id>.json`            | JSON  | derived   | summary state      | schema_known | collect_when_needed | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<session-id>.jsonl` | JSONL | primary | session transcript | partial | collect | private |
+| 2 | `$HOME/.pi/agent/running-summary/sessions/<session-id>.json` | JSON | derived | summary state | schema_known | collect_when_needed | private |
 
 ## Find
 

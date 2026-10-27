@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -31,17 +32,17 @@ const parseConfig = (text) => {
 // Pi emits a present undefined result on failed/aborted compaction; malformed/missing terminal fields remain testable.
 /** @typedef {{aborted?: boolean, errorMessage?: string, result?: {usage?: unknown}|undefined, type: "compaction_end"}} CompactionTerminal */
 
-/** @param {CompactionTerminal} event */
+/** @param {CompactionTerminal} event Pi's compaction_end event. */
 const compactionState = (event) => {
   if (event.aborted !== true && event.aborted !== false) {
-    return undefined;
+    return;
   }
 
   if (event.aborted) {
     return event.errorMessage === undefined ? "aborted" : undefined;
   }
 
-  if (event.errorMessage) {
+  if (typeof event.errorMessage === "string" && event.errorMessage !== "") {
     return "failed";
   }
 
@@ -51,15 +52,22 @@ const compactionState = (event) => {
 };
 
 /**
- * @param {CompactionTerminal[]} terminals
- * @param {Error | undefined} commandError
- * @param {boolean} commandTimedOut
+ * @param {CompactionTerminal[]} terminals compaction_end events Pi emitted.
+ * @param {Error | undefined} commandError Failure of the compact command, other than its timeout.
+ * @param {boolean} commandTimedOut Whether the compact command hit its timeout, which accounts for a failed or aborted terminal event.
  */
-export const validateCompaction = (terminals, commandError, commandTimedOut) => {
-  const terminal = terminals[0];
+export const validateCompaction = (
+  terminals,
+  commandError,
+  commandTimedOut
+) => {
+  const [terminal] = terminals;
 
   if (terminals.length !== 1 || terminal === undefined) {
-    throw commandError ?? new Error("Pi manual compaction did not emit one terminal event");
+    throw (
+      commandError ??
+      new Error("Pi manual compaction did not emit one terminal event")
+    );
   }
 
   const state = compactionState(terminal);
@@ -70,23 +78,29 @@ export const validateCompaction = (terminals, commandError, commandTimedOut) => 
       : commandTimedOut || commandError !== undefined;
 
   if (state === undefined || !commandConsistent) {
-    throw commandError ?? new Error("Pi manual compaction emitted an invalid terminal event");
+    throw (
+      commandError ??
+      new Error("Pi manual compaction emitted an invalid terminal event")
+    );
   }
 
   return state;
 };
 
-/** @param {string} configPath */
+/** @param {string} configPath JSON file naming the Pi arguments, working directory, provider and model. */
 const run = async (configPath) => {
   const config = parseConfig(await readFile(configPath, "utf-8"));
 
   /** @type {import("@earendil-works/pi-coding-agent").JsonAgentSessionEvent[]} */
   const events = [];
-  const { promise: completionEvent, resolve: resolveCompletion } = Promise.withResolvers();
+
+  const { promise: completionEvent, resolve: resolveCompletion } =
+    Promise.withResolvers();
 
   const client = new RpcClient({
     args: config.args,
-    cliPath: "/opt/pi-evals/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+    cliPath:
+      "/opt/pi-evals/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
     cwd: config.cwd,
     model: config.model,
     provider: config.provider,
@@ -116,14 +130,19 @@ const run = async (configPath) => {
       await client.compact();
     } catch (error) {
       if (error instanceof Error) {
-        commandTimedOut = error.message.startsWith("Timeout waiting for response to compact.");
+        commandTimedOut = error.message.startsWith(
+          "Timeout waiting for response to compact."
+        );
         commandError = commandTimedOut ? undefined : error;
       } else {
         throw error;
       }
     }
 
-    if (commandTimedOut && !events.some((event) => event.type === "compaction_end")) {
+    if (
+      commandTimedOut &&
+      !events.some((event) => event.type === "compaction_end")
+    ) {
       await completionEvent;
     }
 
@@ -135,8 +154,12 @@ const run = async (configPath) => {
   }
 };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const configPath = process.argv[2];
+if (
+  process.argv[1] !== undefined &&
+  process.argv[1] !== "" &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
+  const [configPath] = process.argv.slice(2);
 
   // The image build runs this without arguments: the usage error proves the entry point and its
   // deployed dependencies load.

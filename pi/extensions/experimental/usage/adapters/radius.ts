@@ -22,7 +22,7 @@ const RadiusBillingPayloadSchema = Type.Object({
 
 export const mapRadiusBillingPayload = (
   payload: Static<typeof RadiusBillingPayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const periodEndsAt = parseIso(payload.current_period.ends_at);
 
@@ -45,13 +45,13 @@ export const mapRadiusBillingPayload = (
   });
 };
 
-export const fetchRadiusUsage = (
+export const fetchRadiusUsage = async (
   deps: AdapterDeps,
-  billingUrl: string,
+  billingUrl: string
 ): Promise<UsageFetchResult> =>
-  fetchUsage(
+  await fetchUsage(
     deps,
     "radius",
     { url: billingUrl, schema: RadiusBillingPayloadSchema },
-    mapRadiusBillingPayload,
+    mapRadiusBillingPayload
   );

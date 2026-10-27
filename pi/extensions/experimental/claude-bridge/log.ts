@@ -12,17 +12,26 @@ const EXTENSION_ID = "claude-bridge";
 // Unique per module evaluation: shows whether subagents share module state.
 const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
-const isDebugEnabled = (): boolean => process.env["CLAUDE_BRIDGE_DEBUG"] === "1";
+const isDebugEnabled = (): boolean =>
+  process.env["CLAUDE_BRIDGE_DEBUG"] === "1";
 
 /** Paths resolve per call so tests can swap the environment mid-process. */
-export function debugLogPath(): string {
+export const debugLogPath = (): string => {
   const override = process.env["CLAUDE_BRIDGE_DEBUG_PATH"];
 
-  return override || path.join(getExtensionStoragePaths(EXTENSION_ID).dataDir, "logs", "debug.log");
-}
+  return override !== undefined && override !== ""
+    ? override
+    : path.join(
+        getExtensionStoragePaths(EXTENSION_ID).dataDir,
+        "logs",
+        "debug.log"
+      );
+};
 
 const format = (value: unknown): string => {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    return value;
+  }
 
   if (value instanceof Error) {
     return `${value.name}: ${value.message}${value.stack === undefined ? "" : `\n${value.stack}`}`;
@@ -31,25 +40,27 @@ const format = (value: unknown): string => {
   return JSON.stringify(value) ?? String(value);
 };
 
-export function debug(...args: unknown[]): void {
-  if (!isDebugEnabled()) return;
+export const debug = (...args: unknown[]): void => {
+  if (!isDebugEnabled()) {
+    return;
+  }
 
   const logPath = debugLogPath();
 
   mkdirSync(path.dirname(logPath), { recursive: true });
   appendFileSync(
     logPath,
-    `[${new Date().toISOString()}] [${moduleInstanceId}] ${args.map(format).join(" ")}\n`,
+    `[${new Date().toISOString()}] [${moduleInstanceId}] ${args.map(format).join(" ")}\n`
   );
-}
+};
 
 /** Snapshot for a "should never happen" path, kept in the debug log under one greppable tag. */
-export function diagDump(
+export const diagDump = (
   label: string,
-  data: Record<string, string | number | boolean | null>,
-): void {
+  data: Record<string, string | number | boolean | null>
+): void => {
   debug(`DIAG ${label}`, data);
-}
+};
 
 interface CliDebugOptions {
   debug?: boolean;
@@ -61,11 +72,14 @@ let nextCliDebugSeq = 1;
 
 /** Claude Code's own debug log for one query, plus its stderr in the bridge trace. Without
  *  it, "No conversation found" and empty-error reports are unactionable. */
-export function cliDebugOptions(tag: string): CliDebugOptions {
-  if (!isDebugEnabled()) return {};
+export const cliDebugOptions = (tag: string): CliDebugOptions => {
+  if (!isDebugEnabled()) {
+    return {};
+  }
 
-  const seq = nextCliDebugSeq++;
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const seq = nextCliDebugSeq;
+  nextCliDebugSeq += 1;
+  const stamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
   const logDir = path.join(path.dirname(debugLogPath()), "cc-cli");
 
   mkdirSync(logDir, { recursive: true });
@@ -78,21 +92,29 @@ export function cliDebugOptions(tag: string): CliDebugOptions {
     debug: true,
     debugFile,
     stderr: (data) => {
-      for (const line of data.split(/\r?\n/)) {
-        if (line) debug(`[cli-stderr ${tag}#${seq}] ${line}`);
+      for (const line of data.split(/\r?\n/u)) {
+        if (line) {
+          debug(`[cli-stderr ${tag}#${seq}] ${line}`);
+        }
       }
     },
   };
-}
+};
 
-export function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
+export const errorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
 
   if (typeof error === "object" && error !== null) {
-    if ("message" in error && typeof error.message === "string") return error.message;
+    if ("message" in error && typeof error.message === "string") {
+      return error.message;
+    }
 
-    if ("error" in error && typeof error.error === "string") return error.error;
+    if ("error" in error && typeof error.error === "string") {
+      return error.error;
+    }
   }
 
   return format(error);
-}
+};

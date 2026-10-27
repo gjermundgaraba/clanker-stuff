@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
+
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildTree, filterTree, flattenTree, followSelection } from "../tree.js";
-import { fixtureMessage, fixturePart, fixtureSnapshot } from "./fixtures/snapshot.js";
+import {
+  buildTree,
+  filterTree,
+  flattenTree,
+  followSelection,
+} from "../tree.js";
+import {
+  fixtureMessage,
+  fixturePart,
+  fixtureSnapshot,
+} from "./fixtures/snapshot.js";
 
 const message = fixtureMessage("1. user", "hello world", 3);
 
@@ -14,31 +24,38 @@ const tree = buildTree({
 
 describe("tree", () => {
   it("groups definitions and messages without duplicating the system prompt", () => {
-    expect(tree.map((node) => node.id)).toEqual(["system", "tools", "messages"]);
-    expect(flattenTree(tree, new Set()).map((row) => row.node.id)).toEqual([
+    expect(tree.map((node) => node.id)).toStrictEqual([
       "system",
       "tools",
       "messages",
     ]);
-    expect(flattenTree(tree, new Set(["tools"])).map((row) => row.node.id)).toEqual([
-      "system",
-      "tools",
-      "tools-0",
-      "messages",
-    ]);
-    expect(tree[2]?.children).toEqual([
+    expect(
+      flattenTree(tree, new Set()).map((row) => row.node.id)
+    ).toStrictEqual(["system", "tools", "messages"]);
+    expect(
+      flattenTree(tree, new Set(["tools"])).map((row) => row.node.id)
+    ).toStrictEqual(["system", "tools", "tools-0", "messages"]);
+    expect(tree[2]?.children).toStrictEqual([
       { ...message, id: `messages-${message.sourceEntryId}`, children: [] },
     ]);
     expect(tree[2]?.estimatedTokens).toBe(message.estimatedTokens);
   });
+
   it("matches bodies and keeps children when the group itself matches", () => {
-    expect(filterTree(tree, "hello").map((node) => node.id)).toEqual(["messages"]);
-    expect(filterTree(tree, "hello")[0]?.children[0]?.body).toContain("hello world");
+    expect(filterTree(tree, "hello").map((node) => node.id)).toStrictEqual([
+      "messages",
+    ]);
+    expect(filterTree(tree, "hello")[0]?.children[0]?.body).toContain(
+      "hello world"
+    );
     const tools = tree.find((node) => node.id === "tools");
     assert.ok(tools);
-    expect(filterTree(tree, "Tool declarations")[0]?.children).toEqual(tools.children);
-    expect(filterTree(tree, "nothing matches")).toEqual([]);
+    expect(filterTree(tree, "Tool declarations")[0]?.children).toStrictEqual(
+      tools.children
+    );
+    expect(filterTree(tree, "nothing matches")).toStrictEqual([]);
   });
+
   it.each([
     [0, 0, 5, 20, 0],
     [6, 0, 5, 20, 2],
@@ -50,6 +67,6 @@ describe("tree", () => {
     "follows selection %s from scroll %s in %s rows",
     (selected, scroll, viewport, total, expected) => {
       expect(followSelection(selected, scroll, viewport, total)).toBe(expected);
-    },
+    }
   );
 });

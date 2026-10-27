@@ -9,7 +9,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-import { historyItemFromEntry, type HistoryItem } from "./history.js";
+import { historyItemFromEntry } from "./history.js";
+import type { HistoryItem } from "./history.js";
 import { saveHistoryBatch } from "./storage.js";
 
 const SessionHeaderSchema = Type.Object({ type: Type.Literal("session") });
@@ -25,9 +26,9 @@ const listDirectory = async (directory: string) => {
 
 const readSessionHistory = async (
   file: string,
-  signal: AbortSignal,
+  signal: AbortSignal
 ): Promise<HistoryItem[] | undefined> => {
-  const stream = createReadStream(file, { encoding: "utf8", signal });
+  const stream = createReadStream(file, { encoding: "utf-8", signal });
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
   let history: HistoryItem[] | undefined;
 
@@ -42,7 +43,9 @@ const readSessionHistory = async (
         continue;
       }
 
-      if (!entry) continue;
+      if (entry === null || entry === false || entry === 0 || entry === "") {
+        continue;
+      }
 
       if (history === undefined) {
         // Like Pi's discovery, require the first parsed entry to be a session header.
@@ -56,7 +59,9 @@ const readSessionHistory = async (
 
       const item = historyItemFromEntry(entry);
 
-      if (item) history.push(item);
+      if (item) {
+        history.push(item);
+      }
     }
 
     return history;
@@ -75,18 +80,22 @@ export const importPersistentHistory = async (
   database: DatabaseSync,
   currentSessionDirectory: string,
   onProgress: (status: string) => void,
-  signal: AbortSignal,
+  signal: AbortSignal
 ): Promise<number> => {
   signal.throwIfAborted();
   const defaultRoot = path.join(getAgentDir(), "sessions");
 
+  const defaultEntries = await listDirectory(defaultRoot);
+
   const directories = new Set(
-    (await listDirectory(defaultRoot))
+    defaultEntries
       .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-      .map((entry) => path.join(defaultRoot, entry.name)),
+      .map((entry) => path.join(defaultRoot, entry.name))
   );
 
-  if (currentSessionDirectory) directories.add(path.resolve(currentSessionDirectory));
+  if (currentSessionDirectory) {
+    directories.add(path.resolve(currentSessionDirectory));
+  }
 
   const candidates: string[] = [];
 
@@ -94,7 +103,9 @@ export const importPersistentHistory = async (
     signal.throwIfAborted();
 
     for (const entry of await listDirectory(directory)) {
-      if (entry.name.endsWith(".jsonl")) candidates.push(path.join(directory, entry.name));
+      if (entry.name.endsWith(".jsonl")) {
+        candidates.push(path.join(directory, entry.name));
+      }
     }
 
     onProgress(`discovering history: ${candidates.length} files`);
@@ -102,7 +113,7 @@ export const importPersistentHistory = async (
 
   let files = 0;
 
-  for (const [index, file] of candidates.sort().entries()) {
+  for (const [index, file] of candidates.toSorted().entries()) {
     signal.throwIfAborted();
     const entries = await readSessionHistory(file, signal);
     signal.throwIfAborted();

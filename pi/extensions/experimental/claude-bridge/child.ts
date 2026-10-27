@@ -1,6 +1,11 @@
 // What every Claude Code subprocess the bridge spawns runs with.
 
-import type { Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  Options,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 
 /** The part of the SDK's `Query` the bridge uses: its messages, and stopping it. */
 export interface BridgeQuery
@@ -27,19 +32,26 @@ const CHILD_ENV = {
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
 } as const;
 
-export const childEnv = (): NodeJS.ProcessEnv => ({ ...process.env, ...CHILD_ENV });
+export const childEnv = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  ...CHILD_ENV,
+});
 
 /** Stop a query now: interrupt() asks the CLI to stop gracefully and close() kills it.
  *  Both are needed, since interrupt alone lets the current API call finish. Neither may
  *  throw out of an abort path. */
-export function stopQuery(query: BridgeQuery | undefined): void {
-  if (query === undefined) return;
+export const stopQuery = (query: BridgeQuery | undefined): void => {
+  if (query === undefined) {
+    return;
+  }
 
-  void query.interrupt().catch(() => {});
+  void query.interrupt().catch(() => {
+    // A query that already ended refuses the interrupt.
+  });
 
   try {
     query.close();
   } catch {
     // Already gone.
   }
-}
+};

@@ -6,10 +6,14 @@ One opinionated application-module style uses file-local role names and one cano
 
 ```ts
 export interface Interface {
-  readonly get: (id: UserId) => Effect.Effect<User, NotFound | PersistenceError>;
+  readonly get: (
+    id: UserId
+  ) => Effect.Effect<User, NotFound | PersistenceError>;
 }
 
-export class Service extends Context.Service<Service, Interface>()("@app/UserRepo") {}
+export class Service extends Context.Service<Service, Interface>()(
+  "@app/UserRepo"
+) {}
 
 export const layer = Layer.effect(
   Service,
@@ -21,10 +25,13 @@ export const layer = Layer.effect(
     });
 
     return Service.of({ get });
-  }),
+  })
 );
 
-export class NotFound extends Schema.TaggedError<NotFound>()("UserRepo.NotFound", { id: UserId }) {}
+export class NotFound extends Schema.TaggedError<NotFound>()(
+  "UserRepo.NotFound",
+  { id: UserId }
+) {}
 
 export * as UserRepo from "./user-repo.js";
 ```

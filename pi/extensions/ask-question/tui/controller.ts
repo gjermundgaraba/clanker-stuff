@@ -1,6 +1,16 @@
-import type { ExtensionContext, Theme, KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
+import type {
+  ExtensionContext,
+  Theme,
+  KeybindingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, Editor, Markdown } from "@earendil-works/pi-tui";
+import {
+  CURSOR_MARKER,
+  Editor,
+  Markdown,
+  truncateToWidth,
+} from "@earendil-works/pi-tui";
 import type {
   ProgramStatus,
   Terminal,
@@ -8,10 +18,12 @@ import type {
   TuiMouseEvent,
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
+
 import type { Action, Draft, Interaction } from "../interaction.js";
 import { answered, revisedSubmission } from "../interaction.js";
 import { MAX_NOTE, MAX_TEXT } from "../request.js";
 import type { Question } from "../request.js";
+import { intent, keyLabel } from "./input.js";
 import {
   Viewport,
   diffText,
@@ -24,21 +36,18 @@ import {
   reviewText,
   textLines,
 } from "./render.js";
-import { truncateToWidth } from "@earendil-works/pi-tui";
-import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
-import { intent, keyLabel } from "./input.js";
 
 export type FormOutcome = "submitted" | "closed" | "cancelled" | "stopped";
 
 export interface FormPort {
-  mutate(action: Action): Interaction;
-  current(): Interaction;
-  subscribe(listener: () => void): () => void;
-  send(revision: number): void;
+  mutate: (action: Action) => Interaction;
+  current: () => Interaction;
+  subscribe: (listener: () => void) => () => void;
+  send: (revision: number) => void;
   blocking: boolean;
-  setFlush(flush: () => void): void;
-  notify(text: string): void;
-  report(cause: unknown): void;
+  setFlush: (flush: () => void) => void;
+  notify: (text: string) => void;
+  report: (cause: unknown) => void;
 }
 
 /** The edited field, as the action that saves it without its text. */
@@ -52,12 +61,16 @@ export class QuestionnaireView {
   private highlight = 0;
   private readonly viewport = new Viewport();
   private readonly markdown = new Map<string, Markdown>();
-  private detail: { title: string; text: string; markdown: boolean } | undefined;
-  private editor: { component: Editor; field: Field; initial: string; limit: number } | undefined;
+  private detail:
+    | { title: string; text: string; markdown: boolean }
+    | undefined;
+  private editor:
+    | { component: Editor; field: Field; initial: string; limit: number }
+    | undefined;
   private hint = "";
   private armedCancel = false;
   private finished = false;
-  private unsubscribe: () => void;
+  private readonly unsubscribe: () => void;
   private _focused = false;
   private readonly abort = () => {
     try {
@@ -82,7 +95,7 @@ export class QuestionnaireView {
     item: Interaction,
     port: FormPort,
     done: (result: FormOutcome) => void,
-    signal: AbortSignal,
+    signal: AbortSignal
   ) {
     this.tui = tui;
     this.theme = theme;
@@ -93,18 +106,22 @@ export class QuestionnaireView {
     this.item = item;
 
     const open = item.request.questions.findIndex(
-      (q) => !item.draft || !answered(item.draft.answers[q.id]),
+      (q) => !item.draft || !answered(item.draft.answers[q.id])
     );
 
-    this.go(open < 0 ? item.request.questions.length : open);
+    this.go(open === -1 ? item.request.questions.length : open);
     this.unsubscribe = port.subscribe(() => {
       this.item = port.current();
       tui.requestRender();
     });
-    port.setFlush(() => this.flush());
+    port.setFlush(() => {
+      this.flush();
+    });
     signal.addEventListener("abort", this.abort, { once: true });
 
-    if (signal.aborted) queueMicrotask(this.abort);
+    if (signal.aborted) {
+      queueMicrotask(this.abort);
+    }
   }
   get focused(): boolean {
     return this._focused;
@@ -112,7 +129,9 @@ export class QuestionnaireView {
   set focused(value: boolean) {
     this._focused = value;
 
-    if (this.editor) this.editor.component.focused = value;
+    if (this.editor) {
+      this.editor.component.focused = value;
+    }
   }
   /** Saves an open editor; used by Stop, close and navigation. */
   flush(): void {
@@ -125,10 +144,16 @@ export class QuestionnaireView {
   private saveField(force = false): void {
     const editing = this.editor;
 
-    if (!editing) return;
+    if (!editing) {
+      return;
+    }
+
     const text = editing.component.getText();
 
-    if (!force && text === editing.initial) return;
+    if (!force && text === editing.initial) {
+      return;
+    }
+
     this.change({ ...editing.field, text });
     editing.initial = text;
   }
@@ -146,13 +171,17 @@ export class QuestionnaireView {
 
     component.setText(value);
     component.focused = this.focused;
-    // Completion and newline are handled with the injected app manager, not Editor's global manager.
-    component.onSubmit = () => {};
+    component.onSubmit = () => {
+      // Completion and newline are handled with the injected app manager, not Editor's global manager.
+    };
 
     const limit = field.type === "custom" ? MAX_TEXT : MAX_NOTE;
     component.onChange = () => {
-      const length = component.getText().length;
-      this.hint = length > limit ? `${length}/${limit} · over the limit, shorten to save` : "";
+      const { length } = component.getText();
+      this.hint =
+        length > limit
+          ? `${length}/${limit} · over the limit, shorten to save`
+          : "";
     };
 
     this.editor = { component, field, initial: value, limit };
@@ -161,42 +190,67 @@ export class QuestionnaireView {
   }
   /** Moves to a question (or Review) and highlights its current answer. */
   private go(index: number): void {
-    const questions = this.item.request.questions;
+    const { questions } = this.item.request;
     this.question = Math.max(0, Math.min(index, questions.length));
     const q = questions[this.question];
     const a = q && this.item.draft?.answers[q.id];
-    const selected = q?.options?.findIndex((o) => a?.selected.includes(o.id)) ?? -1;
-    this.highlight = selected >= 0 ? selected : a?.custom_selected ? (q?.options?.length ?? 0) : 0;
+
+    const selected =
+      q?.options?.findIndex((o) => a?.selected.includes(o.id) === true) ?? -1;
+
+    if (selected >= 0) {
+      this.highlight = selected;
+    } else if (a?.custom_selected === true) {
+      this.highlight = q?.options?.length ?? 0;
+    } else {
+      this.highlight = 0;
+    }
+
     this.viewport.scroll = 0;
   }
   private choose(index: number, toggle = false): void {
     const q = this.item.request.questions[this.question];
     const draft = q && this.item.draft?.answers[q.id];
 
-    if (!q || !draft) throw new Error("No editable question");
+    if (!q || !draft) {
+      throw new Error("No editable question");
+    }
+
     const option = q.options?.[index];
 
     if (!option) {
-      if (toggle && q.multi_select) this.change({ type: "toggle_custom", question: q.id });
-      else this.edit({ type: "custom", question: q.id }, draft.custom);
+      if (toggle && q.multi_select === true) {
+        this.change({ type: "toggle_custom", question: q.id });
+      } else {
+        this.edit({ type: "custom", question: q.id }, draft.custom);
+      }
 
       return;
     }
 
     this.change({ type: "select", question: q.id, option: option.id });
 
-    if (!q.multi_select) this.go(this.question + 1);
+    if (q.multi_select !== true) {
+      this.go(this.question + 1);
+    }
   }
   private finish(outcome: FormOutcome): void {
-    if (this.finished) return;
+    if (this.finished) {
+      return;
+    }
 
-    if (outcome !== "stopped") this.saveField();
+    if (outcome !== "stopped") {
+      this.saveField();
+    }
+
     this.finished = true;
     this.dispose();
     this.done(outcome);
   }
   handleInput(data: string): void {
-    if (this.finished) return;
+    if (this.finished) {
+      return;
+    }
 
     try {
       this.processInput(data);
@@ -225,12 +279,16 @@ export class QuestionnaireView {
         this.editor = undefined;
         this.viewport.scroll = 0;
 
-        if (field.type === "custom") this.afterWritten(field.question);
+        if (field.type === "custom") {
+          this.afterWritten(field.question);
+        }
       } else if (this.keys.matches(data, "tui.select.cancel")) {
         this.editor = undefined;
         this.hint = "";
         this.viewport.scroll = 0;
-      } else component.handleInput(data);
+      } else {
+        component.handleInput(data);
+      }
 
       return;
     }
@@ -238,7 +296,7 @@ export class QuestionnaireView {
     const action = intent(
       this.keys,
       data,
-      !!this.detail || this.question < this.item.request.questions.length,
+      !!this.detail || this.question < this.item.request.questions.length
     );
 
     const confirmCancel = this.armedCancel && action === "key:x";
@@ -256,7 +314,9 @@ export class QuestionnaireView {
       if (action === "close" || action === "back" || action === "confirm") {
         this.detail = undefined;
         this.viewport.scroll = 0;
-      } else if (action === "up" || action === "down") this.viewport.by(action === "up" ? -1 : 1);
+      } else if (action === "up" || action === "down") {
+        this.viewport.by(action === "up" ? -1 : 1);
+      }
 
       return;
     }
@@ -308,7 +368,7 @@ export class QuestionnaireView {
     if (action === "key:i") {
       this.detail = {
         title: "Request details",
-        text: `ID: ${this.item.id}\nCreated: ${this.item.created_at}${this.item.draft?.reason ? `\nRevision requested: ${this.item.draft.reason}` : ""}`,
+        text: `ID: ${this.item.id}\nCreated: ${this.item.created_at}${this.item.draft?.reason !== undefined && this.item.draft.reason !== "" ? `\nRevision requested: ${this.item.draft.reason}` : ""}`,
         markdown: false,
       };
       this.viewport.scroll = 0;
@@ -317,7 +377,11 @@ export class QuestionnaireView {
     }
 
     if (action === "key:d") {
-      this.detail = { title: "Revision comparison", text: diffText(this.item), markdown: false };
+      this.detail = {
+        title: "Revision comparison",
+        text: diffText(this.item),
+        markdown: false,
+      };
       this.viewport.scroll = 0;
 
       return;
@@ -326,7 +390,7 @@ export class QuestionnaireView {
     const q = this.item.request.questions[this.question];
 
     if (!q) {
-      if (/^key:[1-5]$/.test(action)) {
+      if (/^key:[1-5]$/u.test(action)) {
         this.go(Number(action.slice(-1)) - 1);
 
         return;
@@ -337,11 +401,22 @@ export class QuestionnaireView {
 
         if (!this.port.blocking) {
           try {
-            if (action === "key:k")
-              this.port.notify("Answers saved, not sent · /answers to send them");
-            else this.port.send(this.item.submissions.at(-1)!.revision);
+            if (action === "key:k") {
+              this.port.notify(
+                "Answers saved, not sent · /answers to send them"
+              );
+            } else {
+              const submission = this.item.submissions.at(-1);
+
+              if (!submission) {
+                throw new Error("A submitted questionnaire has a submission");
+              }
+
+              this.port.send(submission.revision);
+            }
           } catch (error) {
-            this.port.report(error); // The immutable submission remains available in the inbox.
+            // The immutable submission remains available in the inbox.
+            this.port.report(error);
           }
         }
 
@@ -356,7 +431,10 @@ export class QuestionnaireView {
     if (action === "up" || action === "down") {
       this.highlight = Math.max(
         0,
-        Math.min(q.options?.length ?? 0, this.highlight + (action === "up" ? -1 : 1)),
+        Math.min(
+          q.options?.length ?? 0,
+          this.highlight + (action === "up" ? -1 : 1)
+        )
       );
 
       return;
@@ -365,7 +443,10 @@ export class QuestionnaireView {
     if (action === "key:p") {
       const text = optionDetailText(q, this.highlight);
 
-      if (!option || !text) return;
+      if (!option || text === undefined) {
+        return;
+      }
+
       this.detail = { title: option.label, text, markdown: true };
       this.viewport.scroll = 0;
 
@@ -375,16 +456,23 @@ export class QuestionnaireView {
     if (action === "key:n") {
       const a = this.item.draft?.answers[q.id];
 
-      if (!a) throw new Error("No editable question");
+      if (!a) {
+        throw new Error("No editable question");
+      }
+
       this.edit(
-        { type: "note", question: q.id, ...(option ? { option: option.id } : {}) },
-        option ? (a.notes[option.id] ?? "") : a.custom_note,
+        {
+          type: "note",
+          question: q.id,
+          ...(option ? { option: option.id } : {}),
+        },
+        option ? (a.notes[option.id] ?? "") : a.custom_note
       );
 
       return;
     }
 
-    if (/^key:[1-5]$/.test(action)) {
+    if (/^key:[1-5]$/u.test(action)) {
       const index = Number(action.slice(-1)) - 1;
 
       if (index < (q.options?.length ?? 0)) {
@@ -402,28 +490,42 @@ export class QuestionnaireView {
     }
 
     if (action === "confirm") {
-      if (q.multi_select && option) {
-        if (!answered(this.item.draft?.answers[q.id]))
+      if (q.multi_select === true && option) {
+        if (!answered(this.item.draft?.answers[q.id])) {
           throw new Error("Select at least one answer before advancing");
+        }
+
         this.go(this.question + 1);
-      } else this.choose(this.highlight);
+      } else {
+        this.choose(this.highlight);
+      }
     }
   }
   /** Saving a written answer completes the question; a blank one deselects itself. */
   private afterWritten(questionId: string): void {
-    const index = this.item.request.questions.findIndex((q) => q.id === questionId);
+    const index = this.item.request.questions.findIndex(
+      (q) => q.id === questionId
+    );
+
     const a = this.item.draft?.answers[questionId];
 
-    if (index < 0 || !a) return;
+    if (index === -1 || !a) {
+      return;
+    }
 
-    if (a.custom.trim()) this.go(index + 1);
-    else if (a.custom_selected) this.change({ type: "toggle_custom", question: questionId });
+    if (a.custom.trim()) {
+      this.go(index + 1);
+    } else if (a.custom_selected) {
+      this.change({ type: "toggle_custom", question: questionId });
+    }
   }
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     return this.viewport.wheel(event);
   }
   render(availableWidth: number): string[] {
-    return padded(availableWidth, (width) => this.viewport.show(this.frame(width)));
+    return padded(availableWidth, (width) =>
+      this.viewport.show(this.frame(width))
+    );
   }
   private frame(width: number) {
     const q = this.item.request.questions[this.question];
@@ -433,7 +535,7 @@ export class QuestionnaireView {
     const base = revisedSubmission(this.item)?.revision;
 
     const common = {
-      title: `${this.item.request.title ?? "Questionnaire"}${base ? ` · revising revision ${base}` : ""}`,
+      title: `${this.item.request.title ?? "Questionnaire"}${base === undefined ? "" : ` · revising revision ${base}`}`,
       closeKey: close,
       rows: this.tui.terminal.rows,
       width,
@@ -444,7 +546,7 @@ export class QuestionnaireView {
     if (this.editor) {
       const lines = this.editor.component.render(width);
       const cursor = lines.findIndex((line) => line.includes(CURSOR_MARKER));
-      const label = this.editorLabel(this.editor.field, q);
+      const label = QuestionnaireView.editorLabel(this.editor.field, q);
       const body = [this.theme.bold(label), "", ...lines];
 
       return renderScrollablePage({
@@ -455,50 +557,62 @@ export class QuestionnaireView {
         hint:
           this.hint ||
           `${this.editor.component.getText().length}/${this.editor.limit}${body.length > 3 ? ` · ${scrollKeys} Scroll` : ""}`,
-        ...(cursor < 0 ? {} : { focusLine: cursor + 2 }),
+        ...(cursor === -1 ? {} : { focusLine: cursor + 2 }),
       });
     }
 
-    if (this.detail)
+    if (this.detail) {
       return renderScrollablePage({
         ...common,
-        header: this.theme.fg("accent", this.theme.bold(truncateToWidth(this.detail.title, width))),
+        header: this.theme.fg(
+          "accent",
+          this.theme.bold(truncateToWidth(this.detail.title, width))
+        ),
         body: this.detail.markdown
           ? this.markdownLines(this.detail.text, width)
           : textLines(this.detail.text, width),
         footer: `${close}/${confirm} Back · ↑↓/j/k/${scrollKeys} Scroll`,
         hint: this.hint,
       });
+    }
 
-    if (!q)
+    if (!q) {
       return renderScrollablePage({
         ...common,
         header: progressLine(this.item, this.question, width, this.theme),
         body: textLines(reviewText(this.item), width),
-        footer: `${confirm} ${this.port.blocking ? "Submit answers" : "Send answers"}${this.port.blocking ? "" : " · k Save without sending"} · ${close} Close · x Cancel\n${this.port.blocking ? "" : "Send starts/steers a turn · "}1–5 Edit · ←/h Back · g Form note${base ? " · d Changes" : ""} · i Details`,
+        footer: `${confirm} ${this.port.blocking ? "Submit answers" : "Send answers"}${this.port.blocking ? "" : " · k Save without sending"} · ${close} Close · x Cancel\n${this.port.blocking ? "" : "Send starts/steers a turn · "}1–5 Edit · ←/h Back · g Form note${base === undefined ? "" : " · d Changes"} · i Details`,
         hint: this.hint,
       });
+    }
+
     const a = this.item.draft?.answers[q.id];
 
-    if (!a) throw new Error("No editable question");
+    if (!a) {
+      throw new Error("No editable question");
+    }
+
     const option = q.options?.[this.highlight];
 
-    const primary = !option
-      ? a.custom_selected && a.custom.trim()
-        ? "Edit answer · → Next"
-        : "Write answer"
-      : q.multi_select
-        ? "Next"
-        : "Select + next";
+    let primary: string;
 
-    const hasDetails = !!optionDetailText(q, this.highlight);
+    if (option) {
+      primary = q.multi_select === true ? "Next" : "Select + next";
+    } else {
+      primary =
+        a.custom_selected && a.custom.trim()
+          ? "Edit answer · → Next"
+          : "Write answer";
+    }
+
+    const hasDetails = optionDetailText(q, this.highlight) !== undefined;
 
     return renderQuestionView({
       ...common,
       header: progressLine(this.item, this.question, width, this.theme),
       context: this.contextLines(q, width),
       answers: this.questionBody(q, a, this.highlight, width),
-      footer: `${confirm} ${primary}${q.multi_select ? " · Space Toggle" : ""} · ${close} Close · x Cancel\n${scrollKeys} Context · ↑↓/j/k Move · ←→/h/l Questions · n Note · g Form note${hasDetails ? " · p Details" : ""} · i Details${base ? " · d Changes" : ""}`,
+      footer: `${confirm} ${primary}${q.multi_select === true ? " · Space Toggle" : ""} · ${close} Close · x Cancel\n${scrollKeys} Context · ↑↓/j/k Move · ←→/h/l Questions · n Note · g Form note${hasDetails ? " · p Details" : ""} · i Details${base === undefined ? "" : " · d Changes"}`,
       hint: this.hint,
     });
   }
@@ -517,22 +631,35 @@ export class QuestionnaireView {
     const lines: string[] = [];
 
     for (const context of [
-      this.item.draft?.reason ? `**Revision requested:** ${this.item.draft.reason}` : undefined,
+      this.item.draft?.reason !== undefined && this.item.draft.reason !== ""
+        ? `**Revision requested:** ${this.item.draft.reason}`
+        : undefined,
       this.item.request.context,
       q.context,
     ]) {
-      if (context) lines.push(...this.markdownLines(context, width), "");
+      if (context !== undefined) {
+        lines.push(...this.markdownLines(context, width), "");
+      }
     }
 
-    if (lines.at(-1) === "") lines.pop();
+    if (lines.at(-1) === "") {
+      lines.pop();
+    }
 
     return lines;
   }
-  private editorLabel(field: Field, q: Question | undefined): string {
-    if (field.question === undefined) return "Questionnaire note";
+  private static editorLabel(field: Field, q: Question | undefined): string {
+    if (field.question === undefined) {
+      return "Questionnaire note";
+    }
 
-    if (field.type === "custom") return q?.question ?? "Written answer";
-    const option = q?.options?.find((candidate) => candidate.id === field.option);
+    if (field.type === "custom") {
+      return q?.question ?? "Written answer";
+    }
+
+    const option = q?.options?.find(
+      (candidate) => candidate.id === field.option
+    );
 
     return option ? `Note · ${option.label}` : "Written-answer note";
   }
@@ -541,7 +668,7 @@ export class QuestionnaireView {
     q: Question,
     a: Draft["answers"][string],
     highlight: number,
-    width: number,
+    width: number
   ): string[] {
     const lines = [
       ...textLines(q.question, width),
@@ -549,7 +676,7 @@ export class QuestionnaireView {
       ...optionLines(q, a, highlight, width, this.theme),
     ];
 
-    if (this.item.draft?.note)
+    if (this.item.draft?.note !== undefined && this.item.draft.note !== "") {
       lines.push(
         "",
         this.theme.fg(
@@ -557,10 +684,11 @@ export class QuestionnaireView {
           truncateToWidth(
             `Questionnaire note: ${displayText(this.item.draft.note).split("\n")[0]}`,
             width,
-            "…",
-          ),
-        ),
+            "…"
+          )
+        )
       );
+    }
 
     return lines;
   }
@@ -576,16 +704,19 @@ export class QuestionnaireView {
 }
 
 /** Reports under Pi's own name (OSC 7501), so terminals such as Herdr attribute it to Pi's session. */
-function reportStatus(terminal: Terminal, status: Omit<ProgramStatus, "app">): void {
+const reportStatus = (
+  terminal: Terminal,
+  status: Omit<ProgramStatus, "app">
+): void => {
   terminal.setProgramStatus({ ...status, app: "pi" });
-}
+};
 
-export async function showQuestionnaire(
+export const showQuestionnaire = async (
   ctx: ExtensionContext,
   item: Interaction,
   signal: AbortSignal,
-  port: FormPort,
-): Promise<FormOutcome> {
+  port: FormPort
+): Promise<FormOutcome> => {
   let terminal: Terminal | undefined;
 
   try {
@@ -593,7 +724,7 @@ export async function showQuestionnaire(
       // Pi reports blocked for its own dialogs but not for custom UI, so a blocking questionnaire
       // reports it here. A rename while it is open makes Pi report working over it until it closes.
       if (port.blocking) {
-        terminal = tui.terminal;
+        ({ terminal } = tui);
         reportStatus(terminal, {
           state: "blocked",
           kind: "question",
@@ -612,8 +743,10 @@ export async function showQuestionnaire(
 
       reportStatus(
         terminal,
-        name === undefined ? { state: "working" } : { state: "working", message: name },
+        name === undefined
+          ? { state: "working" }
+          : { state: "working", message: name }
       );
     }
   }
-}
+};

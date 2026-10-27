@@ -11,7 +11,7 @@ const runCommand = (command: string): string | undefined => {
   try {
     return (
       execSync(command, {
-        encoding: "utf8",
+        encoding: "utf-8",
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 10_000,
       }).trim() || undefined
@@ -29,7 +29,9 @@ const resolveTemplate = (value: string): string | undefined => {
   while (index < value.length) {
     const dollar = value.indexOf("$", index);
 
-    if (dollar < 0) return resolved + value.slice(index);
+    if (dollar === -1) {
+      return resolved + value.slice(index);
+    }
 
     resolved += value.slice(index, dollar);
 
@@ -46,11 +48,13 @@ const resolveTemplate = (value: string): string | undefined => {
 
     if (next === "{") {
       const close = value.indexOf("}", dollar + 2);
-      const candidate = close < 0 ? undefined : value.slice(dollar + 2, close);
+
+      const candidate =
+        close === -1 ? undefined : value.slice(dollar + 2, close);
 
       if (candidate === undefined || !ENV_NAME.test(candidate)) {
-        resolved += close < 0 ? "$" : value.slice(dollar, close + 1);
-        index = close < 0 ? dollar + 1 : close + 1;
+        resolved += close === -1 ? "$" : value.slice(dollar, close + 1);
+        index = close === -1 ? dollar + 1 : close + 1;
         continue;
       }
 
@@ -69,7 +73,10 @@ const resolveTemplate = (value: string): string | undefined => {
 
     const env = process.env[name];
 
-    if (!env) return undefined;
+    if (env === undefined || env === "") {
+      return undefined;
+    }
+
     resolved += env;
     index = end;
   }
@@ -81,10 +88,17 @@ const resolveTemplate = (value: string): string | undefined => {
  * Resolve an mcp.json value: `!command` runs the command and uses its output; otherwise environment
  * variable references are replaced. Throws when a referenced variable is unset or the command fails.
  */
-export const resolveConfigValue = (value: string, description: string): string => {
-  const resolved = value.startsWith("!") ? runCommand(value.slice(1)) : resolveTemplate(value);
+export const resolveConfigValue = (
+  value: string,
+  description: string
+): string => {
+  const resolved = value.startsWith("!")
+    ? runCommand(value.slice(1))
+    : resolveTemplate(value);
 
-  if (resolved === undefined) throw new Error(`Failed to resolve ${description}`);
+  if (resolved === undefined) {
+    throw new Error(`Failed to resolve ${description}`);
+  }
 
   return resolved;
 };
@@ -92,11 +106,11 @@ export const resolveConfigValue = (value: string, description: string): string =
 /** Every value of a map resolved; `description` names the map, and each error names the key too. */
 export const resolveConfigValues = (
   values: Readonly<Record<string, string>>,
-  description: string,
+  description: string
 ): Record<string, string> =>
   Object.fromEntries(
     Object.entries(values).map(([key, value]) => [
       key,
       resolveConfigValue(value, `${description} "${key}"`),
-    ]),
+    ])
   );

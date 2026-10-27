@@ -7,11 +7,10 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import extension from "../index.js";
-
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
+import extension from "../index.js";
 import {
   enqueueResumeCommand,
   formatResumeCommand,
@@ -44,7 +43,7 @@ describe("resume command", () => {
     restoreEnv?.();
     restoreEnv = undefined;
 
-    if (tempRoot) {
+    if (tempRoot !== undefined) {
       await rm(tempRoot, { force: true, recursive: true });
       tempRoot = undefined;
     }
@@ -52,7 +51,11 @@ describe("resume command", () => {
 
   it("queues the current persisted session when pi quits", async () => {
     const { cwd, inbox } = await setup();
-    const sessionManager = SessionManager.create(cwd, undefined, { id: "full-session-id" });
+
+    const sessionManager = SessionManager.create(cwd, undefined, {
+      id: "full-session-id",
+    });
+
     sessionManager.appendMessage(fauxAssistantMessage("test"));
     const host = createExtensionHost(extension);
 
@@ -66,46 +69,67 @@ describe("resume command", () => {
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(1);
     const [message] = messages;
-    assert(message);
+    assert.ok(message !== undefined && message !== "");
     await expect(readFile(path.join(inbox, message), "utf-8")).resolves.toBe(
-      `pi --session ${sessionManager.getSessionFile()}\n`,
+      `pi --session ${sessionManager.getSessionFile()}\n`
     );
   });
 
   it("resumes the session file in its own directory from any shell directory", async () => {
-    const { cwd, tempRoot } = await setup();
-    const sessionDir = path.join(tempRoot, "custom pi's sessions");
-    const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
+    const { cwd, tempRoot: root } = await setup();
+    const sessionDir = path.join(root, "custom pi's sessions");
+
+    const sessionManager = SessionManager.create(cwd, sessionDir, {
+      id: "full-session-id",
+    });
+
     sessionManager.appendMessage(fauxAssistantMessage("test"));
     const command = formatResumeCommand(sessionManager);
-    assert(command);
+    assert.ok(command !== undefined && command !== "");
 
     // The shell must hand Pi exactly the session file; Pi then takes the cwd from its header.
-    const args = execFileSync("sh", ["-c", `pi() { printf '%s\\n' "$@"; }; ${command}`], {
-      cwd: tempRoot,
-      encoding: "utf-8",
-    });
+    const args = execFileSync(
+      "sh",
+      ["-c", `pi() { printf '%s\\n' "$@"; }; ${command}`],
+      {
+        cwd: root,
+        encoding: "utf-8",
+      }
+    );
 
     const [flag, sessionFile] = args.trimEnd().split("\n");
     expect(flag).toBe("--session");
     expect(sessionFile).toBe(sessionManager.getSessionFile());
-    assert(sessionFile);
+    assert.ok(sessionFile !== undefined && sessionFile !== "");
     expect(SessionManager.open(sessionFile).getCwd()).toBe(cwd);
   });
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
-    const { cwd, inbox, tempRoot } = await setup();
-    const sessionDir = path.join(tempRoot, "sessions");
-    const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
+    const { cwd, inbox, tempRoot: root } = await setup();
+    const sessionDir = path.join(root, "sessions");
+
+    const sessionManager = SessionManager.create(cwd, sessionDir, {
+      id: "full-session-id",
+    });
+
     sessionManager.appendMessage(fauxAssistantMessage("test"));
     const sessionFile = sessionManager.getSessionFile();
 
-    assert(sessionFile, "Expected a persisted test session");
+    assert.ok(
+      sessionFile !== undefined && sessionFile !== "",
+      "Expected a persisted test session"
+    );
 
     const host = createExtensionHost(() => {});
 
-    await recordResumeCommand("reload", host.createContext({ cwd, sessionManager }));
-    await recordResumeCommand("quit", host.createContext({ cwd, mode: "print", sessionManager }));
+    await recordResumeCommand(
+      "reload",
+      host.createContext({ cwd, sessionManager })
+    );
+    await recordResumeCommand(
+      "quit",
+      host.createContext({ cwd, mode: "print", sessionManager })
+    );
 
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
   });
@@ -113,7 +137,10 @@ describe("resume command", () => {
   it("does not queue in-memory sessions", async () => {
     const { cwd, inbox } = await setup();
     const host = createExtensionHost(() => {});
-    const sessionManager = SessionManager.inMemory(cwd, { id: "full-session-id" });
+
+    const sessionManager = SessionManager.inMemory(cwd, {
+      id: "full-session-id",
+    });
 
     const ctx = host.createContext({
       cwd,
@@ -138,17 +165,29 @@ describe("resume command", () => {
     expect(messages.every((name) => name.endsWith(".command"))).toBeTruthy();
 
     const contents = await Promise.all(
-      messages.map((name) => readFile(path.join(inbox, name), "utf-8")),
+      messages.map(
+        async (name) => await readFile(path.join(inbox, name), "utf-8")
+      )
     );
 
-    expect(contents.toSorted()).toStrictEqual(["pi --session first\n", "pi --session second\n"]);
+    expect(contents.toSorted()).toStrictEqual([
+      "pi --session first\n",
+      "pi --session second\n",
+    ]);
   });
 
   it.skipIf(!hasCommand("fish"))(
     "fish uses a private inbox and imports queued commands",
     async () => {
       await setup();
-      const script = path.resolve(import.meta.dirname, "..", "shell", "fish.fish");
+
+      const script = path.resolve(
+        import.meta.dirname,
+        "..",
+        "shell",
+        "fish.fish"
+      );
+
       const command = "pi --session fish-session";
 
       const output = execFileSync(
@@ -176,23 +215,30 @@ describe("resume command", () => {
             TEST_COMMAND: command,
             fish_history: "",
           },
-        },
+        }
       );
 
       const [shellInbox, historyEntry] = output.trim().split("\n");
       expect(historyEntry).toBe(command);
-      assert(shellInbox);
+      assert.ok(shellInbox !== undefined && shellInbox !== "");
       await expect(access(shellInbox)).rejects.toMatchObject({
         code: "ENOENT",
       });
-    },
+    }
   );
 
   it.skipIf(!hasCommand("zsh"))(
     "zsh uses a private inbox and imports queued commands",
     async () => {
       await setup();
-      const script = path.resolve(import.meta.dirname, "..", "shell", "zsh.zsh");
+
+      const script = path.resolve(
+        import.meta.dirname,
+        "..",
+        "shell",
+        "zsh.zsh"
+      );
+
       const command = "pi --session zsh-session";
 
       const output = execFileSync(
@@ -219,15 +265,15 @@ describe("resume command", () => {
             SCRIPT_PATH: script,
             TEST_COMMAND: command,
           },
-        },
+        }
       );
 
       const [shellInbox, historyEntry] = output.trim().split("\n");
       expect(historyEntry).toBe(command);
-      assert(shellInbox);
+      assert.ok(shellInbox !== undefined && shellInbox !== "");
       await expect(access(shellInbox)).rejects.toMatchObject({
         code: "ENOENT",
       });
-    },
+    }
   );
 });

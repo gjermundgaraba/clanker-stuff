@@ -4,7 +4,7 @@
  */
 import manifest from "./shapes.json" with { type: "json" };
 
-export { manifest };
+export { default as manifest } from "./shapes.json" with { type: "json" };
 
 /** The command the shape-spinner extension registers; its presence shows the font is in use. */
 export const SHAPE_SPINNER_COMMAND = "shape-spinner";
@@ -24,9 +24,16 @@ export interface Animation {
 }
 
 // The unmapped space reserves a second terminal column for the square artwork.
-const glyph = (codepoint: number): string => `${String.fromCodePoint(codepoint)} `;
+const glyph = (codepoint: number): string =>
+  `${String.fromCodePoint(codepoint)} `;
 
-const animation = ({ frames, still }: { frames: number[]; still: number }): Animation => ({
+const animation = ({
+  frames,
+  still,
+}: {
+  frames: number[];
+  still: number;
+}): Animation => ({
   frames: frames.map(glyph),
   still: glyph(still),
 });
@@ -34,11 +41,18 @@ const animation = ({ frames, still }: { frames: number[]; still: number }): Anim
 const wireframes = new Map<string, Animation>();
 
 /** A wireframe's frames, built once; spinners draw them on every tick. */
-export const wireframe = (shape: Wireframe, ink: Ink, background: Background): Animation => {
+export const wireframe = (
+  shape: Wireframe,
+  ink: Ink,
+  background: Background
+): Animation => {
   const key = `${shape}/${ink}/${background}`;
   const cached = wireframes.get(key);
 
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const built = animation(manifest.animations[shape][ink][background]);
   wireframes.set(key, built);
 

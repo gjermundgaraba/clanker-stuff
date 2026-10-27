@@ -20,7 +20,11 @@ describe("extension-smoke harness", () => {
     harness = undefined;
     restoreOuterHome?.();
     restoreOuterHome = undefined;
-    await Promise.all(ownedTempDirs.map((dir) => rm(dir, { force: true, recursive: true })));
+    await Promise.all(
+      ownedTempDirs.map(async (dir) => {
+        await rm(dir, { force: true, recursive: true });
+      })
+    );
     ownedTempDirs = [];
   });
 
@@ -46,7 +50,7 @@ export default function (pi: ExtensionAPI) {
         text: \`[linked:\${existsSync(join(os.homedir(), "leak.txt")) ? "outer" : "isolated"}] \${event.text}\`,
     }));
 }
-`,
+`
     );
 
     harness = await createExtensionSmokeHarness({
@@ -55,7 +59,9 @@ export default function (pi: ExtensionAPI) {
     const activeHarness = harness;
     activeHarness.setResponses([
       (context) => {
-        const content = context.messages.findLast((message) => message.role === "user")?.content;
+        const content = context.messages.findLast(
+          (message) => message.role === "user"
+        )?.content;
 
         const text = Array.isArray(content)
           ? content
@@ -79,13 +85,17 @@ export default function (pi: ExtensionAPI) {
             ".pi",
             "extensions",
             path.basename(extensionDir),
-            "index.ts",
-          ),
-      ),
+            "index.ts"
+          )
+      )
     ).toBeTruthy();
     expect(process.env["HOME"]).toBe(activeHarness.homeDir);
-    expect(JSON.stringify(activeHarness.messages())).toContain("[linked:isolated] hello smoke");
-    expect(JSON.stringify(activeHarness.messages())).not.toContain("[linked:outer]");
+    expect(JSON.stringify(activeHarness.messages())).toContain(
+      "[linked:isolated] hello smoke"
+    );
+    expect(JSON.stringify(activeHarness.messages())).not.toContain(
+      "[linked:outer]"
+    );
 
     const { homeDir, projectDir } = activeHarness;
     harness.cleanup();

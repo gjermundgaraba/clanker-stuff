@@ -11,7 +11,10 @@ export const createScheduledCheck = (check: () => void) => {
   const request = (delayMs: number): void => {
     const nextDue = Date.now() + delayMs;
 
-    if (timer !== undefined && due <= nextDue) return;
+    if (timer !== undefined && due <= nextDue) {
+      return;
+    }
+
     clear();
     due = nextDue;
     timer = setTimeout(() => {

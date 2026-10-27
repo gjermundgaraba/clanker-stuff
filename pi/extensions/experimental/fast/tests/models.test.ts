@@ -15,18 +15,22 @@ describe("best-effort native priority gate", () => {
       .getModels("openai")
       .filter(
         (model) =>
-          model.api === "openai-responses" && model.baseUrl === "https://api.openai.com/v1",
+          model.api === "openai-responses" &&
+          model.baseUrl === "https://api.openai.com/v1"
       );
 
-    const first = models[0];
+    const [first] = models;
 
-    if (first === undefined) throw new Error("Missing native OpenAI Responses models");
+    if (first === undefined) {
+      throw new Error("Missing native OpenAI Responses models");
+    }
 
     const native = runtime.getProvider("openai");
     const oauth = native?.auth.oauth;
 
-    if (native === undefined || oauth === undefined)
+    if (native === undefined || oauth === undefined) {
       throw new Error("Missing native subscription OAuth metadata");
+    }
 
     for (const model of [...models, { ...first, id: "future-native-model" }]) {
       const registry = {
@@ -38,13 +42,16 @@ describe("best-effort native priority gate", () => {
 
       expect(canRequestPriority(ctx), model.id).toBe(true);
       expect(
-        canRequestPriority({ ...ctx, modelRegistry: { ...registry, isUsingOAuth: () => false } }),
+        canRequestPriority({
+          ...ctx,
+          modelRegistry: { ...registry, isUsingOAuth: () => false },
+        })
       ).toBe(false);
       expect(
         canRequestPriority({
           ...ctx,
-          modelRegistry: { ...registry, getProvider: () => undefined },
-        }),
+          modelRegistry: { ...registry, getProvider: () => {} },
+        })
       ).toBe(false);
 
       expect(
@@ -54,10 +61,13 @@ describe("best-effort native priority gate", () => {
             ...registry,
             getProvider: () => ({
               ...native,
-              auth: { ...native.auth, oauth: { ...oauth, isSubscription: false } },
+              auth: {
+                ...native.auth,
+                oauth: { ...oauth, isSubscription: false },
+              },
             }),
           },
-        }),
+        })
       ).toBe(false);
 
       for (const changed of [
@@ -65,8 +75,9 @@ describe("best-effort native priority gate", () => {
         { ...model, api: "openai-completions" as const },
         { ...model, baseUrl: "https://custom.invalid/v1" },
         { ...model, baseUrl: "https://api.openai.com/v1/" },
-      ])
+      ]) {
         expect(canRequestPriority({ ...ctx, model: changed })).toBe(false);
+      }
     }
   });
 });

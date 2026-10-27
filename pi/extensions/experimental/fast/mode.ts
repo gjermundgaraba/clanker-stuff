@@ -10,41 +10,66 @@ import { Value } from "typebox/value";
 import { loadFastDefault } from "./config.js";
 import { canRequestPriority } from "./models.js";
 
-const PayloadSchema = Type.Object({ model: Type.String() }, { additionalProperties: true });
+const PayloadSchema = Type.Object(
+  { model: Type.String() },
+  { additionalProperties: true }
+);
+
+const notify = (
+  ctx: ExtensionContext,
+  message: string,
+  type: "info" | "warning"
+): void => {
+  if (ctx.hasUI) {
+    ctx.ui.notify(message, type);
+  }
+};
 
 export const createFastMode = (
   pi: ExtensionAPI,
   configPath: string,
-  loadDefault: typeof loadFastDefault = loadFastDefault,
+  loadDefault: typeof loadFastDefault = loadFastDefault
 ) => {
   let enabled = false;
   let stopped = false;
 
   const refresh = (ctx: ExtensionContext): void => {
-    if (!ctx.hasUI) return;
-    ctx.ui.setStatus("fast", enabled ? ctx.ui.theme.fg("accent", "⚡ Fast requested") : undefined);
-  };
+    if (!ctx.hasUI) {
+      return;
+    }
 
-  const notify = (ctx: ExtensionContext, message: string, type: "info" | "warning"): void => {
-    if (ctx.hasUI) ctx.ui.notify(message, type);
+    ctx.ui.setStatus(
+      "fast",
+      enabled ? ctx.ui.theme.fg("accent", "⚡ Fast requested") : undefined
+    );
   };
 
   return {
-    async start(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
-      const startupFlag = event.reason === "startup" && pi.getFlag("fast") === true;
+    async start(
+      event: SessionStartEvent,
+      ctx: ExtensionContext
+    ): Promise<void> {
+      const startupFlag =
+        event.reason === "startup" && pi.getFlag("fast") === true;
 
       try {
         const saved = await loadDefault(configPath);
 
-        if (stopped) return;
+        if (stopped) {
+          return;
+        }
+
         enabled = saved || startupFlag;
       } catch (error) {
-        if (stopped) return;
+        if (stopped) {
+          return;
+        }
+
         enabled = startupFlag;
         notify(
           ctx,
           `Failed to load ${configPath}; using the local startup flag or Fast off: ${error instanceof Error ? error.message : String(error)}`,
-          "warning",
+          "warning"
         );
       }
 
@@ -56,8 +81,9 @@ export const createFastMode = (
         !canRequestPriority(ctx) ||
         !Value.Check(PayloadSchema, event.payload) ||
         event.payload.model !== ctx.model?.id
-      )
-        return undefined;
+      ) {
+        return;
+      }
 
       return { ...event.payload, service_tier: "priority" };
     },
@@ -70,7 +96,11 @@ export const createFastMode = (
 
       enabled = !enabled;
       refresh(ctx);
-      notify(ctx, `Fast requests ${enabled ? "enabled" : "disabled"} in this runtime.`, "info");
+      notify(
+        ctx,
+        `Fast requests ${enabled ? "enabled" : "disabled"} in this runtime.`,
+        "info"
+      );
     },
     stop(ctx: ExtensionContext): void {
       stopped = true;

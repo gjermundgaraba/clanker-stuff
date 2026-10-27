@@ -30,10 +30,13 @@ Use a v4-compatible `@effect/vitest` version. `TestClock` is under `effect/testi
 ```ts
 it.effect("advances virtual time", () =>
   Effect.gen(function* () {
-    const fiber = yield* Effect.sleep("1 second").pipe(Effect.as("done"), Effect.forkScoped);
+    const fiber = yield* Effect.sleep("1 second").pipe(
+      Effect.as("done"),
+      Effect.forkScoped
+    );
     yield* TestClock.adjust("1 second");
     expect(yield* Fiber.join(fiber)).toBe("done");
-  }),
+  })
 );
 ```
 
@@ -43,7 +46,7 @@ it.effect("finds a user", () =>
     const users = yield* UserRepo.Service;
     const result = yield* users.find(UserId.make("u1"));
     expect(Option.isSome(result)).toBe(true);
-  }).pipe(Effect.provide(UserRepo.testLayer)),
+  }).pipe(Effect.provide(UserRepo.testLayer))
 );
 ```
 
@@ -72,7 +75,7 @@ it.effect("publishes exactly once", () =>
     const message = yield* Queue.take(published);
 
     expect(message).toEqual(expectedMessage);
-  }),
+  })
 );
 ```
 
@@ -87,7 +90,9 @@ export interface Interface {
   readonly send: (message: Message) => Effect.Effect<void, SendError>;
 }
 
-export class Service extends Context.Service<Service, Interface>()("@app/Notifier") {}
+export class Service extends Context.Service<Service, Interface>()(
+  "@app/Notifier"
+) {}
 
 export interface TestInterface extends Interface {
   readonly sentMessages: () => Effect.Effect<ReadonlyArray<Message>>;
@@ -95,13 +100,15 @@ export interface TestInterface extends Interface {
 }
 
 export class TestService extends Context.Service<TestService, TestInterface>()(
-  "@app/Notifier/Test",
+  "@app/Notifier/Test"
 ) {}
 
 export const testLayer = Layer.effectContext(
   Effect.gen(function* () {
     const sent = yield* Ref.make<ReadonlyArray<Message>>([]);
-    const nextFailure = yield* Ref.make<Option.Option<SendError>>(Option.none());
+    const nextFailure = yield* Ref.make<Option.Option<SendError>>(
+      Option.none()
+    );
 
     const service = TestService.of({
       send: Effect.fn("Notifier.Test.send")(function* (message) {
@@ -117,8 +124,11 @@ export const testLayer = Layer.effectContext(
       }),
     });
 
-    return Context.empty().pipe(Context.add(Service, service), Context.add(TestService, service));
-  }),
+    return Context.empty().pipe(
+      Context.add(Service, service),
+      Context.add(TestService, service)
+    );
+  })
 );
 ```
 

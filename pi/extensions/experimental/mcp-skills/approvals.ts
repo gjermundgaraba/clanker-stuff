@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import path from "node:path";
 
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -17,18 +17,23 @@ const ALLOW_VERSION = "Always allow this version";
 
 const DENY = "Deny";
 
-const formatBytes = (bytes: number): string =>
-  bytes < 1024
-    ? `${String(bytes)} B`
-    : bytes < 1024 * 1024
-      ? `${(bytes / 1024).toFixed(1)} KB`
-      : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) {
+    return `${String(bytes)} B`;
+  }
+
+  return bytes < 1024 * 1024
+    ? `${(bytes / 1024).toFixed(1)} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
 
 /** Long descriptions are cut so the choices stay on screen. */
-const excerpt = (text: string): string => (text.length > 240 ? `${text.slice(0, 239)}…` : text);
+const excerpt = (text: string): string =>
+  text.length > 240 ? `${text.slice(0, 239)}…` : text;
 
 /** Files whose names suggest they are meant to be run, shown in the approval dialog. */
-const SCRIPT_FILE = /\/scripts\/|\.(?:sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1|bat|cmd)$/iu;
+const SCRIPT_FILE =
+  /\/scripts\/|\.(?:sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1|bat|cmd)$/iu;
 
 /**
  * The one approval an MCP skill needs: to be loaded, which also covers the commands it has run
@@ -42,12 +47,12 @@ export class SkillApprovals {
   private readonly untilExit = new Set<string>();
 
   constructor(dataDir: string) {
-    this.path = join(dataDir, "approvals.json");
+    this.path = path.join(dataDir, "approvals.json");
   }
 
   private async read(): Promise<Record<string, string>> {
     try {
-      const parsed: unknown = JSON.parse(await readFile(this.path, "utf8"));
+      const parsed: unknown = JSON.parse(await readFile(this.path, "utf-8"));
 
       return Value.Check(Stored, parsed) ? parsed : {};
     } catch {
@@ -59,7 +64,7 @@ export class SkillApprovals {
     await withFileMutationQueue(this.path, async () => {
       const stored = { ...(await this.read()), [key]: revision };
 
-      await mkdir(dirname(this.path), { recursive: true });
+      await mkdir(path.dirname(this.path), { recursive: true });
       await writeFile(this.path, `${JSON.stringify(stored, null, 2)}\n`);
     });
   }
@@ -68,7 +73,7 @@ export class SkillApprovals {
   async clear(): Promise<void> {
     this.untilExit.clear();
     await withFileMutationQueue(this.path, async () => {
-      await mkdir(dirname(this.path), { recursive: true });
+      await mkdir(path.dirname(this.path), { recursive: true });
       await writeFile(this.path, "{}\n");
     });
   }
@@ -83,17 +88,25 @@ export class SkillApprovals {
     ctx: ExtensionContext,
     origin: string,
     skill: CatalogSkill,
-    serversInUse: readonly string[],
+    serversInUse: readonly string[]
   ): Promise<boolean> {
     const key = `${origin}\n${skill.entry.uri}`;
     const version = `${key}\n${skill.entry.revision}`;
 
-    const approved =
-      this.untilExit.has(version) || (await this.read())[key] === skill.entry.revision;
+    let approved = this.untilExit.has(version);
 
-    if (approved && serversInUse.length === 0) return true;
+    if (!approved) {
+      const stored = await this.read();
+      approved = stored[key] === skill.entry.revision;
+    }
 
-    if (!ctx.hasUI) return false;
+    if (approved && serversInUse.length === 0) {
+      return true;
+    }
+
+    if (!ctx.hasUI) {
+      return false;
+    }
 
     const { entry } = skill;
     const bytes = entry.files.reduce((total, file) => total + file.size, 0);
@@ -117,9 +130,13 @@ export class SkillApprovals {
 
     const choice = await ctx.ui.select(title, [ALLOW_NOW, ALLOW_VERSION, DENY]);
 
-    if (choice === ALLOW_NOW) this.untilExit.add(version);
+    if (choice === ALLOW_NOW) {
+      this.untilExit.add(version);
+    }
 
-    if (choice === ALLOW_VERSION) await this.remember(key, entry.revision);
+    if (choice === ALLOW_VERSION) {
+      await this.remember(key, entry.revision);
+    }
 
     return choice === ALLOW_NOW || choice === ALLOW_VERSION;
   }

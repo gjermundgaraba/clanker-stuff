@@ -14,24 +14,18 @@ Consult the relevant product kind in [product-kinds.md](product-kinds.md). Estab
 
 Use the requested destination; initialize Git for a new repository and preserve existing repository conventions. Adapt these templates:
 
-| File          | Purpose and template                                                                                           |
-| ------------- | -------------------------------------------------------------------------------------------------------------- |
-| `README.md`   | Scope, conventions, source map, planned structure, and coverage using [README-template.md](README-template.md) |
-| `goal.md`     | Lead task, assignments, shared fact references, and completion using [goal-template.md](goal-template.md)      |
-| `glossary.md` | Shared vocabulary using [glossary-guide.md](glossary-guide.md)                                                 |
+| File | Purpose and template |
+| --- | --- |
+| `README.md` | Scope, conventions, source map, planned structure, and coverage using [README-template.md](README-template.md) |
+| `goal.md` | Lead task, assignments, shared fact references, and completion using [goal-template.md](goal-template.md) |
+| `glossary.md` | Shared vocabulary using [glossary-guide.md](glossary-guide.md) |
 
 Group the planned documents by how the user encounters the product, rather than by source package. Mark planned documents `not started`; revise the plan as evidence changes it.
 
 Create a short `AGENTS.md` that routes by task. For example:
 
 ```markdown
-Use README.md for scope, conventions, document structure, and coverage. Consult
-the sections relevant to the current task. Use goal.md when selecting work or
-coordinating assignments; an explicit document assignment defines worker scope.
-For an edit, read the affected document and the glossary/foundations it relies
-on; consult the pilot when establishing or recalibrating document structure.
-The source repository is read-only. Shared glossary and plan edits have one
-owner during parallel drafting; workers propose additions to that owner.
+Use README.md for scope, conventions, document structure, and coverage. Consult the sections relevant to the current task. Use goal.md when selecting work or coordinating assignments; an explicit document assignment defines worker scope. For an edit, read the affected document and the glossary/foundations it relies on; consult the pilot when establishing or recalibrating document structure. The source repository is read-only. Shared glossary and plan edits have one owner during parallel drafting; workers propose additions to that owner.
 ```
 
 `CLAUDE.md` can point to `@AGENTS.md` without duplicating these instructions.
@@ -44,12 +38,7 @@ Write the foundations needed by dependent features so they own shared numbers an
 
 Draft the remaining features. If parallel work is appropriate and available, assign independent documents or small clusters. Give each worker its source revision, relevant conventions and foundations, an exemplar when needed, and this scope:
 
-> Write only the assigned documents using the established skeleton and vocabulary.
-> Preserve source provenance and distinguish it from observed verification. Report
-> unknowns, suspected defects, and proposed glossary additions to the lead. Do not
-> edit the source repository, shared glossary, coverage table, or other workers'
-> files. You are not alone in the workspace; preserve others' edits. Your assignment
-> does not include finishing the repository's remaining work.
+> Write only the assigned documents using the established skeleton and vocabulary. Preserve source provenance and distinguish it from observed verification. Report unknowns, suspected defects, and proposed glossary additions to the lead. Do not edit the source repository, shared glossary, coverage table, or other workers' files. You are not alone in the workspace; preserve others' edits. Your assignment does not include finishing the repository's remaining work.
 
 The designated shared-file owner integrates terminology and tracking changes. Review results for supported claims, shared facts, interrupt coverage, and links; mark accepted documents `drafted`.
 

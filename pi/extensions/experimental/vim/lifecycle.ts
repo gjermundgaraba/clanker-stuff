@@ -1,8 +1,9 @@
 import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
 import { mountVim } from "./runtime.js";
 
-export function createVim() {
+export const createVim = () => {
   let stop: (() => void) | undefined;
 
   const dispose = () => {
@@ -14,14 +15,19 @@ export function createVim() {
     start(ctx: ExtensionContext) {
       dispose();
 
-      if (ctx.mode !== "tui") return;
+      if (ctx.mode !== "tui") {
+        return;
+      }
+
       const host = acquireEditorHost(ctx);
 
-      if (!host) return;
+      if (!host) {
+        return;
+      }
 
-      const unmount = mountVim(host, (mode) =>
-        ctx.ui.setStatus("vim", ctx.ui.theme.fg("accent", mode.toUpperCase())),
-      );
+      const unmount = mountVim(host, (mode) => {
+        ctx.ui.setStatus("vim", ctx.ui.theme.fg("accent", mode.toUpperCase()));
+      });
 
       stop = () => {
         unmount();
@@ -30,4 +36,4 @@ export function createVim() {
     },
     dispose,
   };
-}
+};

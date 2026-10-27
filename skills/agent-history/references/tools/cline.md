@@ -18,12 +18,12 @@ Last verified: local macOS, small local sample inspected structurally.
 
 ## Sources
 
-| Priority | Location                                        | Kind   | Authority       | Contains               | Parser State  | Collection Policy   | Sensitivity |
-| -------- | ----------------------------------------------- | ------ | --------------- | ---------------------- | ------------- | ------------------- | ----------- |
-| 1        | `$HOME/.cline/data/db/sessions.db`              | SQLite | primary         | sessions               | partial       | collect             | private     |
-| 1        | `$HOME/.cline/data/sessions/<session-id>*.json` | JSON   | primary/sidecar | messages/session state | partial       | collect             | private     |
-| 2        | `$HOME/.cline/data/user_input_history.jsonl`    | JSONL  | secondary       | input history          | partial       | collect_when_needed | private     |
-| 3        | provider/settings/log files                     | mixed  | support         | config/logs/secrets    | metadata_only | ignore_by_default   | secret      |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/.cline/data/db/sessions.db` | SQLite | primary | sessions | partial | collect | private |
+| 1 | `$HOME/.cline/data/sessions/<session-id>*.json` | JSON | primary/sidecar | messages/session state | partial | collect | private |
+| 2 | `$HOME/.cline/data/user_input_history.jsonl` | JSONL | secondary | input history | partial | collect_when_needed | private |
+| 3 | provider/settings/log files | mixed | support | config/logs/secrets | metadata_only | ignore_by_default | secret |
 
 ## Find
 

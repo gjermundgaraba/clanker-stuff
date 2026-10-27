@@ -2,4 +2,5 @@ import { readComparison } from "./comparison.mjs";
 import { validateToolMode as validate } from "./tool-mode-core.mjs";
 
 /** @param {unknown} trajectory External Harbor evidence; the core verifier validates the complete arm contract. */
-export const validateToolMode = (trajectory) => validate(trajectory, readComparison());
+export const validateToolMode = (trajectory) =>
+  validate(trajectory, readComparison());

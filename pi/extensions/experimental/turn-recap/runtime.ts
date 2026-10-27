@@ -24,6 +24,12 @@ import { createLiveWidget } from "./widget.js";
 
 const WIDGET_KEY = "turn-recap";
 
+const unmount = (ctx: ExtensionContext): void => {
+  if (ctx.mode === "tui") {
+    ctx.ui.setWidget(WIDGET_KEY, undefined);
+  }
+};
+
 interface ActiveRun {
   baseline: string | null;
   timing: ReturnType<typeof createTiming>;
@@ -43,7 +49,7 @@ export class TurnRecapRuntime {
   #rollingFont: RollingFont | undefined;
   #active: ActiveRun | undefined;
   /** Recaps by run ID, from saved entries plus those being generated. */
-  #recaps = new Map<string, RecapView>();
+  readonly #recaps = new Map<string, RecapView>();
   #requestRender: (() => void) | undefined;
 
   constructor(pi: ExtensionAPI, configPath = getRecapConfigPath()) {
@@ -58,8 +64,9 @@ export class TurnRecapRuntime {
         entry.type === "custom" &&
         entry.customType === RECAP_ENTRY_TYPE &&
         Value.Check(RecapEntrySchema, entry.data)
-      )
+      ) {
         this.#recaps.set(entry.data.runId, entry.data.recap);
+      }
     }
 
     const lifetime = this.#lifetime.signal;
@@ -70,21 +77,27 @@ export class TurnRecapRuntime {
       ctx.mode === "tui" ? loadRollingFont() : undefined,
     ]);
 
-    if (lifetime.aborted) return;
+    if (lifetime.aborted) {
+      return;
+    }
 
-    if (config.status === "fulfilled") this.#config = config.value;
-    else
+    if (config.status === "fulfilled") {
+      this.#config = config.value;
+    } else {
       ctx.ui.notify(
         `Turn recap configuration ignored; generated recaps disabled (${this.#configPath}): ${errorText(config.reason)}`,
-        "error",
+        "error"
       );
+    }
 
-    if (font.status === "fulfilled") this.#rollingFont = font.value;
-    else
+    if (font.status === "fulfilled") {
+      this.#rollingFont = font.value;
+    } else {
       ctx.ui.notify(
         `Rolling numbers disabled (${getRollingFontPath()}): ${errorText(font.reason)}`,
-        "error",
+        "error"
       );
+    }
   }
 
   recap(runId: string): RecapView | undefined {
@@ -93,7 +106,9 @@ export class TurnRecapRuntime {
 
   begin(ctx: ExtensionContext): void {
     // Retries and queued continuations can emit multiple starts before settling.
-    if (this.#active) return;
+    if (this.#active) {
+      return;
+    }
 
     this.#active = {
       baseline: ctx.sessionManager.getLeafId(),
@@ -110,17 +125,29 @@ export class TurnRecapRuntime {
   refresh(ctx: ExtensionContext): void {
     const active = this.#active;
 
-    if (!active) return;
+    if (!active) {
+      return;
+    }
+
     const branch = ctx.sessionManager.getBranch();
-    const baseline = active.baseline;
-    const index = baseline === null ? -1 : branch.findIndex((entry) => entry.id === baseline);
+    const { baseline } = active;
+
+    const index =
+      baseline === null
+        ? -1
+        : branch.findIndex((entry) => entry.id === baseline);
 
     // A replaced branch must never be charged to the abandoned run.
-    if (baseline !== null && index === -1) return;
+    if (baseline !== null && index === -1) {
+      return;
+    }
+
     const metrics = collectMetrics(branch, index + 1);
     const context = ctx.getContextUsage();
 
-    if (context) metrics.context = context;
+    if (context) {
+      metrics.context = context;
+    }
 
     active.metrics = metrics;
     this.#requestRender?.();
@@ -128,18 +155,27 @@ export class TurnRecapRuntime {
 
   /** Pi reports each turn's outcome; the last one before settling is the run's. */
   boundary(event: Pick<TurnEndEvent, "outcome">, ctx: ExtensionContext): void {
-    if (!this.#active) return;
+    if (!this.#active) {
+      return;
+    }
+
     this.#active.outcome = event.outcome;
     this.refresh(ctx);
   }
 
-  async settled(event: Pick<AgentSettledEvent, "aborted">, ctx: ExtensionContext): Promise<void> {
+  async settled(
+    event: Pick<AgentSettledEvent, "aborted">,
+    ctx: ExtensionContext
+  ): Promise<void> {
     const active = this.#active;
 
-    if (!active) return;
+    if (!active) {
+      return;
+    }
+
     this.refresh(ctx);
     this.#active = undefined;
-    this.#unmount(ctx);
+    unmount(ctx);
 
     const snapshot: Snapshot = {
       runId: randomUUID(),
@@ -154,13 +190,16 @@ export class TurnRecapRuntime {
 
     const config = this.#config;
 
-    if (!config) return;
+    if (!config) {
+      return;
+    }
+
     let prompt: string | undefined;
 
     try {
       prompt = buildRecapPrompt(
         ctx.sessionManager.buildSessionProjection().entries,
-        snapshot.outcome,
+        snapshot.outcome
       );
     } catch (error) {
       this.#save(snapshot.runId, { status: "failed", error: errorText(error) });
@@ -168,7 +207,9 @@ export class TurnRecapRuntime {
       return;
     }
 
-    if (prompt === undefined) return;
+    if (prompt === undefined) {
+      return;
+    }
 
     // Pi draws the new card on a later frame, so it already sees this.
     this.#recaps.set(snapshot.runId, { status: "generating" });
@@ -176,12 +217,14 @@ export class TurnRecapRuntime {
     const recap = await generateRecap(ctx, config, prompt, lifetime);
 
     // Only shutdown aborts; later runs and tree navigation let the recap finish.
-    if (!lifetime.aborted) this.#save(snapshot.runId, recap);
+    if (!lifetime.aborted) {
+      this.#save(snapshot.runId, recap);
+    }
   }
 
   shutdown(ctx: ExtensionContext): void {
     this.#lifetime.abort();
-    this.#unmount(ctx);
+    unmount(ctx);
   }
 
   /** Writing any entry makes Pi redraw the transcript, so the card picks up its recap. */
@@ -195,13 +238,22 @@ export class TurnRecapRuntime {
    * while the font is still loading keeps ordinary digits.
    */
   #mount(ctx: ExtensionContext): void {
-    if (ctx.mode !== "tui") return;
+    if (ctx.mode !== "tui") {
+      return;
+    }
 
     // Pi disposes a replaced widget before building its successor.
     ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
-      this.#requestRender = () => tui.requestRender();
+      this.#requestRender = () => {
+        tui.requestRender();
+      };
 
-      const widget = createLiveWidget(tui, theme, () => this.#view(), this.#rollingFont);
+      const widget = createLiveWidget(
+        tui,
+        theme,
+        () => this.#view(),
+        this.#rollingFont
+      );
 
       return {
         ...widget,
@@ -211,10 +263,6 @@ export class TurnRecapRuntime {
         },
       };
     });
-  }
-
-  #unmount(ctx: ExtensionContext): void {
-    if (ctx.mode === "tui") ctx.ui.setWidget(WIDGET_KEY, undefined);
   }
 
   #view(): LiveState | undefined {

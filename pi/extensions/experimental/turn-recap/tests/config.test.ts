@@ -8,22 +8,30 @@ import { loadRecapConfig, parseRecapConfig } from "../config.js";
 
 const temporaryConfigPath = async (): Promise<string> => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "recap-config-"));
-  onTestFinished(() => rm(directory, { force: true, recursive: true }));
+  onTestFinished(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
 
   return path.join(directory, "turn-recap.json");
 };
 
 describe("recap config", () => {
   it("parses an explicit model, keeping ids exactly as Pi will match them", () => {
-    expect(parseRecapConfig({ model: { id: " Llama 3.2 ", provider: "local " } })).toStrictEqual({
+    expect(
+      parseRecapConfig({ model: { id: " Llama 3.2 ", provider: "local " } })
+    ).toStrictEqual({
       model: { id: " Llama 3.2 ", provider: "local " },
       thinking: "off",
     });
   });
 
   it("requires a model with non-empty ids", () => {
-    expect(() => parseRecapConfig({ thinking: "low" })).toThrow("required properties model");
-    expect(() => parseRecapConfig({ model: { id: "", provider: "cheap" } })).toThrow("/model/id");
+    expect(() => parseRecapConfig({ thinking: "low" })).toThrow(
+      "required properties model"
+    );
+    expect(() =>
+      parseRecapConfig({ model: { id: "", provider: "cheap" } })
+    ).toThrow("/model/id");
   });
 
   it("rejects unknown fields", () => {
@@ -31,12 +39,12 @@ describe("recap config", () => {
       parseRecapConfig({
         fallback: true,
         model: { id: "small", provider: "cheap" },
-      }),
+      })
     ).toThrow("Invalid turn-recap configuration");
     expect(() =>
       parseRecapConfig({
         model: { id: "small", provider: "cheap", temperature: 0 },
-      }),
+      })
     ).toThrow("Invalid turn-recap configuration");
   });
 
@@ -44,18 +52,24 @@ describe("recap config", () => {
     "accepts explicit %s thinking",
     (thinking) => {
       expect(
-        parseRecapConfig({ model: { id: "small", provider: "cheap" }, thinking }),
+        parseRecapConfig({
+          model: { id: "small", provider: "cheap" },
+          thinking,
+        })
       ).toStrictEqual({ model: { id: "small", provider: "cheap" }, thinking });
-    },
+    }
   );
 
   it.each(["", "auto", "HIGH", " low ", null, true, 2, {}])(
     "rejects invalid thinking %j",
     (thinking) => {
       expect(() =>
-        parseRecapConfig({ model: { id: "small", provider: "cheap" }, thinking }),
+        parseRecapConfig({
+          model: { id: "small", provider: "cheap" },
+          thinking,
+        })
       ).toThrow("/thinking");
-    },
+    }
   );
 
   it("loads the strict JSON file", async () => {
@@ -66,7 +80,7 @@ describe("recap config", () => {
         model: { id: "small", provider: "cheap" },
         thinking: "low",
       }),
-      "utf-8",
+      "utf-8"
     );
 
     await expect(loadRecapConfig(configPath)).resolves.toStrictEqual({
@@ -80,6 +94,8 @@ describe("recap config", () => {
     await expect(loadRecapConfig(configPath)).resolves.toBeUndefined();
 
     await writeFile(configPath, "{", "utf-8");
-    await expect(loadRecapConfig(configPath)).rejects.toBeInstanceOf(SyntaxError);
+    await expect(loadRecapConfig(configPath)).rejects.toBeInstanceOf(
+      SyntaxError
+    );
   });
 });

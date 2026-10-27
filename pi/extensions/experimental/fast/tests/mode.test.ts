@@ -38,16 +38,22 @@ describe("Fast local preference", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const setup = async (flag = false, reader: typeof loadFastDefault = loadFastDefault) => {
+  const setup = async (
+    flag = false,
+    reader: typeof loadFastDefault = loadFastDefault
+  ) => {
     const configPath = path.join(root, "fast.json");
     const instance = Promise.withResolvers<ReturnType<typeof createFastMode>>();
 
     const host = createExtensionHost(
       (pi) => {
-        pi.registerFlag("fast", { description: "Test startup flag", type: "boolean" });
+        pi.registerFlag("fast", {
+          description: "Test startup flag",
+          type: "boolean",
+        });
         instance.resolve(createFastMode(pi, configPath, reader));
       },
-      { flags: { fast: flag }, model },
+      { flags: { fast: flag }, model }
     );
 
     await host.ready;
@@ -70,7 +76,7 @@ describe("Fast local preference", () => {
   it("toggles synchronously without creating files, preserves payloads and rejects arguments", async () => {
     const { mode, host, ctx } = await setup();
     await mode.start(startup, ctx);
-    expect(await readdir(root)).toStrictEqual([]);
+    await expect(readdir(root)).resolves.toStrictEqual([]);
     expect(mode.payload(payload, ctx)).toBeUndefined();
     mode.toggle("", ctx);
     expect(mode.payload(payload, ctx)).toStrictEqual({
@@ -79,7 +85,9 @@ describe("Fast local preference", () => {
     });
     expect(payload.payload.service_tier).toBe("default");
     expect(host.getStatus("fast")).toContain("⚡ Fast requested");
-    expect(mode.payload({ ...payload, payload: { model: "other" } }, ctx)).toBeUndefined();
+    expect(
+      mode.payload({ ...payload, payload: { model: "other" } }, ctx)
+    ).toBeUndefined();
     expect(mode.payload({ ...payload, payload: null }, ctx)).toBeUndefined();
     mode.toggle("on", ctx);
     expect(host.getNotifications().at(-1)?.message).toBe("Usage: /fast");
@@ -87,12 +95,16 @@ describe("Fast local preference", () => {
     mode.toggle("", ctx);
     expect(mode.payload(payload, ctx)).toBeUndefined();
     expect(host.getStatus("fast")).toBeUndefined();
-    expect(await readdir(root)).toStrictEqual([]);
+    await expect(readdir(root)).resolves.toStrictEqual([]);
   });
 
   it("shows enabled intent outside native routing but leaves the payload untouched", async () => {
     const { mode, host, ctx } = await setup(true);
-    const unsupported = { ...ctx, model: { ...model, baseUrl: "https://custom.invalid/v1" } };
+
+    const unsupported = {
+      ...ctx,
+      model: { ...model, baseUrl: "https://custom.invalid/v1" },
+    };
 
     await mode.start(startup, unsupported);
     expect(host.getStatus("fast")).toContain("⚡ Fast requested");
@@ -112,10 +124,14 @@ describe("Fast local preference", () => {
     await second.mode.start(startup, second.ctx);
     first.mode.toggle("", first.ctx);
     expect(first.mode.payload(payload, first.ctx)).toBeUndefined();
-    expect(second.mode.payload(payload, second.ctx)?.service_tier).toBe("priority");
-    expect(await readFile(first.configPath, "utf8")).toBe(text);
+    expect(second.mode.payload(payload, second.ctx)?.service_tier).toBe(
+      "priority"
+    );
+    await expect(readFile(first.configPath, "utf-8")).resolves.toBe(text);
     await first.mode.start(reload, first.ctx);
-    expect(first.mode.payload(payload, first.ctx)?.service_tier).toBe("priority");
+    expect(first.mode.payload(payload, first.ctx)?.service_tier).toBe(
+      "priority"
+    );
   });
 
   it("applies externally edited defaults only to new or reloaded runtimes", async () => {
@@ -126,11 +142,17 @@ describe("Fast local preference", () => {
     expect(first.mode.payload(payload, first.ctx)).toBeUndefined();
     const second = await setup();
     await second.mode.start(startup, second.ctx);
-    expect(second.mode.payload(payload, second.ctx)?.service_tier).toBe("priority");
+    expect(second.mode.payload(payload, second.ctx)?.service_tier).toBe(
+      "priority"
+    );
     await first.mode.start(reload, first.ctx);
-    expect(first.mode.payload(payload, first.ctx)?.service_tier).toBe("priority");
+    expect(first.mode.payload(payload, first.ctx)?.service_tier).toBe(
+      "priority"
+    );
     await writeFile(first.configPath, '{"fast":false}');
-    expect(second.mode.payload(payload, second.ctx)?.service_tier).toBe("priority");
+    expect(second.mode.payload(payload, second.ctx)?.service_tier).toBe(
+      "priority"
+    );
     await second.mode.start(reload, second.ctx);
     expect(second.mode.payload(payload, second.ctx)).toBeUndefined();
   });
@@ -138,7 +160,9 @@ describe("Fast local preference", () => {
   it("keeps --fast local, never saves it, and does not reapply it on reload", async () => {
     const first = await setup(true);
     await first.mode.start(startup, first.ctx);
-    expect(first.mode.payload(payload, first.ctx)?.service_tier).toBe("priority");
+    expect(first.mode.payload(payload, first.ctx)?.service_tier).toBe(
+      "priority"
+    );
     const second = await setup();
     const ctx = { ...second.ctx, hasUI: false };
     await second.mode.start(startup, ctx);
@@ -148,7 +172,7 @@ describe("Fast local preference", () => {
     expect(second.host.getNotifications()).toStrictEqual([]);
     await first.mode.start(reload, first.ctx);
     expect(first.mode.payload(payload, first.ctx)).toBeUndefined();
-    expect(await readdir(root)).toStrictEqual([]);
+    await expect(readdir(root)).resolves.toStrictEqual([]);
   });
 
   it.each([false, true])(
@@ -157,29 +181,40 @@ describe("Fast local preference", () => {
       const { mode, ctx, configPath, host } = await setup(flag);
       await writeFile(configPath, "broken");
       await mode.start(startup, ctx);
-      expect(mode.payload(payload, ctx)?.service_tier).toBe(flag ? "priority" : undefined);
+      expect(mode.payload(payload, ctx)?.service_tier).toBe(
+        flag ? "priority" : undefined
+      );
       expect(host.getNotifications().at(-1)?.type).toBe("warning");
       mode.toggle("", ctx);
-      expect(await readFile(configPath, "utf8")).toBe("broken");
+      await expect(readFile(configPath, "utf-8")).resolves.toBe("broken");
       await mode.start(reload, ctx);
       expect(mode.payload(payload, ctx)).toBeUndefined();
-    },
+    }
   );
 
   it.each(["resolve", "reject"] as const)(
     "ignores late load %s after shutdown",
     async (outcome) => {
       const loaded = Promise.withResolvers<boolean>();
-      const { mode, ctx, host } = await setup(false, () => loaded.promise);
+
+      const { mode, ctx, host } = await setup(
+        false,
+        async () => await loaded.promise
+      );
+
       const start = mode.start(startup, ctx);
       mode.stop(ctx);
 
-      if (outcome === "resolve") loaded.resolve(true);
-      else loaded.reject(new Error("Late read failure"));
+      if (outcome === "resolve") {
+        loaded.resolve(true);
+      } else {
+        loaded.reject(new Error("Late read failure"));
+      }
+
       await start;
       expect(mode.payload(payload, ctx)).toBeUndefined();
       expect(host.getStatus("fast")).toBeUndefined();
       expect(host.getNotifications()).toStrictEqual([]);
-    },
+    }
   );
 });

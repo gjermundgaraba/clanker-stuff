@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
-import type { PendingProcess } from "./helpers.js";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { tokenizeArguments } from "../command-runtime.js";
+import type { PendingProcess } from "./helpers.js";
 import { exited, setup, signaled } from "./helpers.js";
 
 describe("command runtime", () => {
   it("tokenizes quotes and escapes", () => {
-    expect(tokenizeArguments(`--gate "docs/my file.md" 'two words' escaped\\ value`)).toStrictEqual(
-      ["--gate", "docs/my file.md", "two words", "escaped value"],
-    );
+    expect(
+      tokenizeArguments(`--gate "docs/my file.md" 'two words' escaped\\ value`)
+    ).toStrictEqual([
+      "--gate",
+      "docs/my file.md",
+      "two words",
+      "escaped value",
+    ]);
   });
 
   it.each([`"unterminated`, `'unterminated`, "trailing\\"])(
@@ -19,7 +25,7 @@ describe("command runtime", () => {
       await host.runCommand("plannotator-review", args, ctx);
       expect(pending).toHaveLength(0);
       expect(host.getNotifications().at(-1)).toMatchObject({ type: "error" });
-    },
+    }
   );
 
   it("shows stderr lines while the CLI runs, then reports a nonzero exit code", async () => {

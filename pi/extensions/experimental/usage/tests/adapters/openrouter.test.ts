@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { fetchOpenRouterUsage, mapOpenRouterCreditsPayload } from "../../adapters/openrouter.js";
+import {
+  fetchOpenRouterUsage,
+  mapOpenRouterCreditsPayload,
+} from "../../adapters/openrouter.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuth } from "./helpers.js";
 

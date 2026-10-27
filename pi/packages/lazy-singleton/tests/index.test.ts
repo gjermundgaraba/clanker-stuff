@@ -5,7 +5,11 @@ import { createLazySingleton } from "../index.js";
 describe("lazy singleton", () => {
   it("shares an in-flight load and caches the successful value", async () => {
     const loading = Promise.withResolvers<{ id: string }>();
-    const create = vi.fn<() => Promise<{ id: string }>>(() => loading.promise);
+
+    const create = vi.fn<() => Promise<{ id: string }>>(
+      async () => await loading.promise
+    );
+
     const onLoad = vi.fn<(value: { id: string }) => void>();
     const singleton = createLazySingleton(create, onLoad);
 
@@ -54,12 +58,14 @@ describe("lazy singleton", () => {
   it("does not return a value stopped during its load callback", async () => {
     const value = { id: "loaded" };
     const dispose = vi.fn<(loaded: typeof value) => void>();
-    let singleton: ReturnType<typeof createLazySingleton<typeof value>>;
 
-    singleton = createLazySingleton(
-      async () => value,
-      () => void singleton.stop(dispose),
-    );
+    const singleton: ReturnType<typeof createLazySingleton<typeof value>> =
+      createLazySingleton(
+        async () => value,
+        () => {
+          void singleton.stop(dispose);
+        }
+      );
 
     await expect(singleton.load()).resolves.toBeUndefined();
     expect(dispose).toHaveBeenCalledExactlyOnceWith(value);
@@ -69,27 +75,34 @@ describe("lazy singleton", () => {
   it("stops terminally and disposes an in-flight result once", async () => {
     const loading = Promise.withResolvers<{ id: string }>();
 
-    const disposal = Promise.withResolvers<void>();
-    const dispose = vi.fn<(value: { id: string }) => Promise<void>>(() => disposal.promise);
-    const stopped = vi.fn<() => void>();
+    const disposal = Promise.withResolvers<undefined>();
+
+    const dispose = vi.fn<(value: { id: string }) => Promise<void>>(
+      async () => {
+        await disposal.promise;
+      }
+    );
+
+    const firstStopped = vi.fn<() => void>();
+    const secondStopped = vi.fn<() => void>();
     const value = { id: "loaded" };
 
-    const singleton = createLazySingleton(() => loading.promise);
+    const singleton = createLazySingleton(async () => await loading.promise);
 
     const load = singleton.load();
-    const firstStop = singleton.stop(dispose);
-    const secondStop = singleton.stop(dispose);
-    expect(secondStop).toBe(firstStop);
-    const completion = firstStop.then(stopped);
+    const firstStop = singleton.stop(dispose).then(firstStopped);
+    const secondStop = singleton.stop(dispose).then(secondStopped);
     loading.resolve(value);
 
     await expect(load).resolves.toBeUndefined();
     expect(dispose).toHaveBeenCalledWith(value);
-    expect(stopped).not.toHaveBeenCalled();
+    expect(firstStopped).not.toHaveBeenCalled();
+    expect(secondStopped).not.toHaveBeenCalled();
 
-    disposal.resolve();
-    await completion;
-    expect(stopped).toHaveBeenCalledOnce();
+    disposal.resolve(undefined);
+    await Promise.all([firstStop, secondStop]);
+    expect(firstStopped).toHaveBeenCalledOnce();
+    expect(secondStopped).toHaveBeenCalledOnce();
     expect(dispose).toHaveBeenCalledExactlyOnceWith(value);
     await expect(singleton.load()).resolves.toBeUndefined();
   });

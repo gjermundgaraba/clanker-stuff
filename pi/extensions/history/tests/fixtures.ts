@@ -1,18 +1,19 @@
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme } from "@earendil-works/pi-tui";
+
 import type { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
   createCustomUiDriver,
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export const userEntry = (
   id: string,
   parentId: string | null,
   text: string,
-  timestamp: number,
+  timestamp: number
 ): SessionEntry => ({
   id,
   message: { content: text, role: "user", timestamp },
@@ -21,10 +22,15 @@ export const userEntry = (
   type: "message",
 });
 
-export const nonPromptEntries = (parentId: string | null, timestamp: number): SessionEntry[] => [
+export const nonPromptEntries = (
+  parentId: string | null,
+  timestamp: number
+): SessionEntry[] => [
   {
     id: "assistant",
-    message: fauxAssistantMessage("non-prompt assistant content", { timestamp }),
+    message: fauxAssistantMessage("non-prompt assistant content", {
+      timestamp,
+    }),
     parentId,
     timestamp: new Date(timestamp).toISOString(),
     type: "message",
@@ -72,7 +78,10 @@ export const editorTheme: EditorTheme = {
 export const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   const factory = host.getEditorFactory();
 
-  if (!factory) throw new Error("Expected a history editor factory");
+  if (!factory) {
+    throw new Error("Expected a history editor factory");
+  }
+
   const editor = factory(createMockTui(), editorTheme, createKeybindings());
   editor.render(80);
 
@@ -83,7 +92,7 @@ export const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
 export const search = async (
   host: ReturnType<typeof createExtensionHost>,
   keys: string[],
-  onAfterCapture?: () => Promise<void>,
+  onAfterCapture?: () => Promise<void>
 ) => {
   const driver = createCustomUiDriver({
     captureRender: "after",
@@ -91,7 +100,10 @@ export const search = async (
     ...(onAfterCapture === undefined ? {} : { onAfterCapture }),
   });
 
-  await host.runShortcut("ctrl+r", host.createContext({ ui: { custom: driver.custom } }));
+  await host.runShortcut(
+    "ctrl+r",
+    host.createContext({ ui: { custom: driver.custom } })
+  );
 
   return driver.getLastRender() ?? "";
 };

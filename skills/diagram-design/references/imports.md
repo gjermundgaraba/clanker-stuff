@@ -12,8 +12,4 @@ Preserve labels, edge direction, grouping, and meaningful distinctions unless th
 
 A plain screenshot or flattened export may lack recoverable structure. Inspect it visually if available; obtain the editable source when exact relationships cannot be recovered. These parsers are extraction aids, not full renderers or round-trip converters.
 
-All three formats use the same graph analysis: bidirectional edges contribute
-both directions; undirected contacts count at both endpoints without implying a
-flow entry or terminal. `has_cycle` reports directed cycles, including reverse
-arcs of bidirectional edges, and excludes undirected relationships. Format-specific
-shape interpretation and presentation remain separate.
+All three formats use the same graph analysis: bidirectional edges contribute both directions; undirected contacts count at both endpoints without implying a flow entry or terminal. `has_cycle` reports directed cycles, including reverse arcs of bidirectional edges, and excludes undirected relationships. Format-specific shape interpretation and presentation remain separate.

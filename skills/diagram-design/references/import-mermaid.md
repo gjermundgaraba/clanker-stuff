@@ -7,13 +7,13 @@ python3 <skill-dir>/scripts/mermaid_extract.py README.md --diagram all --json --
 
 Input may be `.mmd`, `.mermaid`, or Markdown with fenced `mermaid` blocks. Supported grammars are `flowchart`/`graph`, `sequenceDiagram`, `stateDiagram-v2`, and `erDiagram`. This is a bounded subset parser, not Mermaid itself; unsupported syntax can fail or be recorded as discarded content.
 
-| Argument                       | Behavior                                                    |
-| ------------------------------ | ----------------------------------------------------------- |
-| `file`                         | Local source path                                           |
-| `--diagram N`, `--diagram all` | Zero-based block index or every block; default first block  |
-| `--json`                       | Full intermediate representation instead of Markdown digest |
-| `--max-rows N`                 | Rows per digest table; default 40, minimum 1                |
-| `--out PATH`                   | Write UTF-8 output to a file instead of stdout              |
+| Argument | Behavior |
+| --- | --- |
+| `file` | Local source path |
+| `--diagram N`, `--diagram all` | Zero-based block index or every block; default first block |
+| `--json` | Full intermediate representation instead of Markdown digest |
+| `--max-rows N` | Rows per digest table; default 40, minimum 1 |
+| `--out PATH` | Write UTF-8 output to a file instead of stdout |
 
 The inventory lists each block's index, declared kind, and source line without parsing its body. Only selected blocks are parsed, so an unsupported unrelated block does not prevent extraction. `--diagram all` requires every block to be supported. Exit 0 means success; unreadable, unsupported, malformed, or oversized selected input returns 2. Flowchart statements may follow the header on the same line, separated by semicolons.
 

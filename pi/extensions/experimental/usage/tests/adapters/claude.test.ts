@@ -1,9 +1,11 @@
-import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchClaudeUsage, mapClaudeUsagePayload } from "../../adapters/claude.js";
+import {
+  fetchClaudeUsage,
+  mapClaudeUsagePayload,
+} from "../../adapters/claude.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuth } from "./helpers.js";
+import { okFetch, NOW, tokenAuth } from "./helpers.js";
 
 describe("claude usage", () => {
   const payload = {
@@ -42,35 +44,41 @@ describe("claude usage", () => {
 
   it.each([{}, { five_hour: null, seven_day: null }])(
     "fails when a valid payload has no windows: %j",
-    async (payload) => {
+    async (emptyPayload) => {
       await expect(
         fetchClaudeUsage({
           getAuth: tokenAuth("token"),
-          fetchJson: okFetch(payload),
+          fetchJson: okFetch(emptyPayload),
           now: () => NOW,
-        }),
+        })
       ).resolves.toStrictEqual({
         ok: false,
         error: { kind: "failure", message: "no usage data in response" },
       });
-    },
+    }
   );
 
-  it.each([-1, 101])("rejects out-of-range utilization %s at ingress", async (utilization) => {
-    await expect(
-      fetchClaudeUsage({
-        getAuth: tokenAuth("token"),
-        fetchJson: okFetch({ five_hour: { utilization } }),
-        now: () => NOW,
-      }),
-    ).resolves.toStrictEqual({
-      ok: false,
-      error: { kind: "failure", message: "invalid usage payload" },
-    });
-  });
+  it.each([-1, 101])(
+    "rejects out-of-range utilization %s at ingress",
+    async (utilization) => {
+      await expect(
+        fetchClaudeUsage({
+          getAuth: tokenAuth("token"),
+          fetchJson: okFetch({ five_hour: { utilization } }),
+          now: () => NOW,
+        })
+      ).resolves.toStrictEqual({
+        ok: false,
+        error: { kind: "failure", message: "invalid usage payload" },
+      });
+    }
+  );
 
   it("requests OAuth usage with Anthropic headers", async () => {
-    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch(payload) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchClaudeUsage({
@@ -86,7 +94,10 @@ describe("claude usage", () => {
   });
 
   it("does not treat an Anthropic API key as subscription OAuth", async () => {
-    const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch(undefined) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchClaudeUsage({
@@ -104,7 +115,10 @@ describe("claude usage", () => {
       },
       ok: false,
     });
-    expect(result).toHaveProperty("error.message", expect.stringContaining("requires OAuth login"));
+    expect(result).toHaveProperty(
+      "error.message",
+      expect.stringContaining("requires OAuth login")
+    );
     expect(fetchJson).not.toHaveBeenCalled();
   });
 });

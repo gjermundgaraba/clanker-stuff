@@ -7,13 +7,13 @@ python3 <skill-dir>/scripts/drawio_extract.py source.drawio --page all --json --
 
 Supported input: raw `<mxfile>` or `<mxGraphModel>` XML, compressed draw.io payloads, and draw.io PNG/SVG exports containing embedded diagram data. A flattened PNG/SVG without embedded draw.io data is not supported.
 
-| Argument                                | Behavior                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------------- |
-| `file`                                  | Local source path                                                               |
+| Argument | Behavior |
+| --- | --- |
+| `file` | Local source path |
 | `--page N`, `--page NAME`, `--page all` | Zero-based index, case-insensitive page name, or every page; default first page |
-| `--json`                                | Full extracted intermediate representation instead of Markdown digest           |
-| `--max-rows N`                          | Rows per digest table; default 40, minimum 1                                    |
-| `--out PATH`                            | Write UTF-8 output to a file instead of stdout                                  |
+| `--json` | Full extracted intermediate representation instead of Markdown digest |
+| `--max-rows N` | Rows per digest table; default 40, minimum 1 |
+| `--out PATH` | Write UTF-8 output to a file instead of stdout |
 
 All pages are decoded before selection. JSON includes page inventory and selected pages with nodes, edges, geometry, styles, and structural analysis. Exit 0 means extraction succeeded; rejected/unsupported input returns 2. Filesystem errors may surface as Python errors.
 

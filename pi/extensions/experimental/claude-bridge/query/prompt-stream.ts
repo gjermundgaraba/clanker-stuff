@@ -27,45 +27,50 @@ export interface PromptStream {
 
 interface Item {
   message: SDKUserMessage;
-  resolve: () => void;
+  resolve: (value: undefined) => void;
   reject: (error: Error) => void;
 }
 
-export function makePromptStream(): PromptStream {
+export const makePromptStream = (): PromptStream => {
   const queue: Item[] = [];
   // The item parked at `yield`, tracked so fail() can settle it: a dying CLI may abandon
   // the pump without resuming us, and an unsettled ack would wedge tool-result delivery.
   let inflight: Item | null = null;
-  let wake: (() => void) | null = null;
+  let wake: ((value: undefined) => void) | null = null;
   let done = false;
   let failure: Error | null = null;
 
   const kick = (): void => {
-    wake?.();
+    wake?.(undefined);
     wake = null;
   };
 
-  async function* generate(): AsyncGenerator<SDKUserMessage> {
+  const generate = async function* (): AsyncGenerator<SDKUserMessage> {
     try {
       while (true) {
         while (queue.length === 0 && !done && failure === null) {
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-          });
+          const { promise, resolve } = Promise.withResolvers<undefined>();
+
+          wake = resolve;
+          await promise;
         }
 
-        if (failure !== null) throw failure;
+        if (failure !== null) {
+          throw failure;
+        }
 
         const item = queue.shift();
 
         // Ended and drained.
-        if (item === undefined) return;
+        if (item === undefined) {
+          return;
+        }
 
         inflight = item;
 
         try {
           yield item.message;
-          item.resolve();
+          item.resolve(undefined);
         } finally {
           // A no-op after resolve; otherwise the pump abandoned iteration, which resumes
           // the yield as a return.
@@ -78,19 +83,25 @@ export function makePromptStream(): PromptStream {
       // later push rejects too. This keeps reject-never-hang a property of this module.
       done = true;
 
-      for (const item of queue.splice(0)) item.reject(new Error("prompt stream closed"));
+      for (const item of queue.splice(0)) {
+        item.reject(new Error("prompt stream closed"));
+      }
     }
-  }
+  };
 
   return {
     stream: generate(),
-    push: (message) =>
-      failure !== null || done
-        ? Promise.reject(failure ?? new Error("prompt stream closed"))
-        : new Promise<void>((resolve, reject) => {
-            queue.push({ message, resolve, reject });
-            kick();
-          }),
+    push: async (message) => {
+      if (failure !== null || done) {
+        throw failure ?? new Error("prompt stream closed");
+      }
+
+      const { promise, resolve, reject } = Promise.withResolvers<undefined>();
+
+      queue.push({ message, resolve, reject });
+      kick();
+      await promise;
+    },
     end: () => {
       done = true;
       kick();
@@ -98,28 +109,30 @@ export function makePromptStream(): PromptStream {
     fail: (error) => {
       // First failure wins: the query's `finally` fails the stream again with a generic
       // "query ended", which would otherwise mask the real cause.
-      if (failure !== null) return;
+      if (failure !== null) {
+        return;
+      }
 
       failure = error;
 
-      for (const item of queue.splice(0)) item.reject(error);
+      for (const item of queue.splice(0)) {
+        item.reject(error);
+      }
 
       inflight?.reject(error);
       kick();
     },
   };
-}
+};
 
 /** `uuid` is omitted on purpose: no dedup is needed, and one makes Claude Code's stdin
  *  loop look the message up in the session. */
-export function userMessage(
+export const userMessage = (
   content: SDKUserMessage["message"]["content"],
-  priority?: SDKUserMessage["priority"],
-): SDKUserMessage {
-  return {
-    type: "user",
-    message: { role: "user", content },
-    parent_tool_use_id: null,
-    ...(priority === undefined ? {} : { priority }),
-  };
-}
+  priority?: SDKUserMessage["priority"]
+): SDKUserMessage => ({
+  type: "user",
+  message: { role: "user", content },
+  parent_tool_use_id: null,
+  ...(priority === undefined ? {} : { priority }),
+});

@@ -35,15 +35,15 @@ Apply this to the UI the user names: build it, improve it, or review it. For a r
 
 Every rule below is stated as a ratio or a procedure. Before applying them, write down the medium's terms:
 
-| Lever    | Ask                                                                                                                                                                     |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Space    | The base unit: px, pt, dp, or one cell and one row. Spacing steps are multiples of it.                                                                                  |
+| Lever | Ask |
+| --- | --- |
+| Space | The base unit: px, pt, dp, or one cell and one row. Spacing steps are multiples of it. |
 | Emphasis | What can vary: size, weight, face, case, colour, dim, reverse, underline, position. A terminal has one size, so its levels come from weight, colour, dim, and position. |
-| Colour   | Full colour, 256, the user's 16-colour theme, or none. Light and dark grounds, and whether the user owns the palette.                                                   |
-| Input    | Pointer, touch, keyboard, or several, and the smallest comfortable target. Detect what the input can do, never what the device claims to be.                            |
-| Sizes    | The smallest, typical, and largest space the UI is given, including the user's own text size or zoom.                                                                   |
-| Content  | The shortest, typical, and longest values and counts the data allows.                                                                                                   |
-| Render   | How to see the real output: a browser screenshot, a simulator capture, a terminal capture at a fixed size.                                                              |
+| Colour | Full colour, 256, the user's 16-colour theme, or none. Light and dark grounds, and whether the user owns the palette. |
+| Input | Pointer, touch, keyboard, or several, and the smallest comfortable target. Detect what the input can do, never what the device claims to be. |
+| Sizes | The smallest, typical, and largest space the UI is given, including the user's own text size or zoom. |
+| Content | The shortest, typical, and longest values and counts the data allows. |
+| Render | How to see the real output: a browser screenshot, a simulator capture, a terminal capture at a fixed size. |
 
 Then state the purpose in one sentence: who uses this, how often, and the one task each screen serves. Give each screen a mode. **Operate** (do a task) earns density, familiar controls, and speed; **read** (understand something) earns comfortable measure and wayfinding; **persuade** (decide and act) earns space and one strong statement. A product's landing screen may persuade while its main screen operates. Note what must stay untouched and what would make a polished result feel wrong.
 

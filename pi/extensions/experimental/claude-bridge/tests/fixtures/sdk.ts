@@ -4,8 +4,6 @@
 
 import { readFileSync } from "node:fs";
 
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import type { AssistantMessageEvent, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type {
   NonNullableUsage,
   SDKAssistantMessage,
@@ -25,24 +23,38 @@ import type {
   BetaTextBlock,
   BetaUsage,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type {
+  AssistantMessageEvent,
+  AssistantMessageEventStream,
+} from "@earendil-works/pi-ai";
 
-/** Turns recorded from live Claude Code with CLAUDE_BRIDGE_RECORD_STREAM, ids scrubbed. */
+/**
+ * Turns recorded from live Claude Code at the pinned SDK (0.3.310, Claude Code 2.1.310) by running
+ * pi with this extension, `--model claude-bridge/claude-haiku-4-5 --thinking low --tools read`, and
+ * CLAUDE_BRIDGE_RECORD_STREAM=<file>.jsonl, in a directory holding one.txt, two.txt and three.txt.
+ * Scrubbed afterwards: `session_id` and every `uuid` renumbered in order of appearance, and the
+ * init frame cut to type, subtype, session_id, tools, mcp_servers, model, permissionMode and uuid
+ * (it otherwise lists the recording machine's skills, agents, plugins and paths; the bridge reads
+ * only its session_id). API ids (`msg_`, `req_`, `toolu_`) are kept.
+ */
 export type RecordedStream = "text" | "single-tool" | "parallel-tools";
 
-export function recordedStream(name: RecordedStream): SDKMessage[] {
-  const lines = readFileSync(new URL(`./sdk-streams/${name}.jsonl`, import.meta.url), "utf8").split(
-    "\n",
-  );
+export const recordedStream = (name: RecordedStream): SDKMessage[] => {
+  const lines = readFileSync(
+    new URL(`sdk-streams/${name}.jsonl`, import.meta.url),
+    "utf-8"
+  ).split("\n");
 
   return lines
     .filter((line) => line !== "")
     .map((line) => {
       const raw: unknown = JSON.parse(line);
 
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Verbatim Claude Code output from the SDK this bridge pins; the SDK's own declaration is the contract the recording captured.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Claude Code output from the pinned SDK, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. No bridge logic reads those fields; debug logging writes the rate-limit info whole.
       return raw as SDKMessage;
     });
-}
+};
 
 /** A real pi stream, plus what the bridge pushed to it and whether it ended it. Each
  *  event's type also goes to `log`, for interleaving with other observers. */
@@ -52,7 +64,7 @@ export interface RecordingStream {
   readonly ended: boolean;
 }
 
-export function recordingStream(log: string[] = []): RecordingStream {
+export const recordingStream = (log: string[] = []): RecordingStream => {
   const stream = createAssistantMessageEventStream();
   const events: AssistantMessageEvent[] = [];
   let ended = false;
@@ -79,7 +91,7 @@ export function recordingStream(log: string[] = []): RecordingStream {
       return ended;
     },
   };
-}
+};
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -104,7 +116,11 @@ const usage = (): BetaUsage => ({
   speed: null,
 });
 
-const betaMessage = (id: string, content: BetaContentBlock[], model: string): BetaMessage => ({
+const betaMessage = (
+  id: string,
+  content: BetaContentBlock[],
+  model: string
+): BetaMessage => ({
   id,
   container: null,
   content,
@@ -138,14 +154,19 @@ export const init = (sessionId: string): SDKSystemMessage => ({
   session_id: sessionId,
 });
 
-const streamEvent = (event: BetaRawMessageStreamEvent): SDKPartialAssistantMessage => ({
+const streamEvent = (
+  event: BetaRawMessageStreamEvent
+): SDKPartialAssistantMessage => ({
   type: "stream_event",
   event,
   ...envelope,
 });
 
 export const messageStart = (id: string): SDKPartialAssistantMessage =>
-  streamEvent({ type: "message_start", message: betaMessage(id, [], "claude-haiku-4-5") });
+  streamEvent({
+    type: "message_start",
+    message: betaMessage(id, [], "claude-haiku-4-5"),
+  });
 
 export const textStart = (index: number): SDKPartialAssistantMessage =>
   streamEvent({
@@ -161,24 +182,41 @@ export const thinkingStart = (index: number): SDKPartialAssistantMessage =>
     content_block: { type: "thinking", thinking: "", signature: "" },
   });
 
-export const toolUseStart = (index: number, name: string, id: string): SDKPartialAssistantMessage =>
+export const toolUseStart = (
+  index: number,
+  name: string,
+  id: string
+): SDKPartialAssistantMessage =>
   streamEvent({
     type: "content_block_start",
     index,
     content_block: { type: "tool_use", name, id, input: {} },
   });
 
-export const textDelta = (index: number, text: string): SDKPartialAssistantMessage =>
-  streamEvent({ type: "content_block_delta", index, delta: { type: "text_delta", text } });
+export const textDelta = (
+  index: number,
+  text: string
+): SDKPartialAssistantMessage =>
+  streamEvent({
+    type: "content_block_delta",
+    index,
+    delta: { type: "text_delta", text },
+  });
 
-export const thinkingDelta = (index: number, thinking: string): SDKPartialAssistantMessage =>
+export const thinkingDelta = (
+  index: number,
+  thinking: string
+): SDKPartialAssistantMessage =>
   streamEvent({
     type: "content_block_delta",
     index,
     delta: { type: "thinking_delta", thinking, estimated_tokens: null },
   });
 
-export const inputJsonDelta = (index: number, partialJson: string): SDKPartialAssistantMessage =>
+export const inputJsonDelta = (
+  index: number,
+  partialJson: string
+): SDKPartialAssistantMessage =>
   streamEvent({
     type: "content_block_delta",
     index,
@@ -188,11 +226,18 @@ export const inputJsonDelta = (index: number, partialJson: string): SDKPartialAs
 export const blockStop = (index: number): SDKPartialAssistantMessage =>
   streamEvent({ type: "content_block_stop", index });
 
-export const messageDelta = (stopReason: BetaStopReason): SDKPartialAssistantMessage =>
+export const messageDelta = (
+  stopReason: BetaStopReason
+): SDKPartialAssistantMessage =>
   streamEvent({
     type: "message_delta",
     context_management: null,
-    delta: { container: null, stop_details: null, stop_reason: stopReason, stop_sequence: null },
+    delta: {
+      container: null,
+      stop_details: null,
+      stop_reason: stopReason,
+      stop_sequence: null,
+    },
     usage: {
       cache_creation_input_tokens: null,
       cache_read_input_tokens: null,
@@ -205,15 +250,20 @@ export const messageDelta = (stopReason: BetaStopReason): SDKPartialAssistantMes
     },
   });
 
-export const messageStop = (): SDKPartialAssistantMessage => streamEvent({ type: "message_stop" });
+export const messageStop = (): SDKPartialAssistantMessage =>
+  streamEvent({ type: "message_stop" });
 
-export const textBlock = (text: string): BetaTextBlock => ({ type: "text", text, citations: null });
+export const textBlock = (text: string): BetaTextBlock => ({
+  type: "text",
+  text,
+  citations: null,
+});
 
 /** A complete assistant message: what follows a stream, or replaces a stalled one. */
 export const assistantMessage = (
   id: string,
   content: BetaContentBlock[],
-  model = "claude-haiku-4-5",
+  model = "claude-haiku-4-5"
 ): SDKAssistantMessage => ({
   type: "assistant",
   message: betaMessage(id, content, model),
@@ -225,7 +275,10 @@ export const syntheticReport = (text: string): SDKAssistantMessage =>
   assistantMessage("msg_synthetic", [textBlock(text)], "<synthetic>");
 
 const resultUsage: NonNullableUsage = {
-  cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 },
+  cache_creation: {
+    ephemeral_1h_input_tokens: 0,
+    ephemeral_5m_input_tokens: 0,
+  },
   cache_creation_input_tokens: 0,
   cache_read_input_tokens: 0,
   fallback_credit: null,
@@ -252,7 +305,10 @@ const resultFields = () => ({
 });
 
 /** A success-shaped result; `isError` is how Claude Code reports an API failure. */
-export const successResult = (result: string, isError = false): SDKResultSuccess => ({
+export const successResult = (
+  result: string,
+  isError = false
+): SDKResultSuccess => ({
   type: "result",
   subtype: "success",
   is_error: isError,
@@ -262,7 +318,7 @@ export const successResult = (result: string, isError = false): SDKResultSuccess
 
 export const errorResult = (
   subtype: SDKResultError["subtype"],
-  errors: string[],
+  errors: string[]
 ): SDKResultError => ({
   type: "result",
   subtype,

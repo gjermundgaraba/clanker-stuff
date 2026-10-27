@@ -70,9 +70,9 @@ export const layer = Layer.effectDiscard(
     yield* gateway.events.pipe(
       Stream.filter(isMessageEvent),
       Stream.runForEach(handleEvent),
-      Effect.forkScoped,
+      Effect.forkScoped
     );
-  }),
+  })
 );
 ```
 

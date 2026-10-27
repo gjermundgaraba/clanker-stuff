@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, sep } from "node:path";
+import path from "node:path";
 
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 
 import { SkillApprovals } from "./approvals.js";
 import { buildCatalog } from "./catalog.js";
@@ -18,19 +22,51 @@ export type Loaded = { bytes: Buffer } | { error: string };
 
 /** Text of the messages loaded skills leave their folder path in: user messages and `read` results. */
 const messageText = (entry: SessionEntry): string => {
-  if (entry.type !== "message") return "";
+  if (entry.type !== "message") {
+    return "";
+  }
 
   const { message } = entry;
 
   const content =
     message.role === "user" ||
-    (message.role === "toolResult" && message.toolName === "read" && !message.isError)
+    (message.role === "toolResult" &&
+      message.toolName === "read" &&
+      !message.isError)
       ? message.content
       : [];
 
   return typeof content === "string"
     ? content
-    : content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+    : content
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("\n");
+};
+
+/** Whether the skill's folder holds every file it lists, unchanged. */
+const storedCopyMatches = async (skill: CatalogSkill): Promise<boolean> => {
+  const { dir, entry } = skill;
+
+  const copies = await Promise.all(
+    entry.files.map(async (file) => {
+      const bytes = await readFile(filePath(dir, entry, file.uri)).catch(
+        (): undefined => undefined
+      );
+
+      return bytes !== undefined && checkBytes(bytes, file) === undefined
+        ? bytes
+        : undefined;
+    })
+  );
+
+  const skillFile =
+    copies[entry.files.findIndex((file) => file.uri === entry.uri)];
+
+  return (
+    copies.every(Boolean) &&
+    skillFile !== undefined &&
+    frontmatterMatches(skillFile, entry)
+  );
 };
 
 /**
@@ -45,7 +81,10 @@ export class McpSkills {
   private readonly pi: ExtensionAPI;
   private readonly options: { agentDir: string; dataDir: string };
 
-  constructor(pi: ExtensionAPI, options: { agentDir: string; dataDir: string }) {
+  constructor(
+    pi: ExtensionAPI,
+    options: { agentDir: string; dataDir: string }
+  ) {
     this.pi = pi;
     this.options = options;
     this.mountRoot = mountRoot(options.agentDir);
@@ -66,7 +105,8 @@ export class McpSkills {
     await this.servers.apply(servers, {
       agentDir: this.options.agentDir,
       cwd: ctx.cwd,
-      providerToken: async (provider) => await registry.getApiKeyForProvider(provider),
+      providerToken: async (provider) =>
+        await registry.getApiKeyForProvider(provider),
     });
   }
 
@@ -92,7 +132,7 @@ export class McpSkills {
       this.pi
         .getCommands()
         .filter((command) => command.source === "skill")
-        .map((command) => command.name.slice("skill:".length)),
+        .map((command) => command.name.slice("skill:".length))
     );
 
     return buildCatalog(this.mountRoot, this.servers.statuses(), local);
@@ -107,10 +147,14 @@ export class McpSkills {
     const servers = new Set<string>();
 
     for (const entry of ctx.sessionManager.getBranch()) {
-      for (const part of messageText(entry).split(`${this.mountRoot}${sep}`).slice(1)) {
-        const server = part.split(sep)[0] ?? "";
+      for (const part of messageText(entry)
+        .split(`${this.mountRoot}${path.sep}`)
+        .slice(1)) {
+        const server = part.split(path.sep)[0] ?? "";
 
-        if (SERVER_NAME.test(server)) servers.add(server);
+        if (SERVER_NAME.test(server)) {
+          servers.add(server);
+        }
       }
     }
 
@@ -121,12 +165,20 @@ export class McpSkills {
    * Load a skill: ask for approval unless this version is approved, then make its folder hold its
    * checked files and return its `SKILL.md`. Nothing unchecked is stored or returned.
    */
-  async load(ctx: ExtensionContext, skill: CatalogSkill, signal?: AbortSignal): Promise<Loaded> {
+  async load(
+    ctx: ExtensionContext,
+    skill: CatalogSkill,
+    signal?: AbortSignal
+  ): Promise<Loaded> {
     const origin = this.servers.origin(skill.server);
 
-    if (origin === undefined) return { error: `MCP server "${skill.server}" is not connected.` };
+    if (origin === undefined) {
+      return { error: `MCP server "${skill.server}" is not connected.` };
+    }
 
-    const others = [...this.serversInUse(ctx)].filter((server) => server !== skill.server);
+    const others = [...this.serversInUse(ctx)].filter(
+      (server) => server !== skill.server
+    );
 
     if (!(await this.approvals.allow(ctx, origin, skill, others))) {
       return {
@@ -139,29 +191,16 @@ export class McpSkills {
     try {
       const failure = await this.store(skill, signal);
 
-      if (failure !== undefined) return { error: await this.refreshSkill(skill, failure, signal) };
+      if (failure !== undefined) {
+        return { error: await this.refreshSkill(skill, failure, signal) };
+      }
 
       return { bytes: await readFile(skill.path) };
     } catch (error) {
-      return { error: `Could not load MCP skill ${skill.name}: ${describeError(error)}` };
+      return {
+        error: `Could not load MCP skill ${skill.name}: ${describeError(error)}`,
+      };
     }
-  }
-
-  /** Whether the skill's folder holds every file it lists, unchanged. */
-  private async storedCopyMatches(skill: CatalogSkill): Promise<boolean> {
-    const { dir, entry } = skill;
-
-    const copies = await Promise.all(
-      entry.files.map(async (file) => {
-        const bytes = await readFile(filePath(dir, entry, file.uri)).catch(() => undefined);
-
-        return bytes !== undefined && checkBytes(bytes, file) === undefined ? bytes : undefined;
-      }),
-    );
-
-    const skillFile = copies[entry.files.findIndex((file) => file.uri === entry.uri)];
-
-    return copies.every(Boolean) && skillFile !== undefined && frontmatterMatches(skillFile, entry);
   }
 
   /**
@@ -169,65 +208,89 @@ export class McpSkills {
    * is fetched and checked, written to a new folder, and moved into place in one rename. Returns why
    * the server's content failed its checks; throws when it could not be fetched or stored.
    */
-  private async store(skill: CatalogSkill, signal?: AbortSignal): Promise<string | undefined> {
+  private async store(
+    skill: CatalogSkill,
+    signal?: AbortSignal
+  ): Promise<string | undefined> {
     const { dir, entry, server } = skill;
 
-    return await withFileMutationQueue(dir, async () => {
-      if (await this.storedCopyMatches(skill)) return undefined;
-
-      const results = await Promise.all(
-        entry.files.map(async (file) => {
-          try {
-            return {
-              file,
-              verified: verifyFile(await this.servers.readResource(server, file.uri, signal), file),
-            };
-          } catch (error) {
-            throw new Error(`could not fetch ${file.uri}: ${describeError(error)}`, {
-              cause: error,
-            });
-          }
-        }),
-      );
-
-      const fetched: { file: SkillFile; bytes: Buffer }[] = [];
-
-      for (const { file, verified } of results) {
-        if ("failure" in verified) return verified.failure;
-        fetched.push({ bytes: verified.bytes, file });
-      }
-
-      const skillFile = fetched.find((result) => result.file.uri === entry.uri);
-
-      if (!skillFile || !frontmatterMatches(skillFile.bytes, entry)) {
-        return "its SKILL.md frontmatter differs from its listing";
-      }
-
-      const partial = `${dir}.partial-${randomUUID()}`;
-
-      try {
-        for (const { bytes, file } of fetched) {
-          const path = filePath(partial, entry, file.uri);
-
-          await mkdir(dirname(path), { recursive: true });
-          await writeFile(path, bytes);
+    return await withFileMutationQueue(
+      dir,
+      async (): Promise<string | undefined> => {
+        if (await storedCopyMatches(skill)) {
+          return undefined;
         }
 
-        await rm(dir, { force: true, recursive: true });
-        await rename(partial, dir);
-      } catch (error) {
-        await rm(partial, { force: true, recursive: true });
+        const results = await Promise.all(
+          entry.files.map(async (file) => {
+            try {
+              return {
+                file,
+                verified: verifyFile(
+                  await this.servers.readResource(server, file.uri, signal),
+                  file
+                ),
+              };
+            } catch (error) {
+              throw new Error(
+                `could not fetch ${file.uri}: ${describeError(error)}`,
+                {
+                  cause: error,
+                }
+              );
+            }
+          })
+        );
 
-        // Another Pi may have stored the same version meanwhile.
-        if (await this.storedCopyMatches(skill)) return undefined;
+        const fetched: Array<{ file: SkillFile; bytes: Buffer }> = [];
 
-        throw new Error(`could not store its files in ${dir}: ${describeError(error)}`, {
-          cause: error,
-        });
+        for (const { file, verified } of results) {
+          if ("failure" in verified) {
+            return verified.failure;
+          }
+
+          fetched.push({ bytes: verified.bytes, file });
+        }
+
+        const skillFile = fetched.find(
+          (result) => result.file.uri === entry.uri
+        );
+
+        if (!skillFile || !frontmatterMatches(skillFile.bytes, entry)) {
+          return "its SKILL.md frontmatter differs from its listing";
+        }
+
+        const partial = `${dir}.partial-${randomUUID()}`;
+
+        try {
+          for (const { bytes, file } of fetched) {
+            const target = filePath(partial, entry, file.uri);
+
+            await mkdir(path.dirname(target), { recursive: true });
+            await writeFile(target, bytes);
+          }
+
+          await rm(dir, { force: true, recursive: true });
+          await rename(partial, dir);
+        } catch (error) {
+          await rm(partial, { force: true, recursive: true });
+
+          // Another Pi may have stored the same version meanwhile.
+          if (await storedCopyMatches(skill)) {
+            return undefined;
+          }
+
+          throw new Error(
+            `could not store its files in ${dir}: ${describeError(error)}`,
+            {
+              cause: error,
+            }
+          );
+        }
+
+        return undefined;
       }
-
-      return undefined;
-    });
+    );
   }
 
   /**
@@ -237,7 +300,7 @@ export class McpSkills {
   private async refreshSkill(
     skill: CatalogSkill,
     failure: string,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<string> {
     const { entry, name, server } = skill;
 
@@ -252,7 +315,8 @@ export class McpSkills {
 
       if (decoded.skill.revision !== entry.revision) {
         const current = this.catalog().find(
-          (candidate) => candidate.server === server && candidate.entry.uri === entry.uri,
+          (candidate) =>
+            candidate.server === server && candidate.entry.uri === entry.uri
         );
 
         return `MCP skill ${name} changed on its server. Read ${current?.path ?? "its new SKILL.md"} to load the new version.`;

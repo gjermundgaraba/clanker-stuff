@@ -13,11 +13,16 @@ import type { Config } from "./config.js";
 const loops = [
   manifest.rubik,
   ...Object.values(manifest.animations).flatMap((byColor) =>
-    Object.values(byColor).flatMap((byBackground) => Object.values(byBackground)),
+    Object.values(byColor).flatMap((byBackground) =>
+      Object.values(byBackground)
+    )
   ),
 ];
 
-const codepoints = loops.flatMap((animation) => [...animation.frames, animation.still]);
+const codepoints = loops.flatMap((animation) => [
+  ...animation.frames,
+  animation.still,
+]);
 
 const range = [Math.min(...codepoints), Math.max(...codepoints)]
   .map((cp) => `U+${cp.toString(16).toUpperCase()}`)
@@ -25,13 +30,21 @@ const range = [Math.min(...codepoints), Math.max(...codepoints)]
 
 const mapping = `font-codepoint-map = ${range}=${manifest.family}`;
 
-const fontPath = fileURLToPath(new URL("./assets/ShapeSpinner.ttf", import.meta.url));
+const fontPath = fileURLToPath(
+  new URL("assets/ShapeSpinner.ttf", import.meta.url)
+);
 
 /** Apply a SettingsList value, ignoring values that the setting does not offer. */
-export const updateSetting = (config: Config, id: string, value: string): void => {
+export const updateSetting = (
+  config: Config,
+  id: string,
+  value: string
+): void => {
   const next = { ...config, [id]: value };
 
-  if (Value.Check(ConfigSchema, next)) Object.assign(config, next);
+  if (Value.Check(ConfigSchema, next)) {
+    Object.assign(config, next);
+  }
 };
 
 /** Animates the configured spinner at its real frame rate. */
@@ -47,7 +60,7 @@ class SpinnerPreview implements Component {
     config: Config,
     frames: readonly string[],
     accent: (text: string) => string,
-    requestRender: () => void,
+    requestRender: () => void
   ) {
     this.config = config;
     this.frames = frames;
@@ -81,7 +94,7 @@ class SpinnerPreview implements Component {
 export const openSettings = async (
   ctx: ExtensionContext,
   config: Config,
-  onChange: () => void,
+  onChange: () => void
 ): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, _keybindings, done) => {
@@ -90,13 +103,16 @@ export const openSettings = async (
         config,
         styleFor(config, ctx.ui.theme.appearance).frames,
         (text) => theme.fg("accent", text),
-        () => tui.requestRender(),
+        () => {
+          tui.requestRender();
+        }
       );
 
       const items: SettingItem[] = [
         {
           currentValue: config.motion,
-          description: "animated plays the loop; static rests on the closing pose.",
+          description:
+            "animated plays the loop; static rests on the closing pose.",
           id: "motion",
           label: "Motion",
           values: [...motions],
@@ -111,7 +127,8 @@ export const openSettings = async (
         },
         {
           currentValue: config.color,
-          description: "Ink for the wireframe; the colored puzzle keeps its sticker colors.",
+          description:
+            "Ink for the wireframe; the colored puzzle keeps its sticker colors.",
           id: "color",
           label: "Color",
           values: [...colors],
@@ -127,26 +144,45 @@ export const openSettings = async (
           onChange();
           preview.frames = styleFor(config, ctx.ui.theme.appearance).frames;
         },
-        () => done(null),
+        () => {
+          done(null);
+        }
       );
 
       const container = new Container();
-      container.addChild(new Text(theme.fg("accent", theme.bold("Shape Spinner")), 0, 1));
+      container.addChild(
+        new Text(theme.fg("accent", theme.bold("Shape Spinner")), 0, 1)
+      );
       container.addChild(preview);
       container.addChild(new Spacer());
       container.addChild(list);
 
-      for (const line of [`Ghostty: ${mapping}`, `Font: ${fontPath}`])
+      for (const line of [`Ghostty: ${mapping}`, `Font: ${fontPath}`]) {
         container.addChild(new Text(theme.fg("dim", line), 1, 0));
+      }
 
       return {
-        dispose: () => preview.dispose(),
-        handleInput: (data) => list.handleInput(data),
+        dispose: () => {
+          preview.dispose();
+        },
+        handleInput: (data) => {
+          list.handleInput(data);
+        },
         handleMouse: (event) => container.handleMouse(event),
-        invalidate: () => container.invalidate(),
+        invalidate: () => {
+          container.invalidate();
+        },
         render: (width) => container.render(width),
       };
     },
-    { overlay: true, overlayOptions: { anchor: "center", margin: 1, minWidth: 64, width: "80%" } },
+    {
+      overlay: true,
+      overlayOptions: {
+        anchor: "center",
+        margin: 1,
+        minWidth: 64,
+        width: "80%",
+      },
+    }
   );
 };

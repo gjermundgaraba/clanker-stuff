@@ -27,14 +27,14 @@ Geometry and density values below are starting points, not permission to omit re
 
 Color is secondary. Every change is readable from text plus a shape or line treatment; unchanged objects remain quiet context. Use the existing skin tokens and reserve the accent for the editorial focus, rather than assigning five status colors.
 
-| State                   | Meaning                                                                         | Non-color treatment                                                                |
-| ----------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `unchanged`             | Same represented identity, semantics, and endpoints; no relocation in the story | Plain solid outline; no ledger entry                                               |
-| `added` / **ADDED**     | Present only in After                                                           | `+` badge or plus-shaped marker; solid outline                                     |
-| `removed` / **REMOVED** | Present only in Before                                                          | `−` badge and dashed outline/path                                                  |
-| `changed` / **CHANGED** | Retained object whose represented semantic attributes differ                    | `Δ` badge or inset rule, plus an explicit old → new ledger description             |
-| `moved` / **MOVED**     | Retained component whose represented placement changes                          | Direction/position marker and a ledger entry naming the relocation                 |
-| `rewired` / **REWIRED** | Retained relationship whose ordered source/target identities differ             | Distinct dash treatment or endpoint marker, with old → new endpoints in the ledger |
+| State | Meaning | Non-color treatment |
+| --- | --- | --- |
+| `unchanged` | Same represented identity, semantics, and endpoints; no relocation in the story | Plain solid outline; no ledger entry |
+| `added` / **ADDED** | Present only in After | `+` badge or plus-shaped marker; solid outline |
+| `removed` / **REMOVED** | Present only in Before | `−` badge and dashed outline/path |
+| `changed` / **CHANGED** | Retained object whose represented semantic attributes differ | `Δ` badge or inset rule, plus an explicit old → new ledger description |
+| `moved` / **MOVED** | Retained component whose represented placement changes | Direction/position marker and a ledger entry naming the relocation |
+| `rewired` / **REWIRED** | Retained relationship whose ordered source/target identities differ | Distinct dash treatment or endpoint marker, with old → new endpoints in the ledger |
 
 A component can be changed and moved; a relationship can be changed and rewired. Explain both differences without conflating them.
 

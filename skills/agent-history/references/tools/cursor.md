@@ -18,13 +18,13 @@ Last verified: local macOS, structural inspection only.
 
 ## Sources
 
-| Priority | Location                                                                                       | Kind   | Authority               | Contains                                                       | Parser State | Collection Policy | Sensitivity |
-| -------- | ---------------------------------------------------------------------------------------------- | ------ | ----------------------- | -------------------------------------------------------------- | ------------ | ----------------- | ----------- |
-| 1        | `$HOME/.cursor/projects/<encoded-workspace>/agent-transcripts/<session-id>/<session-id>.jsonl` | JSONL  | primary transcript      | ordered user/assistant messages with text and tool-call blocks | schema_known | collect           | private     |
-| 1        | `$HOME/Library/Application Support/Cursor/User/workspaceStorage/<workspace-id>/state.vscdb`    | SQLite | primary candidate       | workspace AI/editor state                                      | partial      | collect           | private     |
-| 1        | `$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb`                      | SQLite | primary candidate/index | global AI state and blobs                                      | partial      | collect           | private     |
-| 2        | `$HOME/.cursor/acp-sessions/<session-id>/meta.json`                                            | JSON   | metadata                | cwd/session metadata                                           | schema_known | collect           | private     |
-| 2        | `$HOME/.cursor/projects/<encoded-workspace>/`                                                  | mixed  | agent workspace state   | logs/text/cache                                                | partial      | collect           | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/.cursor/projects/<encoded-workspace>/agent-transcripts/<session-id>/<session-id>.jsonl` | JSONL | primary transcript | ordered user/assistant messages with text and tool-call blocks | schema_known | collect | private |
+| 1 | `$HOME/Library/Application Support/Cursor/User/workspaceStorage/<workspace-id>/state.vscdb` | SQLite | primary candidate | workspace AI/editor state | partial | collect | private |
+| 1 | `$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | SQLite | primary candidate/index | global AI state and blobs | partial | collect | private |
+| 2 | `$HOME/.cursor/acp-sessions/<session-id>/meta.json` | JSON | metadata | cwd/session metadata | schema_known | collect | private |
+| 2 | `$HOME/.cursor/projects/<encoded-workspace>/` | mixed | agent workspace state | logs/text/cache | partial | collect | private |
 
 ## Find
 

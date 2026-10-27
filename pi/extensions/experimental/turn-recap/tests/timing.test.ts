@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createTiming, formatElapsed } from "../timing.js";
 
-afterEach(() => vi.useRealTimers());
-
 describe("run timing", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("uses monotonic time even if the wall clock jumps", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
@@ -12,7 +12,7 @@ describe("run timing", () => {
     vi.advanceTimersByTime(1000);
     vi.setSystemTime(1);
     vi.advanceTimersByTime(2500);
-    expect(clock.read()).toEqual({ startedAt: 1000, wallMs: 3500 });
+    expect(clock.read()).toStrictEqual({ startedAt: 1000, wallMs: 3500 });
   });
 
   it.each([

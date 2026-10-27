@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -15,17 +22,19 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 
 const InstalledPackageSchema = Type.Object(
   { version: Type.String() },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 const PackageDependenciesSchema = Type.Object(
   {
     dependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
     devDependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
-    optionalDependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
+    optionalDependencies: Type.Optional(
+      Type.Record(Type.String(), Type.String())
+    ),
     peerDependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
   },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 const CONSUMER_DEPENDENCIES = [
@@ -42,43 +51,63 @@ const DEPENDENCY_FIELDS = [
   "peerDependencies",
 ] as const;
 
-const consumerDependencyVersion = (name: (typeof CONSUMER_DEPENDENCIES)[number]): string =>
+const consumerDependencyVersion = (
+  name: (typeof CONSUMER_DEPENDENCIES)[number]
+): string =>
   Value.Parse(
     InstalledPackageSchema,
-    JSON.parse(readFileSync(path.join(REPO_ROOT, "node_modules", name, "package.json"), "utf-8")),
+    JSON.parse(
+      readFileSync(
+        path.join(REPO_ROOT, "node_modules", name, "package.json"),
+        "utf-8"
+      )
+    )
   ).version;
 
 const PUBLISHABLE_PACKAGES = publishableWorkspacePackages(REPO_ROOT);
 
 const EXTENSION_PACKAGE_DIR = /^pi[\\/]extensions[\\/]/u;
 
-const EXTENSION_PACKAGES = PUBLISHABLE_PACKAGES.flatMap(({ dir, name, packageJson }) => {
-  if (!EXTENSION_PACKAGE_DIR.test(dir)) {
-    return [];
+const EXTENSION_PACKAGES = PUBLISHABLE_PACKAGES.flatMap(
+  ({ dir, name, packageJson }) => {
+    if (!EXTENSION_PACKAGE_DIR.test(dir)) {
+      return [];
+    }
+
+    if (
+      !Array.isArray(packageJson.pi?.extensions) ||
+      packageJson.pi.extensions.length === 0
+    ) {
+      throw new Error(`${name} must declare non-empty pi.extensions`);
+    }
+
+    return [{ dir, entries: packageJson.pi.extensions, name }];
   }
+);
 
-  if (!Array.isArray(packageJson.pi?.extensions) || packageJson.pi.extensions.length === 0) {
-    throw new Error(`${name} must declare non-empty pi.extensions`);
-  }
-
-  return [{ dir, entries: packageJson.pi.extensions, name }];
-});
-
-const SHARED_PACKAGES = PUBLISHABLE_PACKAGES.filter(({ dir }) => !EXTENSION_PACKAGE_DIR.test(dir));
+const SHARED_PACKAGES = PUBLISHABLE_PACKAGES.filter(
+  ({ dir }) => !EXTENSION_PACKAGE_DIR.test(dir)
+);
 
 const packPackage = (tempRoot: string, packageName: string, dir: string) => {
   const packDir = path.join(tempRoot, "packs", dir);
   mkdirSync(packDir, { recursive: true });
-  execFileSync("vp", ["pm", "pack", "--filter", packageName, "--pack-destination", packDir], {
-    cwd: REPO_ROOT,
-    stdio: "pipe",
-  });
+  execFileSync(
+    "vp",
+    ["pm", "pack", "--filter", packageName, "--pack-destination", packDir],
+    {
+      cwd: REPO_ROOT,
+      stdio: "pipe",
+    }
+  );
   const tarballs = readdirSync(packDir).filter((file) => file.endsWith(".tgz"));
 
   const [tarball, ...extraTarballs] = tarballs;
 
   if (tarball === undefined || extraTarballs.length > 0) {
-    throw new Error(`Expected one tarball for ${packageName}, found ${tarballs.length}`);
+    throw new Error(
+      `Expected one tarball for ${packageName}, found ${tarballs.length}`
+    );
   }
 
   return path.join(packDir, tarball);
@@ -96,17 +125,19 @@ const inspectTarball = (packageName: string, tarball: string) => {
     JSON.parse(
       execFileSync("tar", ["-xOf", tarball, "package/package.json"], {
         encoding: "utf-8",
-      }),
-    ),
+      })
+    )
   );
 
   const workspaceDependencies = DEPENDENCY_FIELDS.flatMap((field) =>
     Object.entries(packageJson[field] ?? {}).flatMap(([name, version]) =>
-      version.startsWith("workspace:") ? [`${field}.${name}=${version}`] : [],
-    ),
+      version.startsWith("workspace:") ? [`${field}.${name}=${version}`] : []
+    )
   );
 
-  expect(workspaceDependencies, `${packageName} dependencies`).toStrictEqual([]);
+  expect(workspaceDependencies, `${packageName} dependencies`).toStrictEqual(
+    []
+  );
 };
 
 describe("packed extension packages", () => {
@@ -127,12 +158,14 @@ describe("packed extension packages", () => {
     const root = mkdtempSync(path.join(tmpdir(), "packed-extensions-smoke-"));
     tempRoot = root;
 
-    const tarballs = [...SHARED_PACKAGES, ...EXTENSION_PACKAGES].map(({ dir, name }) => {
-      const tarball = packPackage(root, name, dir);
-      inspectTarball(name, tarball);
+    const tarballs = [...SHARED_PACKAGES, ...EXTENSION_PACKAGES].map(
+      ({ dir, name }) => {
+        const tarball = packPackage(root, name, dir);
+        inspectTarball(name, tarball);
 
-      return { name, tarball };
-    });
+        return { name, tarball };
+      }
+    );
 
     const installDir = path.join(root, "install");
     mkdirSync(installDir);
@@ -142,37 +175,45 @@ describe("packed extension packages", () => {
         {
           dependencies: Object.fromEntries([
             ...CONSUMER_DEPENDENCIES.map(
-              (name) => [name, consumerDependencyVersion(name)] as const,
+              (name) => [name, consumerDependencyVersion(name)] as const
             ),
-            ...tarballs.map(({ name, tarball }) => [name, `file:${tarball}`] as const),
+            ...tarballs.map(
+              ({ name, tarball }) => [name, `file:${tarball}`] as const
+            ),
           ]),
           private: true,
         },
         null,
-        2,
-      )}\n`,
+        2
+      )}\n`
     );
 
     const npmEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
+      Object.entries(process.env).filter(
+        ([key]) => !key.toLowerCase().startsWith("npm_config_")
+      )
     );
 
     const emptyGlobalConfig = path.join(root, "empty-global.npmrc");
     const emptyUserConfig = path.join(root, "empty-user.npmrc");
     writeFileSync(emptyGlobalConfig, "");
     writeFileSync(emptyUserConfig, "");
-    execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund"], {
-      cwd: installDir,
-      env: {
-        ...npmEnv,
-        NPM_CONFIG_GLOBALCONFIG: emptyGlobalConfig,
-        NPM_CONFIG_USERCONFIG: emptyUserConfig,
-      },
-      stdio: "pipe",
-    });
+    execFileSync(
+      "npm",
+      ["install", "--ignore-scripts", "--no-audit", "--no-fund"],
+      {
+        cwd: installDir,
+        env: {
+          ...npmEnv,
+          NPM_CONFIG_GLOBALCONFIG: emptyGlobalConfig,
+          NPM_CONFIG_USERCONFIG: emptyUserConfig,
+        },
+        stdio: "pipe",
+      }
+    );
 
     const packageDirs = EXTENSION_PACKAGES.map(({ name }) =>
-      path.join(installDir, "node_modules", ...name.split("/")),
+      path.join(installDir, "node_modules", ...name.split("/"))
     );
 
     harness = await createExtensionSmokeHarness({ packages: packageDirs });
@@ -180,10 +221,15 @@ describe("packed extension packages", () => {
 
     for (const expected of EXTENSION_PACKAGES) {
       for (const entry of expected.entries) {
-        const expectedEntryPath = path.resolve(installDir, "node_modules", expected.name, entry);
+        const expectedEntryPath = path.resolve(
+          installDir,
+          "node_modules",
+          expected.name,
+          entry
+        );
 
         const extension = harness.extensionsResult.extensions.find(
-          ({ resolvedPath }) => resolvedPath === expectedEntryPath,
+          ({ resolvedPath }) => resolvedPath === expectedEntryPath
         );
 
         if (extension === undefined) {
@@ -200,7 +246,7 @@ describe("packed extension packages", () => {
             extension.shortcuts,
             extension.tools,
           ].some((registrations) => (registrations?.size ?? 0) > 0),
-          `${expected.name} registered a runtime surface`,
+          `${expected.name} registered a runtime surface`
         ).toBeTruthy();
       }
     }

@@ -1,14 +1,16 @@
-import { Type } from "typebox";
 import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
 import type { ToolExposure, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
+import { createIdentityTheme } from "../../../../tests/harness/tui.js";
+import { renderOverlay, layoutOverlay } from "../render.js";
 import { buildToolsSnapshot } from "../tools.js";
 import { buildTree, filterTree } from "../tree.js";
-import { renderOverlay, layoutOverlay } from "../render.js";
-import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 
-const sourceInfo = createSyntheticSourceInfo("<inventory-test>", { source: "test" });
+const sourceInfo = createSyntheticSourceInfo("<inventory-test>", {
+  source: "test",
+});
 
 const tool = (name: string, exposure: ToolExposure): ToolInfo => ({
   name,
@@ -29,10 +31,14 @@ describe("registered tool inventory", () => {
   ] as const)(
     "distinguishes $exposure activation ($active) from nested access",
     ({ exposure, active, callable }) => {
-      const snapshot = buildToolsSnapshot([tool("example", exposure)], active ? ["example"] : []);
+      const snapshot = buildToolsSnapshot(
+        [tool("example", exposure)],
+        active ? ["example"] : []
+      );
+
       expect(snapshot.activeCount).toBe(active ? 1 : 0);
       expect(snapshot.tools[0]?.label).toBe(
-        `example · ${exposure} · ${active ? "active" : "inactive"}`,
+        `example · ${exposure} · ${active ? "active" : "inactive"}`
       );
       expect(JSON.parse(snapshot.tools[0]!.body)).toMatchObject({
         active,
@@ -42,13 +48,17 @@ describe("registered tool inventory", () => {
         sourceInfo: { path: "<inventory-test>", source: "test" },
       });
       expect(snapshot.tools[0]?.estimatedTokens).toBe(0);
-    },
+    }
   );
 
   it("snapshots metadata and aliases without executing or retaining reachability hooks", () => {
     const registered = {
       ...tool("mcp__docs__search", "deferred"),
-      namespace: { name: "mcp__docs", aliases: ["docs"], description: "Documentation" },
+      namespace: {
+        name: "mcp__docs",
+        aliases: ["docs"],
+        description: "Documentation",
+      },
       annotations: { readOnlyHint: true },
       reachesTools: () => {
         throw new Error("must not run during inspection");
@@ -72,7 +82,7 @@ describe("registered tool inventory", () => {
       snapshot,
       layoutOverlay(120, 24, false),
       [],
-      "",
+      ""
     ).join("\n");
 
     expect(rendered).toContain("1 registered · 0 active");

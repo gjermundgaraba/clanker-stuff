@@ -1,37 +1,54 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionFactory, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionFactory,
+  ExtensionUIContext,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
-import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../tests/harness/tui.js";
 import { DEFAULT_CONFIG } from "../config.js";
 import type { FooterConfigStore } from "../config.js";
 import footerExtension from "../index.js";
 import { formatTokenCount } from "../widgets.js";
 
-type FooterFactory = Exclude<Parameters<ExtensionUIContext["setFooter"]>[0], undefined>;
+type FooterFactory = Exclude<
+  Parameters<ExtensionUIContext["setFooter"]>[0],
+  undefined
+>;
 
 type FooterComponent = ReturnType<FooterFactory>;
 
-const testUiContext = (setFooter: ExtensionUIContext["setFooter"]): ExtensionUIContext => ({
+const testUiContext = (
+  setFooter: ExtensionUIContext["setFooter"]
+): ExtensionUIContext => ({
   addAutocompleteProvider: () => {},
   confirm: async () => await Promise.resolve(false),
   custom: async () => {
     await Promise.resolve();
     throw new Error("custom UI is not used in this test");
   },
-  editor: async () => await Promise.resolve(undefined),
+  editor: async () => {
+    await Promise.resolve(undefined);
+  },
   getAllThemes: () => [],
-  getEditorComponent: () => undefined,
+  getEditorComponent: () => {},
   getEditorText: () => "",
-  getTheme: () => undefined,
+  getTheme: () => {},
   getToolsExpanded: () => false,
-  input: async () => await Promise.resolve(undefined),
+  input: async () => {
+    await Promise.resolve(undefined);
+  },
   notify: () => {},
   onTerminalInput: () => () => {},
   pasteToEditor: () => {},
-  select: async () => await Promise.resolve(undefined),
+  select: async () => {
+    await Promise.resolve(undefined);
+  },
   setEditorComponent: () => {},
   setEditorText: () => {},
   setFooter,
@@ -64,10 +81,29 @@ const configStore = (): FooterConfigStore => ({
   },
 });
 
-const extension: ExtensionFactory = (pi) =>
+const extension: ExtensionFactory = (pi) => {
   footerExtension(pi, configStore(), async () => {
     throw new Error("Git details are not placed in these tests");
   });
+};
+
+const routing: ExtensionFactory = (pi) => {
+  pi.registerVirtualModel({
+    provider: "router",
+    id: "auto",
+    name: "Auto",
+    thinkingLevels: ["off", "low", "high"],
+    route: (_request, ctx) => {
+      const model = ctx.modelRegistry.find("anthropic", "physical");
+
+      if (!model) {
+        throw new Error("missing physical model");
+      }
+
+      return { model, thinkingLevel: "high" };
+    },
+  });
+};
 
 describe("footer AgentSession lifecycle", () => {
   let harness: AgentSessionHarness | undefined;
@@ -92,22 +128,6 @@ describe("footer AgentSession lifecycle", () => {
       component = factory?.(createMockTui(), createIdentityTheme(), footerData);
     });
 
-    const routing: ExtensionFactory = (pi) => {
-      pi.registerVirtualModel({
-        provider: "router",
-        id: "auto",
-        name: "Auto",
-        thinkingLevels: ["off", "low", "high"],
-        route: (_request, ctx) => {
-          const model = ctx.modelRegistry.find("anthropic", "physical");
-
-          if (!model) throw new Error("missing physical model");
-
-          return { model, thinkingLevel: "high" };
-        },
-      });
-    };
-
     harness = await createAgentSessionHarness({
       provider: "anthropic",
       models: [{ id: "physical", reasoning: true }],
@@ -117,7 +137,10 @@ describe("footer AgentSession lifecycle", () => {
     });
     const virtual = harness.session.modelRuntime.getModel("router", "auto");
 
-    if (!virtual) throw new Error("missing virtual model");
+    if (!virtual) {
+      throw new Error("missing virtual model");
+    }
+
     await harness.session.setModel(virtual);
     harness.session.setThinkingLevel("low");
     harness.setResponses([fauxAssistantMessage("routed reply")]);
@@ -165,7 +188,9 @@ describe("footer AgentSession lifecycle", () => {
 
     await harness.prompt("count this completed turn");
 
-    const assistant = harness.messages().findLast((message) => message.role === "assistant");
+    const assistant = harness
+      .messages()
+      .findLast((message) => message.role === "assistant");
 
     if (assistant?.role !== "assistant") {
       throw new Error("expected assistant message");
@@ -173,7 +198,11 @@ describe("footer AgentSession lifecycle", () => {
 
     expect(assistant.usage.input).toBeGreaterThan(0);
     expect(assistant.usage.output).toBeGreaterThan(0);
-    expect(renderedAtTurnEnd).toContain(`in ${formatTokenCount(assistant.usage.input)}`);
-    expect(renderedAtTurnEnd).toContain(`out ${formatTokenCount(assistant.usage.output)}`);
+    expect(renderedAtTurnEnd).toContain(
+      `in ${formatTokenCount(assistant.usage.input)}`
+    );
+    expect(renderedAtTurnEnd).toContain(
+      `out ${formatTokenCount(assistant.usage.output)}`
+    );
   });
 });

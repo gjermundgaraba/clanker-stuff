@@ -1,4 +1,5 @@
-import { units, line, previous, type Unit, type View } from "./core/document.js";
+import { units, line, previous } from "./core/document.js";
+import type { Unit, View } from "./core/document.js";
 
 export class Transactions {
   private past: View[] = [];
@@ -9,28 +10,37 @@ export class Transactions {
       before.atoms.length === after.atoms.length &&
       before.atoms.every(
         (atom, i) =>
-          atom.start === after.atoms[i]!.start &&
-          atom.end === after.atoms[i]!.end &&
-          atom.content === after.atoms[i]!.content,
+          atom.start === after.atoms[i]?.start &&
+          atom.end === after.atoms[i]?.end &&
+          atom.content === after.atoms[i]?.content
       )
-    )
+    ) {
       return;
+    }
+
     this.past.push(before);
 
-    if (this.past.length > 100) this.past.shift();
+    if (this.past.length > 100) {
+      this.past.shift();
+    }
+
     this.future = [];
   }
   undo(current: View) {
-    const previous = this.past.pop();
+    const prior = this.past.pop();
 
-    if (previous) this.future.push(current);
+    if (prior) {
+      this.future.push(current);
+    }
 
-    return previous;
+    return prior;
   }
   redo(current: View) {
     const next = this.future.pop();
 
-    if (next) this.past.push(current);
+    if (next) {
+      this.past.push(current);
+    }
 
     return next;
   }
@@ -41,7 +51,7 @@ export class Transactions {
 }
 
 const sameContent = (a: Unit[], b: Unit[]) =>
-  a.length === b.length && a.every((u, i) => u.content === b[i]!.content);
+  a.length === b.length && a.every((u, i) => u.content === b[i]?.content);
 
 export interface Delta {
   offset: number;
@@ -62,28 +72,34 @@ export class Insertion {
     this.origin = units(before).filter((u) => u.start < before.cursor).length;
   }
   record(before: View, after: View) {
-    const a = units(before),
-      b = units(after);
+    const a = units(before);
+    const b = units(after);
 
-    if (sameContent(a, b)) return;
+    if (sameContent(a, b)) {
+      return;
+    }
 
     // A prefix may not skip past the edit cursor just because adjacent content is identical.
     const limit = Math.min(
       a.filter((u) => u.start < before.cursor).length,
-      b.filter((u) => u.start < after.cursor).length,
+      b.filter((u) => u.start < after.cursor).length
     );
 
-    let start = 0,
-      suffix = 0;
+    let start = 0;
+    let suffix = 0;
 
-    while (start < limit && a[start]?.content === b[start]?.content) start++;
+    while (start < limit && a[start]?.content === b[start]?.content) {
+      start += 1;
+    }
 
     while (
       suffix < a.length - start &&
       suffix < b.length - start &&
-      a[a.length - 1 - suffix]!.content === b[b.length - 1 - suffix]!.content
-    )
-      suffix++;
+      a[a.length - 1 - suffix]?.content === b[b.length - 1 - suffix]?.content
+    ) {
+      suffix += 1;
+    }
+
     const end = a.length - suffix;
 
     if (this.start === undefined) {
@@ -97,11 +113,16 @@ export class Insertion {
     }
   }
   delta(after: View): Delta {
-    if (this.start === undefined) return { offset: 0, remove: 0, text: "" };
+    if (this.start === undefined) {
+      return { offset: 0, remove: 0, text: "" };
+    }
+
     const added = units(after).slice(this.start, this.newEnd);
     const removed = units(this.before).slice(this.start, this.oldEnd);
 
-    if (sameContent(added, removed)) return { offset: 0, remove: 0, text: "" };
+    if (sameContent(added, removed)) {
+      return { offset: 0, remove: 0, text: "" };
+    }
 
     return {
       offset: this.start - this.origin,
@@ -111,7 +132,7 @@ export class Insertion {
   }
 }
 
-export function applyDelta(view: View, delta: Delta) {
+export const applyDelta = (view: View, delta: Delta) => {
   const cells = units(view);
   const cursor = cells.filter((u) => u.start < view.cursor).length;
   const start = Math.max(0, Math.min(cells.length, cursor + delta.offset));
@@ -122,7 +143,7 @@ export function applyDelta(view: View, delta: Delta) {
     end: cells[end]?.start ?? view.text.length,
     text: delta.text,
   };
-}
+};
 
 export interface SelectionExtent {
   linewise: boolean;
@@ -130,38 +151,55 @@ export interface SelectionExtent {
   columns: number;
 }
 
-export function selectionExtent(
+export const selectionExtent = (
   view: View,
   range: { start: number; end: number },
-  linewise: boolean,
-): SelectionExtent {
+  linewise: boolean
+): SelectionExtent => {
   const text = view.text.slice(range.start, range.end);
   const rows = text.split("\n");
+  const lastRow = rows.at(-1);
+
+  if (lastRow === undefined) {
+    throw new Error("Splitting the selection produced no rows");
+  }
 
   return {
     linewise,
     lines: linewise && text.endsWith("\n") ? rows.length - 1 : rows.length,
     columns: units(view).filter(
-      (u) => u.start >= range.end - rows.at(-1)!.length && u.end <= range.end,
+      (u) => u.start >= range.end - lastRow.length && u.end <= range.end
     ).length,
   };
-}
+};
 
-export function selectionEnd(view: View, extent: SelectionExtent): number {
+export const selectionEnd = (view: View, extent: SelectionExtent): number => {
   let start = view.cursor;
 
-  for (let n = 1; n < extent.lines; n++) {
+  for (let n = 1; n < extent.lines; n += 1) {
     const end = view.text.indexOf("\n", start);
 
-    if (end < 0) break;
+    if (end === -1) {
+      break;
+    }
+
     start = end + 1;
   }
 
-  if (extent.linewise) return start;
+  if (extent.linewise) {
+    return start;
+  }
 
-  if (extent.columns === 0 && extent.lines > 1) return previous(view, start);
-  const end = line(view.text, start).end;
+  if (extent.columns === 0 && extent.lines > 1) {
+    return previous(view, start);
+  }
+
+  const { end } = line(view.text, start);
   const cells = units(view).filter((u) => u.start >= start && u.start < end);
 
-  return cells[Math.max(0, extent.columns - 1)]?.start ?? cells.at(-1)?.start ?? start;
-}
+  return (
+    cells[Math.max(0, extent.columns - 1)]?.start ??
+    cells.at(-1)?.start ??
+    start
+  );
+};

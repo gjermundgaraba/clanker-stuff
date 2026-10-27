@@ -2,46 +2,35 @@ import path from "node:path";
 
 import { defineConfig } from "vite-plus";
 
+import fmt from "./oxfmt.config.ts";
+import lint from "./oxlint.config.ts";
+
 const rootDir = import.meta.dirname;
 
 // Evaluation caches and raw runs contain third-party source, not workspace tests.
-const exclude = ["**/node_modules/**", "**/dist/**", "**/.cache/**", "**/.harbor/**"];
-
-const ignorePatterns = [
-  ".agent/**",
-  ".agents/**",
-  ".claude/**",
-  ".codex/**",
-  ".continue/**",
-  ".cursor/**",
-  ".gemini/**",
-  ".opencode/**",
-  ".pi/**",
-  ".roo/**",
-  ".windsurf/**",
-  "tools/oxlint/anti-slop/**",
-  // Imported third-party installer bundle; preserve its scripts and assets verbatim.
-  "skills/install-anti-slop/**",
-  // Adapted third-party skill with a minified diff bundle; keep upstream formatting for syncs.
-  "skills/skill-doctor/**",
+const exclude = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/.cache/**",
+  "**/.harbor/**",
 ];
 
 export default defineConfig({
-  fmt: {
-    // Preserve the imported anti-slop policy text without changing its instructions.
-    ignorePatterns: [...ignorePatterns, "skills/anti-slop-lint/**"],
-  },
+  fmt,
+  lint,
   run: {
     tasks: {
       // Static checks cache on the files they read; `ready` fans them out, then tests.
-      "check:packages": { command: "node ./scripts/check-package-readiness.ts" },
+      "check:packages": {
+        command: "node ./scripts/check-package-readiness.ts",
+      },
       "check:readmes": { command: "node ./scripts/check-readmes.ts" },
-      "check:static": { command: "vp check" },
-      "check:tests": { command: "node ./scripts/check-tests.ts" },
       "check:skills": {
         command:
           "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/librarian/tests && python3 -B -m unittest discover -s skills/tui-ux-tester/scripts && python3 -B -m unittest discover -s skills/skill-doctor/scripts",
       },
+      "check:static": { command: "vp check" },
+      "check:tests": { command: "node ./scripts/check-tests.ts" },
       ready: {
         cache: false,
         command: "vp test",
@@ -53,61 +42,6 @@ export default defineConfig({
           "check:skills",
         ],
       },
-    },
-  },
-  lint: {
-    ignorePatterns,
-    jsPlugins: [
-      { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
-      // Pinned source: tools/oxlint/anti-slop/UPSTREAM; local policy: UPSTREAM.md beside it.
-      { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
-    ],
-    options: {
-      denyWarnings: true,
-      reportUnusedDisableDirectives: "deny",
-      typeAware: true,
-      typeCheck: true,
-    },
-    overrides: [
-      {
-        // Scripts, evals, tooling, and tests own their stdout; extension runtimes do not.
-        files: ["**/scripts/**", "**/tests/**", "pi/evals/**", "scripts/**", "tools/**"],
-        rules: { "no-console": "off" },
-      },
-    ],
-    rules: {
-      // Stdout is Pi's JSON and RPC transport; extension code must not write to it.
-      "no-console": ["error", { allow: ["error", "warn"] }],
-      "oxc/no-accumulating-spread": "error",
-      // Pipeline spelling does not establish performance or preserve callback semantics.
-      "anti-slop/no-array-filter-map": "off",
-      "anti-slop/no-chained-type-assertions": "error",
-      // Conditional spread preserves absent optional properties without mutable builders.
-      "anti-slop/no-conditional-empty-object-spread": "off",
-      "anti-slop/no-known-value-widening": "error",
-      "anti-slop/no-module-mocking": "error",
-      "anti-slop/no-object-parameters": "error",
-      "anti-slop/no-reduce-accumulator-copy": "error",
-      "anti-slop/no-reflect-apply": "error",
-      "anti-slop/no-reflect-get": "error",
-      // Built-in narrowing and unknown boundary inputs are ordinary TypeScript.
-      "anti-slop/no-runtime-typeof": "off",
-      // Domain ownership is not determined by a substring.
-      "anti-slop/no-shape-in-symbol-names": "off",
-      "anti-slop/no-unknown-parameters": "off",
-      "anti-slop/no-unknown-returns": "error",
-      "anti-slop/no-unknown-type-aliases": "error",
-      "anti-slop/no-unsafe-dictionary-type": "error",
-      "anti-slop/no-widen-then-assert": "error",
-      "anti-slop/require-readable-spacing": "error",
-      "anti-slop/require-safety-comment-for-type-assertion": "error",
-      "typescript/no-unsafe-assignment": "error",
-      "typescript/no-unsafe-argument": "error",
-      "typescript/no-unsafe-call": "error",
-      "typescript/no-unsafe-member-access": "error",
-      "typescript/no-unsafe-return": "error",
-      "typescript/no-unsafe-type-assertion": "error",
-      "vite-plus/prefer-vite-plus-imports": "error",
     },
   },
   staged: {

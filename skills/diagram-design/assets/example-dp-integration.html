@@ -182,7 +182,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -196,16 +202,31 @@
         role="img"
         aria-labelledby="dp-integration-title dp-integration-desc"
       >
-        <title id="dp-integration-title">Generic data platform integration topology</title>
+        <title id="dp-integration-title">
+          Generic data platform integration topology
+        </title>
         <desc id="dp-integration-desc">
-          Integration topology showing CRM, POS exports, and an event stream landing in object
-          storage for query, notebooks, dashboards, and a partner API.
+          Integration topology showing CRM, POS exports, and an event stream
+          landing in object storage for query, notebooks, dashboards, and a
+          partner API.
         </desc>
         <defs>
-          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            id="dots"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" fill="var(--dot)" />
           </pattern>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0,8 3,0 6" fill="var(--muted)" />
           </marker>
           <marker
@@ -218,13 +239,34 @@
           >
             <polygon points="0 0,8 3,0 6" fill="var(--accent)" />
           </marker>
-          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow-link"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0,8 3,0 6" fill="var(--link)" />
           </marker>
-          <marker id="arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
+          <marker
+            id="arrow-sm"
+            markerWidth="6"
+            markerHeight="5"
+            refX="5"
+            refY="2.5"
+            orient="auto"
+          >
             <polygon points="0 0,6 2.5,0 5" fill="var(--muted)" />
           </marker>
-          <marker id="arrow-dim" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow-dim"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0,8 3,0 6" fill="var(--soft)" />
           </marker>
           <g id="ico-db" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -234,14 +276,29 @@
           <g id="ico-file" fill="none" stroke="currentColor" stroke-width="1.2">
             <path d="M-6-8H2l4 4V8H-6ZM2-8v4h4" />
           </g>
-          <g id="ico-stream" fill="none" stroke="currentColor" stroke-width="1.2">
+          <g
+            id="ico-stream"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+          >
             <path d="M-8-5H2M-4 0H8M-8 5H2" />
             <path d="m0-8 3 3-3 3M6-3l3 3-3 3M0 2l3 3-3 3" />
           </g>
-          <g id="ico-chart" fill="none" stroke="currentColor" stroke-width="1.2">
+          <g
+            id="ico-chart"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+          >
             <path d="M-8 8H8M-6 6V0H-2V6M0 6V-7H4V6M6 6V-3H9" />
           </g>
-          <g id="ico-notebook" fill="none" stroke="currentColor" stroke-width="1.2">
+          <g
+            id="ico-notebook"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+          >
             <rect x="-7" y="-8" width="14" height="16" rx="2" />
             <path d="M-3-8V8M0-3h4M0 1h4" />
           </g>
@@ -260,7 +317,15 @@
         </defs>
         <rect width="1200" height="664" fill="var(--paper)" />
         <rect width="1200" height="664" fill="url(#dots)" opacity=".55" />
-        <rect class="zone" x="260" y="72" width="696" height="336" rx="8" stroke-width="1" />
+        <rect
+          class="zone"
+          x="260"
+          y="72"
+          width="696"
+          height="336"
+          rx="8"
+          stroke-width="1"
+        />
 
         <path
           class="connector primary"
@@ -341,71 +406,252 @@
         />
 
         <g text-anchor="middle">
-          <rect class="label-mask" x="252" y="104" width="44" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="252"
+            y="104"
+            width="44"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="274" y="113">REST</text>
-          <rect class="label-mask" x="272" y="192" width="48" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="272"
+            y="192"
+            width="48"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="296" y="201">CSV</text>
-          <rect class="label-mask" x="248" y="280" width="56" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="248"
+            y="280"
+            width="56"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="276" y="289">EVENTS</text>
-          <rect class="label-mask" x="584" y="192" width="48" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="584"
+            y="192"
+            width="48"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="608" y="201">READ</text>
-          <rect class="label-mask" x="856" y="168" width="48" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="856"
+            y="168"
+            width="48"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="880" y="177">JDBC</text>
-          <rect class="label-mask" x="872" y="192" width="56" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="872"
+            y="192"
+            width="56"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="900" y="201">KERNEL</text>
-          <rect class="label-mask" x="856" y="216" width="56" height="12" rx="2" />
+          <rect
+            class="label-mask"
+            x="856"
+            y="216"
+            width="56"
+            height="12"
+            rx="2"
+          />
           <text class="edge-label" x="884" y="225">HTTPS</text>
         </g>
         <g>
-          <rect class="label-mask" x="548" y="420" width="32" height="12" rx="2" />
-          <text class="edge-label" x="564" y="429" text-anchor="middle">AUTH</text>
-          <rect class="label-mask" x="636" y="420" width="32" height="12" rx="2" />
-          <text class="edge-label" x="652" y="429" text-anchor="middle">AUTH</text>
+          <rect
+            class="label-mask"
+            x="548"
+            y="420"
+            width="32"
+            height="12"
+            rx="2"
+          />
+          <text class="edge-label" x="564" y="429" text-anchor="middle">
+            AUTH
+          </text>
+          <rect
+            class="label-mask"
+            x="636"
+            y="420"
+            width="32"
+            height="12"
+            rx="2"
+          />
+          <text class="edge-label" x="652" y="429" text-anchor="middle">
+            AUTH
+          </text>
         </g>
 
         <rect class="zone-mask" x="548" y="68" width="120" height="16" rx="2" />
-        <text class="zone-label" x="608" y="79" text-anchor="middle">DATA PLATFORM</text>
+        <text class="zone-label" x="608" y="79" text-anchor="middle">
+          DATA PLATFORM
+        </text>
 
         <g text-anchor="middle">
           <g>
-            <rect class="node-mask" x="40" y="92" width="160" height="64" rx="6" />
-            <rect class="side-node" x="40" y="92" width="160" height="64" rx="6" />
-            <use href="#ico-db" transform="translate(64 124)" style="color: var(--muted)" />
+            <rect
+              class="node-mask"
+              x="40"
+              y="92"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <rect
+              class="side-node"
+              x="40"
+              y="92"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <use
+              href="#ico-db"
+              transform="translate(64 124)"
+              style="color: var(--muted)"
+            />
             <text class="node-name" x="120" y="120">CRM</text>
             <text class="node-sub" x="120" y="140">customer records</text>
           </g>
           <g>
-            <rect class="node-mask" x="40" y="180" width="160" height="64" rx="6" />
-            <rect class="side-node" x="40" y="180" width="160" height="64" rx="6" />
-            <use href="#ico-file" transform="translate(64 212)" style="color: var(--muted)" />
+            <rect
+              class="node-mask"
+              x="40"
+              y="180"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <rect
+              class="side-node"
+              x="40"
+              y="180"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <use
+              href="#ico-file"
+              transform="translate(64 212)"
+              style="color: var(--muted)"
+            />
             <text class="node-name" x="120" y="208">POS exports</text>
             <text class="node-sub" x="120" y="228">daily CSV batches</text>
           </g>
           <g>
-            <rect class="node-mask" x="40" y="268" width="160" height="64" rx="6" />
-            <rect class="side-node" x="40" y="268" width="160" height="64" rx="6" />
-            <use href="#ico-stream" transform="translate(64 300)" style="color: var(--muted)" />
+            <rect
+              class="node-mask"
+              x="40"
+              y="268"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <rect
+              class="side-node"
+              x="40"
+              y="268"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <use
+              href="#ico-stream"
+              transform="translate(64 300)"
+              style="color: var(--muted)"
+            />
             <text class="node-name" x="120" y="296">Event stream</text>
             <text class="node-sub" x="120" y="316">near-real-time events</text>
           </g>
         </g>
 
         <g text-anchor="middle">
-          <rect class="node-mask" x="276" y="116" width="664" height="44" rx="6" />
+          <rect
+            class="node-mask"
+            x="276"
+            y="116"
+            width="664"
+            height="44"
+            rx="6"
+          />
           <rect class="bar" x="276" y="116" width="664" height="44" rx="6" />
-          <rect class="role-box" x="288" y="128" width="32" height="12" rx="2" />
+          <rect
+            class="role-box"
+            x="288"
+            y="128"
+            width="32"
+            height="12"
+            rx="2"
+          />
           <text class="role-text" x="304" y="137">DAG</text>
           <text class="node-name" x="608" y="136">Orchestrator</text>
-          <text class="node-sub" x="608" y="151">schedules · retries · lineage</text>
-          <rect class="node-mask" x="400" y="176" width="160" height="72" rx="6" />
-          <rect class="core-node" x="400" y="176" width="160" height="72" rx="6" />
-          <rect class="role-box focal" x="408" y="184" width="44" height="12" rx="2" />
+          <text class="node-sub" x="608" y="151">
+            schedules · retries · lineage
+          </text>
+          <rect
+            class="node-mask"
+            x="400"
+            y="176"
+            width="160"
+            height="72"
+            rx="6"
+          />
+          <rect
+            class="core-node"
+            x="400"
+            y="176"
+            width="160"
+            height="72"
+            rx="6"
+          />
+          <rect
+            class="role-box focal"
+            x="408"
+            y="184"
+            width="44"
+            height="12"
+            rx="2"
+          />
           <text class="role-text focal" x="430" y="193">STORE</text>
           <text class="node-name focal" x="480" y="214">Object storage</text>
           <text class="node-sub" x="480" y="232">versioned data objects</text>
-          <rect class="node-mask" x="656" y="176" width="160" height="72" rx="6" />
-          <rect class="core-node" x="656" y="176" width="160" height="72" rx="6" />
-          <rect class="role-box focal" x="664" y="184" width="32" height="12" rx="2" />
+          <rect
+            class="node-mask"
+            x="656"
+            y="176"
+            width="160"
+            height="72"
+            rx="6"
+          />
+          <rect
+            class="core-node"
+            x="656"
+            y="176"
+            width="160"
+            height="72"
+            rx="6"
+          />
+          <rect
+            class="role-box focal"
+            x="664"
+            y="184"
+            width="32"
+            height="12"
+            rx="2"
+          />
           <text class="role-text focal" x="680" y="193">SQL</text>
           <text class="node-name focal" x="736" y="214">Query engine</text>
           <text class="node-sub" x="736" y="232">federated SQL access</text>
@@ -413,42 +659,147 @@
 
         <g text-anchor="middle">
           <g>
-            <rect class="node-mask" x="1000" y="92" width="160" height="64" rx="6" />
-            <rect class="side-node" x="1000" y="92" width="160" height="64" rx="6" />
-            <use href="#ico-chart" transform="translate(1024 124)" style="color: var(--muted)" />
+            <rect
+              class="node-mask"
+              x="1000"
+              y="92"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <rect
+              class="side-node"
+              x="1000"
+              y="92"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <use
+              href="#ico-chart"
+              transform="translate(1024 124)"
+              style="color: var(--muted)"
+            />
             <text class="node-name" x="1080" y="120">BI tool</text>
             <text class="node-sub" x="1080" y="140">dashboards · reports</text>
           </g>
           <g>
-            <rect class="node-mask" x="1000" y="180" width="160" height="64" rx="6" />
-            <rect class="side-node" x="1000" y="180" width="160" height="64" rx="6" />
-            <use href="#ico-notebook" transform="translate(1024 212)" style="color: var(--muted)" />
+            <rect
+              class="node-mask"
+              x="1000"
+              y="180"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <rect
+              class="side-node"
+              x="1000"
+              y="180"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <use
+              href="#ico-notebook"
+              transform="translate(1024 212)"
+              style="color: var(--muted)"
+            />
             <text class="node-name" x="1080" y="208">Notebooks</text>
             <text class="node-sub" x="1080" y="228">Python · exploration</text>
           </g>
           <g>
-            <rect class="node-mask" x="1000" y="268" width="160" height="64" rx="6" />
-            <rect class="side-node" x="1000" y="268" width="160" height="64" rx="6" />
-            <use href="#ico-api" transform="translate(1024 300)" style="color: var(--muted)" />
+            <rect
+              class="node-mask"
+              x="1000"
+              y="268"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <rect
+              class="side-node"
+              x="1000"
+              y="268"
+              width="160"
+              height="64"
+              rx="6"
+            />
+            <use
+              href="#ico-api"
+              transform="translate(1024 300)"
+              style="color: var(--muted)"
+            />
             <text class="node-name" x="1080" y="296">Partner API</text>
             <text class="node-sub" x="1080" y="316">scoped data products</text>
           </g>
         </g>
 
         <g>
-          <rect class="node-mask" x="40" y="460" width="1120" height="56" rx="6" />
-          <rect class="footer-red" x="40" y="460" width="1120" height="56" rx="6" />
-          <use href="#ico-key" transform="translate(72 488)" style="color: var(--custom-red)" />
-          <text class="node-name footer-red-text" x="96" y="486">Identity provider</text>
-          <text class="node-sub" x="96" y="502">SSO · service identities · policy groups</text>
-          <rect class="node-mask" x="40" y="524" width="1120" height="56" rx="6" />
-          <rect class="footer-blue" x="40" y="524" width="1120" height="56" rx="6" />
-          <use href="#ico-log" transform="translate(72 552)" style="color: var(--custom-blue)" />
-          <text class="node-name footer-blue-text" x="96" y="550">Centralized logging</text>
-          <text class="node-sub" x="96" y="566">platform events · audit trail · retention</text>
+          <rect
+            class="node-mask"
+            x="40"
+            y="460"
+            width="1120"
+            height="56"
+            rx="6"
+          />
+          <rect
+            class="footer-red"
+            x="40"
+            y="460"
+            width="1120"
+            height="56"
+            rx="6"
+          />
+          <use
+            href="#ico-key"
+            transform="translate(72 488)"
+            style="color: var(--custom-red)"
+          />
+          <text class="node-name footer-red-text" x="96" y="486">
+            Identity provider
+          </text>
+          <text class="node-sub" x="96" y="502">
+            SSO · service identities · policy groups
+          </text>
+          <rect
+            class="node-mask"
+            x="40"
+            y="524"
+            width="1120"
+            height="56"
+            rx="6"
+          />
+          <rect
+            class="footer-blue"
+            x="40"
+            y="524"
+            width="1120"
+            height="56"
+            rx="6"
+          />
+          <use
+            href="#ico-log"
+            transform="translate(72 552)"
+            style="color: var(--custom-blue)"
+          />
+          <text class="node-name footer-blue-text" x="96" y="550">
+            Centralized logging
+          </text>
+          <text class="node-sub" x="96" y="566">
+            platform events · audit trail · retention
+          </text>
         </g>
 
-        <line x1="40" y1="608" x2="1160" y2="608" stroke="var(--rule)" stroke-width=".8" />
+        <line
+          x1="40"
+          y1="608"
+          x2="1160"
+          y2="608"
+          stroke="var(--rule)"
+          stroke-width=".8"
+        />
         <text class="legend-key" x="40" y="628">TYPE KEY</text>
         <rect
           x="128"

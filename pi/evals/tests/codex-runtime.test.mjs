@@ -1,9 +1,8 @@
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
-import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inspect } from "node:util";
 
@@ -15,7 +14,10 @@ import {
   startedTurnId,
 } from "../runtime/codex-eval.mjs";
 
-const requiredConfig = { instructionPath: "/tmp/instruction", model: "test-model" };
+const requiredConfig = {
+  instructionPath: "/tmp/instruction",
+  model: "test-model",
+};
 
 const defaultConfig = {
   compactBefore: false,
@@ -34,11 +36,14 @@ void describe("Codex config validation", () => {
     const input = Object.freeze({ ...requiredConfig, extra: true });
     assert.deepStrictEqual(evalConfig(input), defaultConfig);
     assert.deepStrictEqual(input, { ...requiredConfig, extra: true });
-    assert.deepStrictEqual(evalConfig({ ...requiredConfig, effort: "", summary: "" }), {
-      ...defaultConfig,
-      effort: "",
-      summary: "",
-    });
+    assert.deepStrictEqual(
+      evalConfig({ ...requiredConfig, effort: "", summary: "" }),
+      {
+        ...defaultConfig,
+        effort: "",
+        summary: "",
+      }
+    );
     assert.deepStrictEqual(
       evalConfig({
         ...requiredConfig,
@@ -53,7 +58,7 @@ void describe("Codex config validation", () => {
         compactedAfterSegment: 0,
         effort: "high",
         summary: "detailed",
-      },
+      }
     );
   });
 
@@ -61,18 +66,26 @@ void describe("Codex config validation", () => {
     ...invalidObjects,
     {},
     ...["instructionPath", "model"].flatMap((key) =>
-      [...invalidStrings, undefined].map((value) => ({ ...requiredConfig, [key]: value })),
+      [...invalidStrings, undefined].map((value) => ({
+        ...requiredConfig,
+        [key]: value,
+      }))
     ),
     ...[null, undefined, 0, 1, "false", [], {}].map((compactBefore) => ({
       ...requiredConfig,
       compactBefore,
     })),
-    ...[null, undefined, -2, 1.5, "0", false, [], {}, Infinity].map((compactedAfterSegment) => ({
-      ...requiredConfig,
-      compactedAfterSegment,
-    })),
+    ...[null, undefined, -2, 1.5, "0", false, [], {}, Infinity].map(
+      (compactedAfterSegment) => ({
+        ...requiredConfig,
+        compactedAfterSegment,
+      })
+    ),
     ...["effort", "summary"].flatMap((key) =>
-      [undefined, false, 1, [], {}].map((value) => ({ ...requiredConfig, [key]: value })),
+      [undefined, false, 1, [], {}].map((value) => ({
+        ...requiredConfig,
+        [key]: value,
+      }))
     ),
   ];
 
@@ -99,16 +112,25 @@ void describe("Codex JSON-RPC validation", () => {
       }
     }
 
-    assert.partialDeepStrictEqual(rpcMessage({ id: "", result: null, error: null }), {
-      hasError: true,
-      hasResult: true,
-      id: "",
-    });
+    assert.partialDeepStrictEqual(
+      rpcMessage({ id: "", result: null, error: null }),
+      {
+        hasError: true,
+        hasResult: true,
+        id: "",
+      }
+    );
   });
 
   void it("preserves extra service params/item/turn fields without mutating input", () => {
     const item = Object.freeze({ text: "answer" });
-    const turn = Object.freeze({ id: "turn", status: "future-status", items: [item] });
+
+    const turn = Object.freeze({
+      id: "turn",
+      status: "future-status",
+      items: [item],
+    });
+
     const args = Object.freeze({ query: "needle" });
     const usage = Object.freeze({ futureCounter: 42 });
 
@@ -122,7 +144,12 @@ void describe("Codex JSON-RPC validation", () => {
       usage,
     });
 
-    const input = Object.freeze({ method: "item/tool/call", params, extra: "ignored" });
+    const input = Object.freeze({
+      method: "item/tool/call",
+      params,
+      extra: "ignored",
+    });
+
     const message = rpcMessage(input);
     assert.equal("extra" in message, false);
     assert.deepStrictEqual(message.params, params);
@@ -131,33 +158,41 @@ void describe("Codex JSON-RPC validation", () => {
   });
 
   void it("accepts integer and string IDs", () => {
-    for (const id of [0, -1, Number.MAX_SAFE_INTEGER + 1, "", "request", undefined]) {
+    for (const id of [
+      0,
+      -1,
+      Number.MAX_SAFE_INTEGER + 1,
+      "",
+      "request",
+      undefined,
+    ]) {
       assert.strictEqual(rpcMessage({ id }).id, id);
     }
   });
 
   const malformed = [
     ...invalidObjects,
-    ...[null, true, [], {}, NaN, 1.5].map((id) => ({ id })),
+    ...[null, true, [], {}, Number.NaN, 1.5].map((id) => ({ id })),
     ...["1e400", "-1e400"].map(
-      /** @returns {unknown} */ (literal) => JSON.parse(`{"id":${literal}}`),
+      /** @returns {unknown} Message whose id is out of range. */ (literal) =>
+        JSON.parse(`{"id":${literal}}`)
     ),
     ...invalidStrings.map((method) => ({ method })),
     ...invalidObjects.map((params) => ({ params })),
     ...["responseId", "threadId", "turnId"].flatMap((key) =>
-      invalidStrings.map((value) => ({ params: { [key]: value } })),
+      invalidStrings.map((value) => ({ params: { [key]: value } }))
     ),
     ...["item", "turn"].flatMap((key) =>
-      invalidObjects.map((value) => ({ params: { [key]: value } })),
+      invalidObjects.map((value) => ({ params: { [key]: value } }))
     ),
     ...["id", "type"].flatMap((key) =>
-      invalidStrings.map((value) => ({ params: { item: { [key]: value } } })),
+      invalidStrings.map((value) => ({ params: { item: { [key]: value } } }))
     ),
     { params: { turn: {} } },
     ...["id", "status"].flatMap((key) =>
       [...invalidStrings, undefined].map((value) => ({
         params: { turn: { id: "turn", status: "completed", [key]: value } },
-      })),
+      }))
     ),
   ];
 
@@ -174,7 +209,10 @@ for (const { key, parse } of [
 ]) {
   void describe(`Codex ${key}/start result validation`, () => {
     void it("requires only a non-empty ID and preserves whitespace", () => {
-      assert.strictEqual(parse({ [key]: { id: " ", extra: true }, extra: true }), " ");
+      assert.strictEqual(
+        parse({ [key]: { id: " ", extra: true }, extra: true }),
+        " "
+      );
     });
 
     const malformed = [
@@ -197,11 +235,12 @@ void describe("Codex usage and compaction capture", () => {
     const capture = createCapture();
 
     /**
-     * @param {string} method
-     * @param {import("../runtime/codex-eval.mjs").RpcParams} params
+     * @param {string} method App-server notification method the capture dispatches on, such as `item/started`.
+     * @param {import("../runtime/codex-eval.mjs").RpcParams} params Payload shaped as the app server sends it for that method.
      */
-    const accept = (method, params) =>
+    const accept = (method, params) => {
       capture.accept({ hasError: false, hasResult: false, method, params });
+    };
 
     accept("rawResponse/completed", {
       responseId: "a",
@@ -210,7 +249,10 @@ void describe("Codex usage and compaction capture", () => {
       usage: {},
     });
     capture.beginCompaction("succeeded");
-    accept("item/started", { item: { id: "c1", type: "contextCompaction" }, turnId: "succeeded" });
+    accept("item/started", {
+      item: { id: "c1", type: "contextCompaction" },
+      turnId: "succeeded",
+    });
     accept("rawResponse/completed", {
       responseId: "b",
       threadId: "t",
@@ -227,9 +269,14 @@ void describe("Codex usage and compaction capture", () => {
       turnId: "succeeded",
       usage: {},
     });
-    accept("turn/completed", { turn: { id: "succeeded", status: "completed" } });
+    accept("turn/completed", {
+      turn: { id: "succeeded", status: "completed" },
+    });
     capture.beginCompaction("failed");
-    accept("item/started", { item: { id: "c2", type: "contextCompaction" }, turnId: "failed" });
+    accept("item/started", {
+      item: { id: "c2", type: "contextCompaction" },
+      turnId: "failed",
+    });
     accept("rawResponse/completed", {
       responseId: "d",
       threadId: "t",
@@ -238,13 +285,23 @@ void describe("Codex usage and compaction capture", () => {
     });
     accept("turn/completed", { turn: { id: "failed", status: "failed" } });
     capture.beginCompaction("aborted");
-    accept("item/started", { item: { id: "c3", type: "contextCompaction" }, turnId: "aborted" });
-    accept("turn/completed", { turn: { id: "aborted", status: "interrupted" } });
+    accept("item/started", {
+      item: { id: "c3", type: "contextCompaction" },
+      turnId: "aborted",
+    });
+    accept("turn/completed", {
+      turn: { id: "aborted", status: "interrupted" },
+    });
     // The terminal turn may arrive before the runner registers the compaction.
-    accept("turn/completed", { turn: { id: "pre-hook", status: "interrupted" } });
+    accept("turn/completed", {
+      turn: { id: "pre-hook", status: "interrupted" },
+    });
     capture.beginCompaction("pre-hook");
     capture.beginCompaction("post-hook");
-    accept("item/started", { item: { id: "c4", type: "contextCompaction" }, turnId: "post-hook" });
+    accept("item/started", {
+      item: { id: "c4", type: "contextCompaction" },
+      turnId: "post-hook",
+    });
     accept("rawResponse/completed", {
       responseId: "e",
       threadId: "t",
@@ -255,32 +312,32 @@ void describe("Codex usage and compaction capture", () => {
       item: { id: "c4", type: "contextCompaction" },
       turnId: "post-hook",
     });
-    accept("turn/completed", { turn: { id: "post-hook", status: "interrupted" } });
+    accept("turn/completed", {
+      turn: { id: "post-hook", status: "interrupted" },
+    });
 
     const captured = capture.finish();
     assert.deepStrictEqual(
       captured.records.map(({ kind }) => kind),
-      ["ordinary", "compaction", "ordinary", "compaction"],
+      ["ordinary", "compaction", "ordinary", "compaction"]
     );
     assert.deepStrictEqual(
       captured.attempts.map(({ state }) => state),
-      ["succeeded", "failed", "aborted", "aborted", "succeeded"],
+      ["succeeded", "failed", "aborted", "aborted", "succeeded"]
     );
   });
 
   void it("rejects a completed compaction turn without an item completion", () => {
     const capture = createCapture();
     capture.beginCompaction("malformed");
-    assert.throws(
-      () =>
-        capture.accept({
-          hasError: false,
-          hasResult: false,
-          method: "turn/completed",
-          params: { turn: { id: "malformed", status: "completed" } },
-        }),
-      /omitted item\/completed/,
-    );
+    assert.throws(() => {
+      capture.accept({
+        hasError: false,
+        hasResult: false,
+        method: "turn/completed",
+        params: { turn: { id: "malformed", status: "completed" } },
+      });
+    }, /omitted item\/completed/u);
   });
 });
 
@@ -290,10 +347,20 @@ for (const name of ["codex-eval", "pi-eval-compact"]) {
     const executable = path.join(directory, name);
 
     try {
-      symlinkSync(path.resolve(import.meta.dirname, `../runtime/${name}.mjs`), executable);
-      const result = spawnSync(process.execPath, [executable], { encoding: "utf8" });
+      symlinkSync(
+        path.resolve(import.meta.dirname, `../runtime/${name}.mjs`),
+        executable
+      );
+
+      const result = spawnSync(process.execPath, [executable], {
+        encoding: "utf-8",
+      });
+
       assert.notStrictEqual(result.status, 0);
-      assert.match(result.stderr, new RegExp(`usage: ${name} CONFIG_JSON`));
+      assert.match(
+        result.stderr,
+        new RegExp(`usage: ${name} CONFIG_JSON`, "u")
+      );
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

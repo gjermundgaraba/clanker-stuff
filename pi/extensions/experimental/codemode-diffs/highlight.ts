@@ -1,4 +1,4 @@
-import { basename, extname } from "node:path";
+import path from "node:path";
 
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import type { Theme as HighlightsTheme } from "@pierre/highlights";
@@ -25,7 +25,7 @@ export const SyntaxSchema = Type.Array(
   Type.Union([
     Type.Null(),
     Type.Array(Type.Tuple([Type.Integer({ minimum: 1 }), SyntaxRoleSchema])),
-  ]),
+  ])
 );
 
 export type DiffSyntax = Static<typeof SyntaxSchema>;
@@ -63,7 +63,7 @@ const lexerTheme: HighlightsTheme = {
 };
 
 const roles = new Map<string, SyntaxRole>(
-  Object.values(palette).map((role) => [`var(--pi-${role})`, role]),
+  Object.values(palette).map((role) => [`var(--pi-${role})`, role])
 );
 
 export interface DiffLine {
@@ -73,35 +73,50 @@ export interface DiffLine {
   text: string;
 }
 
-export function parseDiffLine(line: string): DiffLine | undefined {
+export const parseDiffLine = (line: string): DiffLine | undefined => {
   const match = /^(?<kind>[ +-])(?<number>\s*\d+) (?<text>.*)$/su.exec(line);
   const kind = match?.groups?.["kind"];
   const number = match?.groups?.["number"];
   const text = match?.groups?.["text"];
 
-  if ((kind !== " " && kind !== "+" && kind !== "-") || number === undefined || text === undefined)
+  if (
+    (kind !== " " && kind !== "+" && kind !== "-") ||
+    number === undefined ||
+    text === undefined
+  ) {
     return;
+  }
 
   return { prefix: `${kind}${number} `, kind, number: Number(number), text };
-}
+};
 
 // Match Pi's BOM and newline normalization before projecting lexer offsets onto its display diff.
-const normalize = (source: string) => source.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+const normalize = (source: string) =>
+  source.replace(/^\uFEFF/u, "").replaceAll(/\r\n?/gu, "\n");
 
-export async function highlightDiff(
-  path: string,
+export const highlightDiff = async (
+  file: string,
   diff: string,
   before: string,
-  after: string,
-): Promise<DiffSyntax | undefined> {
-  const { codeToTokens, isSupportedLanguage } = await import("@pierre/highlights");
+  after: string
+): Promise<DiffSyntax | undefined> => {
+  const { codeToTokens, isSupportedLanguage } =
+    await import("@pierre/highlights");
+
   // Pi aliases TSX/JSX to TS/JS; prefer Highlights' dedicated lexer when it recognizes the suffix.
-  const suffix = (extname(path).slice(1) || basename(path)).toLowerCase();
+  const suffix = (
+    path.extname(file).slice(1) || path.basename(file)
+  ).toLowerCase();
 
-  if (["txt", "text", "plain", "plaintext"].includes(suffix)) return;
-  const lang = isSupportedLanguage(suffix) ? suffix : getLanguageFromPath(path);
+  if (["txt", "text", "plain", "plaintext"].includes(suffix)) {
+    return;
+  }
 
-  if (!lang || !isSupportedLanguage(lang)) return;
+  const lang = isSupportedLanguage(suffix) ? suffix : getLanguageFromPath(file);
+
+  if (lang === undefined || lang === "" || !isSupportedLanguage(lang)) {
+    return;
+  }
 
   const oldSource = normalize(before);
   const newSource = normalize(after);
@@ -123,13 +138,17 @@ export async function highlightDiff(
   return diff.split("\n").map((raw) => {
     const line = parseDiffLine(raw);
 
-    if (!line) return null;
+    if (!line) {
+      return null;
+    }
 
     // Pi numbers unchanged context in the old file, so it uses the old side's lexer state.
     const lines = line.kind === "+" ? newLines : oldLines;
     const tokens = (line.kind === "+" ? newTokens : oldTokens)[line.number - 1];
 
-    if (lines[line.number - 1] !== line.text || !tokens) return null;
+    if (lines[line.number - 1] !== line.text || !tokens) {
+      return null;
+    }
 
     let end = 0;
     const spans: NonNullable<DiffSyntax[number]> = [];
@@ -137,14 +156,22 @@ export async function highlightDiff(
     for (const token of tokens) {
       end += token.content.length;
 
-      if (!token.content.length) continue;
-      const role = token.color === undefined ? "text" : (roles.get(token.color) ?? "text");
+      if (!token.content.length) {
+        continue;
+      }
+
+      const role =
+        token.color === undefined ? "text" : (roles.get(token.color) ?? "text");
+
       const last = spans.at(-1);
 
-      if (last?.[1] === role) last[0] = end;
-      else spans.push([end, role]);
+      if (last?.[1] === role) {
+        last[0] = end;
+      } else {
+        spans.push([end, role]);
+      }
     }
 
     return end === line.text.length ? spans : null;
   });
-}
+};

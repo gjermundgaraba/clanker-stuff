@@ -47,8 +47,11 @@ export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const events = yield* Events.Service;
 
-    yield* events.stream.pipe(Stream.runForEach(handleEvent), Effect.forkScoped);
-  }),
+    yield* events.stream.pipe(
+      Stream.runForEach(handleEvent),
+      Effect.forkScoped
+    );
+  })
 );
 ```
 
@@ -81,7 +84,8 @@ const readAttachment = Effect.fn("Attachment.read")(
   function* (ref: AttachmentRef) {
     return yield* api.read(ref);
   },
-  (effect, ref) => effect.pipe(attachmentError("Attachment.read", { attachmentId: ref.id })),
+  (effect, ref) =>
+    effect.pipe(attachmentError("Attachment.read", { attachmentId: ref.id }))
 );
 ```
 

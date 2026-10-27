@@ -1,6 +1,7 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
+
 import { inspectModelHistory } from "../index.js";
 
 describe(inspectModelHistory, () => {
@@ -9,10 +10,20 @@ describe(inspectModelHistory, () => {
     session.appendMessage({ role: "user", content: "start", timestamp: 0 });
     const first = { ...fauxAssistantMessage("done"), provider: "anthropic" };
     session.appendMessage(first);
-    session.appendUsage("cache-warming", first.provider, first.model, first.usage);
-    const failure = { ...fauxAssistantMessage("", { stopReason: "error" }), provider: "radius" };
+    session.appendUsage(
+      "cache-warming",
+      first.provider,
+      first.model,
+      first.usage
+    );
+
+    const failure = {
+      ...fauxAssistantMessage("", { stopReason: "error" }),
+      provider: "radius",
+    };
+
     session.appendMessage(failure);
-    expect(inspectModelHistory(session.getBranch())).toEqual({
+    expect(inspectModelHistory(session.getBranch())).toStrictEqual({
       lastSuccessfulResponse: first,
       lastPhysicalAttempt: failure,
     });
@@ -23,7 +34,7 @@ describe(inspectModelHistory, () => {
     };
 
     session.appendMessage(newest);
-    expect(inspectModelHistory(session.getBranch())).toEqual({
+    expect(inspectModelHistory(session.getBranch())).toStrictEqual({
       lastSuccessfulResponse: newest,
       lastPhysicalAttempt: newest,
     });
@@ -35,11 +46,11 @@ describe(inspectModelHistory, () => {
       const session = SessionManager.inMemory();
       const newest = fauxAssistantMessage("", { stopReason });
       session.appendMessage(newest);
-      expect(inspectModelHistory(session.getBranch())).toEqual({
+      expect(inspectModelHistory(session.getBranch())).toStrictEqual({
         lastSuccessfulResponse: undefined,
         lastPhysicalAttempt: newest,
       });
-    },
+    }
   );
 
   it("ignores pending messages, non-assistant messages and unresolved virtual routes", () => {
@@ -53,17 +64,17 @@ describe(inspectModelHistory, () => {
     });
     session.appendMessage(fauxAssistantMessage("", { stopReason: "pending" }));
     session.appendMessage({ role: "user", content: "next", timestamp: 0 });
-    expect(inspectModelHistory(session.getBranch())).toEqual({
+    expect(inspectModelHistory(session.getBranch())).toStrictEqual({
       lastSuccessfulResponse: response,
       lastPhysicalAttempt: response,
     });
     session.appendMessage(fauxAssistantMessage("other branch"));
     session.branch(original);
-    expect(inspectModelHistory(session.getBranch())).toEqual({
+    expect(inspectModelHistory(session.getBranch())).toStrictEqual({
       lastSuccessfulResponse: response,
       lastPhysicalAttempt: response,
     });
-    expect(inspectModelHistory([])).toEqual({
+    expect(inspectModelHistory([])).toStrictEqual({
       lastSuccessfulResponse: undefined,
       lastPhysicalAttempt: undefined,
     });

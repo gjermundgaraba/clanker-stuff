@@ -1,4 +1,7 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 
 import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
@@ -7,7 +10,9 @@ import { parseArguments } from "../command-runtime.js";
 /** Names this command in its failure and outcome notices. */
 const LABEL = "Plannotator message annotation";
 
-const getLastAssistantText = (ctx: ExtensionCommandContext): string | undefined => {
+const getLastAssistantText = (
+  ctx: ExtensionCommandContext
+): string | undefined => {
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
     if (entry.type !== "message" || entry.message.role !== "assistant") {
       continue;
@@ -30,7 +35,8 @@ const getLastAssistantText = (ctx: ExtensionCommandContext): string | undefined 
 // The review can outlive later turns, so feedback always names the response it is about.
 // `message` is the trimmed text getLastAssistantText returned.
 const anchorFeedback = (feedback: string, message: string): string => {
-  const excerpt = message.length <= 1000 ? message : `${message.slice(0, 1000).trimEnd()}...`;
+  const excerpt =
+    message.length <= 1000 ? message : `${message.slice(0, 1000).trimEnd()}...`;
 
   const quote = excerpt
     .split("\n")
@@ -68,7 +74,7 @@ export const createLastHandler =
 
         pi.sendUserMessage(
           `# Message Annotations\n\n${anchorFeedback(feedback, message)}\n\nPlease address the annotation feedback above.`,
-          { deliverAs: "followUp" },
+          { deliverAs: "followUp" }
         );
       },
       openedMessage: "Plannotator message annotation opened.",

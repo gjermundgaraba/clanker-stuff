@@ -12,20 +12,22 @@ const { values } = parseArgs({
   },
 });
 
-if (values.help) {
+if (values.help === true) {
   console.log(
-    "Build the local rolling font: --source FONT.ttf. Requires uv. Output: " +
-      getRollingFontDirectory(),
+    `Build the local rolling font: --source FONT.ttf. Requires uv. Output: ${getRollingFontDirectory()}`
   );
 } else {
-  if (!values.source)
-    throw new Error("--source FONT.ttf is required (use a font licensed for your intended use)");
+  if (values.source === undefined || values.source === "") {
+    throw new Error(
+      "--source FONT.ttf is required (use a font licensed for your intended use)"
+    );
+  }
 
   const result = spawnSync(
     "uv",
     [
       "run",
-      fileURLToPath(new URL("./build-font.py", import.meta.url)),
+      fileURLToPath(new URL("build-font.py", import.meta.url)),
       "--source",
       values.source,
       "--out",
@@ -33,9 +35,12 @@ if (values.help) {
       "--pairs",
       ROLLING_PAIRS.join(","),
     ],
-    { stdio: "inherit" },
+    { stdio: "inherit" }
   );
 
-  if (result.error) throw result.error;
+  if (result.error) {
+    throw result.error;
+  }
+
   process.exitCode = result.status ?? 1;
 }

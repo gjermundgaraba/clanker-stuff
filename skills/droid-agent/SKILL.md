@@ -12,12 +12,12 @@ Always pass `--model`. Preserve the user's chosen set: `auto` for dynamic/cheap 
 
 Default exec is read-only. Tool overrides can broaden that default, so omit mutation-enabling overrides for reviews. Choose autonomy for each invocation, including continuations:
 
-| Autonomy        | Intended capability                                                                   |
-| --------------- | ------------------------------------------------------------------------------------- |
-| No `--auto`     | Inspection and planning                                                               |
-| `--auto low`    | Basic local file edits                                                                |
-| `--auto medium` | Code edits, installs, builds/tests, local git                                         |
-| `--auto high`   | Pushes, deployments, sensitive/arbitrary execution; only when intended and authorized |
+| Autonomy | Intended capability |
+| --- | --- |
+| No `--auto` | Inspection and planning |
+| `--auto low` | Basic local file edits |
+| `--auto medium` | Code edits, installs, builds/tests, local git |
+| `--auto high` | Pushes, deployments, sensitive/arbitrary execution; only when intended and authorized |
 
 ```bash
 cd /path/to/project

@@ -15,8 +15,12 @@ const claudeDir = (): string | undefined => process.env["CLAUDE_CONFIG_DIR"];
 
 // Lossy: only text, image, thinking and toolCall blocks survive, and thinking only when
 // Claude Code minted its signature.
-function importMessages(session: Session, messages: readonly Message[]): void {
-  const { anthropicMessages, sanitizedIds, dropped } = convertPiMessages(messages);
+const importMessages = (
+  session: Session,
+  messages: readonly Message[]
+): void => {
+  const { anthropicMessages, sanitizedIds, dropped } =
+    convertPiMessages(messages);
 
   debug(
     `importMessages: ${messages.length} pi msgs → ${anthropicMessages.length} anthropic msgs:`,
@@ -24,9 +28,9 @@ function importMessages(session: Session, messages: readonly Message[]): void {
       .map(({ role, content }, index) =>
         typeof content === "string"
           ? `[${index}]${role}:text`
-          : `[${index}]${role}:${content.map((block) => block.type).join("+")}`,
+          : `[${index}]${role}:${content.map((block) => block.type).join("+")}`
       )
-      .join(" "),
+      .join(" ")
   );
 
   // The roles line shows only what survived; name the losses.
@@ -38,14 +42,18 @@ function importMessages(session: Session, messages: readonly Message[]): void {
     ...[...dropped.other].map(([type, count]) => `${count} ${type}`),
   ].filter((part) => part !== "");
 
-  if (droppedParts.length > 0) debug(`importMessages: dropped ${droppedParts.join(", ")}`);
+  if (droppedParts.length > 0) {
+    debug(`importMessages: dropped ${droppedParts.join(", ")}`);
+  }
 
   if (sanitizedIds.size > 0) {
     debug(
       `importMessages: sanitized ${sanitizedIds.size} tool IDs:`,
       [...sanitizedIds]
-        .map(([original, clean]) => (original === clean ? original : `${original}→${clean}`))
-        .join(", "),
+        .map(([original, clean]) =>
+          original === clean ? original : `${original}→${clean}`
+        )
+        .join(", ")
     );
   }
 
@@ -54,12 +62,14 @@ function importMessages(session: Session, messages: readonly Message[]): void {
 
   if (repaired.length !== anthropicMessages.length) {
     debug(
-      `importMessages: repairToolPairing ${anthropicMessages.length} → ${repaired.length} msgs`,
+      `importMessages: repairToolPairing ${anthropicMessages.length} → ${repaired.length} msgs`
     );
   }
 
-  if (repaired.length > 0) session.importMessages(repaired);
-}
+  if (repaired.length > 0) {
+    session.importMessages(repaired);
+  }
+};
 
 export interface Rebuild {
   /** pi's history before the turn the query sends. */
@@ -72,12 +82,30 @@ export interface Rebuild {
   previous: string | undefined;
 }
 
+/** Delete a session nothing will resume again. */
+export const discardSession = (sessionId: string, cwd: string): void => {
+  try {
+    deleteSession(sessionId, cwd, claudeDir());
+  } catch (error) {
+    debug(`WARNING: could not delete session ${sessionId.slice(0, 8)}:`, error);
+  }
+};
+
 /** Write a new session holding `priors`. Returns its id, or undefined for a clean start:
  *  with no priors there is nothing to resume, and Claude Code mints its own session. */
-export function rebuildSession({ priors, cwd, modelId, previous }: Rebuild): string | undefined {
-  if (previous !== undefined) discardSession(previous, cwd);
+export const rebuildSession = ({
+  priors,
+  cwd,
+  modelId,
+  previous,
+}: Rebuild): string | undefined => {
+  if (previous !== undefined) {
+    discardSession(previous, cwd);
+  }
 
-  if (priors.length === 0) return undefined;
+  if (priors.length === 0) {
+    return undefined;
+  }
 
   const dir = claudeDir();
 
@@ -91,17 +119,8 @@ export function rebuildSession({ priors, cwd, modelId, previous }: Rebuild): str
   session.save();
 
   debug(
-    `rebuild: ${priors.length} prior messages → session ${session.sessionId.slice(0, 8)} at ${session.jsonlPath}${previous === undefined ? "" : `, replacing ${previous.slice(0, 8)}`}`,
+    `rebuild: ${priors.length} prior messages → session ${session.sessionId.slice(0, 8)} at ${session.jsonlPath}${previous === undefined ? "" : `, replacing ${previous.slice(0, 8)}`}`
   );
 
   return session.sessionId;
-}
-
-/** Delete a session nothing will resume again. */
-export function discardSession(sessionId: string, cwd: string): void {
-  try {
-    deleteSession(sessionId, cwd, claudeDir());
-  } catch (error) {
-    debug(`WARNING: could not delete session ${sessionId.slice(0, 8)}:`, error);
-  }
-}
+};

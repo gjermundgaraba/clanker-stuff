@@ -1,17 +1,30 @@
 import type { EditorHost, Change } from "@clanker-stuff/editor";
-import { isKeyRelease, matchesKey, parseKey, decodeKittyPrintable } from "@earendil-works/pi-tui";
-import { execute, selection, type Mode, type State } from "./core/commands.js";
-import { normalCursor, exitInsert, segmenter, single, type View } from "./core/document.js";
-import { Parser, type Command } from "./core/parser.js";
+import {
+  isKeyRelease,
+  matchesKey,
+  parseKey,
+  decodeKittyPrintable,
+} from "@earendil-works/pi-tui";
+
+import { execute, selection } from "./core/commands.js";
+import type { Mode, State } from "./core/commands.js";
+import {
+  normalCursor,
+  exitInsert,
+  segmenter,
+  single,
+} from "./core/document.js";
+import type { View } from "./core/document.js";
+import { Parser } from "./core/parser.js";
+import type { Command } from "./core/parser.js";
 import {
   Transactions,
   Insertion,
   applyDelta,
   selectionExtent,
   selectionEnd,
-  type SelectionExtent,
-  type Delta,
 } from "./transactions.js";
+import type { SelectionExtent, Delta } from "./transactions.js";
 
 interface Pending {
   before: View;
@@ -34,19 +47,36 @@ interface Edits {
   repeat: Repeat | undefined;
 }
 
-export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () => void {
+export const mountVim = (
+  host: EditorHost,
+  publish: (mode: Mode) => void
+): (() => void) => {
   let dispose: (() => void) | undefined;
 
   const unmount = host.onMount((editor) => {
-    const document = editor.document;
+    const { document } = editor;
 
     // The modal engine edits through the document adapter; without it Pi's editor stays native.
-    if (!document) return;
+    if (!document) {
+      return;
+    }
+
     const parser = new Parser();
     const history = new Transactions();
-    const view = document.view;
-    const state: State = { mode: "insert", anchor: 0, register: { text: "", linewise: false } };
-    let edits: Edits = { observed: view(), pending: undefined, repeat: undefined };
+    const { view } = document;
+
+    const state: State = {
+      mode: "insert",
+      anchor: 0,
+      register: { text: "", linewise: false },
+    };
+
+    let edits: Edits = {
+      observed: view(),
+      pending: undefined,
+      repeat: undefined,
+    };
+
     let historyNavigation = false;
     let observedHistory = document.historyIndex();
 
@@ -70,8 +100,83 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       editor.edit(edit.start, edit.end, encoded, edit.start + encoded.length);
     };
 
+    const run = (command: Command, replay = false) => {
+      const before = view();
+      const oldMode = state.mode;
+
+      const extent = oldMode.startsWith("visual")
+        ? selectionExtent(
+            before,
+            selection(before, state),
+            oldMode === "visual-line"
+          )
+        : undefined;
+
+      const result = execute(before, state, command);
+
+      if (!result) {
+        return;
+      }
+
+      if (result.yank) {
+        let text = document.expand(
+          before.text.slice(result.yank.start, result.yank.end)
+        );
+
+        if (result.yank.linewise && !text.endsWith("\n")) {
+          text += "\n";
+        }
+
+        state.register = { text, linewise: result.yank.linewise };
+      }
+
+      if (result.edit) {
+        const { start, end, text, foreign } = result.edit;
+        const encoded = foreign === true ? document.encode(text) : text;
+        editor.edit(
+          start,
+          end,
+          encoded,
+          encoded === text ? result.cursor : start
+        );
+      } else {
+        document.move(result.cursor);
+      }
+
+      if (result.anchor !== undefined) {
+        state.anchor = result.anchor;
+      }
+
+      if (result.mode) {
+        if (result.mode.startsWith("visual") && !oldMode.startsWith("visual")) {
+          state.anchor = result.cursor;
+        }
+
+        mode(result.mode);
+      }
+
+      if (state.mode === "insert" && !replay) {
+        edits.pending = {
+          before,
+          insertion: new Insertion(view()),
+          command,
+          selection: extent,
+        };
+      } else if (result.edit && !replay) {
+        history.commit(before, view());
+        edits.repeat = { command, delta: undefined, selection: extent };
+      }
+
+      if (state.mode !== "insert") {
+        document.move(normalCursor(view(), document.cursor()));
+      }
+
+      edits.observed = view();
+      editor.refresh();
+    };
+
     const finish = () => {
-      const pending = edits.pending;
+      const { pending } = edits;
 
       if (pending) {
         let { command } = pending;
@@ -82,10 +187,13 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
           command.count > 1 &&
           delta.text.length * command.count <= 1_000_000
         ) {
-          for (let n = 1; n < command.count; n++) {
+          for (let n = 1; n < command.count; n += 1) {
             const before = view();
 
-            if (command.key === "o" || command.key === "O") run({ ...command, count: 1 }, true);
+            if (command.key === "o" || command.key === "O") {
+              run({ ...command, count: 1 }, true);
+            }
+
             insertDelta(delta);
             pending.insertion.record(before, view());
           }
@@ -94,8 +202,14 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
           command = { ...command, count: 1 };
         }
 
-        if (delta.remove || delta.text || pending.before.text !== document.text())
+        if (
+          delta.remove ||
+          delta.text ||
+          pending.before.text !== document.text()
+        ) {
           edits.repeat = { command, delta, selection: pending.selection };
+        }
+
         history.commit(pending.before, view());
       }
 
@@ -104,56 +218,14 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       edits.observed = view();
     };
 
-    const run = (command: Command, replay = false) => {
-      const before = view();
-      const oldMode = state.mode;
-
-      const extent = oldMode.startsWith("visual")
-        ? selectionExtent(before, selection(before, state), oldMode === "visual-line")
-        : undefined;
-
-      const result = execute(before, state, command);
-
-      if (!result) return;
-
-      if (result.yank) {
-        let text = document.expand(before.text.slice(result.yank.start, result.yank.end));
-
-        if (result.yank.linewise && !text.endsWith("\n")) text += "\n";
-        state.register = { text, linewise: result.yank.linewise };
-      }
-
-      if (result.edit) {
-        const { start, end, text, foreign } = result.edit;
-        const encoded = foreign ? document.encode(text) : text;
-        editor.edit(start, end, encoded, encoded === text ? result.cursor : start);
-      } else document.move(result.cursor);
-
-      if (result.anchor !== undefined) state.anchor = result.anchor;
-
-      if (result.mode) {
-        if (result.mode.startsWith("visual") && !oldMode.startsWith("visual"))
-          state.anchor = result.cursor;
-        mode(result.mode);
-      }
-
-      if (state.mode === "insert" && !replay)
-        edits.pending = { before, insertion: new Insertion(view()), command, selection: extent };
-      else if (result.edit && !replay) {
-        history.commit(before, view());
-        edits.repeat = { command, delta: undefined, selection: extent };
-      }
-
-      if (state.mode !== "insert") document.move(normalCursor(view(), document.cursor()));
-      edits.observed = view();
-      editor.refresh();
-    };
-
     const undo = (redo: boolean, stay = false) => {
       finish();
       const draft = redo ? history.redo(view()) : history.undo(view());
 
-      if (draft) editor.restoreView(draft);
+      if (draft) {
+        editor.restoreView(draft);
+      }
+
       mode(stay ? "insert" : "normal");
       edits.observed = view();
     };
@@ -161,12 +233,17 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     const dot = (count: number, explicit: boolean) => {
       const saved = edits.repeat;
 
-      if (!saved) return;
+      if (!saved) {
+        return;
+      }
+
       const before = view();
       const insert = "iIaAoO".includes(saved.command.key);
-      const command = explicit && !insert ? { ...saved.command, count } : saved.command;
 
-      for (let n = 0; n < (insert ? count : 1); n++) {
+      const command =
+        explicit && !insert ? { ...saved.command, count } : saved.command;
+
+      for (let n = 0; n < (insert ? count : 1); n += 1) {
         if (saved.selection) {
           state.anchor = document.cursor();
           state.mode = saved.selection.linewise ? "visual-line" : "visual";
@@ -175,9 +252,14 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
 
         run(command, true);
 
-        if (saved.delta) insertDelta(saved.delta);
+        if (saved.delta) {
+          insertDelta(saved.delta);
+        }
 
-        if (state.mode === "insert") document.move(exitInsert(view()));
+        if (state.mode === "insert") {
+          document.move(exitInsert(view()));
+        }
+
         mode("normal");
       }
 
@@ -189,7 +271,9 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     // The host reports only changes made outside this engine.
     const changed = (kind: Change, before = edits.observed) => {
       const recalled =
-        kind === "input" && historyNavigation && document.historyIndex() !== observedHistory;
+        kind === "input" &&
+        historyNavigation &&
+        document.historyIndex() !== observedHistory;
 
       if (recalled || kind === "replace") {
         reset();
@@ -218,7 +302,10 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     const inserting = () => state.mode === "insert";
 
     const input = (data: string): boolean => {
-      if (isKeyRelease(data)) return true;
+      if (isKeyRelease(data)) {
+        return true;
+      }
+
       const bindings = editor.keys;
       observedHistory = document.historyIndex();
       historyNavigation =
@@ -283,7 +370,9 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
         bindings.matches(data, "tui.input.submit") ||
         bindings.matches(data, "tui.input.newLine") ||
         bindings.matches(data, "app.clipboard.pasteImage") ||
-        [...editor.actionHandlers.keys()].some((action) => bindings.matches(data, action))
+        [...editor.actionHandlers.keys()].some((action) =>
+          bindings.matches(data, action)
+        )
       ) {
         parser.reset();
 
@@ -293,27 +382,40 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       const key = parseKey(data);
 
       if (
-        key &&
+        key !== undefined &&
         (key.includes("ctrl+") ||
           key.includes("alt+") ||
-          ["enter", "shift+enter", "tab", "up", "down", "left", "right"].includes(key))
+          [
+            "enter",
+            "shift+enter",
+            "tab",
+            "up",
+            "down",
+            "left",
+            "right",
+          ].includes(key))
       ) {
         parser.reset();
 
         return false;
       }
 
-      const shifted = key?.startsWith("shift+") ? key.slice(6) : undefined;
+      const shifted =
+        key?.startsWith("shift+") === true ? key.slice(6) : undefined;
 
-      const printable =
-        decodeKittyPrintable(data) ??
-        (shifted && single(shifted)
-          ? shifted.toUpperCase()
-          : key === "space"
-            ? " "
-            : key && single(key)
-              ? key
-              : data);
+      let printable = decodeKittyPrintable(data);
+
+      if (printable === undefined) {
+        if (shifted !== undefined && single(shifted)) {
+          printable = shifted.toUpperCase();
+        } else if (key === "space") {
+          printable = " ";
+        } else if (key !== undefined && single(key)) {
+          printable = key;
+        } else {
+          printable = data;
+        }
+      }
 
       if (/[\p{Cc}]/u.test(printable)) {
         parser.reset();
@@ -330,12 +432,19 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
 
         const command = parser.feed(segment, state.mode.startsWith("visual"));
 
-        if (!command) continue;
+        if (!command) {
+          continue;
+        }
 
         if (command.key === "u") {
-          for (let n = 0; n < command.count; n++) undo(false);
-        } else if (command.key === ".") dot(command.count, command.explicit);
-        else run(command);
+          for (let n = 0; n < command.count; n += 1) {
+            undo(false);
+          }
+        } else if (command.key === ".") {
+          dot(command.count, command.explicit);
+        } else {
+          run(command);
+        }
       }
 
       return true;
@@ -346,10 +455,19 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
       changed,
       submitted: reset,
       selection: () => {
-        if (!state.mode.startsWith("visual")) return [];
+        if (!state.mode.startsWith("visual")) {
+          return [];
+        }
+
         const range = selection(view(), state);
 
-        return [{ ...range, end: Math.max(range.end, range.start + 1), selected: true }];
+        return [
+          {
+            ...range,
+            end: Math.max(range.end, range.start + 1),
+            selected: true,
+          },
+        ];
       },
     });
 
@@ -365,4 +483,4 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
     unmount();
     dispose?.();
   };
-}
+};

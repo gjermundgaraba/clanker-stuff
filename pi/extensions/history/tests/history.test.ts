@@ -1,5 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
+
 import { historyItemFromEntry } from "../history.js";
 import { nonPromptEntries, userEntry } from "./fixtures.js";
 
@@ -40,19 +41,33 @@ describe("prompt history", () => {
 
   it.each([
     [skillBlock("pdf"), "/skill:pdf"],
-    [`${skillBlock("pdf")}\n\nextract report.pdf`, "/skill:pdf extract report.pdf"],
+    [
+      `${skillBlock("pdf")}\n\nextract report.pdf`,
+      "/skill:pdf extract report.pdf",
+    ],
     // Typed text that mentions every skill in its block reloads them itself (dollah-skills).
-    [`${skillBlock("pdf")}\n\nextract it as $pdf says`, "extract it as $pdf says"],
+    [
+      `${skillBlock("pdf")}\n\nextract it as $pdf says`,
+      "extract it as $pdf says",
+    ],
     [`${skillBlock("a, b")}\n\nuse $a and $b`, "use $a and $b"],
     [`${skillBlock("a, b")}\n\nuse $a and $bee`, "/skill:a, b use $a and $bee"],
-    [`${skillBlock("repo:pdf-tools_2")}\n\nuse $repo:pdf-tools_2:`, "use $repo:pdf-tools_2:"],
+    [
+      `${skillBlock("repo:pdf-tools_2")}\n\nuse $repo:pdf-tools_2:`,
+      "use $repo:pdf-tools_2:",
+    ],
     [`${skillBlock("pdf")}\n\nuse $pdf-tools`, "/skill:pdf use $pdf-tools"],
-  ])("recovers the typed prompt from an expanded skill: %#", (content, typed) => {
-    expect(historyItemFromEntry(userEntry("skill", null, content, 100))).toEqual({
-      text: typed,
-      timestamp: 100,
-    });
-  });
+  ])(
+    "recovers the typed prompt from an expanded skill: %#",
+    (content, typed) => {
+      expect(
+        historyItemFromEntry(userEntry("skill", null, content, 100))
+      ).toStrictEqual({
+        text: typed,
+        timestamp: 100,
+      });
+    }
+  );
 
   it.each([
     { role: "user", content: 123, timestamp: 2 },
@@ -60,7 +75,12 @@ describe("prompt history", () => {
     { role: "user", content: [{ type: "text", text: 123 }], timestamp: 2 },
     { role: "user", content: "text", timestamp: "invalid" },
     { role: "bashExecution", command: 123, timestamp: 2 },
-    { role: "bashExecution", command: "ls", excludeFromContext: "true", timestamp: 2 },
+    {
+      role: "bashExecution",
+      command: "ls",
+      excludeFromContext: "true",
+      timestamp: 2,
+    },
     { role: "assistant", content: "not a prompt", timestamp: 2 },
   ])("skips unsupported or malformed messages: %j", (message) => {
     expect(historyItemFromEntry({ message })).toBeUndefined();
@@ -78,9 +98,9 @@ describe("prompt history", () => {
         historyItemFromEntry({
           message: { role: "user", content: "prompt", timestamp },
           timestamp: new Date(200).toISOString(),
-        }),
-      ).toEqual(expected);
-    },
+        })
+      ).toStrictEqual(expected);
+    }
   );
 
   it("skips invalid entries while preserving multiline text and timestamp fallback", () => {
@@ -114,7 +134,7 @@ describe("prompt history", () => {
         const item = historyItemFromEntry(entry);
 
         return item === undefined ? [] : [item];
-      }),
-    ).toEqual([{ text: "first\nsecond", timestamp: 200 }]);
+      })
+    ).toStrictEqual([{ text: "first\nsecond", timestamp: 200 }]);
   });
 });

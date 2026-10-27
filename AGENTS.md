@@ -54,6 +54,10 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 - Prefer behavioral contracts over incidental implementation details. Narrow dependency-compatibility checks are worthwhile when they protect a concrete assumption our code relies on.
 - Consolidate tests only when meaningful cases, assertion strength, and failure diagnosis remain clear. Overlap alone does not establish redundancy; fewer tests or lines are not the objective.
 
+## Linting and formatting
+
+`vp check` lints, formats and type-checks; `vp check --fix` applies fixes. Oxlint and Oxfmt run Ultracite's core, anti-slop and Vitest presets and `@effect/tsgo`'s recommended preset. Every exception to them lives in `oxlint.config.ts` beside its reason: a shared block that is identical across the maintainer's repositories, then file-scoped overrides for this one. Adding or widening an exception needs the maintainer's approval. Do not add inline `oxlint-disable` comments; the ones that predate Ultracite stay with their reasons.
+
 ## Lint policy and exceptions
 
 - Follow [docs/lint-policy.md](docs/lint-policy.md). Before adding or retaining any lint exception, strongly consider a cleaner, more correct refactor that removes its cause, even when it breaks owned APIs. Update affected callers and tests directly; do not preserve avoidable debt with compatibility wrappers.

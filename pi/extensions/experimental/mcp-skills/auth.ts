@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import type { AuthProvider } from "@earendil-works/pi-mcp";
 import { Type } from "typebox";
@@ -9,7 +9,9 @@ import { mcpNamespace } from "./config.js";
 
 const StoredStates = Type.Record(
   Type.String(),
-  Type.Object({ tokens: Type.Optional(Type.Object({ access_token: Type.String() })) }),
+  Type.Object({
+    tokens: Type.Optional(Type.Object({ access_token: Type.String() })),
+  })
 );
 
 /**
@@ -21,7 +23,7 @@ const StoredStates = Type.Record(
 export const createStoredTokenAuth = (
   agentDir: string,
   name: string,
-  url: string,
+  url: string
 ): AuthProvider => {
   const normalizedUrl = String(new URL(url));
   // Pi looks up OAuth state by namespace and URL, then by URL alone for older sign-ins.
@@ -31,11 +33,15 @@ export const createStoredTokenAuth = (
     async onUnauthorized() {
       // The retry reads the store again.
     },
-    async token() {
+    async token(): Promise<string | undefined> {
       try {
-        const states: unknown = JSON.parse(readFileSync(join(agentDir, "mcp-auth.json"), "utf8"));
+        const states: unknown = JSON.parse(
+          readFileSync(path.join(agentDir, "mcp-auth.json"), "utf-8")
+        );
 
-        if (!Value.Check(StoredStates, states)) return undefined;
+        if (!Value.Check(StoredStates, states)) {
+          return undefined;
+        }
 
         return keys
           .map((key) => states[key]?.tokens?.access_token)
@@ -48,5 +54,9 @@ export const createStoredTokenAuth = (
 };
 
 /** Whether a server's headers already carry credentials, so stored OAuth tokens must not be sent. */
-export const hasAuthorizationHeader = (headers: Readonly<Record<string, string>>): boolean =>
-  Object.keys(headers).some((header) => header.toLowerCase() === "authorization");
+export const hasAuthorizationHeader = (
+  headers: Readonly<Record<string, string>>
+): boolean =>
+  Object.keys(headers).some(
+    (header) => header.toLowerCase() === "authorization"
+  );

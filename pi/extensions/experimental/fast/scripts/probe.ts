@@ -24,10 +24,10 @@ const PayloadSchema = Type.Object(
     model: Type.String(),
     service_tier: Type.Optional(Type.String()),
     reasoning: Type.Optional(
-      Type.Object({ effort: Type.String() }, { additionalProperties: true }),
+      Type.Object({ effort: Type.String() }, { additionalProperties: true })
     ),
   },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 const EventSchema = Type.Object(
@@ -41,34 +41,43 @@ const EventSchema = Type.Object(
     ]),
     response: Type.Object(
       { service_tier: Type.Optional(Type.String()) },
-      { additionalProperties: true },
+      { additionalProperties: true }
     ),
   },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 export const probeTier = async (
   runtime: ModelRuntime,
   model: Model<Api>,
   requested: "default" | "priority" | "fast",
-  fetchResponse: typeof fetch = globalThis.fetch,
+  fetchResponse: typeof fetch = globalThis.fetch
 ) => {
   if (
     model.provider !== "openai" ||
     model.api !== "openai-responses" ||
     model.baseUrl !== "https://api.openai.com/v1" ||
     !runtime.isUsingSubscription("openai")
-  )
+  ) {
     throw new Error("Select an available native OpenAI subscription model.");
+  }
 
-  let wire: { url: string; model: string; tier: string; reasoning: string | undefined } | undefined;
+  let wire:
+    | {
+        url: string;
+        model: string;
+        tier: string;
+        reasoning: string | undefined;
+      }
+    | undefined;
+
   let reported: string | undefined;
   let completed = false;
   let status: number | undefined;
   let requestId: string | undefined;
   let serverProcessingMs: string | undefined;
   let responseHeaderNames: string[] = [];
-  const events: { event: string; reported: string | undefined }[] = [];
+  const events: Array<{ event: string; reported: string | undefined }> = [];
   const started = performance.now();
 
   const response = await runtime.completeSimple(
@@ -80,13 +89,18 @@ export const probeTier = async (
       reasoning: "medium",
       signal: AbortSignal.timeout(240_000),
       onPayload: (payload) => {
-        if (!Value.Check(PayloadSchema, payload))
+        if (!Value.Check(PayloadSchema, payload)) {
           throw new Error("Unexpected native Responses payload.");
+        }
 
         return { ...payload, service_tier: requested };
       },
       fetch: async (input, init) => {
-        const request = new Request(input instanceof Request ? input.clone() : input, init);
+        const request = new Request(
+          input instanceof Request ? input.clone() : input,
+          init
+        );
+
         const raw: unknown = JSON.parse(await request.text());
         const body = Value.Parse(PayloadSchema, raw);
 
@@ -95,8 +109,11 @@ export const probeTier = async (
           request.method !== "POST" ||
           body.model !== model.id ||
           body.service_tier !== requested
-        )
-          throw new Error("Native request endpoint, model or tier changed before sending.");
+        ) {
+          throw new Error(
+            "Native request endpoint, model or tier changed before sending."
+          );
+        }
 
         wire = {
           url: request.url,
@@ -107,22 +124,32 @@ export const probeTier = async (
 
         // Observe the serialized request without changing native auth, headers or transport.
         const result = await fetchResponse(input, init);
-        status = result.status;
+        ({ status } = result);
         requestId = result.headers.get("x-request-id") ?? undefined;
-        serverProcessingMs = result.headers.get("openai-processing-ms") ?? undefined;
-        responseHeaderNames = [...result.headers.keys()].sort();
+        serverProcessingMs =
+          result.headers.get("openai-processing-ms") ?? undefined;
+        responseHeaderNames = [...result.headers.keys()].toSorted();
 
         return result;
       },
       onProviderStreamEvent: (event) => {
-        if (!Value.Check(EventSchema, event)) return;
-        events.push({ event: event.type, reported: event.response.service_tier });
+        if (!Value.Check(EventSchema, event)) {
+          return;
+        }
 
-        if (event.type !== "response.completed") return;
+        events.push({
+          event: event.type,
+          reported: event.response.service_tier,
+        });
+
+        if (event.type !== "response.completed") {
+          return;
+        }
+
         completed = true;
         reported = event.response.service_tier;
       },
-    },
+    }
   );
 
   const requestSucceeded =

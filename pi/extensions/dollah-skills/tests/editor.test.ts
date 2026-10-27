@@ -12,7 +12,7 @@ import { installSkillMentionEditor } from "../editor.js";
 const accent = (text: string) =>
   text
     .split("")
-    .map((c) => `\x1b[36m${c}\x1b[39m`)
+    .map((c) => `\u001B[36m${c}\u001B[39m`)
     .join("");
 
 const identity = (text: string) => text;
@@ -43,7 +43,8 @@ describe("skill mention editor", () => {
     const host = createExtensionHost(() => {});
 
     const theme = Object.assign(createIdentityTheme(), {
-      fg: (color: string, text: string) => (color === "accent" ? `\x1b[36m${text}\x1b[39m` : text),
+      fg: (color: string, text: string) =>
+        color === "accent" ? `\u001B[36m${text}\u001B[39m` : text,
     });
 
     const ctx = host.createContext({ ui: { theme } });
@@ -52,9 +53,13 @@ describe("skill mention editor", () => {
     const editor = createEditor(host);
     editor.setText("Use $alpha, $plugin:deploy, and not $alphabet or $PATH");
 
-    expect(editor.getText()).toBe("Use $alpha, $plugin:deploy, and not $alphabet or $PATH");
+    expect(editor.getText()).toBe(
+      "Use $alpha, $plugin:deploy, and not $alphabet or $PATH"
+    );
     expect(editor.render(80).join("\n")).toContain(
-      "Use " + accent("$alpha") + ", " + accent("$plugin:deploy") + ", and not $alphabet or $PATH",
+      `Use ${accent("$alpha")}, ${accent(
+        "$plugin:deploy"
+      )}, and not $alphabet or $PATH`
     );
   });
 
@@ -64,7 +69,7 @@ describe("skill mention editor", () => {
     const context = host.createContext({
       ui: {
         theme: Object.assign(createIdentityTheme(), {
-          fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m`,
+          fg: (_color: string, text: string) => `\u001B[36m${text}\u001B[39m`,
         }),
       },
     });
@@ -86,7 +91,8 @@ describe("skill mention editor", () => {
     const host = createExtensionHost(() => {});
 
     const theme = Object.assign(createIdentityTheme(), {
-      fg: (color: string, text: string) => (color === "accent" ? `\x1b[36m${text}\x1b[39m` : text),
+      fg: (color: string, text: string) =>
+        color === "accent" ? `\u001B[36m${text}\u001B[39m` : text,
     });
 
     const ctx = host.createContext({ ui: { theme } });
@@ -95,8 +101,12 @@ describe("skill mention editor", () => {
     const editor = createEditor(host);
     editor.setText("Use $alpha and $beta");
 
-    expect(editor.render(80).join("\n")).toContain("Use " + accent("$alpha") + " and $beta");
+    expect(editor.render(80).join("\n")).toContain(
+      `Use ${accent("$alpha")} and $beta`
+    );
     names = ["beta"];
-    expect(editor.render(80).join("\n")).toContain("Use $alpha and " + accent("$beta"));
+    expect(editor.render(80).join("\n")).toContain(
+      `Use $alpha and ${accent("$beta")}`
+    );
   });
 });

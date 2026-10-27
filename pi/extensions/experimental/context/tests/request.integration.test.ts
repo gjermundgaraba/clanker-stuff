@@ -2,13 +2,25 @@ import { contentText, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import {
-  createAgentSessionHarness,
-  type AgentSessionHarness,
-} from "../../../../tests/harness/agent-session.js";
+
+import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
+import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { createCustomUiDriver, createKeybindings } from "../../../../tests/harness/tui.js";
+import {
+  createCustomUiDriver,
+  createKeybindings,
+} from "../../../../tests/harness/tui.js";
 import extension from "../index.js";
+
+const transform: ExtensionFactory = (pi) => {
+  pi.on("context", (event) => ({
+    messages: event.messages.map((message) =>
+      message.role === "user"
+        ? { ...message, content: "TRANSIENT REQUEST MESSAGE" }
+        : message
+    ),
+  }));
+};
 
 describe("context request observation", () => {
   let harness: AgentSessionHarness | undefined;
@@ -19,14 +31,6 @@ describe("context request observation", () => {
   });
 
   it("observes transformed provider input/loadout separately from recorded state", async () => {
-    const transform: ExtensionFactory = (pi) => {
-      pi.on("context", (event) => ({
-        messages: event.messages.map((message) =>
-          message.role === "user" ? { ...message, content: "TRANSIENT REQUEST MESSAGE" } : message,
-        ),
-      }));
-    };
-
     const state: string[] = [];
     const request: string[] = [];
 
@@ -38,7 +42,7 @@ describe("context request observation", () => {
         "tui.select.pageDown": ["pageDown"],
       }),
       onComponent(component) {
-        for (let row = 0; row < 4; row++) {
+        for (let row = 0; row < 4; row += 1) {
           state.push(component.render(120).join("\n"));
           component.handleInput?.("j");
         }
@@ -48,18 +52,21 @@ describe("context request observation", () => {
         component.handleInput?.("j");
         component.handleInput?.("\r");
 
-        for (let page = 0; page < 30; page++) {
+        for (let page = 0; page < 30; page += 1) {
           request.push(component.render(120).join("\n"));
-          component.handleInput?.("\u001b[6~");
+          component.handleInput?.("\u001B[6~");
         }
 
         component.handleInput?.("v");
         state.push(component.render(120).join("\n"));
-        component.handleInput?.("\u001b");
+        component.handleInput?.("\u001B");
       },
     });
 
-    const uiContext = createExtensionHost(() => {}).createContext({ ui: { custom: ui.custom } }).ui;
+    const uiContext = createExtensionHost(() => {}).createContext({
+      ui: { custom: ui.custom },
+    }).ui;
+
     const empty = Type.Object({}, { additionalProperties: false });
 
     harness = await createAgentSessionHarness({
@@ -103,7 +110,7 @@ describe("context request observation", () => {
     expect(request.join("\n")).toContain("REQUEST DESCRIPTION");
     expect(request.join("\n")).not.toContain("hidden-tool");
     expect(request.join("\n")).not.toContain("STORED DESCRIPTION");
-    expect(harness.sessionManager.getEntries()).toEqual(entries);
+    expect(harness.sessionManager.getEntries()).toStrictEqual(entries);
     expect(
       harness.sessionManager
         .getBranch()
@@ -111,8 +118,8 @@ describe("context request observation", () => {
           (entry) =>
             entry.type === "message" &&
             entry.message.role === "user" &&
-            contentText(entry.message.content) === "ORIGINAL STORED MESSAGE",
-        ),
+            contentText(entry.message.content) === "ORIGINAL STORED MESSAGE"
+        )
     ).toBe(true);
   });
 });

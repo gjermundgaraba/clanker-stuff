@@ -5,7 +5,10 @@ import { inspectModelHistory } from "@clanker-stuff/model-history";
 import { percentTone } from "@clanker-stuff/pi-tones";
 import type { Tone } from "@clanker-stuff/pi-tones";
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
-import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 
 import type { IconFamily } from "./config.js";
 import type { GitDetails } from "./git.js";
@@ -40,13 +43,13 @@ export interface SessionTotals {
   name: string | undefined;
 }
 
-type SessionTotalsContext = {
+interface SessionTotalsContext {
   sessionManager: {
     getEntries: () => SessionEntry[];
     getHeader: () => { timestamp: string } | null;
     getSessionName: () => string | undefined;
   };
-};
+}
 
 const span = (text: string, tone: Tone): Span[] => [{ text, tone }];
 
@@ -65,13 +68,19 @@ export const formatTokenCount = (tokens: number): string => {
 const formatCost = (cost: number): string => {
   const safe = Number.isFinite(cost) ? Math.max(0, cost) : 0;
 
-  return safe === 0 ? "$0" : safe < 0.01 ? `$${safe.toFixed(3)}` : `$${safe.toFixed(2)}`;
+  if (safe === 0) {
+    return "$0";
+  }
+
+  return safe < 0.01 ? `$${safe.toFixed(3)}` : `$${safe.toFixed(2)}`;
 };
 
 const formatElapsed = (milliseconds: number): string => {
   const minutes = Math.max(0, Math.floor(milliseconds / 60_000));
 
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
 
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
@@ -82,14 +91,15 @@ const formatElapsed = (milliseconds: number): string => {
 const abbreviateHome = (cwd: string): string => {
   const home = os.homedir();
 
-  return home.length > 0 && (cwd === home || cwd.startsWith(`${home}${path.sep}`))
+  return home.length > 0 &&
+    (cwd === home || cwd.startsWith(`${home}${path.sep}`))
     ? `~${cwd.slice(home.length)}`
     : cwd;
 };
 
 const modelWidget = (
   ctx: ExtensionContext,
-  latest: AssistantMessage | undefined,
+  latest: AssistantMessage | undefined
 ): BuiltinWidget => {
   const { model } = ctx;
 
@@ -98,7 +108,9 @@ const modelWidget = (
     id: "footer.model",
   };
 
-  if (!model) return { ...base, content: span("no model", "muted") };
+  if (!model) {
+    return { ...base, content: span("no model", "muted") };
+  }
 
   // Name the provider only when another available provider offers the same model name or ID.
   const ambiguous = ctx.modelRegistry
@@ -106,39 +118,49 @@ const modelWidget = (
     .some(
       (candidate) =>
         candidate.provider !== model.provider &&
-        (candidate.name === model.name || candidate.id === model.id),
+        (candidate.name === model.name || candidate.id === model.id)
     );
 
   const selected = ambiguous
     ? `${ctx.modelRegistry.getProviderDisplayName(model.provider)} / ${model.name}`
     : model.name;
 
-  const differs = latest && (latest.provider !== model.provider || latest.model !== model.id);
+  const differs =
+    latest !== undefined &&
+    (latest.provider !== model.provider || latest.model !== model.id);
 
   return {
     ...base,
     content: span(
-      differs ? `selected: ${selected} · last: ${latest.provider}/${latest.model}` : selected,
-      "muted",
+      differs
+        ? `selected: ${selected} · last: ${latest.provider}/${latest.model}`
+        : selected,
+      "muted"
     ),
   };
 };
 
 const thinkingWidget = (
   thinkingLevel: string,
-  latest: AssistantMessage | undefined,
-): BuiltinWidget => ({
-  content: span(
-    latest?.thinkingLevel !== undefined && latest.thinkingLevel !== thinkingLevel
-      ? `selected: ${thinkingLevel} · last: ${latest.thinkingLevel}`
-      : thinkingLevel === "off"
-        ? ""
-        : thinkingLevel,
-    "muted",
-  ),
-  icon: { ascii: "think", nerd: "󰔏", unicode: "◇" },
-  id: "footer.thinking",
-});
+  latest: AssistantMessage | undefined
+): BuiltinWidget => {
+  const differs =
+    latest?.thinkingLevel !== undefined &&
+    latest.thinkingLevel !== thinkingLevel;
+
+  const selected = thinkingLevel === "off" ? "" : thinkingLevel;
+
+  return {
+    content: span(
+      differs
+        ? `selected: ${thinkingLevel} · last: ${latest.thinkingLevel}`
+        : selected,
+      "muted"
+    ),
+    icon: { ascii: "think", nerd: "󰔏", unicode: "◇" },
+    id: "footer.thinking",
+  };
+};
 
 const METER_WIDTH = 12;
 
@@ -157,7 +179,10 @@ const contextWidget = (ctx: ExtensionContext): BuiltinWidget => {
       ...base,
       content: [
         { text: "─".repeat(METER_WIDTH), tone: "dim" },
-        { text: window > 0 ? ` ?/${formatTokenCount(window)}` : " ?", tone: "muted" },
+        {
+          text: window > 0 ? ` ?/${formatTokenCount(window)}` : " ?",
+          tone: "muted",
+        },
       ],
     };
   }
@@ -184,7 +209,10 @@ const contextWidget = (ctx: ExtensionContext): BuiltinWidget => {
   };
 };
 
-const gitWidgets = (branch: string | null, details: GitDetails | undefined): BuiltinWidget[] => [
+const gitWidgets = (
+  branch: string | null,
+  details: GitDetails | undefined
+): BuiltinWidget[] => [
   {
     content: span(branch ?? "", "text"),
     icon: { ascii: "git", nerd: "", unicode: "⑂" },
@@ -204,27 +232,35 @@ const gitWidgets = (branch: string | null, details: GitDetails | undefined): Bui
           ]
             .filter(Boolean)
             .join(" "),
-      "muted",
+      "muted"
     ),
     id: "footer.git.details",
   },
 ];
 
 const usageFromEntry = (entry: SessionEntry): Usage | undefined => {
-  if (entry.type === "message") return "usage" in entry.message ? entry.message.usage : undefined;
+  if (entry.type === "message") {
+    return "usage" in entry.message ? entry.message.usage : undefined;
+  }
 
-  return entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary"
+  return entry.type === "usage" ||
+    entry.type === "compaction" ||
+    entry.type === "branch_summary"
     ? entry.usage
     : undefined;
 };
 
-export const collectSessionTotals = (ctx: SessionTotalsContext): SessionTotals => {
+export const collectSessionTotals = (
+  ctx: SessionTotalsContext
+): SessionTotals => {
   const totals = { cacheRead: 0, cacheWrite: 0, cost: 0, input: 0, output: 0 };
 
   for (const entry of ctx.sessionManager.getEntries()) {
     const usage = usageFromEntry(entry);
 
-    if (!usage) continue;
+    if (!usage) {
+      continue;
+    }
 
     totals.input += usage.input;
     totals.output += usage.output;
@@ -243,13 +279,17 @@ export const collectSessionTotals = (ctx: SessionTotalsContext): SessionTotals =
 };
 
 const sessionWidget = (totals: SessionTotals, now: number): BuiltinWidget => {
-  const elapsed = formatElapsed(totals.startedAt === undefined ? 0 : now - totals.startedAt);
-  const name = totals.name?.trim() || "session";
+  const elapsed = formatElapsed(
+    totals.startedAt === undefined ? 0 : now - totals.startedAt
+  );
+
+  const trimmed = totals.name?.trim();
+  const name = trimmed === undefined || trimmed === "" ? "session" : trimmed;
 
   return {
     content: span(
       `${name} ${elapsed} in ${formatTokenCount(totals.input)} out ${formatTokenCount(totals.output)} cache ${formatTokenCount(totals.cacheRead)}/${formatTokenCount(totals.cacheWrite)} ${formatCost(totals.cost)}`,
-      "dim",
+      "dim"
     ),
     icon: { ascii: "session", nerd: "󱎫", unicode: "◷" },
     id: "footer.session",
@@ -258,9 +298,11 @@ const sessionWidget = (totals: SessionTotals, now: number): BuiltinWidget => {
 
 export const buildBuiltinWidgets = (
   ctx: ExtensionContext,
-  options: BuiltinWidgetOptions,
+  options: BuiltinWidgetOptions
 ): Map<string, BuiltinWidget> => {
-  const { lastSuccessfulResponse: latest } = inspectModelHistory(ctx.sessionManager.getBranch());
+  const { lastSuccessfulResponse: latest } = inspectModelHistory(
+    ctx.sessionManager.getBranch()
+  );
 
   const widgets: BuiltinWidget[] = [
     {

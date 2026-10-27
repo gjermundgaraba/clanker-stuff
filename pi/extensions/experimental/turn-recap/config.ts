@@ -16,23 +16,35 @@ const RecapConfigSchema = Type.Object(
   {
     model: Type.Object({ id: Id, provider: Id }, STRICT),
     thinking: Type.Optional(
-      StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const),
+      StringEnum([
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+      ] as const)
     ),
   },
-  STRICT,
+  STRICT
 );
 
 /** Parsed configuration always has a thinking level; omission defaults to `off`. */
 export type RecapConfig = Required<Static<typeof RecapConfigSchema>>;
 
-export const getRecapConfigPath = (): string => getExtensionStoragePaths("turn-recap").configFile;
+export const getRecapConfigPath = (): string =>
+  getExtensionStoragePaths("turn-recap").configFile;
 
 export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
     throw new Error(
-      `Invalid turn-recap configuration: ${Value.Errors(RecapConfigSchema, value)
+      `Invalid turn-recap configuration: ${Value.Errors(
+        RecapConfigSchema,
+        value
+      )
         .map((error) => `${error.instancePath || "/"} ${error.message}`)
-        .join("; ")}`,
+        .join("; ")}`
     );
   }
 
@@ -40,14 +52,17 @@ export const parseRecapConfig = (value: unknown): RecapConfig => {
 };
 
 export const loadRecapConfig = async (
-  configPath = getRecapConfigPath(),
+  configPath = getRecapConfigPath()
 ): Promise<RecapConfig | undefined> => {
   let text: string;
 
   try {
     text = await readFile(configPath, "utf-8");
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return undefined;
+    }
+
     throw error;
   }
 

@@ -11,7 +11,10 @@ const BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
 
 const CREDITS_URL = `${BILLING_URL}?format=credits`;
 
-const MoneySchema = Type.Union([Type.Number(), Type.Object({ val: Type.Number() })]);
+const MoneySchema = Type.Union([
+  Type.Number(),
+  Type.Object({ val: Type.Number() }),
+]);
 
 const XaiConfigSchema = Type.Object({
   billingPeriodEnd: Type.Optional(Type.String()),
@@ -20,7 +23,7 @@ const XaiConfigSchema = Type.Object({
     Type.Object({
       end: Type.Optional(Type.String()),
       type: Type.Optional(Type.String()),
-    }),
+    })
   ),
   monthlyLimit: Type.Optional(MoneySchema),
   prepaidBalance: Type.Optional(MoneySchema),
@@ -38,8 +41,10 @@ type XaiPayload = Static<typeof XaiPayloadSchema>;
 const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined =>
   typeof value === "number" ? value : value?.val;
 
-export const mapXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefined => {
-  const config = payload.config;
+export const mapXaiMonthlyPayload = (
+  payload: XaiPayload
+): UsageWindow | undefined => {
+  const { config } = payload;
   const monthlyLimit = moneyValue(config.monthlyLimit);
   const used = moneyValue(config.used);
 
@@ -62,8 +67,10 @@ export const mapXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefin
   return makeUsageWindow("month", remainingPercent, resetsAt);
 };
 
-export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefined => {
-  const config = payload.config;
+export const mapXaiWeeklyPayload = (
+  payload: XaiPayload
+): UsageWindow | undefined => {
+  const { config } = payload;
 
   const { currentPeriod } = config;
 
@@ -81,7 +88,8 @@ export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefine
     return undefined;
   }
 
-  const resetsAt = parseIso(currentPeriod?.end) ?? parseIso(config.billingPeriodEnd);
+  const resetsAt =
+    parseIso(currentPeriod?.end) ?? parseIso(config.billingPeriodEnd);
 
   return makeUsageWindow("week", 100 - usagePercent, resetsAt);
 };
@@ -89,11 +97,15 @@ export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefine
 export const mapXaiUsagePayloads = (
   monthlyPayload: XaiPayload | undefined,
   weeklyPayload: XaiPayload | undefined,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const windows = [
-    weeklyPayload === undefined ? undefined : mapXaiWeeklyPayload(weeklyPayload),
-    monthlyPayload === undefined ? undefined : mapXaiMonthlyPayload(monthlyPayload),
+    weeklyPayload === undefined
+      ? undefined
+      : mapXaiWeeklyPayload(weeklyPayload),
+    monthlyPayload === undefined
+      ? undefined
+      : mapXaiMonthlyPayload(monthlyPayload),
   ].filter(isDefined);
 
   const prepaidBalance = moneyValue(weeklyPayload?.config.prepaidBalance);
@@ -101,17 +113,26 @@ export const mapXaiUsagePayloads = (
   return usageResult({
     ...(prepaidBalance === undefined
       ? {}
-      : { accounting: { available: prepaidBalance, kind: "credit-balance" as const } }),
+      : {
+          accounting: {
+            available: prepaidBalance,
+            kind: "credit-balance" as const,
+          },
+        }),
     fetchedAt: nowMs,
     provider: "xai",
     quotaWindows: windows,
   });
 };
 
-export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
+export const fetchXaiUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> => {
   const auth = await accessToken(deps.getAuth, "xai", { oauth: true });
 
-  if (!auth.ok) return auth;
+  if (!auth.ok) {
+    return auth;
+  }
 
   const headers = {
     Accept: "application/json",
@@ -140,6 +161,6 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
   return mapXaiUsagePayloads(
     monthly.ok ? monthly.json : undefined,
     weekly !== null && weekly.ok ? weekly.json : undefined,
-    deps.now(),
+    deps.now()
   );
 };

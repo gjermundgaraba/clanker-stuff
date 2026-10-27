@@ -5,7 +5,7 @@
   "scripts": {
     "eval:frontier": "uv run --project pi/evals python -m pi_evals.frontier",
     "eval:scaling": "uv run --project pi/evals python -m pi_evals.scaling",
-    "prepare": "vp config",
+    "prepare": "vp config && effect-tsgo patch --no-typescript --oxlint",
     "publish:dry-run": "node ./scripts/publish-packages.ts --dry-run",
     "publish:packages": "node ./scripts/publish-packages.ts"
   },
@@ -13,10 +13,14 @@
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-tui": "catalog:",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "jiti": "2.7.0",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
     "typebox": "catalog:",
     "typescript": "catalog:",
+    "ultracite": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

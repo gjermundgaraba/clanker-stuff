@@ -2,9 +2,18 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { SKILL_PROVIDER_CHANNEL, skillBlock } from "@clanker-stuff/pi-skill-providers";
-import type { LoadedSkill, SkillProvider } from "@clanker-stuff/pi-skill-providers";
-import { CustomEditor, createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
+import {
+  SKILL_PROVIDER_CHANNEL,
+  skillBlock,
+} from "@clanker-stuff/pi-skill-providers";
+import type {
+  LoadedSkill,
+  SkillProvider,
+} from "@clanker-stuff/pi-skill-providers";
+import {
+  CustomEditor,
+  createSyntheticSourceInfo,
+} from "@earendil-works/pi-coding-agent";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
@@ -16,7 +25,7 @@ const command = (
   name: string,
   description: string,
   source: SlashCommandInfo["source"],
-  filePath = "<test>",
+  filePath = "<test>"
 ): SlashCommandInfo => ({
   name,
   description,
@@ -39,11 +48,13 @@ const createSkillHost = () =>
 
 /** Skill files on disk, registered in catalog order, plus any other commands Pi would know. */
 const writeSkills = async (
-  entries: readonly (readonly [name: string, body: string])[],
-  commands: readonly SlashCommandInfo[] = [],
+  entries: ReadonlyArray<readonly [name: string, body: string]>,
+  commands: readonly SlashCommandInfo[] = []
 ) => {
   const directory = await mkdtemp(path.join(tmpdir(), "dollah-skills-"));
-  onTestFinished(() => rm(directory, { force: true, recursive: true }));
+  onTestFinished(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
 
   const skills: LoadedSkill[] = await Promise.all(
     entries.map(async ([name, body]) => {
@@ -52,14 +63,23 @@ const writeSkills = async (
       await mkdir(baseDir);
       await writeFile(location, `---\nname: ${name}\n---\n${body}\n`);
 
-      return { content: `References are relative to ${baseDir}.\n\n${body}`, location, name };
-    }),
+      return {
+        content: `References are relative to ${baseDir}.\n\n${body}`,
+        location,
+        name,
+      };
+    })
   );
 
   const host = createExtensionHost(extension, {
     commands: [
       ...skills.map((skill) =>
-        command(`skill:${skill.name}`, `${skill.name} skill`, "skill", skill.location),
+        command(
+          `skill:${skill.name}`,
+          `${skill.name} skill`,
+          "skill",
+          skill.location
+        )
       ),
       ...commands,
     ],
@@ -68,13 +88,17 @@ const writeSkills = async (
   const remove = async (name: string) => {
     const skill = skills.find((candidate) => candidate.name === name);
 
-    if (!skill) throw new Error(`No fixture skill named ${name}`);
+    if (!skill) {
+      throw new Error(`No fixture skill named ${name}`);
+    }
+
     await rm(skill.location);
   };
 
   return {
     host,
-    loaded: (...names: string[]) => skills.filter((skill) => names.includes(skill.name)),
+    loaded: (...names: string[]) =>
+      skills.filter((skill) => names.includes(skill.name)),
     remove,
   };
 };
@@ -99,18 +123,26 @@ describe("skill mentions", () => {
 
       const ctx = host.createContext();
 
-      if (foreign)
-        ctx.ui.setEditorComponent((tui, theme, keys) => new CustomEditor(tui, theme, keys));
+      if (foreign) {
+        ctx.ui.setEditorComponent(
+          (tui, theme, keys) => new CustomEditor(tui, theme, keys)
+        );
+      }
+
       await host.emitSessionStart(ctx);
 
       const text =
         "Use $review, then $alpha twice: $alpha, $plugin:deploy and $review: ignore $missing.";
 
-      const image = { data: "aGk=", mimeType: "image/png", type: "image" as const };
+      const image = {
+        data: "aGk=",
+        mimeType: "image/png",
+        type: "image" as const,
+      };
 
       const result = await host.emitInput(
         { images: [image], source: "interactive", text, type: "input" },
-        ctx,
+        ctx
       );
 
       // alpha's body mentions beta, but only typed text loads skills. Images pass through.
@@ -121,24 +153,28 @@ describe("skill mentions", () => {
       });
       expect(host.getSentMessages()).toStrictEqual([]);
       expect(host.getNotifications()).toStrictEqual([]);
-    },
+    }
   );
 
   it("leaves input that invokes a command, template or skill to Pi, but not a leading path", async () => {
     const { host, loaded } = await writeSkills(
       [["alpha", "Alpha instructions."]],
-      [command("review", "Review template", "prompt")],
+      [command("review", "Review template", "prompt")]
     );
 
     for (const text of ["/skill:alpha use $alpha", "/review $alpha"]) {
-      expect(await host.emitInput({ source: "interactive", text, type: "input" })).toStrictEqual({
+      await expect(
+        host.emitInput({ source: "interactive", text, type: "input" })
+      ).resolves.toStrictEqual({
         action: "continue",
       });
     }
 
     const text = "/tmp/app.ts crashes, $alpha";
 
-    expect(await host.emitInput({ source: "interactive", text, type: "input" })).toStrictEqual({
+    await expect(
+      host.emitInput({ source: "interactive", text, type: "input" })
+    ).resolves.toStrictEqual({
       action: "transform",
       text: `${skillBlock(loaded("alpha"))}\n\n${text}`,
     });
@@ -152,27 +188,39 @@ describe("skill mentions", () => {
 
     await remove("alpha");
 
-    expect(
-      await host.emitInput({ source: "interactive", text: "Use $alpha and $beta", type: "input" }),
-    ).toStrictEqual({
+    await expect(
+      host.emitInput({
+        source: "interactive",
+        text: "Use $alpha and $beta",
+        type: "input",
+      })
+    ).resolves.toStrictEqual({
       action: "transform",
       text: `${skillBlock(loaded("beta"))}\n\nUse $alpha and $beta`,
     });
 
     await remove("beta");
 
+    await expect(
+      host.emitInput({
+        source: "interactive",
+        text: "Use $beta",
+        type: "input",
+      })
+    ).resolves.toStrictEqual({ action: "continue" });
     expect(
-      await host.emitInput({ source: "interactive", text: "Use $beta", type: "input" }),
-    ).toStrictEqual({ action: "continue" });
-    expect(host.getNotifications().map((notification) => notification.type)).toStrictEqual([
-      "warning",
-      "warning",
-    ]);
-    expect(host.getNotifications()[0]?.message).toContain("Failed to load skill alpha:");
+      host.getNotifications().map((notification) => notification.type)
+    ).toStrictEqual(["warning", "warning"]);
+    expect(host.getNotifications()[0]?.message).toContain(
+      "Failed to load skill alpha:"
+    );
   });
 
   it("loads skills other extensions provide one at a time, after local skills of the same name", async () => {
-    const { host, loaded } = await writeSkills([["alpha", "Alpha instructions."]]);
+    const { host, loaded } = await writeSkills([
+      ["alpha", "Alpha instructions."],
+    ]);
+
     const loads: string[] = [];
     let loading = 0;
 
@@ -185,7 +233,9 @@ describe("skill mentions", () => {
         await Promise.resolve();
         loading -= 1;
 
-        if (name === "docs:broken") return { error: "not approved" };
+        if (name === "docs:broken") {
+          return { error: "not approved" };
+        }
 
         return provided(name);
       },
@@ -201,69 +251,96 @@ describe("skill mentions", () => {
     host.events.emit(SKILL_PROVIDER_CHANNEL, provider);
     host.events.emit(SKILL_PROVIDER_CHANNEL, { id: "not-a-provider" });
 
-    const text = "Use $alpha, $docs:refunds, $docs:broken and $docs:refunds-1a2b3c4d.";
-    const result = await host.emitInput({ source: "interactive", text, type: "input" });
+    const text =
+      "Use $alpha, $docs:refunds, $docs:broken and $docs:refunds-1a2b3c4d.";
+
+    const result = await host.emitInput({
+      source: "interactive",
+      text,
+      type: "input",
+    });
 
     expect(result).toStrictEqual({
       action: "transform",
       text: `${skillBlock([...loaded("alpha"), provided("docs:refunds"), provided("docs:refunds-1a2b3c4d")])}\n\n${text}`,
     });
-    expect(loads).toStrictEqual(["docs:refunds", "docs:broken", "docs:refunds-1a2b3c4d"]);
+    expect(loads).toStrictEqual([
+      "docs:refunds",
+      "docs:broken",
+      "docs:refunds-1a2b3c4d",
+    ]);
     expect(host.getNotifications()).toStrictEqual([
-      { message: "Failed to load skill docs:broken: not approved", type: "warning" },
+      {
+        message: "Failed to load skill docs:broken: not approved",
+        type: "warning",
+      },
     ]);
 
     const completion = await host
-      .getAutocompleteProvider(new CombinedAutocompleteProvider([], process.cwd()))
-      .getSuggestions(["Use $docs:ref"], 0, 13, { signal: new AbortController().signal });
+      .getAutocompleteProvider(
+        new CombinedAutocompleteProvider([], process.cwd())
+      )
+      .getSuggestions(["Use $docs:ref"], 0, 13, {
+        signal: new AbortController().signal,
+      });
 
-    expect(completion?.items.map((item) => item.value)).toContain("$docs:refunds");
-  });
-
-  it.each([false, true])("completes loaded skill names, foreign editor=%s", async (foreign) => {
-    const host = createSkillHost();
-    const ctx = host.createContext();
-
-    if (foreign)
-      ctx.ui.setEditorComponent((tui, theme, keys) => new CustomEditor(tui, theme, keys));
-    await host.emitSessionStart(ctx);
-
-    const provider = host.getAutocompleteProvider(
-      new CombinedAutocompleteProvider([], process.cwd()),
+    expect(completion?.items.map((item) => item.value)).toContain(
+      "$docs:refunds"
     );
-
-    const [suggestions, namespacedSuggestions, unknownSuggestions] = await Promise.all([
-      provider.getSuggestions(["Use $alp"], 0, 8, {
-        signal: new AbortController().signal,
-      }),
-      provider.getSuggestions(["Use $plugin:d"], 0, 13, {
-        signal: new AbortController().signal,
-      }),
-      provider.getSuggestions(["Use $zzz"], 0, 8, {
-        signal: new AbortController().signal,
-      }),
-    ]);
-
-    expect(suggestions).toStrictEqual({
-      items: [
-        {
-          description: "Alpha instructions",
-          label: "$alpha",
-          value: "$alpha",
-        },
-      ],
-      prefix: "$alp",
-    });
-    expect(namespacedSuggestions).toStrictEqual({
-      items: [
-        {
-          description: "Plugin deploy instructions",
-          label: "$plugin:deploy",
-          value: "$plugin:deploy",
-        },
-      ],
-      prefix: "$plugin:d",
-    });
-    expect(unknownSuggestions).toBeNull();
   });
+
+  it.each([false, true])(
+    "completes loaded skill names, foreign editor=%s",
+    async (foreign) => {
+      const host = createSkillHost();
+      const ctx = host.createContext();
+
+      if (foreign) {
+        ctx.ui.setEditorComponent(
+          (tui, theme, keys) => new CustomEditor(tui, theme, keys)
+        );
+      }
+
+      await host.emitSessionStart(ctx);
+
+      const provider = host.getAutocompleteProvider(
+        new CombinedAutocompleteProvider([], process.cwd())
+      );
+
+      const [suggestions, namespacedSuggestions, unknownSuggestions] =
+        await Promise.all([
+          provider.getSuggestions(["Use $alp"], 0, 8, {
+            signal: new AbortController().signal,
+          }),
+          provider.getSuggestions(["Use $plugin:d"], 0, 13, {
+            signal: new AbortController().signal,
+          }),
+          provider.getSuggestions(["Use $zzz"], 0, 8, {
+            signal: new AbortController().signal,
+          }),
+        ]);
+
+      expect(suggestions).toStrictEqual({
+        items: [
+          {
+            description: "Alpha instructions",
+            label: "$alpha",
+            value: "$alpha",
+          },
+        ],
+        prefix: "$alp",
+      });
+      expect(namespacedSuggestions).toStrictEqual({
+        items: [
+          {
+            description: "Plugin deploy instructions",
+            label: "$plugin:deploy",
+            value: "$plugin:deploy",
+          },
+        ],
+        prefix: "$plugin:d",
+      });
+      expect(unknownSuggestions).toBeNull();
+    }
+  );
 });

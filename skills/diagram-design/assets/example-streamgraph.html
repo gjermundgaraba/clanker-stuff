@@ -62,7 +62,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -78,13 +84,19 @@
       >
         <title id="streamgraph-title">Where the extra build minutes went</title>
         <desc id="streamgraph-desc">
-          Streamgraph of weekly CI build minutes by pipeline across twelve weeks, stacked on a
-          symmetric baseline so the envelope height reads as the total; the end-to-end suite grows
-          from 12 to 118 minutes a week and passes the unit suite in week eight, while the docs
-          pipeline pauses to zero in weeks five and six.
+          Streamgraph of weekly CI build minutes by pipeline across twelve
+          weeks, stacked on a symmetric baseline so the envelope height reads as
+          the total; the end-to-end suite grows from 12 to 118 minutes a week
+          and passes the unit suite in week eight, while the docs pipeline
+          pauses to zero in weeks five and six.
         </desc>
         <defs>
-          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            id="dots"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
           </pattern>
         </defs>
@@ -161,7 +173,14 @@
 
         <!-- One landmark, one hairline: the week the end-to-end suite becomes the
            largest pipeline. Nothing else is annotated — the shape is the story. -->
-        <line x1="640" y1="52" x2="640" y2="92" stroke="rgba(45,49,66,0.35)" stroke-width="1" />
+        <line
+          x1="640"
+          y1="52"
+          x2="640"
+          y2="92"
+          stroke="rgba(45,49,66,0.35)"
+          stroke-width="1"
+        />
         <text
           x="640"
           y="44"
@@ -332,7 +351,14 @@
         </text>
 
         <!-- Legend -->
-        <line x1="40" y1="462" x2="960" y2="462" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
+        <line
+          x1="40"
+          y1="462"
+          x2="960"
+          y2="462"
+          stroke="rgba(45,49,66,0.10)"
+          stroke-width="0.8"
+        />
         <text
           x="40"
           y="478"
@@ -352,8 +378,9 @@
           letter-spacing="0.06em"
           text-anchor="end"
         >
-          BUILD MINUTES PER WEEK BY PIPELINE · WEEKLY BUCKETS · SYMMETRIC BASELINE, ENVELOPE HEIGHT
-          = WEEKLY TOTAL · ILLUSTRATIVE FIGURES, NOT A MEASURED PROJECT
+          BUILD MINUTES PER WEEK BY PIPELINE · WEEKLY BUCKETS · SYMMETRIC
+          BASELINE, ENVELOPE HEIGHT = WEEKLY TOTAL · ILLUSTRATIVE FIGURES, NOT A
+          MEASURED PROJECT
         </text>
 
         <rect x="40" y="488" width="16" height="8" fill="#eb6c36" />
@@ -368,7 +395,13 @@
         >
           End-to-end · 688 min · focal
         </text>
-        <rect x="264" y="488" width="16" height="8" fill="rgba(45,49,66,0.78)" />
+        <rect
+          x="264"
+          y="488"
+          width="16"
+          height="8"
+          fill="rgba(45,49,66,0.78)"
+        />
         <text
           data-layer="Unit"
           data-total="789"
@@ -380,7 +413,13 @@
         >
           Unit · 789 min
         </text>
-        <rect x="424" y="488" width="16" height="8" fill="rgba(45,49,66,0.62)" />
+        <rect
+          x="424"
+          y="488"
+          width="16"
+          height="8"
+          fill="rgba(45,49,66,0.62)"
+        />
         <text
           data-layer="Integration"
           data-total="572"
@@ -392,7 +431,13 @@
         >
           Integration · 572 min
         </text>
-        <rect x="624" y="488" width="16" height="8" fill="rgba(45,49,66,0.46)" />
+        <rect
+          x="624"
+          y="488"
+          width="16"
+          height="8"
+          fill="rgba(45,49,66,0.46)"
+        />
         <text
           data-layer="Lint"
           data-total="163"
@@ -404,7 +449,13 @@
         >
           Lint · 163 min
         </text>
-        <rect x="784" y="488" width="16" height="8" fill="rgba(45,49,66,0.30)" />
+        <rect
+          x="784"
+          y="488"
+          width="16"
+          height="8"
+          fill="rgba(45,49,66,0.30)"
+        />
         <text
           data-layer="Docs"
           data-total="76"

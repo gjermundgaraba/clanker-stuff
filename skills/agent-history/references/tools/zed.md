@@ -18,11 +18,11 @@ Last verified: local macOS, compressed JSON structure verified without bodies.
 
 ## Sources
 
-| Priority | Location                                                       | Kind                     | Authority | Contains                  | Parser State  | Collection Policy | Sensitivity |
-| -------- | -------------------------------------------------------------- | ------------------------ | --------- | ------------------------- | ------------- | ----------------- | ----------- |
-| 1        | `$HOME/Library/Application Support/Zed/threads/threads.db`     | SQLite + compressed JSON | primary   | Agent Panel threads       | partial       | collect           | private     |
-| 2        | `$HOME/Library/Application Support/Zed/db/<profile>/db.sqlite` | SQLite                   | secondary | UI/workspace/thread index | schema_known  | collect           | private     |
-| 3        | external agent registry/config                                 | JSON                     | support   | agent configuration       | metadata_only | ignore_by_default | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/Library/Application Support/Zed/threads/threads.db` | SQLite + compressed JSON | primary | Agent Panel threads | partial | collect | private |
+| 2 | `$HOME/Library/Application Support/Zed/db/<profile>/db.sqlite` | SQLite | secondary | UI/workspace/thread index | schema_known | collect | private |
+| 3 | external agent registry/config | JSON | support | agent configuration | metadata_only | ignore_by_default | private |
 
 ## Find
 

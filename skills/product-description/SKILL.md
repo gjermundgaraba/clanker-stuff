@@ -12,17 +12,15 @@ Describe the product's observable behavior feature by feature, from the user's p
 
 Read the procedure relevant to the request; follow another route when the work reaches that stage.
 
-| Request                                                           | Procedure                                              |
-| ----------------------------------------------------------------- | ------------------------------------------------------ |
-| Create a product-description repository                           | [Create a repository](references/create-repo.md)       |
-| Resume, extend, or revise an existing repository                  | [Extend or revise](references/extend-repo.md)          |
+| Request | Procedure |
+| --- | --- |
+| Create a product-description repository | [Create a repository](references/create-repo.md) |
+| Resume, extend, or revise an existing repository | [Extend or revise](references/extend-repo.md) |
 | Build checklists, observe the running product, or triage findings | [Verification and triage](references/verify-triage.md) |
 
 ## Link-checker setup
 
-The link checker uses Node.js 26.12+ and maintained Markdown/GitHub-slug libraries.
-Run `npm install --prefix <skill-directory>` once for a standalone installation;
-workspace development uses `vp install`. See [helper usage](README.md).
+The link checker uses Node.js 26.12+ and maintained Markdown/GitHub-slug libraries. Run `npm install --prefix <skill-directory>` once for a standalone installation; workspace development uses `vp install`. See [helper usage](README.md).
 
 ## Shared contract
 

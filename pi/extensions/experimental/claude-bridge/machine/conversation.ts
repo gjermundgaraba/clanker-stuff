@@ -6,8 +6,16 @@
 // messages are dropped by XState rather than by bookkeeping here. Abort listeners and the
 // steer push are children of the states they serve, for the same reason.
 
-import type { Api, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
-import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import type {
+  Api,
+  Message,
+  Model,
+  ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import { createCallbackLogic, setup, types } from "xstate";
 import type { EventObject, SnapshotFrom, StateValue } from "xstate";
 
@@ -93,32 +101,36 @@ interface QueryInput {
 // Reads Claude Code's messages into the conversation. Cleanup stops the query; XState
 // drops anything the read loop sends after that. Starting it is inside the try: the SDK
 // throws there when it cannot find Claude Code.
-const claudeQuery = createCallbackLogic<EventObject, QueryInput>(({ input, sendBack }) => {
-  let query: BridgeQuery | undefined;
+const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
+  ({ input, sendBack }) => {
+    let query: BridgeQuery | undefined;
 
-  void (async () => {
-    try {
-      query = input.run(input.params);
+    void (async () => {
+      try {
+        query = input.run(input.params);
 
-      for await (const message of query) {
-        sendBack({ type: "cc.message", message });
+        for await (const message of query) {
+          sendBack({ type: "cc.message", message });
+        }
+
+        sendBack({ type: "cc.end" });
+      } catch (error) {
+        sendBack({ type: "cc.error", message: errorMessage(error) });
       }
+    })();
 
-      sendBack({ type: "cc.end" });
-    } catch (error) {
-      sendBack({ type: "cc.error", message: errorMessage(error) });
-    }
-  })();
-
-  return () => {
-    stopQuery(query);
-  };
-});
+    return () => {
+      stopQuery(query);
+    };
+  }
+);
 
 // pi's abort, for as long as the state that invoked this listens.
 const abortOn = createCallbackLogic<EventObject, AbortSignal | undefined>(
   ({ input: signal, sendBack }) => {
-    if (signal === undefined) return undefined;
+    if (signal === undefined) {
+      return;
+    }
 
     const onAbort = (): void => {
       sendBack({ type: "pi.abort" });
@@ -127,7 +139,7 @@ const abortOn = createCallbackLogic<EventObject, AbortSignal | undefined>(
     if (signal.aborted) {
       onAbort();
 
-      return undefined;
+      return;
     }
 
     signal.addEventListener("abort", onAbort, { once: true });
@@ -135,7 +147,7 @@ const abortOn = createCallbackLogic<EventObject, AbortSignal | undefined>(
     return () => {
       signal.removeEventListener("abort", onAbort);
     };
-  },
+  }
 );
 
 interface SteerInput {
@@ -147,26 +159,37 @@ interface SteerInput {
 // same FIFO, and Claude Code drains a steer at the tool boundary only if it was queued
 // before the result. The push resolves once the SDK wrote it (see prompt-stream.ts).
 // With no steer there is nothing to wait for.
-const pushSteer = createCallbackLogic<EventObject, SteerInput>(({ input, sendBack }) => {
-  const pushed =
-    input.message === undefined ? Promise.resolve() : input.promptStream.push(input.message);
+const pushSteer = createCallbackLogic<EventObject, SteerInput>(
+  ({ input, sendBack }) => {
+    void (async () => {
+      try {
+        // Settle after a microtask even with no steer, as the actor did before.
+        await (input.message === undefined
+          ? undefined
+          : input.promptStream.push(input.message));
+      } catch (error) {
+        sendBack({ type: "steer.done", error: errorMessage(error) });
 
-  pushed.then(
-    () => {
+        return;
+      }
+
       sendBack({ type: "steer.done", error: undefined });
-    },
-    (error: unknown) => {
-      sendBack({ type: "steer.done", error: errorMessage(error) });
-    },
-  );
-});
+    })();
+  }
+);
 
 // XState freezes context, and pi goes on writing to its own messages (it records the requested
 // thinking level on a turn's output), so the conversation keeps copies.
-const copies = (messages: readonly Message[]): Message[] => structuredClone([...messages]);
+const copies = (messages: readonly Message[]): Message[] =>
+  structuredClone([...messages]);
 
-const resolveAll = (handlers: ReadonlyMap<string, ResolveToolCall>, text: string): void => {
-  for (const resolve of handlers.values()) resolve({ content: [{ type: "text", text }] });
+const resolveAll = (
+  handlers: ReadonlyMap<string, ResolveToolCall>,
+  text: string
+): void => {
+  for (const resolve of handlers.values()) {
+    resolve({ content: [{ type: "text", text }] });
+  }
 };
 
 const toMcpResult = (message: ToolResultMessage): McpResult => ({
@@ -175,18 +198,14 @@ const toMcpResult = (message: ToolResultMessage): McpResult => ({
 });
 
 /** Hand each result to its waiting handler, or keep it for the handler still to come. */
-function release(
+const release = (
   handlers: ReadonlyMap<string, ResolveToolCall>,
   stored: ReadonlyMap<string, McpResult>,
-  delivered: ReadonlyMap<string, McpResult>,
-): {
-  handlers: ReadonlyMap<string, ResolveToolCall>;
-  results: ReadonlyMap<string, McpResult>;
-  answer: () => void;
-} {
+  delivered: ReadonlyMap<string, McpResult>
+) => {
   const waiting = new Map(handlers);
   const results = new Map(stored);
-  const answers: (() => void)[] = [];
+  const answers: Array<() => void> = [];
 
   for (const [id, result] of delivered) {
     const resolve = waiting.get(id);
@@ -206,10 +225,12 @@ function release(
     handlers: waiting,
     results,
     answer: () => {
-      for (const answer of answers) answer();
+      for (const answer of answers) {
+        answer();
+      }
     },
   };
-}
+};
 
 const stuckNotice = (count: number): string =>
   `Claude bridge: ${count} tool handler(s) still waiting; provider may be stuck`;
@@ -248,15 +269,15 @@ export const conversationMachine = setup({
         signal: AbortSignal | undefined;
       }>(),
       /** pi's history moved on without the running query: stop it. */
-      "pi.discard": types<{}>(),
-      "pi.abort": types<{}>(),
+      "pi.discard": types<object>(),
+      "pi.abort": types<object>(),
       "cc.toolCall": types<{ id: string; resolve: ResolveToolCall }>(),
       "cc.message": types<{ message: SDKMessage }>(),
-      "cc.end": types<{}>(),
+      "cc.end": types<object>(),
       "cc.error": types<{ message: string }>(),
       "steer.done": types<{ error: string | undefined }>(),
       /** The turn ended on tool calls Claude was cut off in the middle of. */
-      "turn.truncated": types<{}>(),
+      "turn.truncated": types<object>(),
     },
     input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
   },
@@ -268,10 +289,20 @@ export const conversationMachine = setup({
     active: {
       schemas: { context: types<{ query: ActiveQuery }>() },
       states: {
-        streaming: { schemas: { context: types<{ turn: Turn; pending: null }>() } },
-        parked: { schemas: { context: types<{ turn: null; pending: null }>() } },
-        delivering: { schemas: { context: types<{ turn: Turn; pending: PendingDelivery }>() } },
-        closing: { schemas: { context: types<{ turn: null; pending: null }>() } },
+        streaming: {
+          schemas: { context: types<{ turn: Turn; pending: null }>() },
+        },
+        parked: {
+          schemas: { context: types<{ turn: null; pending: null }>() },
+        },
+        delivering: {
+          schemas: {
+            context: types<{ turn: Turn; pending: PendingDelivery }>(),
+          },
+        },
+        closing: {
+          schemas: { context: types<{ turn: null; pending: null }>() },
+        },
       },
     },
   },
@@ -292,14 +323,18 @@ export const conversationMachine = setup({
   on: {
     "pi.start": ({ event, value }, enq) => {
       enq(() => {
-        event.turn.fail(`claude-bridge: cannot start a query in state ${JSON.stringify(value)}`);
+        event.turn.fail(
+          `claude-bridge: cannot start a query in state ${JSON.stringify(value)}`
+        );
       });
 
       return {};
     },
     "pi.deliver": ({ event, value }, enq) => {
       enq(() => {
-        event.turn.fail(`claude-bridge: no parked query in state ${JSON.stringify(value)}`);
+        event.turn.fail(
+          `claude-bridge: no parked query in state ${JSON.stringify(value)}`
+        );
       });
 
       return {};
@@ -332,7 +367,10 @@ export const conversationMachine = setup({
       invoke: {
         id: "query",
         src: "claudeQuery",
-        input: ({ context }) => ({ run: context.run, params: context.query.params }),
+        input: ({ context }) => ({
+          run: context.run,
+          params: context.query.params,
+        }),
       },
       // Leaving `active` stops the query: no handler or steer may outlive it waiting.
       exit: ({ context }, enq) => {
@@ -350,7 +388,12 @@ export const conversationMachine = setup({
             debug(`conversation: tool call ${event.id} waits for pi`);
 
             return {
-              context: { handlers: new Map(context.handlers).set(event.id, event.resolve) },
+              context: {
+                handlers: new Map(context.handlers).set(
+                  event.id,
+                  event.resolve
+                ),
+              },
             };
           }
 
@@ -375,11 +418,16 @@ export const conversationMachine = setup({
           }
 
           if (message.type === "rate_limit_event") {
-            debug("conversation: rate_limit_event", JSON.stringify(message.rate_limit_info));
+            debug(
+              "conversation: rate_limit_event",
+              JSON.stringify(message.rate_limit_info)
+            );
 
             const rejection = rateLimitRejection(message.rate_limit_info);
 
-            if (rejection === undefined) return {};
+            if (rejection === undefined) {
+              return {};
+            }
 
             if (context.rateLimit === null) {
               enq(() => {
@@ -391,7 +439,9 @@ export const conversationMachine = setup({
           }
 
           if (message.type !== "result") {
-            if (message.type !== "user") debug(`conversation: ignored ${message.type} message`);
+            if (message.type !== "user") {
+              debug(`conversation: ignored ${message.type} message`);
+            }
 
             return {};
           }
@@ -412,29 +462,44 @@ export const conversationMachine = setup({
                 ? failure
                 : describeRateLimitFailure(context.rateLimit, failure);
 
-            debug(`conversation: error result, subtype=${message.subtype}, error=${text}`);
+            debug(
+              `conversation: error result, subtype=${message.subtype}, error=${text}`
+            );
             enq(() => {
               turn?.fail(text);
             });
 
-            return { target: ".closing", context: { ...IDLE, query, held: [], rateLimit: null } };
+            return {
+              target: ".closing",
+              context: { ...IDLE, query, held: [], rateLimit: null },
+            };
           }
 
-          if (turn === null) return { target: ".closing", context: { ...IDLE, query } };
+          if (turn === null) {
+            return { target: ".closing", context: { ...IDLE, query } };
+          }
 
           // Finish the turn before `held` copies its output, so the copy has the result's text.
-          if (message.subtype === "success") turn.result(message);
+          if (message.subtype === "success") {
+            turn.result(message);
+          }
 
           turn.finish();
 
           return {
             target: ".closing",
-            context: { ...IDLE, query, held: [...context.held, ...copies([turn.output])] },
+            context: {
+              ...IDLE,
+              query,
+              held: [...context.held, ...copies([turn.output])],
+            },
           };
         },
         // In `closing` the turn is already answered: an end is the expected exit.
         "cc.end": ({ context, value }, enq) => {
-          if (isClosing(value)) return { target: "idle", context: IDLE };
+          if (isClosing(value)) {
+            return { target: "idle", context: IDLE };
+          }
 
           enq(() => {
             context.turn?.fail("Claude Code ended the query without a result");
@@ -463,14 +528,18 @@ export const conversationMachine = setup({
         // Claude Code may go on from the cut on its own, into a session pi will never see:
         // stop it, and rebuild from pi's history next time.
         "turn.truncated": () => {
-          debug("conversation: tool calls cut off at the output limit, stopping the query");
+          debug(
+            "conversation: tool calls cut off at the output limit, stopping the query"
+          );
 
           return { target: "idle", context: { ...IDLE, held: [] } };
         },
         "pi.discard": ({ context }, enq) => {
           debug("conversation: discarding the running query");
           enq(() => {
-            context.turn?.fail("claude-bridge: pi's history moved on without this query");
+            context.turn?.fail(
+              "claude-bridge: pi's history moved on without this query"
+            );
           });
 
           return { target: "idle", context: { ...IDLE, held: [] } };
@@ -480,19 +549,33 @@ export const conversationMachine = setup({
       states: {
         streaming: {
           invoke: [
-            { id: "abortStart", src: "abortOn", input: ({ context }) => context.query.signal },
-            { id: "abortCall", src: "abortOn", input: ({ context }) => context.callSignal },
+            {
+              id: "abortStart",
+              src: "abortOn",
+              input: ({ context }) => context.query.signal,
+            },
+            {
+              id: "abortCall",
+              src: "abortOn",
+              input: ({ context }) => context.callSignal,
+            },
           ],
           on: {
             "cc.message": ({ context, event }, enq) => {
               const { message } = event;
               const { turn } = context;
 
-              if (message.type === "stream_event") turn.streamEvent(message);
-              else if (message.type === "assistant") turn.assistantMessage(message);
-              else return undefined;
+              if (message.type === "stream_event") {
+                turn.streamEvent(message);
+              } else if (message.type === "assistant") {
+                turn.assistantMessage(message);
+              } else {
+                return;
+              }
 
-              if (!turn.ended) return {};
+              if (!turn.ended) {
+                return {};
+              }
 
               if (turn.output.stopReason !== "toolUse") {
                 enq.raise({ type: "turn.truncated" });
@@ -528,15 +611,24 @@ export const conversationMachine = setup({
                 context: {
                   turn: event.turn,
                   // A distinct signal only; pi usually aborts one signal for the whole run.
-                  callSignal: event.signal === context.query.signal ? undefined : event.signal,
+                  callSignal:
+                    event.signal === context.query.signal
+                      ? undefined
+                      : event.signal,
                   held: [...context.held, ...copies(event.results)],
                   waiting: NO_CALLS,
                   pending: {
                     results: new Map(
-                      event.results.map((result) => [result.toolCallId, toMcpResult(result)]),
+                      event.results.map((result) => [
+                        result.toolCallId,
+                        toMcpResult(result),
+                      ])
                     ),
                     steer: copies(event.steer),
-                    message: blocks === undefined ? undefined : userMessage(blocks, "next"),
+                    message:
+                      blocks === undefined
+                        ? undefined
+                        : userMessage(blocks, "next"),
                   },
                 },
               };
@@ -545,8 +637,16 @@ export const conversationMachine = setup({
         },
         delivering: {
           invoke: [
-            { id: "abortStart", src: "abortOn", input: ({ context }) => context.query.signal },
-            { id: "abortCall", src: "abortOn", input: ({ context }) => context.callSignal },
+            {
+              id: "abortStart",
+              src: "abortOn",
+              input: ({ context }) => context.query.signal,
+            },
+            {
+              id: "abortCall",
+              src: "abortOn",
+              input: ({ context }) => context.callSignal,
+            },
             {
               id: "steer",
               src: "pushSteer",
@@ -563,21 +663,27 @@ export const conversationMachine = setup({
               const { pending } = context;
 
               if (event.error !== undefined) {
-                debug(`conversation: steer never reached Claude Code: ${event.error}`);
+                debug(
+                  `conversation: steer never reached Claude Code: ${event.error}`
+                );
               } else if (pending.message !== undefined) {
-                debug("conversation: steer written to Claude Code's stdin before the tool results");
+                debug(
+                  "conversation: steer written to Claude Code's stdin before the tool results"
+                );
               }
 
               const { handlers, results, answer } = release(
                 context.handlers,
                 context.results,
-                pending.results,
+                pending.results
               );
 
               enq(() => {
                 answer();
 
-                if (handlers.size > 0) context.notify(stuckNotice(handlers.size));
+                if (handlers.size > 0) {
+                  context.notify(stuckNotice(handlers.size));
+                }
               });
 
               return {
@@ -587,7 +693,9 @@ export const conversationMachine = setup({
                   handlers,
                   results,
                   held:
-                    event.error === undefined ? [...context.held, ...pending.steer] : context.held,
+                    event.error === undefined
+                      ? [...context.held, ...pending.steer]
+                      : context.held,
                 },
               };
             },
@@ -599,13 +707,16 @@ export const conversationMachine = setup({
           timeout: CLOSE_GRACE_MS,
           onTimeout: (_, enq) => {
             enq(() => {
-              debug("conversation: Claude Code did not exit after its result, killing it");
+              debug(
+                "conversation: Claude Code did not exit after its result, killing it"
+              );
             });
 
             return { target: "#idle", context: { ...IDLE, held: [] } };
           },
           on: {
-            "cc.message": ({ event }) => (event.message.type === "result" ? {} : undefined),
+            "cc.message": ({ event }) =>
+              event.message.type === "result" ? {} : undefined,
           },
         },
       },
@@ -616,7 +727,7 @@ export const conversationMachine = setup({
 export type ConversationSnapshot = SnapshotFrom<typeof conversationMachine>;
 
 /** The conversation as the sync decision reads it. */
-export function syncState(snapshot: ConversationSnapshot): SyncState {
+export const syncState = (snapshot: ConversationSnapshot): SyncState => {
   const { held, ccSessionId, query, waiting } = snapshot.context;
   const parked = snapshot.matches({ active: "parked" }) && query !== null;
 
@@ -626,4 +737,4 @@ export function syncState(snapshot: ConversationSnapshot): SyncState {
     busy: snapshot.matches("active"),
     parked: parked ? { key: query.key, waiting } : undefined,
   };
-}
+};

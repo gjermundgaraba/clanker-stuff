@@ -1,7 +1,10 @@
 import { constants } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
 
-import { invalidArguments, structuralSchema } from "@clanker-stuff/pi-tool-schema";
+import {
+  invalidArguments,
+  structuralSchema,
+} from "@clanker-stuff/pi-tool-schema";
 import { createEditToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -9,7 +12,7 @@ import { Value } from "typebox/value";
 import type { EditDiffs } from "./diffs.js";
 import { highlightDiff } from "./highlight.js";
 
-export function createHighlightedEdit(diffs: EditDiffs) {
+export const createHighlightedEdit = (diffs: EditDiffs) => {
   const original = createEditToolDefinition(process.cwd());
 
   const parameters = Type.Object(
@@ -17,37 +20,46 @@ export function createHighlightedEdit(diffs: EditDiffs) {
       ...original.parameters.properties,
       edits: {
         ...original.parameters.properties.edits,
-        items: Type.Object(original.parameters.properties.edits.items.properties, {
-          additionalProperties: false,
-        }),
+        items: Type.Object(
+          original.parameters.properties.edits.items.properties,
+          {
+            additionalProperties: false,
+          }
+        ),
         minItems: 1,
       },
     },
-    { additionalProperties: false },
+    { additionalProperties: false }
   );
 
   const tool: typeof original = {
     ...original,
     parameters: structuralSchema(parameters),
     async execute(id, input, signal, onUpdate, ctx) {
-      if (!Value.Check(parameters, input)) throw invalidArguments(parameters, input, "edit");
+      if (!Value.Check(parameters, input)) {
+        throw invalidArguments(parameters, input, "edit");
+      }
 
-      if (!diffs.isCapturing(id)) return original.execute(id, input, signal, onUpdate, ctx);
+      if (!diffs.isCapturing(id)) {
+        return await original.execute(id, input, signal, onUpdate, ctx);
+      }
 
       let before: string | undefined;
       let after: string | undefined;
 
       const native = createEditToolDefinition(ctx.cwd, {
         operations: {
-          access: (path) => access(path, constants.R_OK | constants.W_OK),
+          access: async (path) => {
+            await access(path, constants.R_OK | constants.W_OK);
+          },
           async readFile(path) {
             const buffer = await readFile(path);
-            before = buffer.toString("utf8");
+            before = buffer.toString("utf-8");
 
             return buffer;
           },
           async writeFile(path, content) {
-            await writeFile(path, content, "utf8");
+            await writeFile(path, content, "utf-8");
             after = content;
           },
         },
@@ -57,12 +69,21 @@ export function createHighlightedEdit(diffs: EditDiffs) {
       // Do not acquire the same queue again here; the immutable snapshots remain valid afterward.
       const result = await native.execute(id, input, signal, onUpdate, ctx);
 
-      if (before === undefined || after === undefined || !result.details) return result;
+      if (before === undefined || after === undefined || !result.details) {
+        return result;
+      }
 
       try {
-        const syntax = await highlightDiff(input.path, result.details.diff, before, after);
+        const syntax = await highlightDiff(
+          input.path,
+          result.details.diff,
+          before,
+          after
+        );
 
-        if (syntax) diffs.setSyntax(id, result.details.diff, syntax);
+        if (syntax) {
+          diffs.setSyntax(id, result.details.diff, syntax);
+        }
       } catch {
         // The edit already succeeded. Optional highlighting must never turn it into a failed edit.
       }
@@ -72,4 +93,4 @@ export function createHighlightedEdit(diffs: EditDiffs) {
   };
 
   return tool;
-}
+};

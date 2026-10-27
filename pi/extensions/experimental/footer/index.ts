@@ -7,7 +7,7 @@ import { createFooterHost } from "./host.js";
 export default function footerExtension(
   pi: ExtensionAPI,
   configStore = createFooterConfigStore(),
-  readGit = readGitDetails,
+  readGit = readGitDetails
 ): void {
   const host = createFooterHost(pi, configStore, readGit);
 
@@ -17,7 +17,9 @@ export default function footerExtension(
     handler: host.command,
   });
 
-  pi.on("session_start", (_event, ctx) => host.start(ctx));
+  pi.on("session_start", async (_event, ctx) => {
+    await host.start(ctx);
+  });
   // Built-in widgets are computed while rendering; these only cover what Pi does not re-render.
   pi.on("model_select", host.requestRender);
   pi.on("turn_end", host.refreshGit);

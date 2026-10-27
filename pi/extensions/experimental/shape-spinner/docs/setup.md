@@ -21,11 +21,11 @@ The family name contains a font-content revision. After an update, run `/reload`
 
 Run `/shape-spinner` to open the settings dialog. It previews the spinner at the real frame rate, updating as you change settings, and applies each change to the live spinner immediately:
 
-| Row      | Effect                                                                            |
-| -------- | --------------------------------------------------------------------------------- |
+| Row | Effect |
+| --- | --- |
 | `Motion` | `animated` plays the loop; `static` rests on the closing pose (solved for Rubik). |
-| `Shape`  | Pick the colored puzzle or a wireframe.                                           |
-| `Color`  | Pick the wireframe ink.                                                           |
+| `Shape` | Pick the colored puzzle or a wireframe. |
+| `Color` | Pick the wireframe ink. |
 
 Rubik keeps its stickers but remembers the color for the next wireframe. The live editor stays visible around the dialog.
 

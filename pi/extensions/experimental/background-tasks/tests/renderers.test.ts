@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
+
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
+
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  renderedRows,
+  toolRenderContext,
+} from "../../../../tests/harness/tool-rendering.js";
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
-import { renderedRows, toolRenderContext } from "../../../../tests/harness/tool-rendering.js";
 import extension from "../index.js";
-import { taskRenderers } from "../renderers.js";
 import type { InspectOutput, TaskSummary, ToolOutput } from "../output.js";
+import { taskRenderers } from "../renderers.js";
 import { taskRow } from "../task.js";
 
 const theme = createIdentityTheme();
@@ -28,7 +35,12 @@ const list = (tasks: TaskSummary[], unread = 0): ToolOutput => ({
   tasks: tasks.map((item, index) => taskRow(item, index < unread)),
 });
 
-const logs = { stdout: "", stderr: "", stdoutOmittedBytes: 0, stderrOmittedBytes: 0 };
+const logs = {
+  stdout: "",
+  stderr: "",
+  stdoutOmittedBytes: 0,
+  stderrOmittedBytes: 0,
+};
 
 const summary = (overrides: Partial<InspectOutput> = {}): InspectOutput => ({
   task,
@@ -43,12 +55,14 @@ const render = (details: unknown, expanded = false, name = "task_inspect") =>
     { content: [{ type: "text", text: JSON.stringify(details) }], details },
     { expanded, isPartial: false },
     theme,
-    toolRenderContext({ expanded }),
+    toolRenderContext({ expanded })
   );
 
-beforeAll(() => initTheme("dark"));
-
 describe("task presentation", () => {
+  beforeAll(() => {
+    initTheme("dark");
+  });
+
   it("registers both display slots and renders the details it returns", async () => {
     const host = createExtensionHost(extension);
     await host.emitSessionStart();
@@ -63,22 +77,28 @@ describe("task presentation", () => {
 
     const [content] = result.content;
     assert.ok(content?.type === "text");
-    expect(JSON.parse(content.text)).toStrictEqual(JSON.parse(JSON.stringify(result.details)));
+    expect(JSON.parse(content.text)).toStrictEqual(
+      JSON.parse(JSON.stringify(result.details))
+    );
 
     const text = renderedRows(
       taskRenderers("task_list").renderResult(
         { content: result.content, details: list([]) },
         { expanded: false, isPartial: false },
         theme,
-        toolRenderContext(),
-      ),
+        toolRenderContext()
+      )
     ).join("\n");
 
     expect(text).toContain("0 tasks · 0 unread");
     expect(text).not.toContain("unknown");
   });
+
   it("summarizes unread notifications, task status and cleanup failures", () => {
-    const value = list([task, { ...task, id: "t_failed", cleanup: "failed" }], 1);
+    const value = list(
+      [task, { ...task, id: "t_failed", cleanup: "failed" }],
+      1
+    );
 
     const text = renderedRows(render(value, false, "task_list")).join("\n");
     expect(text).toContain("2 tasks · 1 unread");
@@ -86,6 +106,7 @@ describe("task presentation", () => {
     expect(text).toContain("cleanup failed");
     expect(text).not.toContain('"tasks"');
   });
+
   it("keeps cleanup warnings visible before long identities and bounded failure groups", () => {
     const failed: TaskSummary = {
       ...task,
@@ -97,21 +118,28 @@ describe("task presentation", () => {
     for (const count of [1, 12]) {
       const value = list(
         Array.from({ length: count }, () => failed),
-        count,
+        count
       );
 
       const component = render(value, false, "task_list");
       const rows = renderedRows(component, 20);
       expect(rows.join(" ")).toContain(`Cleanup failed: ${count} task`);
       expect(rows.length).toBeLessThan(20);
-      expect(component.render(20).every((line) => visibleWidth(line) <= 20)).toBe(true);
+      expect(
+        component.render(20).every((line) => visibleWidth(line) <= 20)
+      ).toBe(true);
     }
 
     for (const name of ["task_start", "task_stop", "task_inspect"]) {
-      const value = name === "task_inspect" ? summary({ task: failed }) : failed;
-      expect(renderedRows(render(value, false, name), 20)[0]).toBe("Cleanup failed");
+      const value =
+        name === "task_inspect" ? summary({ task: failed }) : failed;
+
+      expect(renderedRows(render(value, false, name), 20)[0]).toBe(
+        "Cleanup failed"
+      );
     }
   });
+
   it("shows results, events, readable log tails and truncation warnings", () => {
     const value = summary({
       diagnostic: "check this",
@@ -141,11 +169,12 @@ describe("task presentation", () => {
     expect(expanded).toContain('#1 ci {"status":"running"}');
     expect(expanded).toContain("PID 42 · 1.5s");
   });
+
   it("bounds wrapped calls, sanitizes controls, and expands all argv", () => {
     const args = {
-      name: "build\u001b[2J",
+      name: "build\u001B[2J",
       command: "node",
-      args: ["x".repeat(1000) + "END"],
+      args: [`${"x".repeat(1000)}END`],
       cwd: "/tmp",
     };
 
@@ -156,28 +185,29 @@ describe("task presentation", () => {
       const rows = component.render(width);
       expect(rows.length).toBeLessThanOrEqual(4);
       expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(rows.join("\n")).not.toContain("\u001b[2J");
+      expect(rows.join("\n")).not.toContain("\u001B[2J");
     }
 
-    const expanded = renderedRows(call(args, theme, toolRenderContext({ expanded: true }))).join(
-      "\n",
-    );
+    const expanded = renderedRows(
+      call(args, theme, toolRenderContext({ expanded: true }))
+    ).join("\n");
 
     expect(expanded).toContain("END");
     expect(expanded).toContain("cwd: /tmp");
   });
+
   it("preserves original executable and argument values without emitting terminal controls", () => {
-    const command = "/tmp/my program\t\u001b[2J\u061c\u200e\u200f";
+    const command = "/tmp/my program\t\u001B[2J\u061C\u200E\u200F";
 
     const argv = [
       "",
       "a\tb",
       "a\rb",
       "line\nnext",
-      "\u001b[2J",
+      "\u001B[2J",
       'quote"slash\\',
-      "\u007f\u0085\u009b31m",
-      "\u061c\u200e\u200f\u2028\u2029\u202e\u2066value\u2069",
+      "\u007F\u0085\u009B31m",
+      "\u061C\u200E\u200F\u2028\u2029\u202E\u2066value\u2069",
       "日本語🙂",
     ];
 
@@ -188,42 +218,44 @@ describe("task presentation", () => {
       const component = taskRenderers("task_start").renderCall(
         args,
         theme,
-        toolRenderContext({ expanded }),
+        toolRenderContext({ expanded })
       );
 
       const rows = renderedRows(component, 2000);
-      const displayed = rows[1];
-      assert.ok(displayed);
+      const [, displayed] = rows;
+      assert.ok(displayed !== undefined && displayed !== "");
       // Treat each displayed token as a JSON string, not as shell syntax.
       const tokens = displayed.match(/"(?:\\.|[^"\\])*"/gu) ?? [];
 
-      // oxlint-disable-next-line anti-slop/no-unknown-returns -- Parsed renderer tokens are checked by the deep-equality assertion below.
-      const parsed = tokens.map((token): unknown => {
-        const value: unknown = JSON.parse(token);
+      const parsed = tokens.map((token) =>
+        Value.Parse(Type.String(), JSON.parse(token))
+      );
 
-        return value;
-      });
-
-      expect(parsed).toEqual([command, ...argv]);
+      expect(parsed).toStrictEqual([command, ...argv]);
       expect(component.render(2000).join("")).not.toMatch(
-        /\p{Cc}|[\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u,
+        /\p{Cc}|[\u061C\u200E\u200F\u2028-\u202E\u2066-\u2069]/u
       );
     }
 
-    expect(args).toEqual(original);
+    expect(args).toStrictEqual(original);
   });
+
   it("sanitizes log display while preserving newlines and normalizing tabs", () => {
     const value = summary({
       logs: {
         ...logs,
-        stdout: "first\tcolumn\nsecond\u001b[2J\r\u0001\u007f\u009f\u202e\u2066\u2069",
+        stdout:
+          "first\tcolumn\nsecond\u001B[2J\r\u0001\u007F\u009F\u202E\u2066\u2069",
       },
     });
 
     const text = renderedRows(render(value, true)).join("\n");
     expect(text).toContain("first   column\nsecond");
-    expect(text.replaceAll("\n", "")).not.toMatch(/\p{Cc}|[\u202a-\u202e\u2066-\u2069]/u);
+    expect(text.replaceAll("\n", "")).not.toMatch(
+      /\p{Cc}|[\u202A-\u202E\u2066-\u2069]/u
+    );
   });
+
   it.each([false, true])(
     "renders PID-less duration in live and persisted failures (persisted=%s)",
     (persisted) => {
@@ -237,26 +269,39 @@ describe("task presentation", () => {
         signal: "SIGTERM",
       };
 
-      const value: unknown = persisted ? JSON.parse(JSON.stringify(failure)) : failure;
+      const value: unknown = persisted
+        ? JSON.parse(JSON.stringify(failure))
+        : failure;
+
       const text = renderedRows(render(value, true, "task_start")).join("\n");
       expect(text).toContain("spawn error");
       expect(text).toContain("1.5s · signal SIGTERM");
       expect(text).not.toContain("PID");
       expect(text).not.toContain("undefined");
-    },
+    }
   );
+
   it.each([
     { result: null, expected: "null" },
     { result: false, expected: "false" },
     { result: 0, expected: "0" },
     { result: "", expected: '""' },
-  ])("distinguishes falsy results from absent ones (%j)", ({ result, expected }) => {
-    const text = renderedRows(render(summary({ result }))).join("\n");
-    expect(text).toContain(`Result · untrusted output\n${expected}`);
-    expect(renderedRows(render(summary())).join("\n")).not.toContain("Result");
-  });
+  ])(
+    "distinguishes falsy results from absent ones (%j)",
+    ({ result, expected }) => {
+      const text = renderedRows(render(summary({ result }))).join("\n");
+      expect(text).toContain(`Result · untrusted output\n${expected}`);
+      expect(renderedRows(render(summary())).join("\n")).not.toContain(
+        "Result"
+      );
+    }
+  );
+
   it("omits nullable process exit metadata", () => {
-    const text = renderedRows(render({ ...task, exitCode: null }, true, "task_stop")).join("\n");
+    const text = renderedRows(
+      render({ ...task, exitCode: null }, true, "task_stop")
+    ).join("\n");
+
     expect(text).toContain("✓ completed");
     expect(text).not.toContain("exit null");
   });
@@ -268,8 +313,8 @@ describe("task presentation", () => {
       call(
         { name: "Build" },
         theme,
-        toolRenderContext({ isPartial: true, executionStarted: false }),
-      ),
+        toolRenderContext({ isPartial: true, executionStarted: false })
+      )
     ).join("\n");
 
     expect(partial).toContain("Build");
@@ -291,16 +336,32 @@ describe("task presentation", () => {
           taskId: "t",
           view: "result",
           untrusted: true,
-          payload: { encoding: "json", text: "old", offset: 0, nextOffset: null, totalBytes: 3 },
+          payload: {
+            encoding: "json",
+            text: "old",
+            offset: 0,
+            nextOffset: null,
+            totalBytes: 3,
+          },
         },
-        { task: { ...task, abandoned: false }, resultAvailable: false, events: [], trust: "" },
+        {
+          task: { ...task, abandoned: false },
+          resultAvailable: false,
+          events: [],
+          trust: "",
+        },
         { id: "unsupported", status: "completed" },
       ]) {
         const result = { content: [{ type: "text" as const, text }], details };
         expect(
           renderedRows(
-            renderer(result, { expanded: false, isPartial: false }, theme, toolRenderContext()),
-          ).join("\n"),
+            renderer(
+              result,
+              { expanded: false, isPartial: false },
+              theme,
+              toolRenderContext()
+            )
+          ).join("\n")
         ).toContain(text);
       }
     }
@@ -310,7 +371,7 @@ describe("task presentation", () => {
         renderer(
           {
             content: [
-              { type: "text", text: "Failed\u001b[2J" },
+              { type: "text", text: "Failed\u001B[2J" },
               { type: "image", data: "", mimeType: "image/png" },
               { type: "text", text: "More detail" },
             ],
@@ -318,9 +379,9 @@ describe("task presentation", () => {
           },
           { expanded: false, isPartial: false },
           theme,
-          toolRenderContext({ isError: true }),
-        ),
-      ).join("\n"),
+          toolRenderContext({ isError: true })
+        )
+      ).join("\n")
     ).toBe("Failed\nMore detail");
   });
 });

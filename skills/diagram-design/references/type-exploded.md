@@ -41,17 +41,17 @@ Geometry and density values below are starting points for the examples, not perm
 
 ### Faces and lines
 
-| Element                                   | Light                                    | Dark                                |
-| ----------------------------------------- | ---------------------------------------- | ----------------------------------- |
-| Face base (opaque, under every face)      | `#ffffff`                                | `paper-2` `#393e53`                 |
-| Top face                                  | base                                     | base + `rgba(245,245,245,0.10)`     |
-| Left face (lit side)                      | base + `rgba(45,49,66,0.07)`             | base                                |
-| Right face (shade side)                   | base + `rgba(45,49,66,0.15)`             | base + `rgba(45,49,66,0.45)`        |
-| Focal part, top / left / right            | `accent` at 0.10 / 0.20 / 0.32 over base | `accent` at 0.18 top, neutral sides |
-| Silhouette                                | `ink`, 1.2 (`stroke-strong`)             | `ink`, 1.2                          |
-| Inner edges (top-front rim, front corner) | `ink` at 0.55, 0.8 (`stroke-thin`)       | `ink` at 0.45, 0.8                  |
-| Detail lines on a face                    | `ink` at 0.55, 0.6 to 0.8                | same                                |
-| Trace lines                               | `ink` at 0.30, 0.8, dashed `4,3`         | `ink` at 0.30, 0.8, dashed `4,3`    |
+| Element | Light | Dark |
+| --- | --- | --- |
+| Face base (opaque, under every face) | `#ffffff` | `paper-2` `#393e53` |
+| Top face | base | base + `rgba(245,245,245,0.10)` |
+| Left face (lit side) | base + `rgba(45,49,66,0.07)` | base |
+| Right face (shade side) | base + `rgba(45,49,66,0.15)` | base + `rgba(45,49,66,0.45)` |
+| Focal part, top / left / right | `accent` at 0.10 / 0.20 / 0.32 over base | `accent` at 0.18 top, neutral sides |
+| Silhouette | `ink`, 1.2 (`stroke-strong`) | `ink`, 1.2 |
+| Inner edges (top-front rim, front corner) | `ink` at 0.55, 0.8 (`stroke-thin`) | `ink` at 0.45, 0.8 |
+| Detail lines on a face | `ink` at 0.55, 0.6 to 0.8 | same |
+| Trace lines | `ink` at 0.30, 0.8, dashed `4,3` | `ink` at 0.30, 0.8, dashed `4,3` |
 
 Light comes from the top left, so the left face is lighter than the right. Always shade: an outline-only box flips between two readings like a Necker cube. Faces are an opaque base plus an `ink` overlay, never a translucent fill on its own, so parts behind never show through. Trace lines run straight up through the left and right extremes of the bottom part's outline to the underside of the top part, and paint before every part so the parts cover them.
 

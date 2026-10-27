@@ -1,7 +1,8 @@
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
+
 import type { Answer, Interaction, Submission } from "./interaction.js";
 import { draftAnswer, revisedSubmission } from "./interaction.js";
 import type { Question } from "./request.js";
-import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 
 /** One structured line of a reviewed submission, shared by the TUI, the transcript and tool results. */
 export type Row =
@@ -11,84 +12,126 @@ export type Row =
   | { kind: "missing" }
   | { kind: "note"; text: string };
 
-export function answerRows(answer: Answer | undefined): Row[] {
+export const answerRows = (answer: Answer | undefined): Row[] => {
   const rows: Row[] = [];
 
-  for (const s of answer?.selections ?? [])
-    rows.push({ kind: "answer", text: s.label, ...(s.note !== undefined ? { note: s.note } : {}) });
-
-  if (answer?.custom)
+  for (const s of answer?.selections ?? []) {
     rows.push({
       kind: "answer",
-      text: displayText(answer.custom.text).trim() ? answer.custom.text : "(blank — required)",
-      ...(answer.custom.note !== undefined ? { note: answer.custom.note } : {}),
+      text: s.label,
+      ...(s.note === undefined ? {} : { note: s.note }),
     });
+  }
+
+  if (answer?.custom) {
+    rows.push({
+      kind: "answer",
+      text: displayText(answer.custom.text).trim()
+        ? answer.custom.text
+        : "(blank — required)",
+      ...(answer.custom.note === undefined ? {} : { note: answer.custom.note }),
+    });
+  }
 
   return rows.length ? rows : [{ kind: "missing" }];
-}
+};
 
-export function submissionRows(
+export const submissionRows = (
   answers: Record<string, Answer>,
   note: string,
-  changed?: string[],
-): Row[] {
+  changed?: string[]
+): Row[] => {
   const rows: Row[] = [];
 
-  if (changed) rows.push({ kind: "changed", headers: changed });
-  Object.values(answers).forEach((answer, index) =>
-    rows.push({ kind: "question", index, header: answer.header }, ...answerRows(answer)),
-  );
+  if (changed) {
+    rows.push({ kind: "changed", headers: changed });
+  }
 
-  if (note) rows.push({ kind: "note", text: note });
+  for (const [index, answer] of Object.values(answers).entries()) {
+    rows.push(
+      { kind: "question", index, header: answer.header },
+      ...answerRows(answer)
+    );
+  }
+
+  if (note) {
+    rows.push({ kind: "note", text: note });
+  }
 
   return rows;
-}
+};
 
 /** Headers of questions whose answers or notes differ from a previous submission. */
-export function changedHeaders(
+export const changedHeaders = (
   questions: Question[],
   previous: Submission,
   answers: Record<string, Answer | undefined>,
-  note: string,
-): string[] {
+  note: string
+): string[] => {
   const changes = questions
+    .values()
     .filter(
       (q) =>
         JSON.stringify(answerRows(answers[q.id])) !==
-        JSON.stringify(answerRows(previous.answers[q.id])),
+        JSON.stringify(answerRows(previous.answers[q.id]))
     )
-    .map((q) => q.header);
+    .map((q) => q.header)
+    .toArray();
 
-  if (previous.note !== note) changes.push("Questionnaire note");
+  if (previous.note !== note) {
+    changes.push("Questionnaire note");
+  }
 
   return changes;
-}
+};
 
 /** Changes from the revision a submission supersedes; undefined for a first revision. */
-export function submissionChanges(item: Interaction, submission: Submission): string[] | undefined {
-  const previous = item.submissions.find((s) => s.revision === submission.revision - 1);
+export const submissionChanges = (
+  item: Interaction,
+  submission: Submission
+): string[] | undefined => {
+  const previous = item.submissions.find(
+    (s) => s.revision === submission.revision - 1
+  );
 
   return previous
-    ? changedHeaders(item.request.questions, previous, submission.answers, submission.note)
+    ? changedHeaders(
+        item.request.questions,
+        previous,
+        submission.answers,
+        submission.note
+      )
     : undefined;
-}
+};
 
 /** Rows for a submission, or for the current draft when no submission is given. */
-export function interactionRows(item: Interaction, submission?: Submission): Row[] {
-  if (submission)
-    return submissionRows(submission.answers, submission.note, submissionChanges(item, submission));
-  const questions = item.request.questions;
+export const interactionRows = (
+  item: Interaction,
+  submission?: Submission
+): Row[] => {
+  if (submission) {
+    return submissionRows(
+      submission.answers,
+      submission.note,
+      submissionChanges(item, submission)
+    );
+  }
 
-  const answers = Object.fromEntries(questions.map((q) => [q.id, draftAnswer(item, q)]));
+  const { questions } = item.request;
+
+  const answers = Object.fromEntries(
+    questions.map((q) => [q.id, draftAnswer(item, q)])
+  );
+
   const note = item.draft?.note ?? "";
   const base = revisedSubmission(item);
 
   return submissionRows(
     answers,
     note,
-    base ? changedHeaders(questions, base, answers, note) : undefined,
+    base ? changedHeaders(questions, base, answers, note) : undefined
   );
-}
+};
 
 const indent = (text: string, first: string, rest: string): string =>
   displayText(text)
@@ -96,82 +139,128 @@ const indent = (text: string, first: string, rest: string): string =>
     .map((line, i) => (i ? rest : first) + line)
     .join("\n");
 
-export function plainText(rows: Row[]): string {
+export const plainText = (rows: Row[]): string => {
   const lines: string[] = [];
 
-  for (const row of rows)
+  for (const row of rows) {
     switch (row.kind) {
-      case "changed":
-        lines.push(`Changed: ${row.headers.join(", ") || "No answer changes"}`, "");
+      case "changed": {
+        lines.push(
+          `Changed: ${row.headers.join(", ") || "No answer changes"}`,
+          ""
+        );
         break;
-      case "question":
-        if (lines.length && lines.at(-1) !== "") lines.push("");
+      }
+
+      case "question": {
+        if (lines.length && lines.at(-1) !== "") {
+          lines.push("");
+        }
+
         lines.push(`${row.index + 1}. ${row.header}`);
         break;
-      case "answer":
+      }
+
+      case "answer": {
         lines.push(indent(`✓ ${row.text}`, "  ", "    "));
 
-        if (row.note) lines.push(indent(`Note: ${row.note}`, "    ", "    "));
+        if (row.note !== undefined && row.note !== "") {
+          lines.push(indent(`Note: ${row.note}`, "    ", "    "));
+        }
+
         break;
-      case "missing":
+      }
+
+      case "missing": {
         lines.push("  ○ Answer required");
         break;
-      case "note":
+      }
+
+      case "note": {
         lines.push("", "Questionnaire note:", displayText(row.text));
         break;
+      }
+
+      // no default
     }
+  }
 
   return lines.join("\n");
-}
+};
 
 /** Backslash-escape every ASCII punctuation character so user text never becomes Markdown structure. */
 export const escapeMarkdown = (text: string): string =>
-  displayText(text).replace(/[!-/:-@[-`{-~]/g, "\\$&");
+  displayText(text).replaceAll(/[!-/:-@[-`{-~]/gu, "\\$&");
+
+const literal = (text: string) =>
+  escapeMarkdown(text).split("\n").join("\\\n   ");
 
 /** Markdown with hard line breaks; user text stays literal and multi-line text keeps its lines. */
-export function markdownText(heading: string, rows: Row[]): string {
+export const markdownText = (heading: string, rows: Row[]): string => {
   const blocks: string[] = [heading];
   const items: string[] = [];
   let item: string[] | undefined;
-  const literal = (text: string) => escapeMarkdown(text).split("\n").join("\\\n   ");
 
   const flush = () => {
-    if (item) items.push(item.join("\\\n   "));
+    if (item) {
+      items.push(item.join("\\\n   "));
+    }
+
     item = undefined;
   };
 
-  for (const row of rows)
+  for (const row of rows) {
     switch (row.kind) {
-      case "changed":
+      case "changed": {
         blocks.push(
-          `Changed: ${row.headers.map(escapeMarkdown).join(", ") || "No answer changes"}`,
+          `Changed: ${row.headers.map(escapeMarkdown).join(", ") || "No answer changes"}`
         );
         break;
-      case "question":
+      }
+
+      case "question": {
         flush();
         item = [`${row.index + 1}. **${escapeMarkdown(row.header)}**`];
         break;
-      case "answer":
+      }
+
+      case "answer": {
         item?.push(`✓ ${literal(row.text)}`);
 
-        if (row.note) item?.push(`Note: ${literal(row.note)}`);
+        if (row.note !== undefined && row.note !== "") {
+          item?.push(`Note: ${literal(row.note)}`);
+        }
+
         break;
-      case "missing":
+      }
+
+      case "missing": {
         item?.push("○ Answer required");
         break;
-      case "note":
+      }
+
+      case "note": {
         flush();
 
-        if (items.length) blocks.push(items.splice(0).join("\n"));
+        if (items.length) {
+          blocks.push(items.splice(0).join("\n"));
+        }
+
         blocks.push(
-          `**Questionnaire note**\\\n${escapeMarkdown(row.text).split("\n").join("\\\n")}`,
+          `**Questionnaire note**\\\n${escapeMarkdown(row.text).split("\n").join("\\\n")}`
         );
         break;
+      }
+
+      // no default
     }
+  }
 
   flush();
 
-  if (items.length) blocks.push(items.join("\n"));
+  if (items.length) {
+    blocks.push(items.join("\n"));
+  }
 
   return blocks.join("\n\n");
-}
+};

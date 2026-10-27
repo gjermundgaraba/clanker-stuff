@@ -15,7 +15,11 @@ import { forkHistory } from "./history.js";
 import type { ForkTurns } from "./history.js";
 import { KeyedSerialQueue } from "./keyed-queue.js";
 import { Monitor } from "./monitor.js";
-import { childPrompt, COLLABORATION_SECTION, errorCompletion } from "./prompts.js";
+import {
+  childPrompt,
+  COLLABORATION_SECTION,
+  errorCompletion,
+} from "./prompts.js";
 import {
   childAgentPath,
   emptyTree,
@@ -44,25 +48,36 @@ const bound = (value: string, maximum: number): string => {
     return value;
   }
 
-  const end = /[\uD800-\uDBFF]/u.test(value[maximum - 2] ?? "") ? maximum - 2 : maximum - 1;
+  const end = /[\uD800-\uDBFF]/u.test(value[maximum - 2] ?? "")
+    ? maximum - 2
+    : maximum - 1;
 
   return `${value.slice(0, end)}…`;
 };
 
 const errorText = (cause: unknown): string =>
-  bound(cause instanceof Error ? cause.message : String(cause), MAX_STATUS_TEXT);
+  bound(
+    cause instanceof Error ? cause.message : String(cause),
+    MAX_STATUS_TEXT
+  );
 
 /** Waits for `work` unless `signal` aborts first; aborting abandons the wait, not the work. */
 const waitUnlessAborted = async (
   work: Promise<void>,
-  signal: AbortSignal | undefined,
+  signal: AbortSignal | undefined
 ): Promise<void> => {
   if (signal === undefined) {
-    return await work;
+    await work;
+
+    return;
   }
 
   const aborted = Promise.withResolvers<never>();
-  const abort = () => aborted.reject(signal.reason);
+
+  const abort = () => {
+    aborted.reject(signal.reason);
+  };
+
   signal.addEventListener("abort", abort, { once: true });
 
   try {
@@ -75,7 +90,12 @@ const waitUnlessAborted = async (
 
 export type CallerContext = Pick<
   ExtensionContext,
-  "cwd" | "isProjectTrusted" | "model" | "modelRegistry" | "sessionManager" | "thinkingLevel"
+  | "cwd"
+  | "isProjectTrusted"
+  | "model"
+  | "modelRegistry"
+  | "sessionManager"
+  | "thinkingLevel"
 >;
 
 interface Resident {
@@ -177,8 +197,11 @@ export class Controller {
       node.status = "interrupted";
     }
 
-    if (stranded.length > 0) await this.#save();
-    else this.monitor.changed();
+    if (stranded.length > 0) {
+      await this.#save();
+    } else {
+      this.monitor.changed();
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -193,7 +216,10 @@ export class Controller {
     }
 
     this.#waiters.clear();
-    const retiring = [...this.#residents].map(([path, resident]) => this.#retire(path, resident));
+
+    const retiring = [...this.#residents].map(async ([path, resident]) => {
+      await this.#retire(path, resident);
+    });
 
     this.#residents.clear();
     await Promise.allSettled(retiring);
@@ -205,7 +231,10 @@ export class Controller {
 
   async acknowledge(ids: readonly string[]): Promise<void> {
     const delivered = new Set(ids);
-    const remaining = this.#tree.outbox.filter((mail) => !delivered.has(mail.id));
+
+    const remaining = this.#tree.outbox.filter(
+      (mail) => !delivered.has(mail.id)
+    );
 
     if (remaining.length !== this.#tree.outbox.length) {
       this.#tree.outbox = remaining;
@@ -217,7 +246,7 @@ export class Controller {
     caller: string,
     input: SpawnInput,
     ctx: CallerContext,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<SpawnResult> {
     const epoch = this.#epoch;
     const path = childAgentPath(caller, input.taskName);
@@ -238,12 +267,23 @@ export class Controller {
 
       const settings = resolveChildSettings(
         this.#config,
-        { agentType: input.agentType, model: input.model, thinking: input.thinking },
-        { model: ctx.model, registry: ctx.modelRegistry, thinking: ctx.thinkingLevel },
+        {
+          agentType: input.agentType,
+          model: input.model,
+          thinking: input.thinking,
+        },
+        {
+          model: ctx.model,
+          registry: ctx.modelRegistry,
+          thinking: ctx.thinkingLevel,
+        }
       );
 
       runtime = await this.#runtime(path, ctx, epoch, {
-        history: forkHistory(ctx.sessionManager.buildSessionProjection().messages, input.forkTurns),
+        history: forkHistory(
+          ctx.sessionManager.buildSessionProjection().messages,
+          input.forkTurns
+        ),
         instructions: settings.instructions,
         model: settings.model,
         sessionFile: undefined,
@@ -255,7 +295,9 @@ export class Controller {
       this.#assertEpoch(epoch);
 
       const node: AgentNode = {
-        ...(input.agentType === undefined ? {} : { agentType: input.agentType }),
+        ...(input.agentType === undefined
+          ? {}
+          : { agentType: input.agentType }),
         model: runtime.model,
         path,
         sessionFile: runtime.sessionFile,
@@ -272,7 +314,9 @@ export class Controller {
         await this.#save();
         this.#assertEpoch(epoch);
       } catch (error) {
-        this.#tree.nodes = this.#tree.nodes.filter((candidate) => candidate !== node);
+        this.#tree.nodes = this.#tree.nodes.filter(
+          (candidate) => candidate !== node
+        );
         throw error;
       }
 
@@ -284,10 +328,14 @@ export class Controller {
           from: caller,
           kind: "NEW_TASK",
           to: path,
-        }),
+        })
       );
 
-      return { model: runtime.model, task_name: path, thinkingLevel: runtime.thinkingLevel };
+      return {
+        model: runtime.model,
+        task_name: path,
+        thinkingLevel: runtime.thinkingLevel,
+      };
     } catch (error) {
       if (runtime !== undefined) {
         await runtime.dispose();
@@ -300,7 +348,11 @@ export class Controller {
     }
   }
 
-  async sendMessage(caller: string, target: string, message: string): Promise<void> {
+  async sendMessage(
+    caller: string,
+    target: string,
+    message: string
+  ): Promise<void> {
     if (message.trim() === "") {
       throw new Error("message must not be blank");
     }
@@ -313,7 +365,7 @@ export class Controller {
 
     await this.#post(
       { content: message, from: caller, id: randomUUID(), kind: "MESSAGE", to },
-      this.#epoch,
+      this.#epoch
     );
   }
 
@@ -322,7 +374,7 @@ export class Controller {
     target: string,
     message: string,
     ctx: CallerContext,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<void> {
     if (message.trim() === "") {
       throw new Error("message must not be blank");
@@ -335,77 +387,95 @@ export class Controller {
     }
 
     const epoch = this.#epoch;
-    const task = { content: message, from: caller, kind: "NEW_TASK" as const, to: path };
+
+    const task = {
+      content: message,
+      from: caller,
+      kind: "NEW_TASK" as const,
+      to: path,
+    };
 
     for (;;) {
-      const settling = await this.#serial(path, epoch, async () => {
-        signal?.throwIfAborted();
-        const node = this.#requireNode(path);
-        let resident = this.#residents.get(path);
-
-        // Reopening the session before the retired runtime closes it would give the file two writers.
-        if (resident?.retiring !== undefined) {
-          await waitUnlessAborted(resident.retiring, signal);
+      const settling = await this.#serial(
+        path,
+        epoch,
+        async (): Promise<{ turn: Resident["settled"] } | undefined> => {
           signal?.throwIfAborted();
-          this.#assertEpoch(epoch);
-          resident = this.#residents.get(path);
-        }
+          const node = this.#requireNode(path);
+          let resident = this.#residents.get(path);
 
-        if (resident !== undefined) {
-          const read = resident.runtime.steer(task);
-
-          if (read === undefined) {
-            // Recording the ended turn's outcome needs this key, so wait for it outside.
-            return { turn: resident.settled };
+          // Reopening the session before the retired runtime closes it would give the file two writers.
+          if (resident?.retiring !== undefined) {
+            await waitUnlessAborted(resident.retiring, signal);
+            signal?.throwIfAborted();
+            this.#assertEpoch(epoch);
+            resident = this.#residents.get(path);
           }
 
-          // A pending wait_agent call would hold the steered task until it times out.
-          this.notify(path);
+          if (resident !== undefined) {
+            const read = resident.runtime.steer(task);
 
-          // A turn can settle without reading the task; it then starts a turn of its own, unless
-          // the agent was interrupted or the tree replaced meanwhile.
-          read
-            .then((delivered) =>
-              delivered || epoch !== this.#epoch || this.#node(path)?.status === "interrupted"
-                ? undefined
-                : this.followUp(caller, target, message, ctx),
-            )
-            .catch((error: unknown) => {
-              if (epoch === this.#epoch) {
-                this.#onBackgroundError(error);
+            if (read === undefined) {
+              // Recording the ended turn's outcome needs this key, so wait for it outside.
+              return { turn: resident.settled };
+            }
+
+            // A pending wait_agent call would hold the steered task until it times out.
+            this.notify(path);
+
+            // A turn can settle without reading the task; it then starts a turn of its own, unless
+            // the agent was interrupted or the tree replaced meanwhile.
+            void (async () => {
+              try {
+                const delivered = await read;
+
+                if (
+                  delivered ||
+                  epoch !== this.#epoch ||
+                  this.#node(path)?.status === "interrupted"
+                ) {
+                  return;
+                }
+
+                await this.followUp(caller, target, message, ctx);
+              } catch (error) {
+                if (epoch === this.#epoch) {
+                  this.#onBackgroundError(error);
+                }
               }
-            });
+            })();
+
+            return;
+          }
+
+          this.#reserve(path);
+          const previous = { ...node };
+          let runtime: ChildRuntime | undefined;
+
+          try {
+            runtime = await this.#load(node, ctx, epoch);
+            signal?.throwIfAborted();
+            // Child extensions can switch models at session start, as on spawn.
+            node.model = runtime.model;
+            node.thinking = runtime.thinkingLevel;
+            node.status = "running";
+            node.startedAt = this.#now();
+            delete node.endedAt;
+            delete node.error;
+            await this.#save();
+            this.#assertEpoch(epoch);
+            this.#start(path, runtime, envelopeText(task));
+          } catch (error) {
+            Object.assign(node, previous);
+            await runtime?.dispose();
+            throw error;
+          } finally {
+            this.#starting.delete(path);
+          }
 
           return undefined;
         }
-
-        this.#reserve(path);
-        const previous = { ...node };
-        let runtime: ChildRuntime | undefined;
-
-        try {
-          runtime = await this.#load(node, ctx, epoch);
-          signal?.throwIfAborted();
-          // Child extensions can switch models at session start, as on spawn.
-          node.model = runtime.model;
-          node.thinking = runtime.thinkingLevel;
-          node.status = "running";
-          node.startedAt = this.#now();
-          delete node.endedAt;
-          delete node.error;
-          await this.#save();
-          this.#assertEpoch(epoch);
-          this.#start(path, runtime, envelopeText(task));
-        } catch (error) {
-          Object.assign(node, previous);
-          await runtime?.dispose();
-          throw error;
-        } finally {
-          this.#starting.delete(path);
-        }
-
-        return undefined;
-      });
+      );
 
       if (settling === undefined) {
         return;
@@ -415,7 +485,10 @@ export class Controller {
     }
   }
 
-  async interrupt(caller: string, target: string): Promise<{ previous_status: PublicAgentStatus }> {
+  async interrupt(
+    caller: string,
+    target: string
+  ): Promise<{ previous_status: PublicAgentStatus }> {
     const path = resolveAgentPath(caller, target);
 
     if (path === ROOT_AGENT_PATH || path === caller) {
@@ -448,7 +521,9 @@ export class Controller {
 
   list(caller: string, prefix: string | undefined): AgentListing[] {
     const scope =
-      prefix === undefined || prefix === "" ? ROOT_AGENT_PATH : resolveAgentPath(caller, prefix);
+      prefix === undefined || prefix === ""
+        ? ROOT_AGENT_PATH
+        : resolveAgentPath(caller, prefix);
 
     const root: AgentListing = {
       agent_name: ROOT_AGENT_PATH,
@@ -462,8 +537,13 @@ export class Controller {
         agent_status: publicStatus(node),
       })),
     ]
-      .filter(({ agent_name }) => agent_name === scope || agent_name.startsWith(`${scope}/`))
-      .toSorted((left, right) => left.agent_name.localeCompare(right.agent_name));
+      .filter(
+        ({ agent_name }) =>
+          agent_name === scope || agent_name.startsWith(`${scope}/`)
+      )
+      .toSorted((left, right) =>
+        left.agent_name.localeCompare(right.agent_name)
+      );
   }
 
   /** The tree's agents, for presentation; callers must not mutate them. */
@@ -486,7 +566,7 @@ export class Controller {
   async wait(
     caller: string,
     timeoutMs: number,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<{ message: string; timed_out: boolean }> {
     if (!Number.isInteger(timeoutMs)) {
       throw new TypeError("timeout_ms must be an integer");
@@ -549,25 +629,42 @@ export class Controller {
   }
 
   #reserve(path: string): void {
-    if (this.#residents.size + this.#starting.size >= this.#config.maxConcurrent) {
-      throw new Error(`Subagent concurrency limit reached (${this.#config.maxConcurrent})`);
+    if (
+      this.#residents.size + this.#starting.size >=
+      this.#config.maxConcurrent
+    ) {
+      throw new Error(
+        `Subagent concurrency limit reached (${this.#config.maxConcurrent})`
+      );
     }
 
     this.#starting.add(path);
   }
 
-  async #load(node: AgentNode, ctx: CallerContext, epoch: symbol): Promise<ChildRuntime> {
+  async #load(
+    node: AgentNode,
+    ctx: CallerContext,
+    epoch: symbol
+  ): Promise<ChildRuntime> {
     const slash = node.model.indexOf("/");
-    const model = ctx.modelRegistry.find(node.model.slice(0, slash), node.model.slice(slash + 1));
+
+    const model = ctx.modelRegistry.find(
+      node.model.slice(0, slash),
+      node.model.slice(slash + 1)
+    );
 
     if (model === undefined) {
-      throw new Error(`Model ${node.model} for ${node.path} is no longer available`);
+      throw new Error(
+        `Model ${node.model} for ${node.path} is no longer available`
+      );
     }
 
     const runtime = await this.#runtime(node.path, ctx, epoch, {
       history: [],
       instructions:
-        node.agentType === undefined ? undefined : this.#config.roles[node.agentType]?.instructions,
+        node.agentType === undefined
+          ? undefined
+          : this.#config.roles[node.agentType]?.instructions,
       model,
       sessionFile: node.sessionFile,
       thinkingLevel: node.thinking,
@@ -601,21 +698,24 @@ export class Controller {
     > & {
       instructions: string | undefined;
       delegation: DelegationPolicy | undefined;
-    },
+    }
   ): Promise<ChildRuntime> {
     // Children share Pi's two process-wide codemode workers: a third concurrent script waits 60 s, then fails.
-    process.env["PI_CODEMODE_MAX_WORKERS"] ??= String(this.#config.maxConcurrent + 2);
+    process.env["PI_CODEMODE_MAX_WORKERS"] ??= String(
+      this.#config.maxConcurrent + 2
+    );
 
     return await this.#createRuntime({
       bridge: (api) => {
         inheritDelegation(api, child.delegation);
         registerTools(api, this, path, this.#config);
         api.on("before_agent_start", (event, childCtx) => {
-          event.systemPromptOptions.sections[COLLABORATION_SECTION] = childPrompt(
-            this.#config,
-            path,
-            readDelegation(childCtx.sessionManager, this.#config.delegation),
-          );
+          event.systemPromptOptions.sections[COLLABORATION_SECTION] =
+            childPrompt(
+              this.#config,
+              path,
+              readDelegation(childCtx.sessionManager, this.#config.delegation)
+            );
         });
       },
       cwd: ctx.cwd,
@@ -623,7 +723,9 @@ export class Controller {
       history: child.history,
       model: child.model,
       modelRegistry: ctx.modelRegistry,
-      onDelivered: (id) => this.#delivered(id, epoch),
+      onDelivered: (id) => {
+        this.#delivered(id, epoch);
+      },
       onError: this.#onBackgroundError,
       onEvent: (event) => {
         this.#observe(path, event, epoch);
@@ -653,7 +755,9 @@ export class Controller {
       }
 
       try {
-        await this.#serial(path, epoch, () => this.#finish(path, turn, outcome, epoch));
+        await this.#serial(path, epoch, async () => {
+          await this.#finish(path, turn, outcome, epoch);
+        });
       } catch (error) {
         if (epoch === this.#epoch) {
           this.#onBackgroundError(error);
@@ -668,7 +772,7 @@ export class Controller {
     path: string,
     turn: symbol,
     outcome: ChildTurnOutcome,
-    epoch: symbol,
+    epoch: symbol
   ): Promise<void> {
     const resident = this.#residents.get(path);
     const node = this.#node(path);
@@ -683,7 +787,11 @@ export class Controller {
     node.endedAt = this.#now();
 
     if (outcome.status === "completed") {
-      const answer = outcome.text === undefined ? undefined : bound(outcome.text, MAX_DURABLE_TEXT);
+      const answer =
+        outcome.text === undefined
+          ? undefined
+          : bound(outcome.text, MAX_DURABLE_TEXT);
+
       node.status = "completed";
       delete node.error;
 
@@ -714,24 +822,26 @@ export class Controller {
       };
     }
 
-    if (mail === undefined) {
-      await this.#save();
-    } else {
-      await this.#post(mail, epoch);
-    }
+    await (mail === undefined ? this.#save() : this.#post(mail, epoch));
   }
 
   /** Disposes a resident after its turn; mail for it waits in the outbox until it runs again. */
-  #retire(path: string, resident: Resident): Promise<void> {
-    if (resident.retiring !== undefined) return resident.retiring;
+  async #retire(path: string, resident: Resident): Promise<void> {
+    if (resident.retiring !== undefined) {
+      await resident.retiring;
+
+      return;
+    }
+
     this.monitor.clear(path);
     const node = this.#node(path);
     const store = this.#store;
     const tree = this.#tree;
 
-    resident.retiring = resident.runtime
-      .dispose()
-      .finally(async () => {
+    resident.retiring = (async () => {
+      try {
+        await resident.runtime.dispose();
+      } finally {
         if (node !== undefined) {
           // Child extensions can change selection after startup; cold reuse needs its final values.
           node.model = resident.runtime.model;
@@ -739,7 +849,8 @@ export class Controller {
           await store.save(tree);
           this.monitor.changed();
         }
-      })
+      }
+    })()
       .catch(this.#onBackgroundError)
       .finally(() => {
         if (this.#residents.get(path) === resident) {
@@ -747,7 +858,7 @@ export class Controller {
         }
       });
 
-    return resident.retiring;
+    await resident.retiring;
   }
 
   /** Persists mail before handing it to a resident target; delivery acknowledges it. */
@@ -809,11 +920,15 @@ export class Controller {
 
   /** Counts usage and publishes activity for the current tree's children only. */
   #observe(path: string, event: AgentSessionEvent, epoch: symbol): void {
-    if (epoch !== this.#epoch) return;
+    if (epoch !== this.#epoch) {
+      return;
+    }
 
     if (event.type === "message_end" && event.message.role === "assistant") {
       const usage = this.#node(path)?.usage;
-      const { cacheRead, cacheWrite, cost, input, output } = event.message.usage;
+
+      const { cacheRead, cacheWrite, cost, input, output } =
+        event.message.usage;
 
       if (usage !== undefined) {
         usage.input += input;
@@ -833,7 +948,11 @@ export class Controller {
     }
   }
 
-  async #serial<T>(key: string, epoch: symbol, operation: () => Promise<T>): Promise<T> {
+  async #serial<T>(
+    key: string,
+    epoch: symbol,
+    operation: () => Promise<T>
+  ): Promise<T> {
     return await this.#queue.run(key, async () => {
       this.#assertEpoch(epoch);
 

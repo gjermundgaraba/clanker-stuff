@@ -5,17 +5,23 @@ import { createStash } from "./stash.js";
 export default function stashExtension(pi: ExtensionAPI): void {
   const stash = createStash();
 
-  pi.on("session_start", (_event, ctx) => stash.start(ctx));
+  pi.on("session_start", async (_event, ctx) => {
+    await stash.start(ctx);
+  });
 
   pi.registerShortcut("ctrl+s", {
-    description: "Stash current editor text, or pop the latest stash when empty",
+    description:
+      "Stash current editor text, or pop the latest stash when empty",
     handler: stash.toggle,
   });
 
   pi.registerCommand("pop-stash", {
     description: "Pop the most recent stashed editor text",
     handler: async (_args, ctx) => {
-      if (!ctx.hasUI) throw new Error("pop-stash requires interactive UI");
+      if (!ctx.hasUI) {
+        throw new Error("pop-stash requires interactive UI");
+      }
+
       await stash.pop(ctx);
     },
   });

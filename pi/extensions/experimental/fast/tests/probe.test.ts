@@ -20,22 +20,22 @@ const model: Model<"openai-responses"> = {
 
 const setup = async (subscription = true) => {
   const credentials = new InMemoryCredentialStore();
-  await credentials.modify("openai", () =>
-    Promise.resolve(
-      subscription
-        ? {
-            type: "oauth",
-            access: "offline-subscription",
-            refresh: "unused",
-            expires: Date.now() + 3_600_000,
-          }
-        : { type: "api_key", key: "sk-offline" },
-    ),
+  await credentials.modify("openai", async () =>
+    subscription
+      ? {
+          type: "oauth",
+          access: "offline-subscription",
+          refresh: "unused",
+          expires: Date.now() + 3_600_000,
+        }
+      : { type: "api_key", key: "sk-offline" }
   );
   const runtime = await ModelRuntime.create({ credentials, modelsPath: null });
   const native = runtime.getProvider("openai");
 
-  if (native === undefined) throw new Error("Missing native OpenAI provider");
+  if (native === undefined) {
+    throw new Error("Missing native OpenAI provider");
+  }
 
   runtime.registerNativeProvider({
     ...native,
@@ -49,7 +49,7 @@ const setup = async (subscription = true) => {
 
 const reply = (
   reported: string | undefined,
-  terminal: "response.completed" | "response.incomplete" = "response.completed",
+  terminal: "response.completed" | "response.incomplete" = "response.completed"
 ) =>
   new Response(
     [
@@ -63,8 +63,9 @@ const reply = (
         sequence_number: 1,
         response: {
           id: "fixture",
-          status: terminal === "response.completed" ? "completed" : "incomplete",
-          ...(reported !== undefined ? { service_tier: reported } : {}),
+          status:
+            terminal === "response.completed" ? "completed" : "incomplete",
+          ...(reported === undefined ? {} : { service_tier: reported }),
           usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
         },
       },
@@ -77,7 +78,7 @@ const reply = (
         "x-request-id": "fixture-request",
         "openai-processing-ms": "123",
       },
-    },
+    }
   );
 
 describe("native Fast verification probe", () => {
@@ -92,21 +93,31 @@ describe("native Fast verification probe", () => {
       const { runtime } = await setup();
       let calls = 0;
 
-      const result = await probeTier(runtime, model, requested, async (input, init) => {
-        calls++;
-        const request = new Request(input, init);
-        expect(request.headers.has("originator")).toBe(false);
-        expect(request.headers.has("x-codex-routing-hint")).toBe(false);
+      const result = await probeTier(
+        runtime,
+        model,
+        requested,
+        async (input, init) => {
+          calls += 1;
+          const request = new Request(input, init);
+          expect(request.headers.has("originator")).toBe(false);
+          expect(request.headers.has("x-codex-routing-hint")).toBe(false);
 
-        const response = reply(reported);
-        response.headers.set("x-private-test-header", "never-log-this-header-value");
+          const response = reply(reported);
+          response.headers.set(
+            "x-private-test-header",
+            "never-log-this-header-value"
+          );
 
-        return response;
-      });
+          return response;
+        }
+      );
 
       expect(calls).toBe(1);
       expect(result.responseHeaderNames).toContain("x-private-test-header");
-      expect(JSON.stringify(result)).not.toContain("never-log-this-header-value");
+      expect(JSON.stringify(result)).not.toContain(
+        "never-log-this-header-value"
+      );
       expect(result).toMatchObject({
         requested,
         wire: {
@@ -124,7 +135,7 @@ describe("native Fast verification probe", () => {
         requestSucceeded: true,
         confirmedFast: true,
       });
-    },
+    }
   );
 
   it.each(["default", undefined])(
@@ -132,7 +143,9 @@ describe("native Fast verification probe", () => {
     async (reported) => {
       const { runtime } = await setup();
 
-      const result = await probeTier(runtime, model, "priority", async () => reply(reported));
+      const result = await probeTier(runtime, model, "priority", async () =>
+        reply(reported)
+      );
 
       expect(result.status).toBe(200);
       expect(result.stopReason).toBe("stop");
@@ -143,7 +156,7 @@ describe("native Fast verification probe", () => {
       expect(result.reported).toBe(reported);
       expect(result.requestSucceeded).toBe(true);
       expect(result.confirmedFast).toBe(false);
-    },
+    }
   );
 
   it.each(["default", "fast"])(
@@ -151,21 +164,23 @@ describe("native Fast verification probe", () => {
     async (reported) => {
       const { runtime } = await setup();
 
-      const result = await probeTier(runtime, model, "default", async () => reply(reported));
+      const result = await probeTier(runtime, model, "default", async () =>
+        reply(reported)
+      );
 
       expect(result.wire?.tier).toBe("default");
       expect(result.reported).toBe(reported);
       expect(result.completed).toBe(true);
       expect(result.requestSucceeded).toBe(true);
       expect(result.confirmedFast).toBe(false);
-    },
+    }
   );
 
   it("rejects an incomplete stream even when it reports fast", async () => {
     const { runtime } = await setup();
 
     const result = await probeTier(runtime, model, "fast", async () =>
-      reply("fast", "response.incomplete"),
+      reply("fast", "response.incomplete")
     );
 
     expect(result.completed).toBe(false);
@@ -176,44 +191,50 @@ describe("native Fast verification probe", () => {
   it.each([
     { model: "other", service_tier: "priority" },
     { model: "fixture", service_tier: "default" },
-  ])("does not send a request changed after the probe's payload hook: %j", async (changed) => {
-    const { runtime, native } = await setup();
-    runtime.registerNativeProvider({
-      ...native,
-      getModels: () => [model],
-      getAllModels: () => [model],
-      streamSimple: (selected, context, options) =>
-        native.streamSimple(selected, context, {
-          ...options,
-          onPayload: () => ({ ...changed, input: [], stream: true }),
-        }),
-    });
-    let calls = 0;
+  ])(
+    "does not send a request changed after the probe's payload hook: %j",
+    async (changed) => {
+      const { runtime, native } = await setup();
+      runtime.registerNativeProvider({
+        ...native,
+        getModels: () => [model],
+        getAllModels: () => [model],
+        streamSimple: (selected, context, options) =>
+          native.streamSimple(selected, context, {
+            ...options,
+            onPayload: () => ({ ...changed, input: [], stream: true }),
+          }),
+      });
+      let calls = 0;
 
-    const result = await probeTier(runtime, model, "priority", async () => {
-      calls++;
+      const result = await probeTier(runtime, model, "priority", async () => {
+        calls += 1;
 
-      return reply("priority");
-    });
+        return reply("priority");
+      });
 
-    expect(calls).toBe(0);
-    expect(result.wire).toBeUndefined();
-    expect(result.stopReason).toBe("error");
-    expect(result.requestSucceeded).toBe(false);
-    expect(result.confirmedFast).toBe(false);
-  });
+      expect(calls).toBe(0);
+      expect(result.wire).toBeUndefined();
+      expect(result.stopReason).toBe("error");
+      expect(result.requestSucceeded).toBe(false);
+      expect(result.confirmedFast).toBe(false);
+    }
+  );
 
   it("records an HTTP failure without retries or treating it as confirmation", async () => {
     const { runtime } = await setup();
     let calls = 0;
 
     const result = await probeTier(runtime, model, "priority", async () => {
-      calls++;
+      calls += 1;
 
-      return new Response(JSON.stringify({ error: { message: "Fixture failure" } }), {
-        status: 503,
-        headers: { "x-request-id": "fixture-failure" },
-      });
+      return Response.json(
+        { error: { message: "Fixture failure" } },
+        {
+          status: 503,
+          headers: { "x-request-id": "fixture-failure" },
+        }
+      );
     });
 
     expect(calls).toBe(1);
@@ -231,10 +252,10 @@ describe("native Fast verification probe", () => {
 
     await expect(
       probeTier(runtime, model, "priority", async () => {
-        calls++;
+        calls += 1;
 
         return reply("priority");
-      }),
+      })
     ).rejects.toThrow("native OpenAI subscription");
     expect(calls).toBe(0);
   });

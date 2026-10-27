@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+
 import {
   fauxProvider,
   fauxAssistantMessage,
@@ -14,18 +15,25 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
-  type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, it, expect } from "vite-plus/test";
+
 import extension from "../index.js";
+
+const bind = async (session: AgentSession) => {
+  await session.bindExtensions({ mode: "tui" });
+};
 
 describe("session replacement through the real SDK runtime", () => {
   it("cleans up on clone, fork, new and resume without restoring inherited tasks", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "background-lifecycle-"));
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "background-lifecycle-")
+    );
+
     const faux = fauxProvider();
-    const bind = (session: AgentSession) => session.bindExtensions({ mode: "tui" });
 
     const runtime = await createAgentSessionRuntime(
       async (options) => {
@@ -41,7 +49,9 @@ describe("session replacement through the real SDK runtime", () => {
           cwd: options.cwd,
           agentDir: options.agentDir,
           modelRuntime,
-          settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }),
+          settingsManager: SettingsManager.inMemory({
+            retry: { enabled: false },
+          }),
           resourceLoaderOptions: {
             noExtensions: true,
             noSkills: true,
@@ -54,7 +64,9 @@ describe("session replacement through the real SDK runtime", () => {
         const result = await createAgentSessionFromServices({
           services,
           sessionManager: options.sessionManager,
-          ...(options.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
+          ...(options.sessionStartEvent
+            ? { sessionStartEvent: options.sessionStartEvent }
+            : {}),
           model: faux.getModel(),
         });
 
@@ -62,9 +74,12 @@ describe("session replacement through the real SDK runtime", () => {
       },
       {
         cwd: directory,
-        agentDir: join(directory, "agent"),
-        sessionManager: SessionManager.create(directory, join(directory, "sessions")),
-      },
+        agentDir: path.join(directory, "agent"),
+        sessionManager: SessionManager.create(
+          directory,
+          path.join(directory, "sessions")
+        ),
+      }
     );
 
     runtime.setRebindSession(bind);
@@ -81,30 +96,36 @@ describe("session replacement through the real SDK runtime", () => {
               command: process.execPath,
               args: ["-e", "setInterval(()=>{},1000)"],
             }),
-            { stopReason: "toolUse" },
+            { stopReason: "toolUse" }
           ),
           fauxAssistantMessage("Started"),
         ]);
         await runtime.session.prompt("Start a synthetic server");
 
         const result = runtime.session.messages.findLast(
-          (m) => m.role === "toolResult" && m.toolName === "task_start",
+          (m) => m.role === "toolResult" && m.toolName === "task_start"
         );
 
-        if (result?.role !== "toolResult") throw new Error("Missing task_start result");
+        if (result?.role !== "toolResult") {
+          throw new Error("Missing task_start result");
+        }
 
         return Value.Parse(schema, result.details);
       };
 
       const assertEmpty = async () => {
         faux.setResponses([
-          fauxAssistantMessage(fauxToolCall("task_list", {}), { stopReason: "toolUse" }),
+          fauxAssistantMessage(fauxToolCall("task_list", {}), {
+            stopReason: "toolUse",
+          }),
           fauxAssistantMessage("Listed"),
         ]);
-        await runtime.session.prompt("Inspect live ownership", { source: "extension" });
+        await runtime.session.prompt("Inspect live ownership", {
+          source: "extension",
+        });
 
         const result = runtime.session.messages.findLast(
-          (m) => m.role === "toolResult" && m.toolName === "task_list",
+          (m) => m.role === "toolResult" && m.toolName === "task_list"
         );
 
         expect(JSON.stringify(result)).toContain('\\"tasks\\":[]');
@@ -113,8 +134,10 @@ describe("session replacement through the real SDK runtime", () => {
       const first = await start();
       const originalFile = runtime.session.sessionManager.getSessionFile()!;
       // /clone forks at the current leaf, including it.
-      await runtime.fork(runtime.session.sessionManager.getLeafId()!, { position: "at" });
-      expect(() => process.kill(first.pid, 0)).toThrow();
+      await runtime.fork(runtime.session.sessionManager.getLeafId()!, {
+        position: "at",
+      });
+      expect(() => process.kill(first.pid, 0)).toThrow("ESRCH");
       await assertEmpty();
 
       const second = await start();
@@ -124,20 +147,23 @@ describe("session replacement through the real SDK runtime", () => {
         .findLast((e) => e.type === "message" && e.message.role === "user")!;
 
       await runtime.fork(forkEntry.id);
-      expect(() => process.kill(second.pid, 0)).toThrow();
+      expect(() => process.kill(second.pid, 0)).toThrow("ESRCH");
       await assertEmpty();
 
       const third = await start();
       await runtime.newSession();
-      expect(() => process.kill(third.pid, 0)).toThrow();
+      expect(() => process.kill(third.pid, 0)).toThrow("ESRCH");
       await assertEmpty();
 
       const fourth = await start();
       await runtime.switchSession(originalFile);
-      expect(() => process.kill(fourth.pid, 0)).toThrow();
+      expect(() => process.kill(fourth.pid, 0)).toThrow("ESRCH");
       await assertEmpty();
     } finally {
-      await runtime.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      await runtime.session.extensionRunner.emit({
+        type: "session_shutdown",
+        reason: "quit",
+      });
       runtime.session.dispose();
       await rm(directory, { recursive: true, force: true });
     }

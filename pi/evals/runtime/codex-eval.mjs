@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { pathToFileURL } from "node:url";
-import { appendFileSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { appendFileSync, realpathSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
+
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -52,9 +53,13 @@ const RpcMessageSchema = Type.Object({
   result: Type.Optional(Type.Unknown()),
 });
 
-const ThreadStartSchema = Type.Object({ thread: Type.Object({ id: NonEmptyStringSchema }) });
+const ThreadStartSchema = Type.Object({
+  thread: Type.Object({ id: NonEmptyStringSchema }),
+});
 
-const TurnStartSchema = Type.Object({ turn: Type.Object({ id: NonEmptyStringSchema }) });
+const TurnStartSchema = Type.Object({
+  turn: Type.Object({ id: NonEmptyStringSchema }),
+});
 
 /**
  * @typedef {import("typebox").Static<typeof EvalConfigSchema>} EvalConfig
@@ -124,12 +129,26 @@ export const evalConfig = (value) => {
       summary: null,
       ...schemaValue(Type.Object({}), value, "Codex eval config"),
     },
-    "Codex eval config",
+    "Codex eval config"
   );
 
-  const { compactBefore, compactedAfterSegment, effort, instructionPath, model, summary } = config;
+  const {
+    compactBefore,
+    compactedAfterSegment,
+    effort,
+    instructionPath,
+    model,
+    summary,
+  } = config;
 
-  return { compactBefore, compactedAfterSegment, effort, instructionPath, model, summary };
+  return {
+    compactBefore,
+    compactedAfterSegment,
+    effort,
+    instructionPath,
+    model,
+    summary,
+  };
 };
 
 /**
@@ -140,9 +159,9 @@ export const rpcMessage = (value) => {
   const message = schemaValue(RpcMessageSchema, value, "JSON-RPC message");
 
   return {
-    ...(message.id !== undefined ? { id: message.id } : {}),
-    ...(message.method !== undefined ? { method: message.method } : {}),
-    ...(message.params !== undefined ? { params: message.params } : {}),
+    ...(message.id === undefined ? {} : { id: message.id }),
+    ...(message.method === undefined ? {} : { method: message.method }),
+    ...(message.params === undefined ? {} : { params: message.params }),
     ...("error" in message ? { error: message.error } : {}),
     ...("result" in message ? { result: message.result } : {}),
     hasError: "error" in message,
@@ -164,8 +183,8 @@ export const startedThreadId = (result) =>
 export const startedTurnId = (result) =>
   schemaValue(TurnStartSchema, result, "turn/start result").turn.id;
 
-/** @param {(record: UsageRecord) => void} onRecord Persist each completed response immediately. */
-export const createCapture = (onRecord = () => {}) => {
+/** @param {(record: UsageRecord) => void} [onRecord] Persist each completed response immediately. */
+export const createCapture = (onRecord) => {
   /** @type {Map<string, { completed: boolean, expected: boolean, itemId?: string, settled?: Pick<CompactionAttempt, "state" | "timestamp"> }>} */
   const compactions = new Map();
   /** @type {UsageRecord[]} */
@@ -186,7 +205,9 @@ export const createCapture = (onRecord = () => {}) => {
     }
 
     if (compaction.settled !== undefined) {
-      throw new Error(`duplicate terminal state for Codex compaction turn ${turnId}`);
+      throw new Error(
+        `duplicate terminal state for Codex compaction turn ${turnId}`
+      );
     }
 
     if (!["completed", "failed", "interrupted"].includes(turn.status)) {
@@ -203,7 +224,9 @@ export const createCapture = (onRecord = () => {}) => {
     } else if (turn.status === "interrupted") {
       state = "aborted";
     } else {
-      throw new Error(`completed Codex compaction turn ${turnId} omitted item/completed`);
+      throw new Error(
+        `completed Codex compaction turn ${turnId} omitted item/completed`
+      );
     }
 
     compaction.settled = { state, timestamp: new Date().toISOString() };
@@ -213,7 +236,7 @@ export const createCapture = (onRecord = () => {}) => {
   const beginCompaction = (turnId) => {
     const existing = compactions.get(turnId);
 
-    if (existing?.expected) {
+    if (existing?.expected === true) {
       throw new Error(`duplicate Codex compaction turn ${turnId}`);
     }
 
@@ -231,9 +254,16 @@ export const createCapture = (onRecord = () => {}) => {
   const accept = (message) => {
     const { method, params } = message;
 
-    if (method === "item/started" && params?.item?.type === "contextCompaction") {
+    if (
+      method === "item/started" &&
+      params?.item?.type === "contextCompaction"
+    ) {
       const turnId = stringValue(params.turnId, "compaction turn id");
-      const compaction = compactions.get(turnId) ?? { completed: false, expected: false };
+
+      const compaction = compactions.get(turnId) ?? {
+        completed: false,
+        expected: false,
+      };
 
       if (compaction.itemId !== undefined || compaction.settled !== undefined) {
         throw new Error(`multiple Codex compaction items for turn ${turnId}`);
@@ -245,7 +275,10 @@ export const createCapture = (onRecord = () => {}) => {
       return;
     }
 
-    if (method === "item/completed" && params?.item?.type === "contextCompaction") {
+    if (
+      method === "item/completed" &&
+      params?.item?.type === "contextCompaction"
+    ) {
       const turnId = stringValue(params.turnId, "compaction turn id");
       const compaction = compactions.get(turnId);
       const itemId = stringValue(params.item.id, "compaction item id");
@@ -256,7 +289,9 @@ export const createCapture = (onRecord = () => {}) => {
         compaction.completed ||
         compaction.settled !== undefined
       ) {
-        throw new Error(`unmatched Codex compaction completion for turn ${turnId}`);
+        throw new Error(
+          `unmatched Codex compaction completion for turn ${turnId}`
+        );
       }
 
       compaction.completed = true;
@@ -289,7 +324,11 @@ export const createCapture = (onRecord = () => {}) => {
     const threadId = stringValue(params?.threadId, "response thread id");
     const turnId = stringValue(params?.turnId, "response turn id");
     const compaction = compactions.get(turnId);
-    const kind = compaction !== undefined && !compaction.completed ? "compaction" : "ordinary";
+
+    const kind =
+      compaction !== undefined && !compaction.completed
+        ? "compaction"
+        : "ordinary";
 
     if (responseIds.has(responseId)) {
       throw new Error(`duplicate Codex response id: ${responseId}`);
@@ -315,7 +354,7 @@ export const createCapture = (onRecord = () => {}) => {
     };
 
     records.push(record);
-    onRecord(record);
+    onRecord?.(record);
   };
 
   const finish = () => {
@@ -328,7 +367,9 @@ export const createCapture = (onRecord = () => {}) => {
     });
 
     if (!records.some((record) => record.kind === "ordinary")) {
-      throw new Error("Codex turn completed without an ordinary model response");
+      throw new Error(
+        "Codex turn completed without an ordinary model response"
+      );
     }
 
     return { attempts, records };
@@ -339,7 +380,7 @@ export const createCapture = (onRecord = () => {}) => {
 
 /** @typedef {ReturnType<typeof createCapture>} Capture */
 
-const openSocket = () => {
+const openSocket = async () => {
   /** @type {PromiseWithResolvers<WebSocket>} */
   const connection = Promise.withResolvers();
   const socket = new WebSocket(SERVER_URL);
@@ -358,7 +399,7 @@ const openSocket = () => {
     connection.reject(new Error("Codex app-server is unavailable"));
   });
 
-  return connection.promise;
+  return await connection.promise;
 };
 
 /**
@@ -366,17 +407,20 @@ const openSocket = () => {
  * @returns {Promise<WebSocket | undefined>} Connected socket, if ready.
  */
 const waitForSocket = async (deadline) => {
-  while (Date.now() < deadline) {
+  /** @type {WebSocket | undefined} */
+  let socket;
+
+  while (socket === undefined && Date.now() < deadline) {
     await delay(100);
 
     try {
-      return await openSocket();
+      socket = await openSocket();
     } catch {
       // The spawned app-server may not be listening yet.
     }
   }
 
-  return undefined;
+  return socket;
 };
 
 const connect = async () => {
@@ -454,9 +498,9 @@ class RpcClient {
    * @param {unknown} params JSON-RPC parameters.
    * @returns {Promise<unknown>} JSON-RPC result.
    */
-  request(method, params) {
+  async request(method, params) {
     if (this.failure !== undefined) {
-      return Promise.reject(this.failure);
+      throw this.failure;
     }
 
     const id = this.nextId;
@@ -466,7 +510,7 @@ class RpcClient {
     this.pending.set(id, response);
     this.socket.send(JSON.stringify({ id, method, params }));
 
-    return response.promise;
+    return await response.promise;
   }
 
   /**
@@ -487,47 +531,50 @@ class RpcClient {
    * @param {string} turnId Turn id.
    * @returns {Promise<RpcTurn>} Completed turn.
    */
-  waitForTurn(turnId) {
+  async waitForTurn(turnId) {
     if (this.failure !== undefined) {
-      return Promise.reject(this.failure);
+      throw this.failure;
     }
 
     const completed = this.completedTurns.get(turnId);
 
     if (completed !== undefined) {
-      return Promise.resolve(completed);
+      return completed;
     }
 
     /** @type {PromiseWithResolvers<RpcTurn>} */
     const waiter = Promise.withResolvers();
     this.turnWaiters.set(turnId, waiter);
 
-    return waiter.promise;
+    return await waiter.promise;
   }
 
   /**
    * @param {string} threadId Expected thread id.
    * @returns {Promise<RpcTurn>} Next started turn.
    */
-  waitForTurnStart(threadId) {
+  async waitForTurnStart(threadId) {
     if (this.failure !== undefined) {
-      return Promise.reject(this.failure);
+      throw this.failure;
     }
 
-    const index = this.turnStarts.findIndex((entry) => entry.threadId === threadId);
+    const index = this.turnStarts.findIndex(
+      (entry) => entry.threadId === threadId
+    );
+
     const started = this.turnStarts[index];
 
     if (started) {
       this.turnStarts.splice(index, 1);
 
-      return Promise.resolve(started.turn);
+      return started.turn;
     }
 
     /** @type {PromiseWithResolvers<RpcTurn>} */
     const waiter = Promise.withResolvers();
     this.turnStartWaiters.push({ threadId, waiter });
 
-    return waiter.promise;
+    return await waiter.promise;
   }
 
   /** @param {Error} error Fatal transport or protocol error. */
@@ -555,6 +602,31 @@ class RpcClient {
     this.turnWaiters.clear();
   }
 
+  /**
+   * @param {number | string} id JSON-RPC id of the app-server request, echoed in the reply.
+   * @param {Promise<unknown>} response The request hook's pending result; a rejection is answered as an internal error and fails every pending call.
+   */
+  async #answer(id, response) {
+    /** @type {unknown} */
+    let result;
+
+    try {
+      result = await response;
+    } catch (error) {
+      this.socket.send(
+        JSON.stringify({
+          id,
+          error: { code: -32_603, message: String(error) },
+        })
+      );
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
+
+      return;
+    }
+
+    this.socket.send(JSON.stringify({ id, result }));
+  }
+
   /** @param {RpcMessage} message JSON-RPC message. */
   #accept(message) {
     if (message.id !== undefined && (message.hasResult || message.hasError)) {
@@ -575,15 +647,14 @@ class RpcClient {
       return;
     }
 
-    if (message.id !== undefined && message.method !== undefined && this.hooks.request) {
-      this.hooks.request(message.method, message.params).then(
-        (result) => this.socket.send(JSON.stringify({ id: message.id, result })),
-        (error) => {
-          this.socket.send(
-            JSON.stringify({ id: message.id, error: { code: -32603, message: String(error) } }),
-          );
-          this.#fail(error instanceof Error ? error : new Error(String(error)));
-        },
+    if (
+      message.id !== undefined &&
+      message.method !== undefined &&
+      this.hooks.request
+    ) {
+      void this.#answer(
+        message.id,
+        this.hooks.request(message.method, message.params)
       );
 
       return;
@@ -594,7 +665,7 @@ class RpcClient {
         JSON.stringify({
           error: { code: -32_601, message: "unsupported server request" },
           id: message.id,
-        }),
+        })
       );
 
       return;
@@ -610,15 +681,22 @@ class RpcClient {
         throw new Error("turn/started omitted its turn");
       }
 
-      const threadId = stringValue(message.params?.threadId, "started turn thread id");
-      const index = this.turnStartWaiters.findIndex((entry) => entry.threadId === threadId);
+      const threadId = stringValue(
+        message.params?.threadId,
+        "started turn thread id"
+      );
+
+      const index = this.turnStartWaiters.findIndex(
+        (entry) => entry.threadId === threadId
+      );
+
       const waiting = this.turnStartWaiters[index];
 
-      if (!waiting) {
-        this.turnStarts.push({ threadId, turn });
-      } else {
+      if (waiting) {
         this.turnStartWaiters.splice(index, 1);
         waiting.waiter.resolve(turn);
+      } else {
+        this.turnStarts.push({ threadId, turn });
       }
     }
 
@@ -655,7 +733,9 @@ export const run = async (configPath, hooks = {}) => {
   /** @param {UsageRecord | CompactionAttempt} record Journal and stream one runner event. */
   const publish = (record) => {
     appendFileSync(eventsPath, `${JSON.stringify(record)}\n`);
-    process.stdout.write(`${JSON.stringify({ type: "eval_event", ...record })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ type: "eval_event", ...record })}\n`
+    );
   };
 
   const capture = createCapture(publish);
@@ -747,8 +827,12 @@ export const run = async (configPath, hooks = {}) => {
   socket.close();
 };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const configPath = process.argv[2];
+if (
+  process.argv[1] !== undefined &&
+  process.argv[1] !== "" &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
+  const [configPath] = process.argv.slice(2);
 
   // The image build runs this without arguments: the usage error proves the entry point and its
   // deployed dependencies load.

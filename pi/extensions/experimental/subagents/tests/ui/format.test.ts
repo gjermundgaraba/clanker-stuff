@@ -15,7 +15,10 @@ import {
   usageText,
 } from "../../ui/format.js";
 
-const node = (path: string, status: AgentNode["status"] = "completed"): AgentNode => ({
+const node = (
+  path: string,
+  status: AgentNode["status"] = "completed"
+): AgentNode => ({
   model: "provider/model",
   path,
   sessionFile: `/sessions${path}.jsonl`,
@@ -35,7 +38,9 @@ describe(treeRows, () => {
       node("/root/zeta/another"),
     ];
 
-    expect(treeRows(nodes).map((row) => `${row.prefix}${row.path}`)).toEqual([
+    expect(
+      treeRows(nodes).map((row) => `${row.prefix}${row.path}`)
+    ).toStrictEqual([
       "/root",
       "├─ /root/zeta",
       "│  ├─ /root/zeta/child",
@@ -54,10 +59,17 @@ describe(treeRows, () => {
 
     const rows = treeRows(nodes, (item) => item.status === "running");
 
-    expect(rows.map((row) => row.path)).toEqual(["/root", "/root/parent", "/root/parent/live"]);
+    expect(rows.map((row) => row.path)).toStrictEqual([
+      "/root",
+      "/root/parent",
+      "/root/parent/live",
+    ]);
     expect(rows[1]?.item?.path).toBe("/root/parent");
   });
 });
+
+const inks = (color: "cyan" | "gray" | "purple") =>
+  new Set(wireframe("orb", color, "dark").frames);
 
 describe(orbMarks, () => {
   it("gives each top-level agent its own orb color, shared by its descendants", () => {
@@ -70,9 +82,6 @@ describe(orbMarks, () => {
       node("/root/second/child/grandchild"),
     ]);
 
-    const inks = (color: "cyan" | "gray" | "purple") =>
-      new Set(wireframe("orb", color, "dark").frames);
-
     const at = (path: string) => marks.running(theme, path, 1234);
 
     expect(inks("cyan").has(at("/root/first"))).toBe(true);
@@ -82,7 +91,7 @@ describe(orbMarks, () => {
     expect(inks("gray").has(at("/root"))).toBe(true);
     // The orb turns with time.
     expect(marks.running(theme, "/root/first", 0)).not.toBe(
-      marks.running(theme, "/root/first", 1000),
+      marks.running(theme, "/root/first", 1000)
     );
   });
 });
@@ -91,9 +100,22 @@ describe(statusMark, () => {
   it("pads every mark to the running mark's width, so names line up", () => {
     const theme = createIdentityTheme("light");
 
-    for (const marks of [BRAILLE_MARKS, orbMarks(() => [node("/root/a", "running")])])
-      for (const status of ["running", "completed", "errored", "interrupted", "idle"] as const)
-        expect(visibleWidth(statusMark(theme, marks, "/root/a", status, 0))).toBe(marks.width);
+    for (const marks of [
+      BRAILLE_MARKS,
+      orbMarks(() => [node("/root/a", "running")]),
+    ]) {
+      for (const status of [
+        "running",
+        "completed",
+        "errored",
+        "interrupted",
+        "idle",
+      ] as const) {
+        expect(
+          visibleWidth(statusMark(theme, marks, "/root/a", status, 0))
+        ).toBe(marks.width);
+      }
+    }
   });
 });
 
@@ -112,9 +134,15 @@ describe(duration, () => {
 
 describe(elapsed, () => {
   it("times a running turn to now and a finished one to its end, and leaves an unknown end blank", () => {
-    expect(elapsed({ ...node("/root/a", "running"), startedAt: 1000 }, 61_000)).toBe("1m00s");
-    expect(elapsed({ ...node("/root/a"), endedAt: 4000, startedAt: 1000 }, 61_000)).toBe("3s");
-    expect(elapsed({ ...node("/root/a", "interrupted"), startedAt: 1000 }, 61_000)).toBe("");
+    expect(
+      elapsed({ ...node("/root/a", "running"), startedAt: 1000 }, 61_000)
+    ).toBe("1m00s");
+    expect(
+      elapsed({ ...node("/root/a"), endedAt: 4000, startedAt: 1000 }, 61_000)
+    ).toBe("3s");
+    expect(
+      elapsed({ ...node("/root/a", "interrupted"), startedAt: 1000 }, 61_000)
+    ).toBe("");
   });
 });
 
@@ -122,10 +150,22 @@ describe(usageText, () => {
   it("counts cached context as input and omits zero cost", () => {
     expect(usageText(emptyUsage())).toBe("");
     expect(
-      usageText({ cacheRead: 12_000, cacheWrite: 500, cost: 0, input: 300, output: 999 }),
+      usageText({
+        cacheRead: 12_000,
+        cacheWrite: 500,
+        cost: 0,
+        input: 300,
+        output: 999,
+      })
     ).toBe("↑13k ↓999");
-    expect(usageText({ cacheRead: 0, cacheWrite: 0, cost: 0.0421, input: 1500, output: 2 })).toBe(
-      "↑1.5k ↓2 $0.042",
-    );
+    expect(
+      usageText({
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: 0.0421,
+        input: 1500,
+        output: 2,
+      })
+    ).toBe("↑1.5k ↓2 $0.042");
   });
 });

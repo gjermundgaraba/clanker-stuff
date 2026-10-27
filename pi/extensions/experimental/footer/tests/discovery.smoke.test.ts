@@ -13,7 +13,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { readJson, readWorkspacePackages } from "../../../../../scripts/workspace-packages.ts";
+import {
+  readJson,
+  readWorkspacePackages,
+} from "../../../../../scripts/workspace-packages.ts";
 import { createExtensionSmokeHarness } from "../../../../tests/harness/extension-smoke.js";
 import type { ExtensionSmokeHarness } from "../../../../tests/harness/extension-smoke.js";
 
@@ -25,14 +28,20 @@ const MANIFEST = readJson(path.join(FOOTER_ROOT, "package.json"));
 
 /** The footer's workspace dependencies and theirs, so staging follows the manifest. */
 const workspaceDependencyDirs = (): string[] => {
-  const workspace = new Map(readWorkspacePackages(WORKSPACE_ROOT).map((pkg) => [pkg.name, pkg]));
+  const workspace = new Map(
+    readWorkspacePackages(WORKSPACE_ROOT).map((pkg) => [pkg.name, pkg])
+  );
+
   const dirs = new Set<string>();
   const pending = Object.keys(MANIFEST.dependencies ?? {});
 
   for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
     const pkg = workspace.get(name);
 
-    if (pkg === undefined || dirs.has(pkg.dir)) continue;
+    if (pkg === undefined || dirs.has(pkg.dir)) {
+      continue;
+    }
+
     dirs.add(pkg.dir);
     pending.push(...Object.keys(pkg.packageJson.dependencies ?? {}));
   }
@@ -48,7 +57,10 @@ describe("footer discovery", () => {
     harness?.cleanup();
     harness = undefined;
 
-    if (tempRoot !== undefined) rmSync(tempRoot, { recursive: true, force: true });
+    if (tempRoot !== undefined) {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+
     tempRoot = undefined;
   });
 
@@ -83,7 +95,7 @@ describe("footer discovery", () => {
         "--ignore-scripts",
         deployed,
       ],
-      { cwd: stagingRoot, stdio: "pipe" },
+      { cwd: stagingRoot, stdio: "pipe" }
     );
     const tarball = path.join(tempRoot, "footer.tgz");
     execFileSync("pnpm", ["pack", "--out", tarball], {
@@ -100,25 +112,30 @@ describe("footer discovery", () => {
     rmSync(deployed, { recursive: true, force: true });
     rmSync(stagingRoot, { recursive: true, force: true });
 
-    for (const entry of readdirSync(modulesRoot, { recursive: true, withFileTypes: true })) {
-      if (entry.isSymbolicLink()) {
-        expect(
-          realpathSync(path.join(entry.parentPath, entry.name)).startsWith(
-            `${modulesRoot}${path.sep}`,
-          ),
-        ).toBe(true);
-      }
+    for (const entry of readdirSync(modulesRoot, {
+      recursive: true,
+      withFileTypes: true,
+    }).filter((candidate) => candidate.isSymbolicLink())) {
+      expect(
+        realpathSync(path.join(entry.parentPath, entry.name)).startsWith(
+          `${modulesRoot}${path.sep}`
+        )
+      ).toBe(true);
     }
 
     // Peers are host-provided: Pi supplies them to the loaded extension.
     for (const dependency of Object.keys(MANIFEST.dependencies ?? {})) {
       expect(
-        realpathSync(path.join(modulesRoot, dependency)).startsWith(`${modulesRoot}${path.sep}`),
+        realpathSync(path.join(modulesRoot, dependency)).startsWith(
+          `${modulesRoot}${path.sep}`
+        )
       ).toBe(true);
     }
 
     harness = await createExtensionSmokeHarness({ packages: [packageRoot] });
     expect(harness.extensionsResult.errors).toStrictEqual([]);
-    expect(harness.extensionsResult.extensions[0]?.commands.has("footer")).toBe(true);
+    expect(harness.extensionsResult.extensions[0]?.commands.has("footer")).toBe(
+      true
+    );
   });
 });

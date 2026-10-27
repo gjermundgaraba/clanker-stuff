@@ -16,7 +16,7 @@ export const generateRecap = async (
   ctx: ExtensionContext,
   config: RecapConfig,
   prompt: string,
-  parentSignal: AbortSignal,
+  parentSignal: AbortSignal
 ): Promise<Recap> => {
   const deadline = new AbortController();
   const signal = AbortSignal.any([parentSignal, deadline.signal]);
@@ -30,10 +30,15 @@ export const generateRecap = async (
   let usage: ReportedUsage | undefined;
 
   try {
-    const model = ctx.modelRegistry.find(config.model.provider, config.model.id);
+    const model = ctx.modelRegistry.find(
+      config.model.provider,
+      config.model.id
+    );
 
     if (model === undefined) {
-      throw new Error(`Model ${config.model.provider}/${config.model.id} was not found by Pi`);
+      throw new Error(
+        `Model ${config.model.provider}/${config.model.id} was not found by Pi`
+      );
     }
 
     const message: UserMessage = {
@@ -47,13 +52,22 @@ export const generateRecap = async (
     // Stop waiting once aborted, even for a provider that ignores cancellation. This listener
     // runs before the provider's, so an abort always reports its own cause. Promise.race handles
     // this rejection, so an abort after the response is not an unhandled rejection.
-    const aborted = new Promise<never>((_resolve, reject) => {
-      if (signal.aborted) reject(signal.reason);
-      signal.addEventListener("abort", () => reject(signal.reason), {
+    const aborted = Promise.withResolvers<never>();
+
+    if (signal.aborted) {
+      aborted.reject(signal.reason);
+    }
+
+    signal.addEventListener(
+      "abort",
+      () => {
+        aborted.reject(signal.reason);
+      },
+      {
         once: true,
         signal: settled.signal,
-      });
-    });
+      }
+    );
 
     const response = await Promise.race([
       ctx.modelRegistry
@@ -65,22 +79,27 @@ export const generateRecap = async (
             sessionId: randomUUID(),
             signal,
             ...(level === "off" ? {} : { reasoning: level }),
-          },
+          }
         )
         .result(),
-      aborted,
+      aborted.promise,
     ]);
 
     usage = emptyUsage();
     addUsage(usage, response.usage);
 
     if (response.stopReason !== "stop") {
-      throw new Error(response.errorMessage ?? `Recap model stopped with ${response.stopReason}`);
+      throw new Error(
+        response.errorMessage ??
+          `Recap model stopped with ${response.stopReason}`
+      );
     }
 
     const text = normalizeRecap(contentText(response.content));
 
-    if (text === undefined) throw new Error("Recap model returned no text");
+    if (text === undefined) {
+      throw new Error("Recap model returned no text");
+    }
 
     return { status: "ready", text, usage };
   } catch (error) {

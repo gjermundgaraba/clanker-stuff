@@ -5,7 +5,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+} from "vite-plus/test";
 
 import {
   LIVE,
@@ -14,9 +21,8 @@ import {
   liveEnvironment,
   sessionIds,
   syncLines,
-  type DebugLog,
-  type LiveSession,
 } from "./live.js";
+import type { DebugLog, LiveSession } from "./live.js";
 
 // 32x32 solid crimson PNG: a colour the model can name unambiguously.
 const CRIMSON_PNG =
@@ -41,7 +47,9 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
   });
 
   afterEach(async () => {
-    for (const session of sessions.splice(0)) await session.close();
+    for (const session of sessions.splice(0)) {
+      await session.close();
+    }
   });
 
   afterAll(() => {
@@ -57,11 +65,11 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
 
       const text = await live.ask("What is 2 + 2? Reply with just the number.");
 
-      expect(text).toMatch(/4/);
+      expect(text).toMatch(/4/u);
       // Claude Code replaces pi's prompt with its own; only the custom part is appended.
-      expect(text.trim()).toMatch(/BANANA\W*$/);
+      expect(text.trim()).toMatch(/BANANA\W*$/u);
     },
-    LIVE_TIMEOUT,
+    LIVE_TIMEOUT
   );
 
   it(
@@ -72,67 +80,84 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       const mark = log.mark();
 
       await live.ask("The secret number is 42. Acknowledge briefly.");
-      await live.ask(`Write the secret number to ${scratch}. Just the number, nothing else.`);
+      await live.ask(
+        `Write the secret number to ${scratch}. Just the number, nothing else.`
+      );
       await live.ask("What is 42 * 2? Just the number.");
       await live.ask(`Read ${scratch} and tell me what's in it.`);
 
       const text = await live.ask(
-        "What was the secret number, what did you write, what did you read, and what was 42*2? One per line.",
+        "What was the secret number, what did you write, what did you read, and what was 42*2? One per line."
       );
 
-      expect(readFileSync(scratch, "utf8").trim()).toBe("42");
-      expect(text).toMatch(/42/);
-      expect(text).toMatch(/84/);
+      expect(readFileSync(scratch, "utf-8").trim()).toBe("42");
+      expect(text).toMatch(/42/u);
+      expect(text).toMatch(/84/u);
 
       const toolNames = live.h
         .messages()
         .flatMap((m) => (m.role === "toolResult" ? [m.toolName] : []));
 
-      expect(toolNames).toEqual(expect.arrayContaining(["write", "read"]));
+      expect(toolNames).toStrictEqual(
+        expect.arrayContaining(["write", "read"])
+      );
 
       // Consecutive same-provider turns resume the session. A rebuild would reset prompt
       // caching.
       const written = log.since(mark);
       const syncs = syncLines(written);
 
-      expect(syncs.filter((s) => s.kind === "rebuild")).toEqual([
+      expect(syncs.filter((s) => s.kind === "rebuild")).toStrictEqual([
         { kind: "rebuild", reason: "none" },
       ]);
-      expect(syncs.filter((s) => s.kind === "resume").length).toBeGreaterThanOrEqual(2);
+      expect(
+        syncs.filter((s) => s.kind === "resume").length
+      ).toBeGreaterThanOrEqual(2);
       expect(new Set(sessionIds(written)).size).toBe(1);
 
       // From the third model call on, the system prompt and history are cache hits:
       // cacheRead never drops, and it is at least 90% of the input.
-      const usages = live.h.messages().flatMap((m) => (m.role === "assistant" ? [m.usage] : []));
+      const usages = live.h
+        .messages()
+        .flatMap((m) => (m.role === "assistant" ? [m.usage] : []));
 
       for (const [index, usage] of usages.entries()) {
-        if (index < 2) continue;
+        if (index < 2) {
+          continue;
+        }
 
         const total = usage.input + usage.cacheRead + usage.cacheWrite;
         const label = `model call ${index + 1}: ${JSON.stringify(usage)}`;
 
-        expect(usage.cacheRead, label).toBeGreaterThanOrEqual(usages[index - 1]?.cacheRead ?? 0);
+        expect(usage.cacheRead, label).toBeGreaterThanOrEqual(
+          usages[index - 1]?.cacheRead ?? 0
+        );
         expect(usage.cacheRead / total, label).toBeGreaterThanOrEqual(0.9);
       }
     },
-    LIVE_TIMEOUT,
+    LIVE_TIMEOUT
   );
 
   it(
     "rebuilds Claude Code's session under a new id after pi compacts",
     async () => {
       // Three one-word exchanges fit in any realistic budget, leaving nothing to compact.
-      const live = await open({ settings: { compaction: { keepRecentTokens: 1 } } });
+      const live = await open({
+        settings: { compaction: { keepRecentTokens: 1 } },
+      });
+
       const mark = log.mark();
 
       await live.ask(
-        "Pick a number between 1 and 100 and remember it. Reply with just the number.",
+        "Pick a number between 1 and 100 and remember it. Reply with just the number."
       );
       await live.ask("Now pick a colour. Reply with just the colour.");
       await live.ask("Now pick a fruit. Reply with just the fruit.");
       await live.h.session.compact();
 
-      expect(await live.ask("Are you still there? Reply with just 'yes'.")).toMatch(/yes/i);
+      await expect(
+        live.ask("Are you still there? Reply with just 'yes'.")
+      ).resolves.toMatch(/yes/iu);
 
       // Split at the summary calls: the turns before them used the pre-compact session;
       // the next prompt after them must not resume it.
@@ -141,17 +166,19 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       const first = written.indexOf(SUMMARY);
       const last = written.lastIndexOf(SUMMARY);
 
-      expect(first, "the compaction summary never reached the bridge").not.toBe(-1);
+      expect(first, "the compaction summary never reached the bridge").not.toBe(
+        -1
+      );
 
       const before = sessionIds(written.slice(0, first)).at(-1);
       const [next] = syncLines(written.slice(last + SUMMARY.length));
 
       expect(before).toBeDefined();
       // A resume would answer off the pre-compact transcript.
-      expect(next).toEqual({ kind: "rebuild", reason: "diverged" });
+      expect(next).toStrictEqual({ kind: "rebuild", reason: "diverged" });
       expect(sessionIds(written).at(-1)).not.toBe(before);
     },
-    LIVE_TIMEOUT,
+    LIVE_TIMEOUT
   );
 
   it(
@@ -161,14 +188,16 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
 
       await live.useFaux();
       live.h.setResponses([fauxAssistantMessage("Noted.")]);
-      await live.ask("The first word is 'quokka'. The second word comes later.");
+      await live.ask(
+        "The first word is 'quokka'. The second word comes later."
+      );
 
       await live.useBridge();
 
       let mark = log.mark();
 
       const second = await live.ask(
-        "The second word is 'tamarind'. What are the first and second words? Reply with just the two words.",
+        "The second word is 'tamarind'. What are the first and second words? Reply with just the two words."
       );
 
       expect(second.toLowerCase()).toContain("quokka");
@@ -178,7 +207,7 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       const [imported] = syncLines(log.since(mark));
       const importedSession = sessionIds(log.since(mark)).at(-1);
 
-      expect(imported).toEqual({ kind: "rebuild", reason: "none" });
+      expect(imported).toStrictEqual({ kind: "rebuild", reason: "none" });
 
       await live.useFaux();
       live.h.setResponses([fauxAssistantMessage("Noted.")]);
@@ -188,7 +217,7 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       mark = log.mark();
 
       const third = await live.ask(
-        "List the first, second, and third words. Reply with just the three words.",
+        "List the first, second, and third words. Reply with just the three words."
       );
 
       expect(third.toLowerCase()).toContain("quokka");
@@ -198,10 +227,10 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       // Returning after turns Claude Code missed writes a new session from pi's history.
       const [resumed] = syncLines(log.since(mark));
 
-      expect(resumed).toEqual({ kind: "rebuild", reason: "tail" });
+      expect(resumed).toStrictEqual({ kind: "rebuild", reason: "tail" });
       expect(sessionIds(log.since(mark)).at(-1)).not.toBe(importedSession);
     },
-    LIVE_TIMEOUT,
+    LIVE_TIMEOUT
   );
 
   it(
@@ -218,12 +247,14 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       await live.useBridge();
 
       const answer = await live.ask(
-        "What colour is the image I sent earlier? Answer with a single lowercase colour word.",
+        "What colour is the image I sent earlier? Answer with a single lowercase colour word."
       );
 
       // Only the first word counts: "I can't see an image, it was an error" contains "red".
-      expect(["red", "crimson"]).toContain(answer.toLowerCase().match(/[a-z]+/)?.[0]);
+      expect(["red", "crimson"]).toContain(
+        /[a-z]+/u.exec(answer.toLowerCase())?.[0]
+      );
     },
-    LIVE_TIMEOUT,
+    LIVE_TIMEOUT
   );
 });

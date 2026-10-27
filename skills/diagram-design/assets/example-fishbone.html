@@ -67,7 +67,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -81,10 +87,13 @@
         role="img"
         aria-labelledby="fishbone-title fishbone-desc"
       >
-        <title id="fishbone-title">Checkout p99 latency · Root-cause fishbone</title>
+        <title id="fishbone-title">
+          Checkout p99 latency · Root-cause fishbone
+        </title>
         <desc id="fishbone-desc">
-          Fishbone diagram tracing a checkout latency incident to five candidate cause categories,
-          with a missing database index under Data confirmed as the root cause.
+          Fishbone diagram tracing a checkout latency incident to five candidate
+          cause categories, with a missing database index under Data confirmed
+          as the root cause.
         </desc>
         <defs>
           <marker
@@ -111,13 +120,55 @@
           marker-end="url(#fishbone-arrow)"
         />
 
-        <line x1="880" y1="320" x2="784" y2="152" stroke="#2d3142" stroke-width="1.2" />
-        <line x1="720" y1="320" x2="624" y2="488" stroke="#eb6c36" stroke-width="1.2" />
-        <line x1="560" y1="320" x2="464" y2="152" stroke="#2d3142" stroke-width="1.2" />
-        <line x1="400" y1="320" x2="304" y2="488" stroke="#2d3142" stroke-width="1.2" />
-        <line x1="240" y1="320" x2="144" y2="152" stroke="#2d3142" stroke-width="1.2" />
+        <line
+          x1="880"
+          y1="320"
+          x2="784"
+          y2="152"
+          stroke="#2d3142"
+          stroke-width="1.2"
+        />
+        <line
+          x1="720"
+          y1="320"
+          x2="624"
+          y2="488"
+          stroke="#eb6c36"
+          stroke-width="1.2"
+        />
+        <line
+          x1="560"
+          y1="320"
+          x2="464"
+          y2="152"
+          stroke="#2d3142"
+          stroke-width="1.2"
+        />
+        <line
+          x1="400"
+          y1="320"
+          x2="304"
+          y2="488"
+          stroke="#2d3142"
+          stroke-width="1.2"
+        />
+        <line
+          x1="240"
+          y1="320"
+          x2="144"
+          y2="152"
+          stroke="#2d3142"
+          stroke-width="1.2"
+        />
 
-        <line x1="848" y1="264" x2="816" y2="264" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="848"
+          y1="264"
+          x2="816"
+          y2="264"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="812"
           y="260"
@@ -128,7 +179,14 @@
         >
           canary skipped
         </text>
-        <line x1="816" y1="208" x2="784" y2="208" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="816"
+          y1="208"
+          x2="784"
+          y2="208"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="780"
           y="204"
@@ -140,7 +198,14 @@
           config drift
         </text>
 
-        <line x1="688" y1="376" x2="656" y2="376" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="688"
+          y1="376"
+          x2="656"
+          y2="376"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="652"
           y="388"
@@ -151,7 +216,14 @@
         >
           index missing on orders.created_at
         </text>
-        <line x1="656" y1="432" x2="624" y2="432" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="656"
+          y1="432"
+          x2="624"
+          y2="432"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="620"
           y="444"
@@ -163,7 +235,14 @@
           table 3x forecast
         </text>
 
-        <line x1="528" y1="264" x2="496" y2="264" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="528"
+          y1="264"
+          x2="496"
+          y2="264"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="492"
           y="260"
@@ -174,7 +253,14 @@
         >
           connection pool cap 20
         </text>
-        <line x1="496" y1="208" x2="464" y2="208" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="496"
+          y1="208"
+          x2="464"
+          y2="208"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="460"
           y="204"
@@ -186,7 +272,14 @@
           GC pauses
         </text>
 
-        <line x1="368" y1="376" x2="336" y2="376" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="368"
+          y1="376"
+          x2="336"
+          y2="376"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="332"
           y="388"
@@ -197,7 +290,14 @@
         >
           no p99 alert
         </text>
-        <line x1="336" y1="432" x2="304" y2="432" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="336"
+          y1="432"
+          x2="304"
+          y2="432"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="300"
           y="444"
@@ -209,7 +309,14 @@
           dashboard sampled at 5m
         </text>
 
-        <line x1="192" y1="236" x2="160" y2="236" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="192"
+          y1="236"
+          x2="160"
+          y2="236"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="156"
           y="232"
@@ -386,7 +493,14 @@
           4x for 90 minutes
         </text>
 
-        <line x1="40" y1="560" x2="1400" y2="560" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
+        <line
+          x1="40"
+          y1="560"
+          x2="1400"
+          y2="560"
+          stroke="rgba(45,49,66,0.10)"
+          stroke-width="0.8"
+        />
         <text
           x="40"
           y="576"
@@ -398,7 +512,14 @@
           LEGEND
         </text>
 
-        <line x1="40" y1="588" x2="56" y2="588" stroke="#2d3142" stroke-width="1.2" />
+        <line
+          x1="40"
+          y1="588"
+          x2="56"
+          y2="588"
+          stroke="#2d3142"
+          stroke-width="1.2"
+        />
         <text
           x="64"
           y="592"
@@ -409,7 +530,14 @@
           Category (bone)
         </text>
 
-        <line x1="260" y1="588" x2="276" y2="588" stroke="#eb6c36" stroke-width="1.2" />
+        <line
+          x1="260"
+          y1="588"
+          x2="276"
+          y2="588"
+          stroke="#eb6c36"
+          stroke-width="1.2"
+        />
         <text
           x="284"
           y="592"
@@ -420,7 +548,14 @@
           Confirmed root cause
         </text>
 
-        <line x1="480" y1="588" x2="496" y2="588" stroke="#4f5d75" stroke-width="1" />
+        <line
+          x1="480"
+          y1="588"
+          x2="496"
+          y2="588"
+          stroke="#4f5d75"
+          stroke-width="1"
+        />
         <text
           x="504"
           y="592"

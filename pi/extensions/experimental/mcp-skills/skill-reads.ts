@@ -1,4 +1,4 @@
-import { basename, resolve } from "node:path";
+import path from "node:path";
 
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import type {
@@ -14,8 +14,11 @@ import { expandHome, isMounted } from "./mount.js";
 import type { McpSkills } from "./runtime.js";
 
 /** A `read` path as the read tool resolves it: without `@`, with `~` expanded, against the working directory. */
-const resolveReadPath = (path: string, cwd: string): string =>
-  resolve(cwd, expandHome(path.startsWith("@") ? path.slice(1) : path));
+const resolveReadPath = (requested: string, cwd: string): string =>
+  path.resolve(
+    cwd,
+    expandHome(requested.startsWith("@") ? requested.slice(1) : requested)
+  );
 
 /** What the model is told about a skill it loaded. Its folder path also marks the skill as in use. */
 export const skillOrigin = (skill: CatalogSkill): string =>
@@ -34,26 +37,37 @@ export const createSkillReads = (skills: McpSkills) => {
   return {
     async beforeRead(
       event: ToolCallEvent,
-      ctx: ExtensionContext,
+      ctx: ExtensionContext
     ): Promise<ToolCallEventResult | undefined> {
-      if (!isToolCallEventType("read", event)) return undefined;
+      if (!isToolCallEventType("read", event)) {
+        return undefined;
+      }
 
-      const path = resolveReadPath(event.input.path, ctx.cwd);
+      const target = resolveReadPath(event.input.path, ctx.cwd);
 
-      if (!isMounted(skills.mountRoot, path) || basename(path) !== "SKILL.md") return undefined;
+      if (
+        !isMounted(skills.mountRoot, target) ||
+        path.basename(target) !== "SKILL.md"
+      ) {
+        return undefined;
+      }
 
-      const skill = skills.catalog().find((candidate) => candidate.path === path);
+      const skill = skills
+        .catalog()
+        .find((candidate) => candidate.path === target);
 
       if (!skill) {
         return {
           block: true,
-          reason: `${path} is not the SKILL.md of a listed MCP skill. MCP skills are listed with their current paths.`,
+          reason: `${target} is not the SKILL.md of a listed MCP skill. MCP skills are listed with their current paths.`,
         };
       }
 
       const loaded = await skills.load(ctx, skill, ctx.signal);
 
-      if ("error" in loaded) return { block: true, reason: loaded.error };
+      if ("error" in loaded) {
+        return { block: true, reason: loaded.error };
+      }
 
       origins.set(event.toolCallId, `[${skillOrigin(skill)}]`);
 
@@ -66,7 +80,9 @@ export const createSkillReads = (skills: McpSkills) => {
 
       origins.delete(event.toolCallId);
 
-      if (origin === undefined || event.isError) return undefined;
+      if (origin === undefined || event.isError) {
+        return undefined;
+      }
 
       const [first, ...rest] = event.content;
       const { structuredContent } = event;

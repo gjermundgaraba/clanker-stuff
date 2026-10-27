@@ -1,8 +1,8 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { describe, expect, it } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import {
   isSupportedProvider,
   resolveQuotaProvider,
@@ -14,13 +14,17 @@ describe("providers", () => {
   it("classifies supported providers at the fetch boundary", () => {
     expect(SUPPORTED_PROVIDERS.every(isSupportedProvider)).toBe(true);
 
-    for (const provider of ["unknown", "openai", undefined])
+    for (const provider of ["unknown", "openai", undefined]) {
       expect(isSupportedProvider(provider)).toBe(false);
+    }
   });
 
   it("preserves raw identity and targets physical selections immediately", () => {
     const session = SessionManager.inMemory();
-    session.appendMessage({ ...fauxAssistantMessage("done"), provider: "anthropic" });
+    session.appendMessage({
+      ...fauxAssistantMessage("done"),
+      provider: "anthropic",
+    });
 
     const ctx = createExtensionHost(() => {}).createContext({
       sessionManager: session,
@@ -44,7 +48,12 @@ describe("providers", () => {
 
   it("uses physical attempts for virtual selections without guessing an unrouted provider", () => {
     const session = SessionManager.inMemory();
-    const original = session.appendMessage({ role: "user", content: "start", timestamp: 0 });
+
+    const original = session.appendMessage({
+      role: "user",
+      content: "start",
+      timestamp: 0,
+    });
 
     const ctx = createExtensionHost(() => {}).createContext({
       sessionManager: session,
@@ -63,7 +72,10 @@ describe("providers", () => {
     });
 
     expect(resolveQuotaProvider(ctx)).toBeUndefined();
-    session.appendMessage({ ...fauxAssistantMessage("done"), provider: "anthropic" });
+    session.appendMessage({
+      ...fauxAssistantMessage("done"),
+      provider: "anthropic",
+    });
     session.appendMessage({
       ...fauxAssistantMessage("", { stopReason: "error" }),
       provider: "openai",
@@ -80,16 +92,20 @@ describe("providers", () => {
   });
 
   it("requires quota, feature quota, or accounting", () => {
-    expect(usageResult({ fetchedAt: 1, provider: "radius", quotaWindows: [] })).toMatchObject({
+    expect(
+      usageResult({ fetchedAt: 1, provider: "radius", quotaWindows: [] })
+    ).toMatchObject({
       ok: false,
     });
     expect(
       usageResult({
-        additionalQuotaWindows: [{ label: "web search month", remainingPercent: 0 }],
+        additionalQuotaWindows: [
+          { label: "web search month", remainingPercent: 0 },
+        ],
         fetchedAt: 1,
         provider: "zai",
         quotaWindows: [],
-      }),
+      })
     ).toMatchObject({ ok: true });
     expect(
       usageResult({
@@ -97,7 +113,7 @@ describe("providers", () => {
         fetchedAt: 1,
         provider: "openrouter",
         quotaWindows: [],
-      }),
+      })
     ).toMatchObject({ ok: true });
   });
 });

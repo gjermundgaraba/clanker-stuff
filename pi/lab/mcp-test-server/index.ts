@@ -20,7 +20,10 @@ export const createTestServer =
   async () => {
     const server = new McpServer({ name: "mcp-test-server", version: "0.1.0" });
 
-    if (options.skillsDir !== undefined) (await loadSkills(options.skillsDir)).attach(server);
+    if (options.skillsDir !== undefined) {
+      const skills = await loadSkills(options.skillsDir);
+      skills.attach(server);
+    }
 
     return server;
   };

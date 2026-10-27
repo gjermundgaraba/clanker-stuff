@@ -4,7 +4,11 @@ import { accessToken } from "../auth.js";
 import type { GetAuth } from "../auth.js";
 import type { FetchJson } from "../http.js";
 import { usageFailure } from "../providers.js";
-import type { SupportedProvider, UsageFetchResult, UsageWindow } from "../providers.js";
+import type {
+  SupportedProvider,
+  UsageFetchResult,
+  UsageWindow,
+} from "../providers.js";
 
 export interface AdapterDeps {
   getAuth: GetAuth;
@@ -32,11 +36,15 @@ export const fetchUsage = async <S extends TSchema>(
   deps: AdapterDeps,
   provider: SupportedProvider,
   request: UsageRequest<S>,
-  map: (payload: Static<S>, nowMs: number) => UsageFetchResult,
+  map: (payload: Static<S>, nowMs: number) => UsageFetchResult
 ): Promise<UsageFetchResult> => {
-  const auth = await accessToken(deps.getAuth, provider, { oauth: request.oauth ?? false });
+  const auth = await accessToken(deps.getAuth, provider, {
+    oauth: request.oauth ?? false,
+  });
 
-  if (!auth.ok) return auth;
+  if (!auth.ok) {
+    return auth;
+  }
 
   const response = await deps.fetchJson(request.url, request.schema, {
     Accept: "application/json",
@@ -48,17 +56,22 @@ export const fetchUsage = async <S extends TSchema>(
     return map(response.json, deps.now());
   }
 
-  return usageFailure(response.message, response.status === 403 ? "unavailable" : "failure");
+  return usageFailure(
+    response.message,
+    response.status === 403 ? "unavailable" : "failure"
+  );
 };
 
-export const isDefined = <T>(value: T | undefined): value is T => value !== undefined;
+export const isDefined = <T>(value: T | undefined): value is T =>
+  value !== undefined;
 
-const clampPercent = (value: number): number => Math.min(100, Math.max(0, value));
+const clampPercent = (value: number): number =>
+  Math.min(100, Math.max(0, value));
 
 export const makeUsageWindow = (
   label: string,
   remainingPercent: number,
-  resetsAt?: string,
+  resetsAt?: string
 ): UsageWindow => {
   const usageWindow: UsageWindow = {
     label,
@@ -74,18 +87,28 @@ export const makeUsageWindow = (
 
 /** Labels a positive duration in seconds using the largest exact whole unit. */
 export const durationLabel = (seconds: number): string => {
-  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
+  if (seconds % 86_400 === 0) {
+    return `${seconds / 86_400}d`;
+  }
 
-  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600}h`;
+  }
 
-  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  if (seconds % 60 === 0) {
+    return `${seconds / 60}m`;
+  }
 
   return `${seconds}s`;
 };
 
 /** `undefined` for values outside `Date`'s range, which `toISOString()` would throw on. */
-export const isoFromEpochMs = (value: number | undefined): string | undefined => {
-  if (value === undefined) return undefined;
+export const isoFromEpochMs = (
+  value: number | undefined
+): string | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
 
   const date = new Date(value);
 

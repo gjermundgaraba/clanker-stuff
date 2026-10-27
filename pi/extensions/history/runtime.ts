@@ -1,11 +1,16 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import { acquireEditorHost } from "@clanker-stuff/editor";
-import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  InputEvent,
+  UserBashEvent,
+} from "@earendil-works/pi-coding-agent";
 
 import { bashPrompt, typedPrompt } from "./history.js";
 import type { HistoryItem } from "./history.js";
 import { importPersistentHistory } from "./import.js";
+import { createSearch } from "./search.js";
 import {
   getDataVersion,
   loadHistory,
@@ -13,7 +18,6 @@ import {
   openMemoryDatabase,
   saveHistoryItem,
 } from "./storage.js";
-import { createSearch } from "./search.js";
 
 const STATUS_KEY = "history";
 
@@ -32,15 +36,23 @@ export const createHistoryRuntime = () => {
   let importPromise: Promise<number> | undefined;
   let persistenceWarningShown = false;
 
-  const warnPersistence = (ui: ExtensionContext["ui"], cause: unknown): void => {
-    if (persistenceWarningShown) return;
+  const warnPersistence = (
+    ui: ExtensionContext["ui"],
+    cause: unknown
+  ): void => {
+    if (persistenceWarningShown) {
+      return;
+    }
+
     persistenceWarningShown = true;
     const message = cause instanceof Error ? `: ${cause.message}` : "";
     ui.notify(`Prompt history persistence is unavailable${message}`, "warning");
   };
 
   const start = (ctx: ExtensionContext) => {
-    if (ctx.mode !== "tui") return;
+    if (ctx.mode !== "tui") {
+      return;
+    }
 
     if (ctx.sessionManager.getSessionDir() !== "") {
       try {
@@ -61,13 +73,18 @@ export const createHistoryRuntime = () => {
       warnPersistence(ctx.ui, error);
     }
 
-    acquireEditorHost(ctx)?.seedHistory(recent.map(({ text }) => text).toReversed());
+    acquireEditorHost(ctx)?.seedHistory(
+      recent.map(({ text }) => text).toReversed()
+    );
   };
 
   const record = (text: string, ui: ExtensionContext["ui"]) => {
     const trimmed = text.trim();
 
-    if (!database || !trimmed) return;
+    if (!database || !trimmed) {
+      return;
+    }
+
     const item = { text: trimmed, timestamp: Date.now() };
     history = [item, ...history.filter((entry) => entry.text !== trimmed)];
 
@@ -78,7 +95,10 @@ export const createHistoryRuntime = () => {
     }
   };
 
-  const snapshot = (activeDatabase: DatabaseSync, ui: ExtensionContext["ui"]) => {
+  const snapshot = (
+    activeDatabase: DatabaseSync,
+    ui: ExtensionContext["ui"]
+  ) => {
     try {
       const version = getDataVersion(activeDatabase);
 
@@ -94,22 +114,33 @@ export const createHistoryRuntime = () => {
   };
 
   const open = async (ctx: ExtensionContext) => {
-    if (!database) return;
+    if (!database) {
+      return;
+    }
+
     const items = snapshot(database, ctx.ui);
 
-    const accepted = await ctx.ui.custom<string | undefined>((_tui, theme, _keybindings, done) => {
-      closeSearch = () => done(undefined);
+    const accepted = await ctx.ui.custom<string | undefined>(
+      (_tui, theme, _keybindings, done) => {
+        closeSearch = () => {
+          done(undefined);
+        };
 
-      return createSearch(items, theme, done);
-    });
+        return createSearch(items, theme, done);
+      }
+    );
 
     closeSearch = undefined;
 
-    if (accepted !== undefined) ctx.ui.setEditorText(accepted);
+    if (accepted !== undefined) {
+      ctx.ui.setEditorText(accepted);
+    }
   };
 
   const importHistory = async (ctx: ExtensionContext) => {
-    if (!database) return;
+    if (!database) {
+      return;
+    }
 
     if (!persistent) {
       ctx.ui.notify("Prompt history persistence is unavailable", "warning");
@@ -126,13 +157,18 @@ export const createHistoryRuntime = () => {
     importPromise = importPersistentHistory(
       database,
       ctx.sessionManager.getSessionDir(),
-      (status) => ctx.ui.setStatus(STATUS_KEY, status),
-      session.signal,
+      (status) => {
+        ctx.ui.setStatus(STATUS_KEY, status);
+      },
+      session.signal
     );
 
     try {
       const files = await importPromise;
-      ctx.ui.notify(`Imported prompt history from ${files} session files.`, "info");
+      ctx.ui.notify(
+        `Imported prompt history from ${files} session files.`,
+        "info"
+      );
     } catch (error) {
       if (!session.signal.aborted) {
         const message = error instanceof Error ? `: ${error.message}` : "";
@@ -148,7 +184,9 @@ export const createHistoryRuntime = () => {
 
   /** An earlier input handler may already have expanded skills into the text; keep what was typed. */
   const recordInput = (event: InputEvent, ctx: ExtensionContext) => {
-    if (event.source === "interactive") record(typedPrompt(event.text), ctx.ui);
+    if (event.source === "interactive") {
+      record(typedPrompt(event.text), ctx.ui);
+    }
   };
 
   const recordBash = (event: UserBashEvent, ctx: ExtensionContext) => {

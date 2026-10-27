@@ -20,6 +20,8 @@ describe(getExtensionStoragePaths, () => {
   });
 
   it("rejects IDs that could escape their storage namespace", () => {
-    expect(() => getExtensionStoragePaths("../example")).toThrow("invalid extension ID");
+    expect(() => getExtensionStoragePaths("../example")).toThrow(
+      "invalid extension ID"
+    );
   });
 });

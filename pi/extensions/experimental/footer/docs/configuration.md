@@ -12,7 +12,10 @@ The default layout:
 {
   "iconFamily": "unicode",
   "rows": [
-    { "left": ["footer.cwd", "footer.git"], "right": ["footer.model", "footer.thinking"] },
+    {
+      "left": ["footer.cwd", "footer.git"],
+      "right": ["footer.model", "footer.thinking"]
+    },
     { "left": ["footer.context"], "right": ["status:usage"] },
     { "left": ["footer.statuses"], "right": [] }
   ],
@@ -35,14 +38,14 @@ All four fields are required. Unknown fields, an ID listed twice across rows, bo
 
 ## Widgets
 
-| ID                   | Shows                                                                                                                                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `footer.cwd`         | Working directory.                                                                                                                                                        |
-| `footer.git`         | Git branch, as Pi reports it.                                                                                                                                             |
+| ID | Shows |
+| --- | --- |
+| `footer.cwd` | Working directory. |
+| `footer.git` | Git branch, as Pi reports it. |
 | `footer.git.details` | Staged `+`, unstaged `~`, untracked `?`, ahead `↑`, and behind `↓` counts. Runs `git status` at session start, after each turn, and on branch changes, only while placed. |
-| `footer.model`       | Selected model. When the branch's last successful response used another model, `selected: … · last: …`, including physical routes behind virtual models.                  |
-| `footer.thinking`    | Thinking level, split the same way.                                                                                                                                       |
-| `footer.context`     | Context use against the window. Shows `?` while unknown, such as after compaction until the next response.                                                                |
-| `footer.session`     | Session name, elapsed time, tokens, cache, and cost across every entry, including compaction, branch summaries, and standalone usage such as cache warming.               |
-| `status:<key>`       | One native status set with `ctx.ui.setStatus(key, text)`.                                                                                                                 |
-| `footer.statuses`    | Every native status not placed elsewhere or hidden, sorted by key.                                                                                                        |
+| `footer.model` | Selected model. When the branch's last successful response used another model, `selected: … · last: …`, including physical routes behind virtual models. |
+| `footer.thinking` | Thinking level, split the same way. |
+| `footer.context` | Context use against the window. Shows `?` while unknown, such as after compaction until the next response. |
+| `footer.session` | Session name, elapsed time, tokens, cache, and cost across every entry, including compaction, branch summaries, and standalone usage such as cache warming. |
+| `status:<key>` | One native status set with `ctx.ui.setStatus(key, text)`. |
+| `footer.statuses` | Every native status not placed elsewhere or hidden, sorted by key. |

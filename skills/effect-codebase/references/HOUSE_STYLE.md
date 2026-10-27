@@ -50,11 +50,11 @@ Tests return Effects and receive their services through Layers. The test runner'
 
 Choose the smallest proof that fits the rule being tested.
 
-| Behavior                              | Test shape                                    |
-| ------------------------------------- | --------------------------------------------- |
-| One interface between components      | An integration example with supplied services |
-| A rule over many inputs               | A property over generated inputs              |
-| State that depends on earlier actions | A model checked after generated commands      |
+| Behavior | Test shape |
+| --- | --- |
+| One interface between components | An integration example with supplied services |
+| A rule over many inputs | A property over generated inputs |
+| State that depends on earlier actions | A model checked after generated commands |
 
 - **Fits** rules with a large input space, and state where order matters: ordering, moves in a tree, undo and redo, identity over time.
 - **Watch for** the assertion. Generated inputs do not create it. The test needs a statement of correct behavior that does not call the code under test to decide the expected result.

@@ -75,17 +75,17 @@ Stopping sends TERM to the owned POSIX process group, waits up to one second, th
 
 ## Limits
 
-| Resource                         | Limit                                                       |
-| -------------------------------- | ----------------------------------------------------------- |
-| Task name                        | 80 characters, counted as displayed rather than in bytes    |
-| Live or unclean tasks            | 8                                                           |
-| Finished tasks with unread notes | 32; further starts fail until some are inspected            |
-| Read finished tasks kept         | 32, oldest pruned first                                     |
-| Deadline                         | 1 hour default; 100 ms–24 hours                             |
-| Record                           | 16 KiB line and rendered data; 256 records per second       |
-| Retained events per task         | 64 records / 16 KiB as rendered; oldest dropped and counted |
-| Logs                             | Last 128 KiB per stream, in memory                          |
-| Tool text                        | 51,200 bytes; complete structured value through Code Mode   |
+| Resource | Limit |
+| --- | --- |
+| Task name | 80 characters, counted as displayed rather than in bytes |
+| Live or unclean tasks | 8 |
+| Finished tasks with unread notes | 32; further starts fail until some are inspected |
+| Read finished tasks kept | 32, oldest pruned first |
+| Deadline | 1 hour default; 100 ms–24 hours |
+| Record | 16 KiB line and rendered data; 256 records per second |
+| Retained events per task | 64 records / 16 KiB as rendered; oldest dropped and counted |
+| Logs | Last 128 KiB per stream, in memory |
+| Tool text | 51,200 bytes; complete structured value through Code Mode |
 
 ## Code Mode placement
 

@@ -1,7 +1,11 @@
 // Spawn model errors adapted from OpenAI Codex (Apache-2.0); see ./NOTICE.
 import { readFile } from "node:fs/promises";
 
-import { getSupportedThinkingLevels, modelsAreEqual, StringEnum } from "@earendil-works/pi-ai";
+import {
+  getSupportedThinkingLevels,
+  modelsAreEqual,
+  StringEnum,
+} from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -10,7 +14,15 @@ import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 
 export const ThinkingSchema = StringEnum(THINKING_LEVELS);
 
@@ -21,20 +33,22 @@ const RoleSchema = Type.Object(
     model: Type.Optional(Type.String({ minLength: 1 })),
     thinking: Type.Optional(ThinkingSchema),
   },
-  STRICT,
+  STRICT
 );
 
 const SubagentsConfigSchema = Type.Object(
   {
     delegation: Type.Optional(StringEnum(["explicit", "proactive"] as const)),
-    max_concurrent_threads_per_session: Type.Optional(Type.Integer({ minimum: 1 })),
+    max_concurrent_threads_per_session: Type.Optional(
+      Type.Integer({ minimum: 1 })
+    ),
     roles: Type.Optional(
-      Type.Record(Type.String({ pattern: "^[a-z0-9_-]+$" }), RoleSchema, STRICT),
+      Type.Record(Type.String({ pattern: "^[a-z0-9_-]+$" }), RoleSchema, STRICT)
     ),
     wake_on_final_answer: Type.Optional(Type.Boolean()),
     version: Type.Literal(2),
   },
-  STRICT,
+  STRICT
 );
 
 export type AgentThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -64,14 +78,16 @@ export const parseConfig = (value: unknown): SubagentsConfig => {
 
   return {
     delegation: value.delegation ?? DEFAULT_CONFIG.delegation,
-    maxConcurrent: value.max_concurrent_threads_per_session ?? DEFAULT_CONFIG.maxConcurrent,
+    maxConcurrent:
+      value.max_concurrent_threads_per_session ?? DEFAULT_CONFIG.maxConcurrent,
     roles: value.roles ?? {},
-    wakeOnFinalAnswer: value.wake_on_final_answer ?? DEFAULT_CONFIG.wakeOnFinalAnswer,
+    wakeOnFinalAnswer:
+      value.wake_on_final_answer ?? DEFAULT_CONFIG.wakeOnFinalAnswer,
   };
 };
 
 export const loadConfig = async (
-  configPath: string,
+  configPath: string
 ): Promise<{ config: SubagentsConfig; error: string | undefined }> => {
   try {
     return {
@@ -90,14 +106,20 @@ export const loadConfig = async (
   }
 };
 
-const findModel = (requested: string, registry: SpawnModelRegistry): Model<Api> => {
+const findModel = (
+  requested: string,
+  registry: SpawnModelRegistry
+): Model<Api> => {
   const slash = requested.indexOf("/");
 
   if (slash < 1 || slash === requested.length - 1) {
     throw new Error("Model overrides must use provider/model-id");
   }
 
-  const model = registry.find(requested.slice(0, slash), requested.slice(slash + 1));
+  const model = registry.find(
+    requested.slice(0, slash),
+    requested.slice(slash + 1)
+  );
 
   if (model === undefined) {
     throw new Error(
@@ -105,7 +127,7 @@ const findModel = (requested: string, registry: SpawnModelRegistry): Model<Api> 
         .getAvailable()
         .slice(0, 5)
         .map((available) => `${available.provider}/${available.id}`)
-        .join(", ")}`,
+        .join(", ")}`
     );
   }
 
@@ -135,10 +157,11 @@ export interface ParentSettings {
 export const resolveChildSettings = (
   config: SubagentsConfig,
   request: SpawnRequest,
-  parent: ParentSettings,
+  parent: ParentSettings
 ): ChildSettings => {
   const role =
-    request.agentType !== undefined && Object.hasOwn(config.roles, request.agentType)
+    request.agentType !== undefined &&
+    Object.hasOwn(config.roles, request.agentType)
       ? config.roles[request.agentType]
       : undefined;
 
@@ -149,10 +172,14 @@ export const resolveChildSettings = (
   const requestedModel = role?.model ?? request.model;
 
   const model =
-    requestedModel === undefined ? parent.model : findModel(requestedModel, parent.registry);
+    requestedModel === undefined
+      ? parent.model
+      : findModel(requestedModel, parent.registry);
 
   if (model === undefined) {
-    throw new Error("No model is selected for the child; select a model or pass one explicitly");
+    throw new Error(
+      "No model is selected for the child; select a model or pass one explicitly"
+    );
   }
 
   const explicitThinking = role?.thinking ?? request.thinking;
@@ -162,7 +189,7 @@ export const resolveChildSettings = (
     !getSupportedThinkingLevels(model).includes(explicitThinking)
   ) {
     throw new Error(
-      `Reasoning effort \`${explicitThinking}\` is not supported for model \`${model.id}\`. Supported reasoning efforts: ${getSupportedThinkingLevels(model).join(", ")}`,
+      `Reasoning effort \`${explicitThinking}\` is not supported for model \`${model.id}\`. Supported reasoning efforts: ${getSupportedThinkingLevels(model).join(", ")}`
     );
   }
 
@@ -170,6 +197,7 @@ export const resolveChildSettings = (
     instructions: role?.instructions,
     model,
     thinking:
-      explicitThinking ?? (modelsAreEqual(model, parent.model) ? parent.thinking : undefined),
+      explicitThinking ??
+      (modelsAreEqual(model, parent.model) ? parent.thinking : undefined),
   };
 };

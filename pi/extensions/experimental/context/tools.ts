@@ -1,4 +1,5 @@
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
+
 import type { ContextPart } from "./snapshot.js";
 
 export interface ToolsSnapshot {
@@ -11,7 +12,7 @@ export interface ToolsSnapshot {
 /** Registration and activation at open time, not declarations or measured model context. */
 export const buildToolsSnapshot = (
   tools: readonly ToolInfo[],
-  activeTools: readonly string[],
+  activeTools: readonly string[]
 ): ToolsSnapshot => {
   const active = new Set(activeTools);
 
@@ -39,7 +40,7 @@ export const buildToolsSnapshot = (
               reachesTools: reachesTools !== undefined,
             },
             null,
-            2,
+            2
           ),
           format: "json",
           tone: "code",

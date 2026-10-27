@@ -20,22 +20,27 @@ Example GitHub Actions observer using an already-authenticated `gh` client:
 ```js
 // ci-watch.mjs; run with: node ci-watch.mjs RUN_ID
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const run = process.argv[2];
 if (!/^\d+$/.test(run ?? "")) throw new Error("Expected numeric run ID");
-const emit = (record) => process.stdout.write(JSON.stringify({ v: 1, ...record }) + "\n");
+const emit = (record) =>
+  process.stdout.write(JSON.stringify({ v: 1, ...record }) + "\n");
 let previous;
 let failures = 0;
 for (;;) {
   let state;
   try {
-    const { stdout } = await exec("gh", ["run", "view", run, "--json", "status,conclusion"], {
-      timeout: 15000,
-      maxBuffer: 32768,
-    });
+    const { stdout } = await exec(
+      "gh",
+      ["run", "view", run, "--json", "status,conclusion"],
+      {
+        timeout: 15000,
+        maxBuffer: 32768,
+      }
+    );
     state = JSON.parse(stdout);
     if (typeof state.status !== "string") throw new Error("Invalid status");
     failures = 0;

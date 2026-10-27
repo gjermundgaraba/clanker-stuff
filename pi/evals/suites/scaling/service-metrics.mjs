@@ -33,9 +33,13 @@ const isEnd = (event) =>
   event["response_bytes"] >= 0;
 
 /** @param {unknown[]} events Untrusted journal records; malformed rows invalidate completeness without hiding independent counts. */
-export function serviceMetrics(events) {
+export const serviceMetrics = (events) => {
   const records = events.filter(isRecord);
-  const rawStarts = records.filter((e) => e["type"] === "pi_eval_service_start");
+
+  const rawStarts = records.filter(
+    (e) => e["type"] === "pi_eval_service_start"
+  );
+
   const rawEnds = records.filter((e) => e["type"] === "pi_eval_service_end");
   const starts = rawStarts.filter(isStart);
   const ends = rawEnds.filter(isEnd);
@@ -54,8 +58,8 @@ export function serviceMetrics(events) {
           e.operation === s.operation &&
           e.name === s.name &&
           e.start_ms === s.start_ms &&
-          e.end_ms >= s.start_ms,
-      ),
+          e.end_ms >= s.start_ms
+      )
     );
 
   return {
@@ -63,11 +67,16 @@ export function serviceMetrics(events) {
     underlying_operations: rawStarts.length,
     completed_operations: rawEnds.length,
     successful_operations: ends.filter((e) => e.success).length,
-    transient_failures: ends.filter((e) => e.error === "temporarily_unavailable").length,
-    other_failures: ends.filter((e) => !e.success && e.error !== "temporarily_unavailable").length,
+    transient_failures: ends.filter(
+      (e) => e.error === "temporarily_unavailable"
+    ).length,
+    other_failures: ends.filter(
+      (e) => !e.success && e.error !== "temporarily_unavailable"
+    ).length,
     response_bytes: ends.reduce((sum, e) => sum + e.response_bytes, 0),
     max_concurrency: Math.max(0, ...starts.map((e) => e.concurrent)),
     service_elapsed_ms: ends.reduce((sum, e) => sum + e.end_ms - e.start_ms, 0),
-    submissions: records.filter((e) => e["type"] === "pi_eval_submission").length,
+    submissions: records.filter((e) => e["type"] === "pi_eval_submission")
+      .length,
   };
-}
+};

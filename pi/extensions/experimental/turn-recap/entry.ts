@@ -18,7 +18,11 @@ export const SnapshotSchema = Type.Object({
   startedAt: Type.Number({ minimum: 0 }),
   finishedAt: Type.Number({ minimum: 0 }),
   wallMs: Type.Number({ minimum: 0 }),
-  outcome: Type.Union([Type.Literal("completed"), Type.Literal("aborted"), Type.Literal("error")]),
+  outcome: Type.Union([
+    Type.Literal("completed"),
+    Type.Literal("aborted"),
+    Type.Literal("error"),
+  ]),
   metrics: MetricsSchema,
 });
 
@@ -31,7 +35,7 @@ const RecapSchema = Type.Union([
       text: Type.String({ minLength: 1, maxLength: RECAP_MAX_CHARS }),
       usage: UsageSchema,
     },
-    closed,
+    closed
   ),
   Type.Object(
     {
@@ -39,7 +43,7 @@ const RecapSchema = Type.Union([
       error: Type.String(),
       usage: Type.Optional(UsageSchema),
     },
-    closed,
+    closed
   ),
 ]);
 
@@ -47,5 +51,5 @@ export type Recap = Static<typeof RecapSchema>;
 
 export const RecapEntrySchema = Type.Object(
   { runId: Type.String({ minLength: 1 }), recap: RecapSchema },
-  closed,
+  closed
 );

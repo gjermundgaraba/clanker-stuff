@@ -1,14 +1,20 @@
 import { fauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import { DEFAULT_CONFIG, parseConfig, resolveChildSettings } from "../config.js";
+import {
+  DEFAULT_CONFIG,
+  parseConfig,
+  resolveChildSettings,
+} from "../config.js";
 
 const model = (provider: string, id: string, reasoning = false) =>
   fauxProvider({ models: [{ id, reasoning }], provider }).getModel();
 
-const registryOf = (...models: ReturnType<typeof model>[]) => ({
+const registryOf = (...models: Array<ReturnType<typeof model>>) => ({
   find: (provider: string, id: string) =>
-    models.find((candidate) => candidate.provider === provider && candidate.id === id),
+    models.find(
+      (candidate) => candidate.provider === provider && candidate.id === id
+    ),
   getAvailable: () => models,
 });
 
@@ -20,17 +26,23 @@ describe(parseConfig, () => {
       parseConfig({
         delegation: "proactive",
         max_concurrent_threads_per_session: 2,
-        roles: { researcher: { description: "Find evidence.", thinking: "high" } },
+        roles: {
+          researcher: { description: "Find evidence.", thinking: "high" },
+        },
         version: 2,
-      }),
+      })
     ).toStrictEqual({
       delegation: "proactive",
       maxConcurrent: 2,
-      roles: { researcher: { description: "Find evidence.", thinking: "high" } },
+      roles: {
+        researcher: { description: "Find evidence.", thinking: "high" },
+      },
       wakeOnFinalAnswer: true,
     });
     expect(parseConfig({ version: 2 })).toStrictEqual(DEFAULT_CONFIG);
-    expect(parseConfig({ version: 2, wake_on_final_answer: false }).wakeOnFinalAnswer).toBe(false);
+    expect(
+      parseConfig({ version: 2, wake_on_final_answer: false }).wakeOnFinalAnswer
+    ).toBe(false);
   });
 
   it.each([
@@ -54,7 +66,7 @@ describe(resolveChildSettings, () => {
         model: parent,
         registry: registryOf(parent),
         thinking: "low",
-      }),
+      })
     ).toStrictEqual({
       instructions: undefined,
       model: parent,
@@ -69,7 +81,11 @@ describe(resolveChildSettings, () => {
     const config = {
       ...DEFAULT_CONFIG,
       roles: {
-        reviewer: { instructions: "Review.", model: "other/role-model", thinking: "high" as const },
+        reviewer: {
+          instructions: "Review.",
+          model: "other/role-model",
+          thinking: "high" as const,
+        },
       },
     };
 
@@ -77,8 +93,12 @@ describe(resolveChildSettings, () => {
       resolveChildSettings(
         config,
         { agentType: "reviewer", model: "other/requested", thinking: "low" },
-        { model: parent, registry: registryOf(parent, roleModel, requested), thinking: "off" },
-      ),
+        {
+          model: parent,
+          registry: registryOf(parent, roleModel, requested),
+          thinking: "off",
+        }
+      )
     ).toStrictEqual({
       instructions: "Review.",
       model: roleModel,
@@ -96,25 +116,36 @@ describe(resolveChildSettings, () => {
     };
 
     expect(
-      resolveChildSettings(DEFAULT_CONFIG, { ...request, model: "other/model" }, parents),
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        { ...request, model: "other/model" },
+        parents
+      )
     ).toMatchObject({ thinking: undefined });
     expect(
       resolveChildSettings(
         { ...DEFAULT_CONFIG, roles: { reviewer: { model: "other/model" } } },
         { ...request, agentType: "reviewer" },
-        parents,
-      ),
+        parents
+      )
     ).toMatchObject({ thinking: undefined });
 
     expect(
-      resolveChildSettings(DEFAULT_CONFIG, { ...request, model: "parent/parent-model" }, parents),
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        { ...request, model: "parent/parent-model" },
+        parents
+      )
     ).toMatchObject({ thinking: "high" });
     expect(
       resolveChildSettings(
-        { ...DEFAULT_CONFIG, roles: { reviewer: { model: "parent/parent-model" } } },
+        {
+          ...DEFAULT_CONFIG,
+          roles: { reviewer: { model: "parent/parent-model" } },
+        },
         { ...request, agentType: "reviewer" },
-        parents,
-      ),
+        parents
+      )
     ).toMatchObject({ thinking: "high" });
   });
 
@@ -125,39 +156,71 @@ describe(resolveChildSettings, () => {
       resolveChildSettings(
         DEFAULT_CONFIG,
         { ...request, model: "other/model" },
-        { model: parent, registry: registryOf(parent, other), thinking: undefined },
-      ).model,
+        {
+          model: parent,
+          registry: registryOf(parent, other),
+          thinking: undefined,
+        }
+      ).model
     ).toBe(other);
   });
 
   it("names available models for an unknown override and rejects unqualified ids", () => {
-    const parents = { model: parent, registry: registryOf(parent), thinking: undefined };
+    const parents = {
+      model: parent,
+      registry: registryOf(parent),
+      thinking: undefined,
+    };
 
     expect(() =>
-      resolveChildSettings(DEFAULT_CONFIG, { ...request, model: "other/missing" }, parents),
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        { ...request, model: "other/missing" },
+        parents
+      )
     ).toThrow(
-      "Unknown model `other/missing` for spawn_agent. Available models: parent/parent-model",
+      "Unknown model `other/missing` for spawn_agent. Available models: parent/parent-model"
     );
 
     for (const value of ["parent-model", "/parent-model", "parent/"]) {
       expect(() =>
-        resolveChildSettings(DEFAULT_CONFIG, { ...request, model: value }, parents),
+        resolveChildSettings(
+          DEFAULT_CONFIG,
+          { ...request, model: value },
+          parents
+        )
       ).toThrow("provider/model-id");
     }
   });
 
   it("rejects unknown roles, unsupported reasoning, and a missing model", () => {
     const plain = model("parent", "plain");
-    const parents = { model: plain, registry: registryOf(plain), thinking: undefined };
+
+    const parents = {
+      model: plain,
+      registry: registryOf(plain),
+      thinking: undefined,
+    };
 
     expect(() =>
-      resolveChildSettings(DEFAULT_CONFIG, { ...request, agentType: "constructor" }, parents),
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        { ...request, agentType: "constructor" },
+        parents
+      )
     ).toThrow("Unknown agent_type: constructor");
     expect(() =>
-      resolveChildSettings(DEFAULT_CONFIG, { ...request, thinking: "high" }, parents),
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        { ...request, thinking: "high" },
+        parents
+      )
     ).toThrow("Reasoning effort `high` is not supported for model `plain`");
     expect(() =>
-      resolveChildSettings(DEFAULT_CONFIG, request, { ...parents, model: undefined }),
+      resolveChildSettings(DEFAULT_CONFIG, request, {
+        ...parents,
+        model: undefined,
+      })
     ).toThrow("No model is selected");
   });
 });

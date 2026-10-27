@@ -9,26 +9,29 @@ interface Position {
 export interface DocumentView {
   readonly text: string;
   readonly cursor: number;
-  readonly atoms: readonly {
+  readonly atoms: ReadonlyArray<{
     readonly start: number;
     readonly end: number;
     readonly content: string;
-  }[];
+  }>;
 }
 
-const markers = /\[paste #(\d+)(?: [^\]\n]*)?\]/g;
+const markers = /\[paste #(?<id>\d+)(?: [^\]\n]*)?\]/gu;
 
 interface NativeEditor {
   state: Position;
   pastes: Map<number, string>;
   pasteCounter: number;
   killRing: {
-    push(text: string, options: { prepend: boolean; accumulate?: boolean }): void;
-    peek(): string | undefined;
-    rotate(): void;
+    push: (
+      text: string,
+      options: { prepend: boolean; accumulate?: boolean }
+    ) => void;
+    peek: () => string | undefined;
+    rotate: () => void;
     readonly length: number;
   };
-  undoStack: { clear(): void };
+  undoStack: { clear: () => void };
   historyIndex: number;
   historyDraft: Position | null;
   scrollOffset: number;
@@ -37,34 +40,93 @@ interface NativeEditor {
   lastAction: string | null;
   preferredVisualCol: number | null;
   snappedFromCursorCol: number | null;
-  expandPasteMarkers(text: string): string;
-  cancelAutocomplete(): void;
-  buildVisualLineMap(width: number): { logicalLine: number; startCol: number; length: number }[];
+  expandPasteMarkers: (text: string) => string;
+  cancelAutocomplete: () => void;
+  buildVisualLineMap: (
+    width: number
+  ) => Array<{ logicalLine: number; startCol: number; length: number }>;
 }
 
-function nativeEditor(instance: unknown): NativeEditor {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exposes no public document/undo adapter; the pinned private layout is checked below and covered by native editor contract tests.
-  const native = instance as NativeEditor;
+const isPosition = (value: unknown): value is Position =>
+  typeof value === "object" &&
+  value !== null &&
+  "lines" in value &&
+  Array.isArray(value.lines) &&
+  value.lines.every(
+    (line: unknown): line is string => typeof line === "string"
+  ) &&
+  "cursorLine" in value &&
+  typeof value.cursorLine === "number" &&
+  "cursorCol" in value &&
+  typeof value.cursorCol === "number";
 
-  if (
-    !Array.isArray(native.state?.lines) ||
-    !(native.pastes instanceof Map) ||
-    typeof native.undoStack?.clear !== "function" ||
-    typeof native.killRing?.push !== "function" ||
-    typeof native.killRing?.peek !== "function" ||
-    typeof native.killRing?.rotate !== "function" ||
-    typeof native.expandPasteMarkers !== "function" ||
-    typeof native.cancelAutocomplete !== "function" ||
-    typeof native.buildVisualLineMap !== "function"
-  ) {
-    throw new Error("Unsupported Pi editor layout: required document/undo APIs are unavailable");
+const isNumberOrNull = (value: unknown): value is number | null =>
+  value === null || typeof value === "number";
+
+// Pi exposes no public document/undo adapter, so every private member the adapter reads, writes or
+// calls is checked here. Method signatures cannot be checked at runtime; native editor contract
+// tests cover them.
+const isNativeEditor = (value: unknown): value is NativeEditor =>
+  typeof value === "object" &&
+  value !== null &&
+  "state" in value &&
+  isPosition(value.state) &&
+  "pastes" in value &&
+  value.pastes instanceof Map &&
+  [...value.pastes].every(
+    (paste: [unknown, unknown]): paste is [number, string] =>
+      typeof paste[0] === "number" && typeof paste[1] === "string"
+  ) &&
+  "pasteCounter" in value &&
+  typeof value.pasteCounter === "number" &&
+  "killRing" in value &&
+  typeof value.killRing === "object" &&
+  value.killRing !== null &&
+  "push" in value.killRing &&
+  typeof value.killRing.push === "function" &&
+  "peek" in value.killRing &&
+  typeof value.killRing.peek === "function" &&
+  "rotate" in value.killRing &&
+  typeof value.killRing.rotate === "function" &&
+  "length" in value.killRing &&
+  typeof value.killRing.length === "number" &&
+  "undoStack" in value &&
+  typeof value.undoStack === "object" &&
+  value.undoStack !== null &&
+  "clear" in value.undoStack &&
+  typeof value.undoStack.clear === "function" &&
+  "historyIndex" in value &&
+  typeof value.historyIndex === "number" &&
+  "historyDraft" in value &&
+  (value.historyDraft === null || isPosition(value.historyDraft)) &&
+  "scrollOffset" in value &&
+  typeof value.scrollOffset === "number" &&
+  "lastWidth" in value &&
+  typeof value.lastWidth === "number" &&
+  "renderedVisibleLineCount" in value &&
+  typeof value.renderedVisibleLineCount === "number" &&
+  "lastAction" in value &&
+  (value.lastAction === null || typeof value.lastAction === "string") &&
+  "preferredVisualCol" in value &&
+  isNumberOrNull(value.preferredVisualCol) &&
+  "snappedFromCursorCol" in value &&
+  isNumberOrNull(value.snappedFromCursorCol) &&
+  "expandPasteMarkers" in value &&
+  typeof value.expandPasteMarkers === "function" &&
+  "cancelAutocomplete" in value &&
+  typeof value.cancelAutocomplete === "function" &&
+  "buildVisualLineMap" in value &&
+  typeof value.buildVisualLineMap === "function";
+
+export const connect = (editor: CustomEditor) => {
+  const native: unknown = editor;
+
+  if (!isNativeEditor(native)) {
+    throw new TypeError(
+      "Unsupported Pi editor layout: required document/undo APIs are unavailable"
+    );
   }
 
-  return native;
-}
-
-export function connect(editor: CustomEditor) {
-  const native = nativeEditor(editor);
   const text = () => native.state.lines.join("\n");
 
   const cursor = () =>
@@ -80,12 +142,19 @@ export function connect(editor: CustomEditor) {
       cursor: cursor(),
       atoms: value
         .matchAll(markers)
-        .filter((match) => native.pastes.has(Number(match[1])))
-        .map((match) => ({
-          start: match.index,
-          end: match.index + match[0].length,
-          content: native.pastes.get(Number(match[1]))!,
-        }))
+        .flatMap((match) => {
+          const content = native.pastes.get(Number(match.groups?.["id"]));
+
+          return content === undefined
+            ? []
+            : [
+                {
+                  start: match.index,
+                  end: match.index + match[0].length,
+                  content,
+                },
+              ];
+        })
         .toArray(),
     };
   };
@@ -93,23 +162,35 @@ export function connect(editor: CustomEditor) {
   const move = (offset: number) => {
     const value = text();
     const bounded = Math.max(0, Math.min(value.length, offset));
-    const lines = value.slice(0, bounded).split("\n");
-    native.state.cursorLine = lines.length - 1;
-    native.state.cursorCol = lines.at(-1)!.length;
+    const before = value.slice(0, bounded);
+    native.state.cursorLine = before.split("\n").length - 1;
+    native.state.cursorCol = bounded - (before.lastIndexOf("\n") + 1);
     native.preferredVisualCol = null;
     native.snappedFromCursorCol = null;
   };
 
-  const expand = (text: string) =>
-    text.replace(markers, (marker, id: string) => native.pastes.get(Number(id)) ?? marker);
+  const expand = (input: string) =>
+    input.replaceAll(
+      markers,
+      (marker, id: string) => native.pastes.get(Number(id)) ?? marker
+    );
 
   // Native retrieval and submission share nonrecursive payload ownership.
   native.expandPasteMarkers = expand;
 
-  const replace = (start: number, end: number, insertion: string, target: number) => {
+  const replace = (
+    start: number,
+    end: number,
+    insertion: string,
+    target: number
+  ) => {
     native.cancelAutocomplete();
     const value = text();
-    native.state.lines = (value.slice(0, start) + insertion + value.slice(end)).split("\n");
+    native.state.lines = (
+      value.slice(0, start) +
+      insertion +
+      value.slice(end)
+    ).split("\n");
     native.historyIndex = -1;
     native.historyDraft = null;
     native.lastAction = null;
@@ -117,33 +198,45 @@ export function connect(editor: CustomEditor) {
   };
 
   // Views own immutable strings, including payloads, so they also serve as modal checkpoints.
-  const restoreView = (view: DocumentView) => {
+  const restoreView = (checkpoint: DocumentView) => {
     native.pastes = new Map();
     native.pasteCounter = 0;
 
-    for (const atom of view.atoms) {
-      const id = Number([...view.text.slice(atom.start, atom.end).matchAll(markers)][0]![1]);
+    for (const atom of checkpoint.atoms) {
+      const [marker] = checkpoint.text
+        .slice(atom.start, atom.end)
+        .matchAll(markers);
+
+      if (marker === undefined) {
+        throw new Error("A document view atom must span a paste marker");
+      }
+
+      const id = Number(marker.groups?.["id"]);
+
       native.pastes.set(id, atom.content);
       native.pasteCounter = Math.max(native.pasteCounter, id);
     }
 
-    replace(0, text().length, view.text, view.cursor);
+    replace(0, text().length, checkpoint.text, checkpoint.cursor);
     native.undoStack.clear();
     native.scrollOffset = 0;
   };
 
   // Payload text never becomes terminal control input. Complex register content uses native markers.
-  const encode = (text: string) => {
+  const encode = (payload: string) => {
     if (
-      !/\p{Cc}/u.test(text.replaceAll("\n", "")) &&
-      !text.includes("[paste #") &&
-      text.length < 1000
-    )
-      return text;
-    const id = ++native.pasteCounter;
-    native.pastes.set(id, text);
+      !/\p{Cc}/u.test(payload.replaceAll("\n", "")) &&
+      !payload.includes("[paste #") &&
+      payload.length < 1000
+    ) {
+      return payload;
+    }
 
-    return `[paste #${id} +${text.split("\n").length} lines]`;
+    native.pasteCounter += 1;
+    const id = native.pasteCounter;
+    native.pastes.set(id, payload);
+
+    return `[paste #${id} +${payload.split("\n").length} lines]`;
   };
 
   // Native kill-ring entries otherwise retain marker IDs after their payload map is cleared.
@@ -151,18 +244,25 @@ export function connect(editor: CustomEditor) {
   const ring = native.killRing;
   let cached: { raw: string; encoded: string } | undefined;
   native.killRing = {
-    push: (value, options) => ring.push(expand(value), options),
+    push: (value, options) => {
+      ring.push(expand(value), options);
+    },
     peek: () => {
       const raw = ring.peek();
 
-      if (raw === undefined) return undefined;
+      if (raw === undefined) {
+        return;
+      }
 
-      if (!cached || cached.raw !== raw || expand(cached.encoded) !== raw)
+      if (!cached || cached.raw !== raw || expand(cached.encoded) !== raw) {
         cached = { raw, encoded: encode(raw) };
+      }
 
       return cached.encoded;
     },
-    rotate: () => ring.rotate(),
+    rotate: () => {
+      ring.rotate();
+    },
     get length() {
       return ring.length;
     },
@@ -178,14 +278,18 @@ export function connect(editor: CustomEditor) {
     restoreView,
     historyIndex: () => native.historyIndex,
     encode,
-    cancelCompletion: () => native.cancelAutocomplete(),
-    clearNativeUndo: () => native.undoStack.clear(),
+    cancelCompletion: () => {
+      native.cancelAutocomplete();
+    },
+    clearNativeUndo: () => {
+      native.undoStack.clear();
+    },
     layout: () => ({
       rows: native.buildVisualLineMap(native.lastWidth),
       scroll: native.scrollOffset,
       visible: native.renderedVisibleLineCount,
     }),
   };
-}
+};
 
 export type DocumentAdapter = ReturnType<typeof connect>;

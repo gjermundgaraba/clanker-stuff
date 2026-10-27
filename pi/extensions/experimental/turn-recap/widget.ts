@@ -14,7 +14,7 @@ export const createLiveWidget = (
   tui: TUI,
   theme: Pick<Theme, "fg">,
   view: () => LiveState | undefined,
-  font: RollingFont | undefined,
+  font: RollingFont | undefined
 ) => {
   const numbers = new RollingNumbers();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -24,27 +24,32 @@ export const createLiveWidget = (
       clearTimeout(timer);
       const state = view();
 
-      if (!state) return [];
+      if (!state) {
+        return [];
+      }
 
       // Running time shows whole seconds; wake just after the next one.
       const nextSecond = 1001 - (state.elapsedMs % 1000);
 
       const { lines, animated } = font
         ? numbers.frame(performance.now(), font, (numeric) =>
-            renderLive(state, width, theme, numeric),
+            renderLive(state, width, theme, numeric)
           )
         : { lines: renderLive(state, width, theme), animated: false };
 
       // A quantized frame can be ASCII at a step boundary and still be moving.
       timer = setTimeout(
-        () => tui.requestRender(),
-        animated ? Math.min(ROLL_FRAME_MS, nextSecond) : nextSecond,
+        () => {
+          tui.requestRender();
+        },
+        animated ? Math.min(ROLL_FRAME_MS, nextSecond) : nextSecond
       );
 
       return lines;
     },
-    // Theme and layout are recomputed on every render; no styled cache to clear.
-    invalidate() {},
+    invalidate() {
+      // Theme and layout are recomputed on every render; no styled cache to clear.
+    },
     dispose() {
       clearTimeout(timer);
     },

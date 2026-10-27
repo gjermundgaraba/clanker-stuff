@@ -1,4 +1,7 @@
-import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 import { fetchClaudeUsage } from "./adapters/claude.js";
 import { fetchCodexUsage } from "./adapters/codex.js";
@@ -14,16 +17,20 @@ import { contextAuth } from "./auth.js";
 import type { GetAuth } from "./auth.js";
 import { UsageCache } from "./cache.js";
 import { parseUsageArgs } from "./command.js";
-import { formatDetail, formatProviderError, formatRefreshFailed } from "./format.js";
+import {
+  formatDetail,
+  formatProviderError,
+  formatRefreshFailed,
+} from "./format.js";
 import { defaultFetchJson } from "./http.js";
 import {
   isSupportedProvider,
   quotaUnavailableMessage,
   resolveQuotaProvider,
   SUPPORTED_PROVIDERS,
+  usageFailure,
 } from "./providers.js";
 import type { SupportedProvider, UsageFetchResult } from "./providers.js";
-import { usageFailure } from "./providers.js";
 import { presentationProvider, STATUS_KEY, statusText } from "./status.js";
 import type { UsagePresentation } from "./status.js";
 
@@ -40,17 +47,21 @@ export interface UsageControllerDependencies {
 }
 
 export const resolveRadiusBillingUrl = (
-  baseUrls: readonly (string | undefined)[],
+  baseUrls: ReadonlyArray<string | undefined>
 ): string | undefined => {
   const distinct = new Set<string>();
 
   for (const baseUrl of baseUrls) {
-    if (baseUrl === undefined) continue;
+    if (baseUrl === undefined) {
+      continue;
+    }
 
     try {
       const url = new URL("/v1/billing", baseUrl);
 
-      if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return undefined;
+      }
 
       distinct.add(url.toString());
     } catch {
@@ -61,7 +72,9 @@ export const resolveRadiusBillingUrl = (
   return distinct.size === 1 ? distinct.values().next().value : undefined;
 };
 
-const radiusBillingUrlFromContext = (ctx: ExtensionContext): string | undefined => {
+const radiusBillingUrlFromContext = (
+  ctx: ExtensionContext
+): string | undefined => {
   const provider = ctx.modelRegistry.getProvider("radius");
 
   return provider === undefined
@@ -79,10 +92,13 @@ const defaultDependencies: UsageControllerDependencies = {
 };
 
 export const createUsageController = (
-  dependencies: UsageControllerDependencies = defaultDependencies,
+  dependencies: UsageControllerDependencies = defaultDependencies
 ) => {
   const { fetchJson, now, getAuth } = dependencies;
-  const radiusBillingUrl = dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
+
+  const radiusBillingUrl =
+    dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
+
   const cache = new UsageCache(now);
 
   const usageFetchers = {
@@ -108,14 +124,18 @@ export const createUsageController = (
 
   let generation = 0;
   let disposed = false;
-  let current: { context: ExtensionContext; presentation: UsagePresentation } | undefined;
+
+  let current:
+    | { context: ExtensionContext; presentation: UsagePresentation }
+    | undefined;
+
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
   const publish = (): void => {
     if (current?.context.mode === "tui") {
       current.context.ui.setStatus(
         STATUS_KEY,
-        statusText(current.presentation, now(), current.context.ui.theme),
+        statusText(current.presentation, now(), current.context.ui.theme)
       );
     }
   };
@@ -128,16 +148,26 @@ export const createUsageController = (
     current = undefined;
   };
 
-  const getOrFetch = (
+  const getOrFetch = async (
     provider: SupportedProvider,
     ctx: ExtensionContext,
-    force: boolean,
+    force: boolean
   ): Promise<UsageFetchResult> =>
-    cache.getOrFetch(provider, force, () =>
-      usageFetchers[provider]({ getAuth: getAuth(ctx), fetchJson, now }, ctx),
+    await cache.getOrFetch(
+      provider,
+      force,
+      async () =>
+        await usageFetchers[provider](
+          { getAuth: getAuth(ctx), fetchJson, now },
+          ctx
+        )
     );
 
-  const refresh = (ctx: ExtensionContext, provider: string | undefined, force = false): void => {
+  const refresh = (
+    ctx: ExtensionContext,
+    provider: string | undefined,
+    force = false
+  ): void => {
     generation += 1;
 
     // `/usage` explains a target without quota reporting; the status line stays empty.
@@ -150,7 +180,9 @@ export const createUsageController = (
     const last = cache.getLastSuccess(provider);
     current = {
       context: ctx,
-      presentation: last ? { kind: "ready", snapshot: last } : { kind: "loading", provider },
+      presentation: last
+        ? { kind: "ready", snapshot: last }
+        : { kind: "loading", provider },
     };
     publish();
     const refreshGeneration = generation;
@@ -158,15 +190,22 @@ export const createUsageController = (
       const result = await getOrFetch(provider, ctx, force);
 
       // Every target change and dispose starts a new generation.
-      if (refreshGeneration !== generation) return;
+      if (refreshGeneration !== generation) {
+        return;
+      }
 
       if (result.ok) {
-        current = { context: ctx, presentation: { kind: "ready", snapshot: result.snapshot } };
+        current = {
+          context: ctx,
+          presentation: { kind: "ready", snapshot: result.snapshot },
+        };
       } else {
         const snapshot = cache.getLastSuccess(provider);
         current = {
           context: ctx,
-          presentation: snapshot ? { kind: "stale", snapshot } : { kind: "error", provider },
+          presentation: snapshot
+            ? { kind: "stale", snapshot }
+            : { kind: "error", provider },
         };
       }
 
@@ -188,7 +227,10 @@ export const createUsageController = (
       stopTimer();
       clear(current?.context);
     },
-    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    runCommand: async (
+      args: string,
+      ctx: ExtensionCommandContext
+    ): Promise<void> => {
       const parsed = parseUsageArgs(args);
 
       if (!parsed.ok) {
@@ -204,7 +246,7 @@ export const createUsageController = (
         SUPPORTED_PROVIDERS.map(async (provider) => ({
           provider,
           result: await getOrFetch(provider, ctx, parsed.refresh),
-        })),
+        }))
       );
 
       // Commands query accounts, not the selected model; only shutdown invalidates delivery.
@@ -213,17 +255,24 @@ export const createUsageController = (
       }
 
       const available = results.filter(
-        ({ result }) => result.ok || result.error.kind === "failure",
+        ({ result }) => result.ok || result.error.kind === "failure"
       );
 
-      const targetResult = results.find(({ provider }) => provider === target)?.result;
+      const targetResult = results.find(
+        ({ provider }) => provider === target
+      )?.result;
 
       // The status line only says the target's usage is unavailable; name the reason here.
-      const note = !isSupportedProvider(target)
-        ? quotaUnavailableMessage(target)
-        : targetResult?.ok === false && targetResult.error.kind === "unavailable"
-          ? formatProviderError(target, targetResult.error.message)
-          : undefined;
+      let note: string | undefined;
+
+      if (!isSupportedProvider(target)) {
+        note = quotaUnavailableMessage(target);
+      } else if (
+        targetResult?.ok === false &&
+        targetResult.error.kind === "unavailable"
+      ) {
+        note = formatProviderError(target, targetResult.error.message);
+      }
 
       if (available.length === 0) {
         ctx.ui.notify(note ?? NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
@@ -234,18 +283,28 @@ export const createUsageController = (
       const lines: string[] = note === undefined ? [] : [note];
 
       for (const { provider, result } of available) {
-        const snapshot = result.ok ? result.snapshot : cache.getLastSuccess(provider);
+        const snapshot = result.ok
+          ? result.snapshot
+          : cache.getLastSuccess(provider);
 
         if (snapshot) {
-          const [header = "", ...details] = formatDetail(snapshot, now()).split("\n");
+          const [header = "", ...details] = formatDetail(snapshot, now()).split(
+            "\n"
+          );
+
           lines.push([ctx.ui.theme.bold(header), ...details].join("\n"));
         }
 
         if (!result.ok) {
           lines.push(
             snapshot
-              ? formatRefreshFailed(provider, result.error.message, snapshot.fetchedAt, now())
-              : formatProviderError(provider, result.error.message),
+              ? formatRefreshFailed(
+                  provider,
+                  result.error.message,
+                  snapshot.fetchedAt,
+                  now()
+                )
+              : formatProviderError(provider, result.error.message)
           );
         }
       }
@@ -266,7 +325,9 @@ export const createUsageController = (
       }, REFRESH_INTERVAL_MS);
     },
     refresh: (ctx: ExtensionContext): void => {
-      if (ctx.mode === "tui") refresh(ctx, resolveQuotaProvider(ctx));
+      if (ctx.mode === "tui") {
+        refresh(ctx, resolveQuotaProvider(ctx));
+      }
     },
   };
 };

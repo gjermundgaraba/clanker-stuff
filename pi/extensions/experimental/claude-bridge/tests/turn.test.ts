@@ -1,9 +1,13 @@
-import type { ImageContent, Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
+import type {
+  ImageContent,
+  Message,
+  TextContent,
+  UserMessage,
+} from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
 import { newAssistantOutput } from "../translate.js";
 import { turnStart, userTurnBlocks } from "../turn.js";
-
 import { testModel } from "./helpers.js";
 
 const user = (content: UserMessage["content"]): UserMessage => ({
@@ -20,7 +24,8 @@ const image = (data: string, mimeType = "image/png"): ImageContent => ({
   mimeType,
 });
 
-const assistant = (value: string): Message => newAssistantOutput(testModel(), "stop", value);
+const assistant = (value: string): Message =>
+  newAssistantOutput(testModel(), "stop", value);
 
 const pngBlock = (data: string) => ({
   type: "image",
@@ -29,7 +34,12 @@ const pngBlock = (data: string) => ({
 
 describe("turnStart", () => {
   it("points at the first of the trailing user messages", () => {
-    const messages = [user("old"), assistant("answer"), user("new"), user("preview")];
+    const messages = [
+      user("old"),
+      assistant("answer"),
+      user("new"),
+      user("preview"),
+    ];
 
     expect(turnStart(messages)).toBe(2);
   });
@@ -49,7 +59,7 @@ describe("userTurnBlocks", () => {
       user("(attachment preview: [#image 1])"),
     ]);
 
-    expect(blocks).toEqual([
+    expect(blocks).toStrictEqual([
       { type: "text", text: "describe this" },
       pngBlock("aW1hZ2U="),
       { type: "text", text: "(attachment preview: [#image 1])" },
@@ -59,8 +69,10 @@ describe("userTurnBlocks", () => {
   // Data-less image blocks occur in the wild, and the API rejects other media types.
   it("marks an image Claude cannot take instead of sending it", () => {
     expect(
-      userTurnBlocks([user([text("look"), image(""), image("aW1hZ2U=", "image/tiff")])]),
-    ).toEqual([
+      userTurnBlocks([
+        user([text("look"), image(""), image("aW1hZ2U=", "image/tiff")]),
+      ])
+    ).toStrictEqual([
       { type: "text", text: "look" },
       { type: "text", text: "[image]" },
       { type: "text", text: "[image]" },

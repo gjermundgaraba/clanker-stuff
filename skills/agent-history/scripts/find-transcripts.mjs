@@ -6,18 +6,30 @@ import path from "node:path";
 
 const HOME = os.homedir();
 
-/** @param {...string} locations */
-function existing(...locations) {
-  return locations.filter((location) => fs.existsSync(location));
-}
+/** @param {...string} locations Candidate transcript paths. */
+const existing = (...locations) =>
+  locations.filter((location) => fs.existsSync(location));
 
-/** @param {string} root
- * @param {Set<string>} names
- * @param {number} maxDepth
- * @param {"file" | "directory"} type
+/**
+ * @param {string} name Environment variable that overrides the directory.
+ * @param {string} fallback Directory used when the variable is unset or empty.
  */
-function findNamed(root, names, maxDepth, type) {
-  if (!fs.existsSync(root)) return [];
+const configuredDirectory = (name, fallback) => {
+  const configured = process.env[name];
+
+  return configured === undefined || configured === "" ? fallback : configured;
+};
+
+/** @param {string} root Directory to search; a missing one yields no matches.
+ * @param {Set<string>} names Exact entry names that count as matches.
+ * @param {number} maxDepth Deepest directory level to descend into.
+ * @param {"file" | "directory"} type Whether to collect files or directories; symlinks to either are skipped.
+ */
+const findNamed = (root, names, maxDepth, type) => {
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+
   const matches = [];
   /** @type {Array<[string, number]>} */
   const pending = [[root, 0]];
@@ -37,7 +49,8 @@ function findNamed(root, names, maxDepth, type) {
 
       if (
         names.has(entry.name) &&
-        ((type === "file" && entry.isFile()) || (type === "directory" && entry.isDirectory()))
+        ((type === "file" && entry.isFile()) ||
+          (type === "directory" && entry.isDirectory()))
       ) {
         matches.push(location);
       }
@@ -49,29 +62,45 @@ function findNamed(root, names, maxDepth, type) {
   }
 
   return matches;
-}
+};
 
-function opencodeLocations() {
+const opencodeLocations = () => {
   const configured = process.env["OPENCODE_DB"];
 
-  if (configured) return existing(path.resolve(configured));
+  if (configured !== undefined && configured !== "") {
+    return existing(path.resolve(configured));
+  }
 
   return existing(
     path.join(HOME, ".local", "share", "opencode", "opencode.db"),
-    path.join(HOME, ".opencode", "opencode.db"),
+    path.join(HOME, ".opencode", "opencode.db")
   );
-}
+};
 
-function cursorLocations() {
-  const support = path.join(HOME, "Library", "Application Support", "Cursor", "User");
+const cursorLocations = () => {
+  const support = path.join(
+    HOME,
+    "Library",
+    "Application Support",
+    "Cursor",
+    "User"
+  );
 
-  return existing(
-    path.join(support, "globalStorage", "state.vscdb"),
-    path.join(HOME, ".cursor", "projects"),
-  ).concat(findNamed(path.join(support, "workspaceStorage"), new Set(["state.vscdb"]), 2, "file"));
-}
+  return [
+    ...existing(
+      path.join(support, "globalStorage", "state.vscdb"),
+      path.join(HOME, ".cursor", "projects")
+    ),
+    ...findNamed(
+      path.join(support, "workspaceStorage"),
+      new Set(["state.vscdb"]),
+      2,
+      "file"
+    ),
+  ];
+};
 
-function copilotLocations() {
+const copilotLocations = () => {
   const support = path.join(HOME, "Library", "Application Support");
 
   return ["Code", "Code - Insiders", "VSCodium", "Cursor"].flatMap((profile) =>
@@ -79,13 +108,13 @@ function copilotLocations() {
       path.join(support, profile, "User", "workspaceStorage"),
       new Set(["chatSessions", "chatEditingSessions"]),
       3,
-      "directory",
-    ),
+      "directory"
+    )
   );
-}
+};
 
-/** @param {string} name */
-const keyFor = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** @param {string} name Display name or `--tool` value; case and punctuation do not matter. */
+const keyFor = (name) => name.toLowerCase().replaceAll(/[^a-z0-9]/gu, "");
 
 const tools = new Map(
   [
@@ -93,7 +122,13 @@ const tools = new Map(
       name: "Claude Code",
       detect: () =>
         existing(
-          path.join(process.env["CLAUDE_CONFIG_DIR"] || path.join(HOME, ".claude"), "projects"),
+          path.join(
+            configuredDirectory(
+              "CLAUDE_CONFIG_DIR",
+              path.join(HOME, ".claude")
+            ),
+            "projects"
+          )
         ),
     },
     {
@@ -101,15 +136,21 @@ const tools = new Map(
       detect: () =>
         existing(
           path.join(HOME, ".cline", "data", "db", "sessions.db"),
-          path.join(HOME, ".cline", "data", "sessions"),
+          path.join(HOME, ".cline", "data", "sessions")
         ),
     },
     {
       name: "Codex",
       detect: () => {
-        const root = process.env["CODEX_HOME"] || path.join(HOME, ".codex");
+        const root = configuredDirectory(
+          "CODEX_HOME",
+          path.join(HOME, ".codex")
+        );
 
-        return existing(path.join(root, "sessions"), path.join(root, "archived_sessions"));
+        return existing(
+          path.join(root, "sessions"),
+          path.join(root, "archived_sessions")
+        );
       },
     },
     { name: "Cursor", detect: cursorLocations },
@@ -118,28 +159,49 @@ const tools = new Map(
       detect: () =>
         existing(
           path.join(HOME, ".local", "share", "devin", "cli", "sessions.db"),
-          path.join(HOME, ".local", "share", "devin", "cli", "transcripts"),
+          path.join(HOME, ".local", "share", "devin", "cli", "transcripts")
         ),
     },
     { name: "GitHub Copilot", detect: copilotLocations },
     {
       name: "Grok Build",
       detect: () =>
-        existing(path.join(process.env["GROK_HOME"] || path.join(HOME, ".grok"), "sessions")),
+        existing(
+          path.join(
+            configuredDirectory("GROK_HOME", path.join(HOME, ".grok")),
+            "sessions"
+          )
+        ),
     },
     { name: "OpenCode", detect: opencodeLocations },
     {
       name: "Orca",
       detect: () =>
         existing(
-          path.join(HOME, "Library", "Application Support", "orca", "orchestration.db"),
-          path.join(HOME, "Library", "Application Support", "orca", "orca-data.json"),
+          path.join(
+            HOME,
+            "Library",
+            "Application Support",
+            "orca",
+            "orchestration.db"
+          ),
+          path.join(
+            HOME,
+            "Library",
+            "Application Support",
+            "orca",
+            "orca-data.json"
+          )
         ),
     },
-    { name: "Pi Local Agent", detect: () => existing(path.join(HOME, ".pi", "agent", "sessions")) },
+    {
+      name: "Pi Local Agent",
+      detect: () => existing(path.join(HOME, ".pi", "agent", "sessions")),
+    },
     {
       name: "Sourcegraph Amp",
-      detect: () => existing(path.join(HOME, ".cache", "amp", "logs", "threads")),
+      detect: () =>
+        existing(path.join(HOME, ".cache", "amp", "logs", "threads")),
     },
     {
       name: "Warp CLI",
@@ -154,29 +216,43 @@ const tools = new Map(
             "Application Support",
             "dev.warp.Warp-Stable",
             "tui",
-            "warp.sqlite",
-          ),
+            "warp.sqlite"
+          )
         ),
     },
     {
       name: "Zed",
       detect: () =>
-        existing(path.join(HOME, "Library", "Application Support", "Zed", "threads", "threads.db")),
+        existing(
+          path.join(
+            HOME,
+            "Library",
+            "Application Support",
+            "Zed",
+            "threads",
+            "threads.db"
+          )
+        ),
     },
-  ].map((tool) => [keyFor(tool.name), tool]),
+  ].map((tool) => [keyFor(tool.name), tool])
 );
 
-/** @param {string[]} args */
-function selectedTools(args) {
+/** @param {string[]} args Arguments after the script path: none, `--help`, or `--tool <name>`. */
+const selectedTools = (args) => {
   const usage =
     "Usage: find-transcripts.mjs [--tool <name>]\nFind local transcript locations; omit --tool to search all supported agents.";
 
   if (args.length === 1 && ["--help", "-h"].includes(args[0] ?? "")) {
-    console.log(`${usage}\nTools: ${[...tools.values()].map((tool) => tool.name).join(", ")}`);
+    console.log(
+      `${usage}\nTools: ${[...tools.values()].map((tool) => tool.name).join(", ")}`
+    );
     process.exit(0);
   }
 
-  if (args.length === 0) return tools;
+  if (args.length === 0) {
+    return tools;
+  }
+
   const [flag, requested, ...extra] = args;
 
   if (
@@ -193,24 +269,28 @@ function selectedTools(args) {
   const tool = tools.get(key);
 
   if (tool === undefined) {
-    console.error(`Unknown tool: ${requested}\n${usage}\nUse --help to list supported tools.`);
+    console.error(
+      `Unknown tool: ${requested}\n${usage}\nUse --help to list supported tools.`
+    );
     process.exit(2);
   }
 
   return new Map([[key, tool]]);
-}
+};
 
 // Validate the complete request before running any filesystem detector.
 const selected = selectedTools(process.argv.slice(2));
 
 const results = [];
 
-for (const [, tool] of [...selected.entries()].sort(([left], [right]) =>
-  left.localeCompare(right),
+for (const [, tool] of [...selected.entries()].toSorted(([left], [right]) =>
+  left.localeCompare(right)
 )) {
-  const locations = [...new Set(tool.detect())].sort();
+  const locations = [...new Set(tool.detect())].toSorted();
 
-  if (locations.length) results.push({ tool: tool.name, locations });
+  if (locations.length) {
+    results.push({ tool: tool.name, locations });
+  }
 }
 
 console.log(JSON.stringify(results, null, 2));

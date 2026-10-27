@@ -17,9 +17,9 @@ Continue only when the help identifies Cursor: `agent` can resolve to another pr
 
 Always pass `--model`. Preserve these preferences unless the user chooses otherwise:
 
-| Workload                                               | Model                             |
-| ------------------------------------------------------ | --------------------------------- |
-| Narrow mechanical work                                 | `composer-2.5`                    |
+| Workload | Model |
+| --- | --- |
+| Narrow mechanical work | `composer-2.5` |
 | Design, reviews, hard bugs, substantial implementation | `grok-4.5[effort=high,fast=true]` |
 
 `"$cursor_bin" models` lists account availability. If the selected model is unavailable, resolve availability before retrying; keep the requested effort tier and do not silently replace an explicitly required model.

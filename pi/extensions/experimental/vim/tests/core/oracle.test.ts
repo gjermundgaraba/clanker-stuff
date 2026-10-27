@@ -1,7 +1,9 @@
+import { execFileSync, spawnSync } from "node:child_process";
+
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vite-plus/test";
+
 import { setup } from "../helpers.js";
 
 const available = spawnSync("nvim", ["--version"]).status === 0;
@@ -14,41 +16,47 @@ vim.cmd.normal({args={case.keys}, bang=true})
 local cursor=vim.api.nvim_win_get_cursor(0)
 io.write(vim.json.encode({lines=vim.api.nvim_buf_get_lines(0,0,-1,false),row=cursor[1],col=cursor[2]}))`;
 
-const cases: [string, string[]][] = [
-  ["aaa bbb", ["i", "a", "\x1b", "w", "."]],
-  ["aaa bbb", ["3i", "a", "\x1b", "w", "."]],
-  ["aaa bbb", ["i", "aa", "\x08", "\x1b", "w", "."]],
+const cases: Array<[string, string[]]> = [
+  ["aaa bbb", ["i", "a", "\u001B", "w", "."]],
+  ["aaa bbb", ["3i", "a", "\u001B", "w", "."]],
+  ["aaa bbb", ["i", "aa", "\u0008", "\u001B", "w", "."]],
   ["one\ntwo", ["Vjrx"]],
   ["one\n\ntwo", ["Vjjrx"]],
   ["one\ntwo\n", ["Vjjrx"]],
   ["one\ntwo", ["vjlrx"]],
   ["éx\nyz", ["Vjrx"]],
-  ...["one, two! three", " one\n two\nthree", "one\n\ntwo", "αβ γδ εζ", "a b c", "one two"].flatMap(
-    (text) =>
-      [
-        "w",
-        "b",
-        "e",
-        "W",
-        "B",
-        "E",
-        "dw",
-        "db",
-        "de",
-        "dW",
-        "diw",
-        "daw",
-        "d$",
-        "cw",
-        "cc",
-        "J",
-        "dd",
-        "yyp",
-        "3x",
-      ].map((key): [string, string[]] => [
-        text,
-        ["w", ...(key.startsWith("c") ? [key, "Z", "\x1b"] : [key])],
-      ]),
+  ...[
+    "one, two! three",
+    " one\n two\nthree",
+    "one\n\ntwo",
+    "αβ γδ εζ",
+    "a b c",
+    "one two",
+  ].flatMap((text) =>
+    [
+      "w",
+      "b",
+      "e",
+      "W",
+      "B",
+      "E",
+      "dw",
+      "db",
+      "de",
+      "dW",
+      "diw",
+      "daw",
+      "d$",
+      "cw",
+      "cc",
+      "J",
+      "dd",
+      "yyp",
+      "3x",
+    ].map((key): [string, string[]] => [
+      text,
+      ["w", ...(key.startsWith("c") ? [key, "Z", "\u001B"] : [key])],
+    ])
   ),
   ...[
     "h",
@@ -82,75 +90,88 @@ const cases: [string, string[]][] = [
     "ywP",
     "ywp",
     "dd",
-    "ccNEW\x1b",
-    "cwNEW\x1b",
-    "iNEW\x1b",
-    "aNEW\x1b",
-    "ANEW\x1b",
-    "oNEW\x1b",
-    "ONEW\x1b",
+    "ccNEW\u001B",
+    "cwNEW\u001B",
+    "iNEW\u001B",
+    "aNEW\u001B",
+    "ANEW\u001B",
+    "oNEW\u001B",
+    "ONEW\u001B",
     "fT",
     "tT",
     "dfT",
     "dtT",
   ].map((command): [string, string[]] => [
     "one Two three",
-    command.includes("\x1b") ? [command.slice(0, -1), "\x1b"] : [command],
+    command.includes("\u001B") ? [command.slice(0, -1), "\u001B"] : [command],
   ]),
-  ...["j", "2j", "G", "gg", "2G", "dj", "2dd", "yyp", "yyP", "J", "3J", "cc", "Vjd"].map(
-    (command): [string, string[]] => [
-      "one\ntwo\nthree",
-      command === "cc" ? ["cc", "NEW", "\x1b"] : [command],
-    ],
-  ),
+  ...[
+    "j",
+    "2j",
+    "G",
+    "gg",
+    "2G",
+    "dj",
+    "2dd",
+    "yyp",
+    "yyP",
+    "J",
+    "3J",
+    "cc",
+    "Vjd",
+  ].map((command): [string, string[]] => [
+    "one\ntwo\nthree",
+    command === "cc" ? ["cc", "NEW", "\u001B"] : [command],
+  ]),
   ["say (one [two]) end", ["f[", "di["]],
   ["say (one [two]) end", ["f[", "%"]],
   ["say (one [two]) end", ["f[", "di("]],
-  ['say "one two" end', ['f"', 'ci"', "new", "\x1b"]],
-  ["one two", ["cw", "new", "\x1b", "w", "."]],
+  ['say "one two" end', ['f"', 'ci"', "new", "\u001B"]],
+  ["one two", ["cw", "new", "\u001B", "w", "."]],
   ["one two", ["x", "."]],
-  ["one two", ["s", "\x1b", "."]],
-  ["one\ntwo\nthree", ["C", "\x1b", "j", "."]],
+  ["one two", ["s", "\u001B", "."]],
+  ["one\ntwo\nthree", ["C", "\u001B", "j", "."]],
   ["one two three four five six", ["2dw", "3."]],
-  ["one two", ["3i", "Z", "\x1b"]],
-  ["one two", ["3a", "Z", "\x1b", "w", "."]],
-  ["one two", ["3o", "Z", "\x1b"]],
+  ["one two", ["3i", "Z", "\u001B"]],
+  ["one two", ["3a", "Z", "\u001B", "w", "."]],
+  ["one two", ["3o", "Z", "\u001B"]],
   ["one two three", ["vld", "w", "."]],
-  ["one two three", ["viwc", "new", "\x1b", "w", "."]],
+  ["one two three", ["viwc", "new", "\u001B", "w", "."]],
   ["one\ntwo\nthree", ["Vd", "."]],
-  ["a b", ["cw", "new", "\x1b"]],
+  ["a b", ["cw", "new", "\u001B"]],
   ["👩‍💻 é two", ["x"]],
   ["é two", ["x"]],
   // A count after the operator is as explicit as one before it.
-  ...["d2G", "2dG", "y2GP", "Gd2gg", "Gy2ggP"].map((keys): [string, string[]] => [
-    "abc\ndef\nghi",
-    [keys],
-  ]),
+  ...["d2G", "2dG", "y2GP", "Gd2gg", "Gy2ggP"].map(
+    (keys): [string, string[]] => ["abc\ndef\nghi", [keys]]
+  ),
   // Rightward operators reach past the last character of the last line.
-  ...["$dl", "$clZ\x1b", "ld3l", "l3~", "$x", "$~"].map((keys): [string, string[]] => [
-    "abcd",
-    [keys],
-  ]),
+  ...["$dl", "$clZ\u001B", "ld3l", "l3~", "$x", "$~"].map(
+    (keys): [string, string[]] => ["abcd", [keys]]
+  ),
   // Shorthand commands are their operator and motion, counts included.
   ...[
     "2D",
     "l2D",
-    "2CX\x1b",
-    "l2CX\x1b",
+    "2CX\u001B",
+    "l2CX\u001B",
     "l2x",
     "l9x",
     "$2X",
     "$9X",
-    "l2sZ\x1b",
-    "2SZ\x1b",
-  ].flatMap((keys): [string, string[]][] => [
+    "l2sZ\u001B",
+    "2SZ\u001B",
+  ].flatMap((keys): Array<[string, string[]]> => [
     ["abcd\ndef\nghi", [keys]],
     ["abcd\ndef\nghi\njkl\nmno", [keys, "j", "."]],
   ]),
-  ["\nxy", ["sZ\x1b"]],
+  ["\nxy", ["sZ\u001B"]],
   ["\nxy", ["x"]],
-  ["ab\n\nxy", ["jsZ\x1b"]],
-  ...["4rX", "3rX", "l2rX", "l3rX"].map((keys): [string, string[]] => ["abc", [keys]]),
+  ["ab\n\nxy", ["jsZ\u001B"]],
+  ...["4rX", "3rX", "l2rX", "l3rX"].map((keys): [string, string[]] => [
+    "abc",
+    [keys],
+  ]),
   // Visual J joins the selection; uppercase Visual edits take whole lines.
   ...[
     "VjJ",
@@ -162,9 +183,9 @@ const cases: [string, string[]][] = [
     "vlD",
     "vlX",
     "jvjD",
-    "vlCX\x1b",
-    "vlSX\x1b",
-    "VCX\x1b",
+    "vlCX\u001B",
+    "vlSX\u001B",
+    "VCX\u001B",
   ].map((keys): [string, string[]] => ["abc def\n  ghi\njkl", [keys]]),
   // Visual p exchanges the selection with the register; P keeps it.
   ["abc def", ["yiwwviwp$p"]],
@@ -177,9 +198,19 @@ const cases: [string, string[]][] = [
   ["abc\n def\nghi", ["jlyjP"]],
   ["abc\n def\nghi", ["jlyyP"]],
   // A vertical motion that cannot move fails, and so does its operator.
-  ...["dk", "Gdj", "ykP", "GyjP", "ckZ\x1b", "d5j", "jd5j", "Gd5k", "jd5k", "k", "Gj"].map(
-    (keys): [string, string[]] => ["one\ntwo\nthree", [keys]],
-  ),
+  ...[
+    "dk",
+    "Gdj",
+    "ykP",
+    "GyjP",
+    "ckZ\u001B",
+    "d5j",
+    "jd5j",
+    "Gd5k",
+    "jd5k",
+    "k",
+    "Gj",
+  ].map((keys): [string, string[]] => ["one\ntwo\nthree", [keys]]),
   ["solo", ["dj"]],
   ["solo", ["dk"]],
   // Counted inner words count the whitespace between them; counted "a word" does not.
@@ -192,7 +223,7 @@ const cases: [string, string[]][] = [
       "d2aw",
       "d3aw",
       "wd2iw",
-      "c2iwZ\x1b",
+      "c2iwZ\u001B",
       "y2iw$p",
       "v2iwd",
       "viwiwd",
@@ -203,7 +234,7 @@ const cases: [string, string[]][] = [
       "llld2aw",
       "llldiw",
       "lllvawd",
-    ].map((keys): [string, string[]] => [text, [keys]]),
+    ].map((keys): [string, string[]] => [text, [keys]])
   ),
   // A Visual put reconciles the register's type with the selection's.
   ...[
@@ -245,11 +276,14 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
       {
         env: {
           ...process.env,
-          PI_VIM_ORACLE: JSON.stringify({ lines: text.split("\n"), keys: inputs.join("") }),
+          PI_VIM_ORACLE: JSON.stringify({
+            lines: text.split("\n"),
+            keys: inputs.join(""),
+          }),
         },
-        encoding: "utf8",
+        encoding: "utf-8",
         timeout: 5000,
-      },
+      }
     );
 
     const expected = Value.Parse(
@@ -258,7 +292,7 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
         row: Type.Integer({ minimum: 1 }),
         col: Type.Integer({ minimum: 0 }),
       }),
-      JSON.parse(output),
+      JSON.parse(output)
     );
 
     const { editor, normal, keys } = setup(text);
@@ -266,13 +300,17 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
     // Escape is its own terminal packet; everything else may arrive together.
     keys(
       ...inputs.flatMap((input) =>
-        input.split("\x1b").flatMap((part, i) => (i ? ["\x1b", part] : [part]).filter(Boolean)),
-      ),
+        input
+          .split("\u001B")
+          .flatMap((part, i) => (i ? ["\u001B", part] : [part]).filter(Boolean))
+      )
     );
     expect(editor.getText()).toBe(expected.lines.join("\n"));
 
     const cursor =
-      expected.lines.slice(0, expected.row - 1).reduce((n, row) => n + row.length + 1, 0) +
+      expected.lines
+        .slice(0, expected.row - 1)
+        .reduce((n, row) => n + row.length + 1, 0) +
       Buffer.from(expected.lines[expected.row - 1]!)
         .subarray(0, expected.col)
         .toString().length;

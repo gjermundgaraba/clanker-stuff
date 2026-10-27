@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { exited, setup, waitForMessages } from "../helpers.js";
@@ -6,7 +7,11 @@ import { exited, setup, waitForMessages } from "../helpers.js";
 describe("plannotator-annotate", () => {
   it("forwards quoted arguments for Plannotator to validate and wraps feedback", async () => {
     const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-annotate", ` "docs/my file.md" --gate `, ctx);
+    await host.runCommand(
+      "plannotator-annotate",
+      ` "docs/my file.md" --gate `,
+      ctx
+    );
     expect(pending[0]).toMatchObject({
       args: ["annotate", "docs/my file.md", "--gate", "--json"],
       options: { cwd: "/work/project" },
@@ -14,10 +19,12 @@ describe("plannotator-annotate", () => {
 
     const [child] = pending;
     assert.ok(child);
-    child.resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Fix this." })));
+    child.resolve(
+      exited(JSON.stringify({ decision: "annotated", feedback: "Fix this." }))
+    );
     await waitForMessages(host, 1);
     expect(host.getSentUserMessages()[0]?.content).toBe(
-      `# Markdown Annotations\n\nFile: "docs/my file.md" --gate\n\nFix this.\n\nPlease address the annotation feedback above.`,
+      `# Markdown Annotations\n\nFile: "docs/my file.md" --gate\n\nFix this.\n\nPlease address the annotation feedback above.`
     );
   });
 
@@ -28,8 +35,10 @@ describe("plannotator-annotate", () => {
       await host.runCommand("plannotator-annotate", args, ctx);
       expect(pending).toHaveLength(0);
       expect(host.getNotifications().at(-1)).toMatchObject({ type: "error" });
-      expect(host.getNotifications().at(-1)?.message).toMatch(/^Usage: \/plannotator-annotate /u);
-    },
+      expect(host.getNotifications().at(-1)?.message).toMatch(
+        /^Usage: \/plannotator-annotate /u
+      );
+    }
   );
 
   it.each([
@@ -52,24 +61,29 @@ describe("plannotator-annotate", () => {
     {
       completion: exited("not json"),
       label: "malformed JSON",
-      message: "Plannotator annotation: Plannotator returned malformed annotation JSON",
+      message:
+        "Plannotator annotation: Plannotator returned malformed annotation JSON",
     },
     {
       completion: exited(JSON.stringify({ decision: "mystery" })),
       label: "unknown decision",
-      message: "Plannotator annotation: Plannotator returned an invalid annotation decision",
+      message:
+        "Plannotator annotation: Plannotator returned an invalid annotation decision",
     },
-  ])("reports $label as an error notification", async ({ completion, message }) => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-annotate", "file.md", ctx);
-    const [child] = pending;
-    assert.ok(child);
-    child.resolve(completion);
-    await vi.waitFor(() => {
-      expect(host.getNotifications().at(-1)).toStrictEqual({
-        message,
-        type: "error",
+  ])(
+    "reports $label as an error notification",
+    async ({ completion, message }) => {
+      const { ctx, host, pending } = setup();
+      await host.runCommand("plannotator-annotate", "file.md", ctx);
+      const [child] = pending;
+      assert.ok(child);
+      child.resolve(completion);
+      await vi.waitFor(() => {
+        expect(host.getNotifications().at(-1)).toStrictEqual({
+          message,
+          type: "error",
+        });
       });
-    });
-  });
+    }
+  );
 });

@@ -70,7 +70,8 @@ For a known static inline diagram, this browser-console expression copies a limi
       // Browsers may expand same-document fragment URLs to absolute URLs.
       value = value.replace(/url\(["']?([^"')]+)["']?\)/g, (match, ref) => {
         const url = new URL(ref, document.baseURI);
-        return url.hash && url.href.split("#")[0] === location.href.split("#")[0]
+        return url.hash &&
+          url.href.split("#")[0] === location.href.split("#")[0]
           ? `url("${url.hash}")`
           : match;
       });
@@ -91,16 +92,16 @@ For offline output, embed needed resources or replace them with suitable local g
 
 Set the canvas for its actual destination before laying out the content. A few useful upstream landscape starting frames (SVG units treated as CSS pixels at 96 dpi) are:
 
-| Destination                | ViewBox         | Typical raster scale                                  |
-| -------------------------- | --------------- | ----------------------------------------------------- |
-| Inline document            | `0 0 960 600`   | 2×                                                    |
-| Wide document / 16:9 slide | `0 0 1280 720`  | 2×                                                    |
-| 4:3 slide                  | `0 0 1200 900`  | 2×                                                    |
-| Social preview             | `0 0 1200 632`  | Match the platform’s actual required pixel dimensions |
-| Square social image        | `0 0 1080 1080` | Match the requested frame                             |
-| A4 landscape               | `0 0 1120 792`  | 3×                                                    |
-| A3 landscape               | `0 0 1584 1120` | 3× → 4752×3360                                        |
-| Letter landscape           | `0 0 1056 816`  | 3×                                                    |
+| Destination | ViewBox | Typical raster scale |
+| --- | --- | --- |
+| Inline document | `0 0 960 600` | 2× |
+| Wide document / 16:9 slide | `0 0 1280 720` | 2× |
+| 4:3 slide | `0 0 1200 900` | 2× |
+| Social preview | `0 0 1200 632` | Match the platform’s actual required pixel dimensions |
+| Square social image | `0 0 1080 1080` | Match the requested frame |
+| A4 landscape | `0 0 1120 792` | 3× |
+| A3 landscape | `0 0 1584 1120` | 3× → 4752×3360 |
+| Letter landscape | `0 0 1056 816` | 3× |
 
 These are layout presets, not guarantees of physical print size or a platform’s current specification. Honor exact dimensions supplied by the user. For physical print, set explicit SVG dimensions in mm/inches or configure the print/render scale. Keep outer margins and legend clearance, and increase type sizes for presentations instead of merely enlarging the coordinate frame. A `fit` canvas can be derived from actual content bounds plus padding when no fixed aspect ratio is needed.
 

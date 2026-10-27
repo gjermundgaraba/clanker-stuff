@@ -10,7 +10,6 @@ import {
   resolveClaudeCodeRuntimeModel,
 } from "../models.js";
 import type { ProviderChatModelConfig } from "../models.js";
-
 import { testModel } from "./helpers.js";
 
 // A pi-ai catalog entry: priced, and carrying the api/provider/baseUrl/headers fields
@@ -31,25 +30,39 @@ const catalogEntry = (id: string, contextWindow = 200_000): Model<Api> => ({
 
 const oneM = (id: string): Model<Api> => catalogEntry(id, 1_000_000);
 
-function find(models: readonly ProviderChatModelConfig[], id: string): ProviderChatModelConfig {
+const find = (
+  models: readonly ProviderChatModelConfig[],
+  id: string
+): ProviderChatModelConfig => {
   const model = models.find((candidate) => candidate.id === id);
 
-  if (model === undefined) throw new Error(`${id} missing from the registered models`);
+  if (model === undefined) {
+    throw new Error(`${id} missing from the registered models`);
+  }
 
   return model;
-}
+};
 
 describe("buildModels", () => {
   it("projects pi-ai's catalog onto unpriced registrations without dated snapshot aliases", () => {
     const models = catalogModels();
 
-    expect(models.some((model) => /-20\d{6}$/.test(model.id))).toBe(false);
-    expect(models.map((model) => model.id)).toEqual(
-      expect.arrayContaining(["claude-opus-5", "claude-fable-5-1", "claude-haiku-4-5"]),
+    expect(models.some((model) => /-20\d{6}$/u.test(model.id))).toBe(false);
+    expect(models.map((model) => model.id)).toStrictEqual(
+      expect.arrayContaining([
+        "claude-opus-5",
+        "claude-fable-5-1",
+        "claude-haiku-4-5",
+      ])
     );
 
     for (const model of models) {
-      expect(model.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+      expect(model.cost).toStrictEqual({
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      });
     }
   });
 
@@ -75,7 +88,7 @@ describe("buildModels", () => {
       oneM("claude-opus-4-6"),
     ]);
 
-    expect(models.map((model) => model.id)).toEqual([
+    expect(models.map((model) => model.id)).toStrictEqual([
       "claude-opus-5",
       "claude-opus-4-7",
       "claude-opus-4-6",
@@ -89,43 +102,51 @@ describe("buildModels", () => {
       catalogEntry("claude-opus-4-5"),
     ]);
 
-    expect(models.map((model) => model.id)).toEqual(["claude-opus-4-5"]);
+    expect(models.map((model) => model.id)).toStrictEqual(["claude-opus-4-5"]);
   });
 
   it("sinks unknown families below the known ones", () => {
     const models = buildModels([oneM("claude-proxy-x"), oneM("claude-opus-5")]);
 
-    expect(models.map((model) => model.id)).toEqual(["claude-opus-5", "claude-proxy-x"]);
+    expect(models.map((model) => model.id)).toStrictEqual([
+      "claude-opus-5",
+      "claude-proxy-x",
+    ]);
   });
 
   it("forwards pi-ai's thinkingLevelMap verbatim and fabricates none", () => {
     const models = buildModels([
-      { ...catalogEntry("claude-sonnet-5"), thinkingLevelMap: { xhigh: "xhigh", max: "max" } },
+      {
+        ...catalogEntry("claude-sonnet-5"),
+        thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+      },
       catalogEntry("claude-haiku-4-5"),
     ]);
 
-    expect(find(models, "claude-sonnet-5").thinkingLevelMap).toEqual({
+    expect(find(models, "claude-sonnet-5").thinkingLevelMap).toStrictEqual({
       xhigh: "xhigh",
       max: "max",
     });
-    expect(find(models, "claude-haiku-4-5")).not.toHaveProperty("thinkingLevelMap");
+    expect(find(models, "claude-haiku-4-5")).not.toHaveProperty(
+      "thinkingLevelMap"
+    );
   });
 });
 
 describe("resolveClaudeCodeRuntimeModel", () => {
   it("sends [1m] for an id measured to serve 1M", () => {
-    expect(resolveClaudeCodeRuntimeModel("claude-opus-5-5")).toEqual({
+    expect(resolveClaudeCodeRuntimeModel("claude-opus-5-5")).toStrictEqual({
       cliModelId: "claude-opus-5-5[1m]",
       contextWindow: 1_000_000,
     });
   });
 
   it("serves unmeasured ids bare at 200K even when pi-ai declares 1M", () => {
-    expect(resolveClaudeCodeRuntimeModel("claude-sonnet-4-5")).toEqual({
+    expect(resolveClaudeCodeRuntimeModel("claude-sonnet-4-5")).toStrictEqual({
       cliModelId: "claude-sonnet-4-5",
       contextWindow: 200_000,
     });
-    expect(resolveClaudeCodeRuntimeModel("claude-future-9-9")).toEqual({
+    expect(resolveClaudeCodeRuntimeModel("claude-future-9-9")).toStrictEqual({
       cliModelId: "claude-future-9-9",
       contextWindow: 200_000,
     });
@@ -134,7 +155,10 @@ describe("resolveClaudeCodeRuntimeModel", () => {
   // Both serve 1M only on Max or with metered Extra Usage; an unentitled [1m] fails.
   it("keeps opus-4-6 and sonnet-4-6 at 200K", () => {
     for (const id of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
-      expect(resolveClaudeCodeRuntimeModel(id)).toEqual({ cliModelId: id, contextWindow: 200_000 });
+      expect(resolveClaudeCodeRuntimeModel(id)).toStrictEqual({
+        cliModelId: id,
+        contextWindow: 200_000,
+      });
     }
   });
 
@@ -168,12 +192,14 @@ describe("applyLongContext", () => {
 
     expect(find(registered, "claude-opus-5").name).toBe("Claude Opus 5 1M");
     expect(find(registered, "claude-opus-4-6").name).toBe("Claude Opus 4.6");
-    expect(find(registered, "claude-haiku-4-5").name).toBe("Claude Haiku 4.5 (latest)");
+    expect(find(registered, "claude-haiku-4-5").name).toBe(
+      "Claude Haiku 4.5 (latest)"
+    );
   });
 
   it("does not label a name that already says 1M twice", () => {
     const [labeled] = applyLongContext(
-      buildModels([{ ...oneM("claude-opus-5"), name: "Claude Opus 5 (1M)" }]),
+      buildModels([{ ...oneM("claude-opus-5"), name: "Claude Opus 5 (1M)" }])
     );
 
     expect(labeled?.name).toBe("Claude Opus 5 (1M)");
@@ -182,7 +208,9 @@ describe("applyLongContext", () => {
   it("returns an entry that needs no change as is", () => {
     const [unchanged] = buildModels([catalogEntry("claude-haiku-4-5")]);
 
-    if (unchanged === undefined) throw new Error("projection dropped claude-haiku-4-5");
+    if (unchanged === undefined) {
+      throw new Error("projection dropped claude-haiku-4-5");
+    }
 
     const [registered] = applyLongContext([unchanged]);
 
@@ -190,12 +218,14 @@ describe("applyLongContext", () => {
   });
 });
 
-describe("effortForReasoning", () => {
-  const mapped = (thinkingLevelMap: Model<Api>["thinkingLevelMap"]): Model<Api> => ({
-    ...testModel("claude-fable-5-1"),
-    ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
-  });
+const mapped = (
+  thinkingLevelMap: Model<Api>["thinkingLevelMap"]
+): Model<Api> => ({
+  ...testModel("claude-fable-5-1"),
+  ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
+});
 
+describe("effortForReasoning", () => {
   it("uses the model's thinkingLevelMap when it names the level", () => {
     const fable = mapped({ xhigh: "xhigh", max: "max" });
 

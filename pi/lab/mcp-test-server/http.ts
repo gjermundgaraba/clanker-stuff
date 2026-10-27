@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { createServer } from "node:http";
 
 import {
@@ -10,7 +11,7 @@ import type { McpServerFactory } from "@modelcontextprotocol/server";
 
 export interface HttpServer {
   url: string;
-  close(): Promise<void>;
+  close: () => Promise<void>;
 }
 
 /**
@@ -20,7 +21,7 @@ export interface HttpServer {
  */
 export const serveHttp = async (
   factory: McpServerFactory,
-  options: { host: string; port: number },
+  options: { host: string; port: number }
 ): Promise<HttpServer> => {
   const handler = createMcpHandler(factory);
   const handle = toNodeHandler(handler);
@@ -34,25 +35,28 @@ export const serveHttp = async (
       return;
     }
 
-    if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+    if (!validateHost(req, res) || !validateOrigin(req, res)) {
+      return;
+    }
 
     // @ts-expect-error -- @modelcontextprotocol/node 2.1.2 declares `method?: string` and `url?: string`, which exactOptionalPropertyTypes rejects for IncomingMessage's `string | undefined`; toNodeHandler defaults both when undefined.
     void handle(req, res);
   });
 
-  await new Promise<void>((resolve) => server.listen(options.port, options.host, resolve));
+  server.listen(options.port, options.host);
+  await once(server, "listening");
   const address = server.address();
 
-  if (address === null || typeof address === "string") throw new Error("Not listening on TCP");
+  if (address === null || typeof address === "string") {
+    throw new Error("Not listening on TCP");
+  }
 
   return {
     url: `http://${options.host}:${address.port}/mcp`,
     close: async () => {
       await handler.close();
       server.closeAllConnections();
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
+      await server[Symbol.asyncDispose]();
     },
   };
 };

@@ -33,7 +33,8 @@ const ROW_BAR_WIDTH = 8;
 
 const ROW_BAR_MIN_TREE_WIDTH = 40;
 
-export const fit = (text: string, width: number): string => truncateToWidth(text, width, "…", true);
+export const fit = (text: string, width: number): string =>
+  truncateToWidth(text, width, "…", true);
 
 const count = (value: number): string => value.toLocaleString("en-US");
 
@@ -43,13 +44,21 @@ export const estimate = (value: number): string => `~${count(value)}`;
 export const overlayHeight = (terminalRows: number): number =>
   Math.max(1, Math.floor(terminalRows * OVERLAY_HEIGHT_RATIO));
 
-export const layoutOverlay = (width: number, height: number, detail: boolean) => {
+export const layoutOverlay = (
+  width: number,
+  height: number,
+  detail: boolean
+) => {
   const innerWidth = Math.max(0, width - 2);
   const split = width >= SPLIT_MIN_WIDTH && !detail;
   const treeWidth = split ? Math.floor(innerWidth * 0.42) : innerWidth;
   const showLegend = height >= LEGEND_MIN_HEIGHT;
   const roomy = height >= ROOMY_MIN_HEIGHT;
-  const bodyHeight = Math.max(0, height - CHROME_ROWS - (showLegend ? 1 : 0) - (roomy ? 3 : 0));
+
+  const bodyHeight = Math.max(
+    0,
+    height - CHROME_ROWS - (showLegend ? 1 : 0) - (roomy ? 3 : 0)
+  );
 
   return {
     width,
@@ -71,15 +80,26 @@ export type Layout = ReturnType<typeof layoutOverlay>;
 
 /** Measured context usage as a share of the window, or undefined when Pi does not know it. */
 const usedPercent = (usage: ContextUsage | undefined): number | undefined =>
-  usage?.tokens == null || usage.contextWindow <= 0
+  usage === undefined || usage.tokens === null || usage.contextWindow <= 0
     ? undefined
     : (usage.tokens / usage.contextWindow) * 100;
 
 /** Pi's measured usage only; estimates belong to the legend, not the bar. */
-export const renderUsageBar = (theme: Theme, usage: ContextUsage | undefined, width: number) => {
-  if (width <= 0) return "";
+export const renderUsageBar = (
+  theme: Theme,
+  usage: ContextUsage | undefined,
+  width: number
+) => {
+  if (width <= 0) {
+    return "";
+  }
+
   const percent = usedPercent(usage) ?? 0;
-  const filled = Math.max(0, Math.min(width, Math.round((percent / 100) * width)));
+
+  const filled = Math.max(
+    0,
+    Math.min(width, Math.round((percent / 100) * width))
+  );
 
   return (
     theme.fg(percentTone(percent), "█".repeat(filled)) +
@@ -87,10 +107,13 @@ export const renderUsageBar = (theme: Theme, usage: ContextUsage | undefined, wi
   );
 };
 
-export const renderUsageLine = (theme: Theme, usage: ContextUsage | undefined): string => {
+export const renderUsageLine = (
+  theme: Theme,
+  usage: ContextUsage | undefined
+): string => {
   const percent = usedPercent(usage);
 
-  if (usage?.tokens == null || percent === undefined) {
+  if (usage === undefined || usage.tokens === null || percent === undefined) {
     return theme.fg("muted", "Pi context usage: unknown");
   }
 
@@ -100,21 +123,30 @@ export const renderUsageLine = (theme: Theme, usage: ContextUsage | undefined): 
     theme.fg("dim", " · "),
     theme.fg(percentTone(percent), `${percent.toFixed(1)}% used`),
     theme.fg("dim", " · "),
-    theme.fg("muted", `${count(Math.max(0, usage.contextWindow - usage.tokens))} free`),
+    theme.fg(
+      "muted",
+      `${count(Math.max(0, usage.contextWindow - usage.tokens))} free`
+    ),
   ].join("");
 };
 
-export const renderLegend = (theme: Theme, snapshot: ContextSnapshot): string => {
-  const sum = (parts: readonly { estimatedTokens: number }[]) =>
-    parts.reduce((total, part) => total + part.estimatedTokens, 0);
+const sum = (parts: ReadonlyArray<{ estimatedTokens: number }>) =>
+  parts.reduce((total, part) => total + part.estimatedTokens, 0);
 
+export const renderLegend = (
+  theme: Theme,
+  snapshot: ContextSnapshot
+): string => {
   const estimates = [
     ["system", snapshot.system.estimatedTokens],
     ["tools", sum(snapshot.tools)],
     ["messages", sum(snapshot.messages)],
   ] as const;
 
-  const total = estimates.reduce((sum, [, tokens]) => sum + tokens, 0);
+  const total = estimates.reduce(
+    (subtotal, [, tokens]) => subtotal + tokens,
+    0
+  );
 
   return estimates
     .map(
@@ -122,8 +154,8 @@ export const renderLegend = (theme: Theme, snapshot: ContextSnapshot): string =>
         label +
         theme.fg(
           "muted",
-          ` ${estimate(tokens)}${total > 0 ? ` · ${Math.round((tokens / total) * 100)}%` : ""}`,
-        ),
+          ` ${estimate(tokens)}${total > 0 ? ` · ${Math.round((tokens / total) * 100)}%` : ""}`
+        )
     )
     .join(theme.fg("dim", "   "));
 };
@@ -147,24 +179,36 @@ export const renderTreeRows = (
   selected: number,
   width: number,
   countWidth: number,
-  showEstimates: boolean,
+  showEstimates: boolean
 ): string[] => {
   const showBar = showEstimates && width >= ROW_BAR_MIN_TREE_WIDTH;
 
   const labelWidth = Math.max(
     1,
-    width - 2 - (showBar ? ROW_BAR_WIDTH + 1 : 0) - (showEstimates ? countWidth + 2 : 0),
+    width -
+      2 -
+      (showBar ? ROW_BAR_WIDTH + 1 : 0) -
+      (showEstimates ? countWidth + 2 : 0)
   );
 
   return rows.map((row, index) => {
     const active = index === selected;
     const isGroup = row.node.children.length > 0;
-    const branch = row.depth === 0 ? "" : `${"  ".repeat(row.depth)}${row.last ? "└ " : "├ "}`;
-    const glyph = row.depth === 0 && isGroup ? (row.expanded ? "▾ " : "▸ ") : "  ";
+
+    const branch =
+      row.depth === 0
+        ? ""
+        : `${"  ".repeat(row.depth)}${row.last ? "└ " : "├ "}`;
+
+    let glyph = "  ";
+
+    if (row.depth === 0 && isGroup) {
+      glyph = row.expanded ? "▾ " : "▸ ";
+    }
 
     const name = theme.fg(
       row.node.tone === "code" ? "mdCode" : row.node.tone,
-      displayText(row.node.label),
+      displayText(row.node.label)
     );
 
     const label = [
@@ -181,7 +225,10 @@ export const renderTreeRows = (
       " ",
       showBar ? `${renderRowBar(theme, row.share)} ` : "",
       showEstimates
-        ? theme.fg("muted", estimate(row.node.estimatedTokens).padStart(countWidth))
+        ? theme.fg(
+            "muted",
+            estimate(row.node.estimatedTokens).padStart(countWidth)
+          )
         : "",
       " ",
     ].join("");
@@ -194,18 +241,23 @@ export const renderScrollbar = (
   theme: Theme,
   height: number,
   offset: number,
-  total: number,
+  total: number
 ): string[] => {
-  if (height <= 0) return [];
+  if (height <= 0) {
+    return [];
+  }
 
-  if (total <= height) return Array.from({ length: height }, () => " ");
+  if (total <= height) {
+    return Array.from({ length: height }, () => " ");
+  }
+
   const thumb = Math.max(1, Math.round((height / total) * height));
   const start = Math.round((offset / (total - height)) * (height - thumb));
 
   return Array.from({ length: height }, (_, index) =>
     index >= start && index < start + thumb
       ? theme.fg("scrollbarThumb", "┃")
-      : theme.fg("dim", "│"),
+      : theme.fg("dim", "│")
   );
 };
 
@@ -218,7 +270,7 @@ export const renderFooter = (
   theme: Theme,
   keys: readonly FooterKey[],
   right: string,
-  width: number,
+  width: number
 ): string => {
   const left = keys
     .map((item) => `${theme.bold(item.key)} ${theme.fg("muted", item.label)}`)
@@ -227,22 +279,30 @@ export const renderFooter = (
   const rightText = right ? theme.fg("muted", right) : "";
   const gap = width - visibleWidth(left) - visibleWidth(rightText);
 
-  if (gap < 1) return fit(left, width);
+  if (gap < 1) {
+    return fit(left, width);
+  }
 
   return `${left}${" ".repeat(gap)}${rightText}`;
 };
 
 /** The title subtitle and the three header rows that describe each view's snapshot. */
-const renderHeader = (theme: Theme, snapshot: InspectorSnapshot, width: number) => {
+const renderHeader = (
+  theme: Theme,
+  snapshot: InspectorSnapshot,
+  width: number
+) => {
   switch (snapshot.kind) {
-    case "state":
+    case "state": {
       return {
         subtitle: `state · ${displayText(snapshot.modelLabel)}`,
         summary: renderUsageLine(theme, snapshot.usage),
         note: renderUsageBar(theme, snapshot.usage, width),
         legend: renderLegend(theme, snapshot),
       };
-    case "request":
+    }
+
+    case "request": {
       return {
         subtitle: "request observation",
         summary: snapshot.request
@@ -250,23 +310,30 @@ const renderHeader = (theme: Theme, snapshot: InspectorSnapshot, width: number) 
           : "No request observed yet",
         note: theme.fg(
           "muted",
-          "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay",
+          "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay"
         ),
         legend: theme.fg(
           "muted",
-          `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated ? " · truncated to 1 MiB" : ""}`,
+          `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated === true ? " · truncated to 1 MiB" : ""}`
         ),
       };
-    case "tools":
+    }
+
+    case "tools": {
       return {
         subtitle: "tools · registered inventory",
         summary: `${snapshot.tools.length} registered · ${snapshot.activeCount} active · Captured ${new Date(snapshot.capturedAt).toISOString()}`,
         note: theme.fg(
           "muted",
-          "Registration and activation at open time; loadouts may hide active declarations",
+          "Registration and activation at open time; loadouts may hide active declarations"
         ),
-        legend: theme.fg("muted", "Memory-only · no token estimates · reopen to refresh"),
+        legend: theme.fg(
+          "muted",
+          "Memory-only · no token estimates · reopen to refresh"
+        ),
       };
+    }
+    // no default
   }
 };
 
@@ -277,7 +344,7 @@ export const renderOverlay = (
   body: readonly string[],
   footer: string,
   /** Highlights the tree/preview divider when the preview pane has focus. */
-  previewFocused = false,
+  previewFocused = false
 ): string[] => {
   const { width, innerWidth, treeWidth, previewWidth, bodyHeight } = layout;
 
@@ -286,8 +353,12 @@ export const renderOverlay = (
   }
 
   const border = (text: string) => theme.fg("border", text);
-  const divider = (text: string) => theme.fg(previewFocused ? "borderAccent" : "borderMuted", text);
-  const line = (text: string) => `${border("│")}${fit(text, innerWidth)}${border("│")}`;
+
+  const divider = (text: string) =>
+    theme.fg(previewFocused ? "borderAccent" : "borderMuted", text);
+
+  const line = (text: string) =>
+    `${border("│")}${fit(text, innerWidth)}${border("│")}`;
 
   const rule = (left: string, junction: string, right: string) =>
     previewWidth > 0
@@ -299,18 +370,22 @@ export const renderOverlay = (
   const title = truncateToWidth(
     `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", header.subtitle)}`,
     Math.max(0, innerWidth - 4),
-    "…",
+    "…"
   );
 
   const blank = line("");
+
   // Keep the pane divider continuous through the spacing row above the body.
-  const bodyPad = previewWidth > 0 ? line(`${" ".repeat(treeWidth)}${divider("│")}`) : blank;
+  const bodyPad =
+    previewWidth > 0 ? line(`${" ".repeat(treeWidth)}${divider("│")}`) : blank;
 
   return [
     // "╭─ " + title + " " + dashes + "╮" must span the full width.
     border(`╭─ `) +
       title +
-      border(` ${"─".repeat(Math.max(0, innerWidth - 3 - visibleWidth(title)))}╮`),
+      border(
+        ` ${"─".repeat(Math.max(0, innerWidth - 3 - visibleWidth(title)))}╮`
+      ),
     ...(layout.roomy ? [blank] : []),
     line(`${PAD}${header.summary}`),
     line(`${PAD}${header.note}`),
@@ -318,7 +393,9 @@ export const renderOverlay = (
     ...(layout.roomy ? [blank] : []),
     rule("├", "┬", "┤"),
     ...(layout.roomy ? [bodyPad] : []),
-    ...Array.from({ length: bodyHeight }, (_, index) => line(body[index] ?? "")),
+    ...Array.from({ length: bodyHeight }, (_, index) =>
+      line(body[index] ?? "")
+    ),
     rule("├", "┴", "┤"),
     line(`${PAD}${footer}`),
     border(`╰${"─".repeat(innerWidth)}╯`),

@@ -1,24 +1,31 @@
-// Build-time only. No npm/browser dependency is needed to load the extension.
-import { Type } from "typebox";
-import { Value } from "typebox/value";
-
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+// Build-time only. No npm/browser dependency is needed to load the extension.
+import { Type } from "typebox";
+import type { Static, TSchema } from "typebox";
+import { Value } from "typebox/value";
+
 import { frame, FPS, INKS, paint, SEED, STRIKES, VIEWBOX } from "./frames.ts";
 import { SHAPES } from "./geometry.ts";
 
-const destination = process.argv[2];
+const destination = process.argv.at(2);
 
-if (!destination) throw new Error("Usage: node scripts/render.ts output.json");
+if (destination === undefined || destination === "") {
+  throw new Error("Usage: node scripts/render.ts output.json");
+}
 
 const profile = await mkdtemp(path.join(os.tmpdir(), "shape-spinner-chrome-"));
 
+const chromeOverride = process.env["CHROME"];
+
 const chrome = spawn(
-  process.env["CHROME"] || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  chromeOverride === undefined || chromeOverride === ""
+    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    : chromeOverride,
   [
     "--headless",
     "--disable-gpu",
@@ -30,7 +37,7 @@ const chrome = spawn(
     `--user-data-dir=${profile}`,
     "about:blank",
   ],
-  { stdio: "ignore" },
+  { stdio: "ignore" }
 );
 
 let launchError: Error | undefined;
@@ -39,14 +46,22 @@ chrome.on("error", (error) => {
   launchError = error;
 });
 
-const exited = new Promise((resolve) => chrome.once("close", resolve));
+const exited = Promise.withResolvers();
 
-const pending = new Map<number, ReturnType<typeof Promise.withResolvers<unknown>>>();
+chrome.once("close", exited.resolve);
+
+const pending = new Map<
+  number,
+  ReturnType<typeof Promise.withResolvers<unknown>>
+>();
 
 let socket: WebSocket | undefined;
 
 const timeout = setTimeout(() => {
-  for (const request of pending.values()) request.reject(new Error("Chrome render timed out"));
+  for (const request of pending.values()) {
+    request.reject(new Error("Chrome render timed out"));
+  }
+
   socket?.close();
   chrome.kill();
 }, 300_000);
@@ -54,42 +69,64 @@ const timeout = setTimeout(() => {
 try {
   let port;
 
-  for (let i = 0; i < 100; i++) {
-    if (launchError) throw launchError;
+  for (let i = 0; i < 100; i += 1) {
+    if (launchError) {
+      throw launchError;
+    }
 
     try {
-      port = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0];
+      const portFile = await readFile(
+        path.join(profile, "DevToolsActivePort"),
+        "utf-8"
+      );
+
+      [port] = portFile.split("\n");
       break;
     } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        error.code !== "ENOENT"
+      ) {
+        throw error;
+      }
+
       await sleep(100);
     }
   }
 
-  if (!port)
-    throw new Error("Chrome did not expose its debugging port; set CHROME to the executable");
+  if (port === undefined || port === "") {
+    throw new Error(
+      "Chrome did not expose its debugging port; set CHROME to the executable"
+    );
+  }
+
+  const response = await fetch(
+    `http://127.0.0.1:${port}/json/new?about:blank`,
+    {
+      method: "PUT",
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
 
   const target = Value.Parse(
     Type.Object({ webSocketDebuggerUrl: Type.String() }),
-    await (
-      await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, {
-        method: "PUT",
-        signal: AbortSignal.timeout(10_000),
-      })
-    ).json(),
+    await response.json()
   );
 
   const connection = new WebSocket(target.webSocketDebuggerUrl);
   socket = connection;
-  await new Promise((resolve, reject) => {
-    connection.addEventListener("open", resolve, { once: true });
-    connection.addEventListener("error", reject, { once: true });
-  });
+  const opened = Promise.withResolvers();
+  connection.addEventListener("open", opened.resolve, { once: true });
+  connection.addEventListener("error", opened.reject, { once: true });
+  await opened.promise;
   let serial = 0;
   connection.addEventListener("message", ({ data }) => {
     const text: unknown = data;
 
-    if (typeof text !== "string") throw new Error("Chrome sent a non-text response");
+    if (typeof text !== "string") {
+      throw new TypeError("Chrome sent a non-text response");
+    }
 
     const message = Value.Parse(
       Type.Object({
@@ -97,63 +134,95 @@ try {
         error: Type.Optional(Type.Unknown()),
         result: Type.Optional(Type.Unknown()),
       }),
-      JSON.parse(text),
+      JSON.parse(text)
     );
 
-    if (message.id === undefined) return; // Unsolicited CDP event, not a reply.
+    if (message.id === undefined) {
+      // Unsolicited CDP event, not a reply.
+      return;
+    }
+
     const request = pending.get(message.id);
 
-    if (!request) return;
+    if (!request) {
+      return;
+    }
+
     pending.delete(message.id);
 
-    if (message.error) request.reject(new Error(JSON.stringify(message.error)));
-    else request.resolve(message.result);
+    if (message.error === undefined) {
+      request.resolve(message.result);
+    } else {
+      request.reject(new Error(JSON.stringify(message.error)));
+    }
   });
   connection.addEventListener("close", () => {
-    for (const request of pending.values()) request.reject(new Error("Chrome connection closed"));
+    for (const request of pending.values()) {
+      request.reject(new Error("Chrome connection closed"));
+    }
+
     pending.clear();
   });
 
-  const call = (
+  /** Sends one CDP command and decodes its result with the schema the caller expects. */
+  const call = async <T extends TSchema>(
+    resultSchema: T,
     method: "Runtime.evaluate" | "Browser.getVersion",
-    params?: { expression: string; returnByValue: true },
-    // oxlint-disable-next-line anti-slop/no-unknown-returns -- CDP method results are decoded by the requesting operation, not assumed safe by the transport.
-  ): Promise<unknown> => {
+    params?: { expression: string; returnByValue: true }
+  ): Promise<Static<T>> => {
     const request = Promise.withResolvers<unknown>();
-    const id = ++serial;
+    serial += 1;
+    const id = serial;
     pending.set(id, request);
-    connection.send(JSON.stringify({ id, method, ...(params ? { params } : {}) }));
+    connection.send(
+      JSON.stringify({ id, method, ...(params ? { params } : {}) })
+    );
 
-    return request.promise;
+    return Value.Parse(resultSchema, await request.promise);
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- Remote JavaScript can return any JSON value; consumers decode the expected evaluation result.
-  const evaluate = async (expression: string): Promise<unknown> => {
-    const result = Value.Parse(
+  /** Evaluates remote JavaScript and decodes the value it returns with the given schema. */
+  const evaluate = async <T extends TSchema>(
+    valueSchema: T,
+    expression: string
+  ): Promise<Static<T>> => {
+    const result = await call(
       Type.Object({
         result: Type.Object({ value: Type.Optional(Type.Unknown()) }),
         exceptionDetails: Type.Optional(Type.Unknown()),
       }),
-      await call("Runtime.evaluate", { expression, returnByValue: true }),
+      "Runtime.evaluate",
+      { expression, returnByValue: true }
     );
 
-    if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+    if (result.exceptionDetails !== undefined) {
+      throw new Error(JSON.stringify(result.exceptionDetails));
+    }
 
-    return result.result.value;
+    return Value.Parse(valueSchema, result.result.value);
   };
 
-  const browser = Value.Parse(
+  const { product: browser } = await call(
     Type.Object({ product: Type.String() }),
-    await call("Browser.getVersion"),
-  ).product;
+    "Browser.getVersion"
+  );
 
-  await evaluate(`globalThis.paint = ${paint.toString()}`);
-  const animations: Record<string, Record<string, Record<string, string[][]>>> = {};
+  // The assignment's value is the installed function, which the render ignores.
+  await evaluate(Type.Unknown(), `globalThis.paint = ${paint.toString()}`);
+
+  const animations: Record<
+    string,
+    Record<string, Record<string, string[][]>>
+  > = {};
 
   for (const shape of SHAPES) {
     const colors: Record<string, Record<string, string[][]>> = {};
     animations[shape] = colors;
-    const scenes = Array.from({ length: FPS * 8 }, (_, i) => frame(shape, i / FPS));
+
+    const scenes = Array.from({ length: FPS * 8 }, (_, i) =>
+      frame(shape, i / FPS)
+    );
+
     scenes.push(frame(shape, 0, true));
 
     for (const [name, inks] of Object.entries(INKS)) {
@@ -166,16 +235,16 @@ try {
         for (let start = 0; start < scenes.length; start += 24) {
           const batch = scenes.slice(start, start + 24);
           sprites.push(
-            ...Value.Parse(
+            ...(await evaluate(
               Type.Array(Type.Array(Type.String())),
-              await evaluate(`(${JSON.stringify(batch)}).map(scene => {
+              `(${JSON.stringify(batch)}).map(scene => {
           const canvas = document.createElement('canvas');
           return ${JSON.stringify(STRIKES)}.map(pixels => {
             paint(canvas, scene, pixels, ${JSON.stringify(color)}, ${VIEWBOX});
             return canvas.toDataURL('image/png').split(',')[1];
           });
-        })`),
-            ),
+        })`
+            ))
           );
         }
 
@@ -196,14 +265,23 @@ try {
       viewbox: VIEWBOX,
       browser,
       animations,
-    }),
+    })
   );
 } finally {
   clearTimeout(timeout);
   socket?.close();
   chrome.kill("SIGTERM");
-  const force = setTimeout(() => chrome.kill("SIGKILL"), 3000);
-  await exited;
+
+  const force = setTimeout(() => {
+    chrome.kill("SIGKILL");
+  }, 3000);
+
+  await exited.promise;
   clearTimeout(force);
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  await rm(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
 }

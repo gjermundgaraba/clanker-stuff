@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchRadiusUsage, mapRadiusBillingPayload } from "../../adapters/radius.js";
+import {
+  fetchRadiusUsage,
+  mapRadiusBillingPayload,
+} from "../../adapters/radius.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuth } from "./helpers.js";
 
@@ -27,7 +30,7 @@ const fetchPayload = async (value: unknown) =>
       fetchJson: okFetch(value),
       now: () => NOW,
     },
-    BILLING_URL,
+    BILLING_URL
   );
 
 describe("radius usage", () => {
@@ -66,7 +69,10 @@ describe("radius usage", () => {
     ["non-USD currency", { ...payload, currency: "EUR" }],
     [
       "negative finalized charges",
-      { ...payload, current_period: { ...payload.current_period, actual_charged: -1 } },
+      {
+        ...payload,
+        current_period: { ...payload.current_period, actual_charged: -1 },
+      },
     ],
   ])("rejects %s", async (_name, value) => {
     await expect(fetchPayload(value)).resolves.toStrictEqual({
@@ -80,7 +86,7 @@ describe("radius usage", () => {
       fetchPayload({
         ...payload,
         current_period: { ...payload.current_period, ends_at: "not a date" },
-      }),
+      })
     ).resolves.toStrictEqual({
       error: { kind: "failure", message: "invalid billing period end" },
       ok: false,
@@ -88,7 +94,10 @@ describe("radius usage", () => {
   });
 
   it("requests the resolved billing URL", async () => {
-    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch(payload) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchRadiusUsage(
@@ -97,7 +106,7 @@ describe("radius usage", () => {
         fetchJson: client.fetchJson,
         now: () => NOW,
       },
-      BILLING_URL,
+      BILLING_URL
     );
 
     expect(result.ok).toBe(true);

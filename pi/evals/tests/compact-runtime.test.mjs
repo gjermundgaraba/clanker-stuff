@@ -6,10 +6,18 @@ import { validateCompaction } from "../runtime/pi-eval-compact.mjs";
 /** @typedef {Parameters<typeof validateCompaction>[0][number]} CompactionTerminal */
 
 /** @type {CompactionTerminal} */
-const succeeded = { type: "compaction_end", aborted: false, result: { usage: {} } };
+const succeeded = {
+  type: "compaction_end",
+  aborted: false,
+  result: { usage: {} },
+};
 
 /** @type {CompactionTerminal} */
-const failed = { type: "compaction_end", aborted: false, errorMessage: "failed" };
+const failed = {
+  type: "compaction_end",
+  aborted: false,
+  errorMessage: "failed",
+};
 
 /** @type {CompactionTerminal} */
 const aborted = { type: "compaction_end", aborted: true };
@@ -18,7 +26,10 @@ const commandError = new Error("compaction command failed");
 
 void describe("validateCompaction", () => {
   void it("classifies one terminal event consistent with the compact command", () => {
-    assert.equal(validateCompaction([succeeded], undefined, false), "succeeded");
+    assert.equal(
+      validateCompaction([succeeded], undefined, false),
+      "succeeded"
+    );
     assert.equal(validateCompaction([failed], commandError, false), "failed");
     assert.equal(validateCompaction([aborted], commandError, false), "aborted");
     assert.equal(validateCompaction([failed], undefined, true), "failed");

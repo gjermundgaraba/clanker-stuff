@@ -2,26 +2,27 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
-import toolNames from "./tool-names.json" with { type: "json" };
-
-export const SERVICE_NAMES = toolNames;
+export { default as SERVICE_NAMES } from "./tool-names.json" with { type: "json" };
 
 /**
  * @typedef {[name: string, description: string, parameters: import("typebox").TSchema]} ToolSpec
- * @param {typeof import("typebox").Type} Type
- * @returns {ToolSpec[]}
+ * @param {typeof import("typebox").Type} Type TypeBox builder of the runtime that registers the tools.
+ * @returns {ToolSpec[]} Name, description and parameter schema of each service tool.
  */
-export function toolSpecs(Type) {
-  const str = Type.String(),
-    strict = { additionalProperties: false };
+export const toolSpecs = (Type) => {
+  const str = Type.String();
+  const strict = { additionalProperties: false };
 
   return [
     [
       "list_records",
       "Paginate the ledger collection. Start cursor=null and follow next_cursor until null. Returns {items,next_cursor}. No server-side filters.",
       Type.Object(
-        { collection: Type.Literal("ledger"), cursor: Type.Union([str, Type.Null()]) },
-        strict,
+        {
+          collection: Type.Literal("ledger"),
+          cursor: Type.Union([str, Type.Null()]),
+        },
+        strict
       ),
     ],
     [
@@ -30,13 +31,16 @@ export function toolSpecs(Type) {
       Type.Object({ json: str }, strict),
     ],
   ];
-}
+};
 
 /** @type {unknown} */
-const settings = JSON.parse(readFileSync(new URL("./case.json", import.meta.url), "utf8"));
+const settings = JSON.parse(
+  readFileSync(new URL("case.json", import.meta.url), "utf-8")
+);
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 // The task generator owns these required seed and sizing settings. Fail before creating a ledger or cursor loop.
 if (
@@ -65,27 +69,28 @@ export const SETTINGS = {
 
 export const FIXTURE = `scaling-ledger-${SETTINGS.count}-${SETTINGS.seed}-v1`;
 
-/** @param {string} s */
+/** @param {string} code @returns {ServiceFailure} */
+const fail = (code) => ({ error: { code, retryable: false } });
+
+/** @param {string} s Seed-derived key; its digest makes entry ids and cursors deterministic. */
 const hash = (s) => createHash("sha256").update(s).digest("hex");
 
-export function fixture() {
-  return {
-    ledger: Array.from({ length: SETTINGS.count }, (_, i) => {
-      const d = createHash("sha256").update(`${SETTINGS.seed}:row:${i}`).digest();
+export const fixture = () => ({
+  ledger: Array.from({ length: SETTINGS.count }, (_, i) => {
+    const d = createHash("sha256").update(`${SETTINGS.seed}:row:${i}`).digest();
 
-      return {
-        id: `entry-${hash(`${SETTINGS.seed}:${i}`).slice(0, 14)}`,
-        tenant: `tenant-${i < 7 ? i : d.readUInt8(0) % 7}`,
-        status: i < 7 || d.readUInt8(1) % 5 !== 0 ? "posted" : "pending",
-        currency: i < 7 || d.readUInt8(2) % 11 !== 0 ? "USD" : "EUR",
-        day: i < 7 ? 10 : 1 + (d.readUInt8(3) % 31),
-        amount_cents: 1000 + (d.readUInt32LE(4) % 20000),
-        refund_cents: d.readUInt8(8) % 9 === 0 ? d.readUInt16LE(9) % 1500 : 0,
-        archived_note: "archived ".repeat(20),
-      };
-    }),
-  };
-}
+    return {
+      id: `entry-${hash(`${SETTINGS.seed}:${i}`).slice(0, 14)}`,
+      tenant: `tenant-${i < 7 ? i : d.readUInt8(0) % 7}`,
+      status: i < 7 || d.readUInt8(1) % 5 !== 0 ? "posted" : "pending",
+      currency: i < 7 || d.readUInt8(2) % 11 !== 0 ? "USD" : "EUR",
+      day: i < 7 ? 10 : 1 + (d.readUInt8(3) % 31),
+      amount_cents: 1000 + (d.readUInt32LE(4) % 20_000),
+      refund_cents: d.readUInt8(8) % 9 === 0 ? d.readUInt16LE(9) % 1500 : 0,
+      archived_note: "archived ".repeat(20),
+    };
+  }),
+});
 
 /**
  * @typedef {ReturnType<typeof fixture>["ledger"][number]} LedgerEntry
@@ -95,37 +100,49 @@ export function fixture() {
  * @typedef {{type: "pi_eval_service_end", operation: number, name: string, start_ms: number, end_ms: number, success: boolean, error: string|null, response_bytes: number}} ServiceEnd
  * @typedef {{type: "pi_eval_submission", operation: number, report: unknown}} Submission
  * @typedef {ServiceStart | ServiceEnd | Submission} ServiceEvent
- * @param {{emit?: (event: ServiceEvent)=>void|Promise<void>,latencyMs?:number}} options
+ * @param {{emit?: (event: ServiceEvent)=>void|Promise<void>,latencyMs?:number}} options Event sink and simulated per-operation latency.
  */
-export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
+export const createServices = ({ emit, latencyMs = 150 } = {}) => {
   const data = fixture().ledger;
   /** @type {Map<string|null, number>} */
   const cursors = new Map([[null, 0]]);
 
-  for (let n = SETTINGS.page_size; n < data.length; n += SETTINGS.page_size)
-    cursors.set(`cursor-${hash(`${SETTINGS.seed}:cursor:${n}`).slice(0, 20)}`, n);
+  for (let n = SETTINGS.page_size; n < data.length; n += SETTINGS.page_size) {
+    cursors.set(
+      `cursor-${hash(`${SETTINGS.seed}:cursor:${n}`).slice(0, 20)}`,
+      n
+    );
+  }
+
   const cursorAt = new Map([...cursors].map(([c, n]) => [n, c]));
 
-  let sequence = 0,
-    tail = Promise.resolve();
-
-  /** @param {string} code @returns {ServiceFailure} */
-  const fail = (code) => ({ error: { code, retryable: false } });
+  let sequence = 0;
+  /** @type {Promise<unknown>} */
+  let tail = Promise.resolve();
 
   /** @param {string} name @param {unknown} args @param {AbortSignal|undefined} signal */
-  async function execute(name, args, signal) {
-    const operation = ++sequence,
-      start_ms = Date.now();
+  const execute = async (name, args, signal) => {
+    sequence += 1;
+    const operation = sequence;
+    const start_ms = Date.now();
 
-    await emit({ type: "pi_eval_service_start", operation, name, args, start_ms, concurrent: 1 });
+    await emit?.({
+      type: "pi_eval_service_start",
+      operation,
+      name,
+      args,
+      start_ms,
+      concurrent: 1,
+    });
     /** @type {ServiceResult|undefined} */
     let result;
 
     try {
       await delay(latencyMs, undefined, { signal });
 
-      if (operation > SETTINGS.budget && name !== "submit_report") result = fail("budget_exceeded");
-      else if (name === "list_records") {
+      if (operation > SETTINGS.budget && name !== "submit_report") {
+        result = fail("budget_exceeded");
+      } else if (name === "list_records") {
         const offset =
           isRecord(args) &&
           args["collection"] === "ledger" &&
@@ -145,22 +162,26 @@ export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
         let report;
 
         try {
-          if (!isRecord(args) || typeof args["json"] !== "string")
+          if (!isRecord(args) || typeof args["json"] !== "string") {
             throw new TypeError("Missing report JSON");
+          }
+
           report = JSON.parse(args["json"]);
         } catch {
           result = fail("invalid_json");
         }
 
         if (!result) {
-          await emit({ type: "pi_eval_submission", operation, report });
+          await emit?.({ type: "pi_eval_submission", operation, report });
           result = { accepted: true };
         }
-      } else result = fail("unavailable_in_ledger_task");
+      } else {
+        result = fail("unavailable_in_ledger_task");
+      }
 
       return structuredClone(result);
     } finally {
-      await emit({
+      await emit?.({
         type: "pi_eval_service_end",
         operation,
         name,
@@ -171,19 +192,16 @@ export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
         response_bytes: result ? Buffer.byteLength(JSON.stringify(result)) : 0,
       });
     }
-  }
+  };
 
   return {
     /** @param {string} name @param {unknown} args Raw service arguments, validated by the independently callable backend. @param {AbortSignal} [signal] */
-    call(name, args, signal) {
+    async call(name, args, signal) {
       // Shared cap applies to the entire operation, not merely the reported count.
-      const pending = tail.then(() => execute(name, args, signal));
-      tail = pending.then(
-        () => undefined,
-        () => undefined,
-      );
+      const pending = tail.then(async () => await execute(name, args, signal));
+      tail = Promise.allSettled([pending]);
 
-      return pending;
+      return await pending;
     },
   };
-}
+};

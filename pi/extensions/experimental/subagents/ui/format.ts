@@ -1,7 +1,7 @@
+import { FRAME_INTERVAL_MS, wireframe } from "@clanker-stuff/pi-shape-glyphs";
+import type { Tone } from "@clanker-stuff/pi-tones";
 /** The shared visual language of the widget, the viewer, and the tool and mail renderers. */
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
-import type { Tone } from "@clanker-stuff/pi-tones";
-import { FRAME_INTERVAL_MS, wireframe } from "@clanker-stuff/pi-shape-glyphs";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
@@ -25,7 +25,10 @@ export type DisplayStatus = AgentStatus | "not_found";
 /** Lifecycle tones from docs/color.md: live is accent, finished is success or error, stopped is muted. */
 const STATUS_LOOK: Record<
   DisplayStatus,
-  { glyph: string; tone: Extract<Tone, "accent" | "error" | "muted" | "success"> }
+  {
+    glyph: string;
+    tone: Extract<Tone, "accent" | "error" | "muted" | "success">;
+  }
 > = {
   completed: { glyph: "✓", tone: "success" },
   errored: { glyph: "✗", tone: "error" },
@@ -56,7 +59,15 @@ export const BRAILLE_MARKS: Marks = {
 };
 
 /** Wireframe inks for top-level agents, in spawn order; red and gray would read as a status. */
-const ORB_COLORS = ["cyan", "purple", "orange", "green", "pink", "blue", "yellow"] as const;
+const ORB_COLORS = [
+  "cyan",
+  "purple",
+  "orange",
+  "green",
+  "pink",
+  "blue",
+  "yellow",
+] as const;
 
 /**
  * Shape-spinner's orb, in one color per top-level agent that its descendants share; root's is gray.
@@ -64,8 +75,13 @@ const ORB_COLORS = ["cyan", "purple", "orange", "green", "pink", "blue", "yellow
  */
 export const orbMarks = (nodes: () => readonly AgentNode[]): Marks => ({
   running: (theme, path, now) => {
-    const tops = nodes().filter((node) => parentAgentPath(node.path) === ROOT_AGENT_PATH);
-    const index = tops.findIndex((top) => path === top.path || path.startsWith(`${top.path}/`));
+    const tops = nodes().filter(
+      (node) => parentAgentPath(node.path) === ROOT_AGENT_PATH
+    );
+
+    const index = tops.findIndex(
+      (top) => path === top.path || path.startsWith(`${top.path}/`)
+    );
 
     // Root and paths outside the tree find no top-level agent (-1), which indexes no ink: gray.
     const color = ORB_COLORS[index % ORB_COLORS.length] ?? "gray";
@@ -83,18 +99,26 @@ export const statusMark = (
   marks: Marks,
   path: string,
   status: DisplayStatus | "idle",
-  now: number,
+  now: number
 ): string => {
-  if (status === "running") return marks.running(theme, path, now);
-  const mark = status === "idle" ? theme.fg("muted", "○") : statusGlyph(theme, status);
+  if (status === "running") {
+    return marks.running(theme, path, now);
+  }
+
+  const mark =
+    status === "idle" ? theme.fg("muted", "○") : statusGlyph(theme, status);
 
   return `${mark}${" ".repeat(marks.width - 1)}`;
 };
 
-export const fit = (text: string, width: number): string => truncateToWidth(text, width, "…", true);
+export const fit = (text: string, width: number): string =>
+  truncateToWidth(text, width, "…", true);
 
 export const fitRight = (text: string, width: number): string => {
-  if (width <= 0) return "";
+  if (width <= 0) {
+    return "";
+  }
+
   const clipped = truncateToWidth(text, width, "…");
 
   return " ".repeat(Math.max(0, width - visibleWidth(clipped))) + clipped;
@@ -103,25 +127,38 @@ export const fitRight = (text: string, width: number): string => {
 export const duration = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000));
 
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
   const minutes = Math.floor(seconds / 60);
 
-  if (minutes < 60) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
+  if (minutes < 60) {
+    return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
+  }
 
   return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 };
 
 /** How long the latest turn ran, or has been running; unknown for a turn a restart cut short. */
 export const elapsed = (node: AgentNode, now: number): string => {
-  if (node.status === "running") return duration(now - node.startedAt);
+  if (node.status === "running") {
+    return duration(now - node.startedAt);
+  }
 
-  return node.endedAt === undefined ? "" : duration(node.endedAt - node.startedAt);
+  return node.endedAt === undefined
+    ? ""
+    : duration(node.endedAt - node.startedAt);
 };
 
 const tokens = (count: number): string => {
-  if (count < 1000) return String(Math.round(count));
+  if (count < 1000) {
+    return String(Math.round(count));
+  }
 
-  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k`;
+  if (count < 1_000_000) {
+    return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k`;
+  }
 
   return `${(count / 1_000_000).toFixed(1)}M`;
 };
@@ -130,8 +167,12 @@ const tokens = (count: number): string => {
 export const usageText = (usage: AgentUsage): string => {
   const input = usage.input + usage.cacheRead + usage.cacheWrite;
 
-  if (input === 0 && usage.output === 0) return "";
-  const cost = usage.cost > 0 ? ` $${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}` : "";
+  if (input === 0 && usage.output === 0) {
+    return "";
+  }
+
+  const cost =
+    usage.cost > 0 ? ` $${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}` : "";
 
   return `↑${tokens(input)} ↓${tokens(usage.output)}${cost}`;
 };
@@ -140,27 +181,45 @@ export const agentName = (path: string): string =>
   path === ROOT_AGENT_PATH ? "root" : path.slice(path.lastIndexOf("/") + 1);
 
 /** The model id without its provider, which rarely fits and rarely matters at a glance. */
-export const modelText = (node: Pick<AgentNode, "model" | "thinking">): string => {
+export const modelText = (
+  node: Pick<AgentNode, "model" | "thinking">
+): string => {
   const id = node.model.slice(node.model.indexOf("/") + 1);
 
   return `${inlineText(id)}${node.thinking === "off" ? "" : ` · ${node.thinking}`}`;
 };
 
-export const activityText = (theme: Theme, activity: Activity | undefined): string => {
-  if (activity === undefined) return theme.fg("muted", "starting");
+export const activityText = (
+  theme: Theme,
+  activity: Activity | undefined
+): string => {
+  if (activity === undefined) {
+    return theme.fg("muted", "starting");
+  }
 
-  if (activity.kind === "phase") return theme.fg("muted", theme.italic(activity.label));
-  const target = activity.target === undefined ? "" : ` ${inlineText(activity.target)}`;
+  if (activity.kind === "phase") {
+    return theme.fg("muted", theme.italic(activity.label));
+  }
+
+  const target =
+    activity.target === undefined ? "" : ` ${inlineText(activity.target)}`;
 
   return `${theme.bold(inlineText(activity.label))}${theme.fg("muted", target)}`;
 };
 
 /** What a finished agent left behind: the first line of its answer, or its error. */
 export const outcomeText = (theme: Theme, node: AgentNode): string => {
-  if (node.status === "errored") return theme.fg("error", inlineText(node.error ?? "failed"));
+  if (node.status === "errored") {
+    return theme.fg("error", inlineText(node.error ?? "failed"));
+  }
 
-  if (node.status === "interrupted") return theme.fg("muted", "interrupted");
-  const answer = node.lastAnswer?.split("\n").find((line) => line.trim() !== "");
+  if (node.status === "interrupted") {
+    return theme.fg("muted", "interrupted");
+  }
+
+  const answer = node.lastAnswer
+    ?.split("\n")
+    .find((line) => line.trim() !== "");
 
   return theme.fg("muted", answer === undefined ? "done" : inlineText(answer));
 };
@@ -179,39 +238,48 @@ export interface TreeRow<Item> {
  */
 export const treeRows = <Item extends { path: string }>(
   items: readonly Item[],
-  include: (item: Item) => boolean = () => true,
-): TreeRow<Item>[] => {
+  include: (item: Item) => boolean = () => true
+): Array<TreeRow<Item>> => {
   const byPath = new Map(items.map((item) => [item.path, item]));
   const children = new Map<string, Set<string>>();
 
   for (const item of items) {
-    if (!include(item)) continue;
+    if (!include(item)) {
+      continue;
+    }
 
     for (
-      let path = item.path, parent = parentAgentPath(path);
+      let { path } = item, parent = parentAgentPath(path);
       parent !== undefined;
       path = parent, parent = parentAgentPath(path)
     ) {
       const siblings = children.get(parent) ?? new Set();
 
-      if (siblings.has(path)) break;
+      if (siblings.has(path)) {
+        break;
+      }
+
       siblings.add(path);
       children.set(parent, siblings);
     }
   }
 
-  const rows: TreeRow<Item>[] = [
+  const rows: Array<TreeRow<Item>> = [
     { item: byPath.get(ROOT_AGENT_PATH), path: ROOT_AGENT_PATH, prefix: "" },
   ];
 
   const walk = (parent: string, indent: string) => {
     const siblings = [...(children.get(parent) ?? [])];
 
-    siblings.forEach((path, index) => {
+    for (const [index, path] of siblings.entries()) {
       const last = index === siblings.length - 1;
-      rows.push({ item: byPath.get(path), path, prefix: `${indent}${last ? "└─ " : "├─ "}` });
+      rows.push({
+        item: byPath.get(path),
+        path,
+        prefix: `${indent}${last ? "└─ " : "├─ "}`,
+      });
       walk(path, `${indent}${last ? "   " : "│  "}`);
-    });
+    }
   };
 
   walk(ROOT_AGENT_PATH, "");
@@ -222,9 +290,16 @@ export const treeRows = <Item extends { path: string }>(
 export type StatusCounts = Record<AgentStatus, number>;
 
 export const countStatuses = (nodes: readonly AgentNode[]): StatusCounts => {
-  const counts: StatusCounts = { completed: 0, errored: 0, interrupted: 0, running: 0 };
+  const counts: StatusCounts = {
+    completed: 0,
+    errored: 0,
+    interrupted: 0,
+    running: 0,
+  };
 
-  for (const node of nodes) counts[node.status] += 1;
+  for (const node of nodes) {
+    counts[node.status] += 1;
+  }
 
   return counts;
 };
@@ -235,7 +310,9 @@ export const countsText = (theme: Theme, counts: StatusCounts): string =>
     counts.running > 0 ? theme.fg("accent", `${counts.running} running`) : "",
     counts.completed > 0 ? theme.fg("muted", `${counts.completed} done`) : "",
     counts.errored > 0 ? theme.fg("error", `${counts.errored} failed`) : "",
-    counts.interrupted > 0 ? theme.fg("muted", `${counts.interrupted} interrupted`) : "",
+    counts.interrupted > 0
+      ? theme.fg("muted", `${counts.interrupted} interrupted`)
+      : "",
   ]
     .filter(Boolean)
     .join(theme.fg("dim", " · "));
@@ -244,34 +321,60 @@ export const countsText = (theme: Theme, counts: StatusCounts): string =>
  * A titled frame top, "╭─ title ──── right ─╮", spanning exactly `width` columns. The right text
  * goes first when space runs out, then the title is cut.
  */
-export const frameTop = (theme: Theme, width: number, title: string, right = ""): string => {
-  if (width < 2) return " ".repeat(Math.max(0, width));
+export const frameTop = (
+  theme: Theme,
+  width: number,
+  title: string,
+  right = ""
+): string => {
+  if (width < 2) {
+    return " ".repeat(Math.max(0, width));
+  }
+
   const inner = width - 2;
   const tail = right === "" ? "" : ` ${right} ─`;
   // "─ " and the space after the title frame it inside the corners.
   const fill = inner - 2 - visibleWidth(title) - 1 - visibleWidth(tail);
 
-  if (fill < 1 && right !== "") return frameTop(theme, width, title);
+  if (fill < 1 && right !== "") {
+    return frameTop(theme, width, title);
+  }
 
-  if (inner < 5) return theme.fg("border", `╭${"─".repeat(inner)}╮`);
+  if (inner < 5) {
+    return theme.fg("border", `╭${"─".repeat(inner)}╮`);
+  }
+
   const shown = truncateToWidth(title, inner - 4, "…");
   const rest = inner - 2 - visibleWidth(shown) - 1 - visibleWidth(tail);
 
   return `${theme.fg("border", "╭─ ")}${shown}${theme.fg("border", ` ${"─".repeat(Math.max(1, rest))}`)}${
-    right === "" ? "" : `${theme.fg("border", " ")}${right}${theme.fg("border", " ─")}`
+    right === ""
+      ? ""
+      : `${theme.fg("border", " ")}${right}${theme.fg("border", " ─")}`
   }${theme.fg("border", "╮")}`;
 };
 
-export const frameBottom = (theme: Theme, width: number, right = ""): string => {
-  if (width < 2) return " ".repeat(Math.max(0, width));
+export const frameBottom = (
+  theme: Theme,
+  width: number,
+  right = ""
+): string => {
+  if (width < 2) {
+    return " ".repeat(Math.max(0, width));
+  }
+
   const inner = width - 2;
   const tail = right === "" ? "" : ` ${right} ─`;
   const fill = inner - visibleWidth(tail);
 
-  if (fill < 1) return theme.fg("border", `╰${"─".repeat(inner)}╯`);
+  if (fill < 1) {
+    return theme.fg("border", `╰${"─".repeat(inner)}╯`);
+  }
 
   return `${theme.fg("border", `╰${"─".repeat(fill)}`)}${
-    right === "" ? "" : `${theme.fg("border", " ")}${right}${theme.fg("border", " ─")}`
+    right === ""
+      ? ""
+      : `${theme.fg("border", " ")}${right}${theme.fg("border", " ─")}`
   }${theme.fg("border", "╯")}`;
 };
 

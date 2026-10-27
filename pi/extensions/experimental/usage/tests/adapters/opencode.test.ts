@@ -1,9 +1,11 @@
-import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchOpenCodeGoUsage, mapOpenCodeGoUsagePayload } from "../../adapters/opencode.js";
+import {
+  fetchOpenCodeGoUsage,
+  mapOpenCodeGoUsagePayload,
+} from "../../adapters/opencode.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuth } from "./helpers.js";
+import { okFetch, NOW, tokenAuth } from "./helpers.js";
 
 describe("opencode go usage", () => {
   const payload = {
@@ -56,8 +58,12 @@ describe("opencode go usage", () => {
 
   it("omits windows the payload does not include", () => {
     const result = mapOpenCodeGoUsagePayload(
-      { usage: { rolling: { percent: 25, resetsAt: "2026-07-21T17:00:00.000Z" } } },
-      NOW,
+      {
+        usage: {
+          rolling: { percent: 25, resetsAt: "2026-07-21T17:00:00.000Z" },
+        },
+      },
+      NOW
     );
 
     expect(result).toStrictEqual({
@@ -83,21 +89,27 @@ describe("opencode go usage", () => {
     });
   });
 
-  it.each([-1, 101])("rejects out-of-range percent %s at ingress", async (percent) => {
-    await expect(
-      fetchOpenCodeGoUsage({
-        getAuth: tokenAuth("token"),
-        fetchJson: okFetch({ usage: { rolling: { percent } } }),
-        now: () => NOW,
-      }),
-    ).resolves.toStrictEqual({
-      ok: false,
-      error: { kind: "failure", message: "invalid usage payload" },
-    });
-  });
+  it.each([-1, 101])(
+    "rejects out-of-range percent %s at ingress",
+    async (percent) => {
+      await expect(
+        fetchOpenCodeGoUsage({
+          getAuth: tokenAuth("token"),
+          fetchJson: okFetch({ usage: { rolling: { percent } } }),
+          now: () => NOW,
+        })
+      ).resolves.toStrictEqual({
+        ok: false,
+        error: { kind: "failure", message: "invalid usage payload" },
+      });
+    }
+  );
 
   it("requests Go usage with a bearer API key", async () => {
-    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch(payload) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchOpenCodeGoUsage({

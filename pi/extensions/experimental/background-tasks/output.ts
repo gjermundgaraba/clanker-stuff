@@ -1,5 +1,7 @@
-import { StringEnum, type JsonValue } from "@earendil-works/pi-ai";
-import { Type, type Static } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
+import type { JsonValue } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 
 const strict = { additionalProperties: false } as const;
 
@@ -25,7 +27,7 @@ export const taskSummarySchema = Type.Object(
     exitCode: Type.Optional(Type.Union([Type.Integer(), Type.Null()])),
     signal: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   },
-  strict,
+  strict
 );
 
 export type TaskSummary = Static<typeof taskSummarySchema>;
@@ -39,7 +41,7 @@ const logsSchema = Type.Object(
     stdoutOmittedBytes: Type.Integer(),
     stderrOmittedBytes: Type.Integer(),
   },
-  strict,
+  strict
 );
 
 export type LogSummary = Static<typeof logsSchema>;
@@ -49,15 +51,21 @@ const dataSchema = Type.Unsafe<JsonValue>(Type.Unknown());
 
 const { id, name, status, cleanup } = taskSummarySchema.properties;
 
-const listRowSchema = Type.Object({ id, name, status, cleanup, unread: Type.Boolean() }, strict);
+const listRowSchema = Type.Object(
+  { id, name, status, cleanup, unread: Type.Boolean() },
+  strict
+);
 
 export type ListRow = Static<typeof listRowSchema>;
 
-export const listOutputSchema = Type.Object({ tasks: Type.Array(listRowSchema) }, strict);
+export const listOutputSchema = Type.Object(
+  { tasks: Type.Array(listRowSchema) },
+  strict
+);
 
 const eventSchema = Type.Object(
   { seq: Type.Integer(), key: Type.Optional(Type.String()), data: dataSchema },
-  strict,
+  strict
 );
 
 export type TaskEvent = Static<typeof eventSchema>;
@@ -71,7 +79,7 @@ export const inspectOutputSchema = Type.Object(
     omittedEvents: Type.Integer(),
     logs: logsSchema,
   },
-  strict,
+  strict
 );
 
 export type InspectOutput = Static<typeof inspectOutputSchema>;

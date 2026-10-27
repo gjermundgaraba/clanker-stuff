@@ -2,31 +2,41 @@
 
 import { appendFileSync, readFileSync } from "node:fs";
 
-const schemaPath = process.env["MEM2ACT_SCHEMA_PATH"] ?? "/app/.mem2act-schema.json";
+const schemaPath =
+  process.env["MEM2ACT_SCHEMA_PATH"] ?? "/app/.mem2act-schema.json";
 
-const callsPath = process.env["MEM2ACT_CALLS_PATH"] ?? "/app/.mem2act-calls.jsonl";
+const callsPath =
+  process.env["MEM2ACT_CALLS_PATH"] ?? "/app/.mem2act-calls.jsonl";
 
 /** @param {string} text @returns {unknown} */
 const parseJson = (text) => /** @type {unknown} */ (JSON.parse(text));
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isObject = (value) => value !== null && !Array.isArray(value) && typeof value === "object";
+const isObject = (value) =>
+  value !== null && !Array.isArray(value) && typeof value === "object";
 
-/** @param {string} message @returns {never} */
-function fail(message) {
+/** @type {(message: string) => never} */
+const fail = (message) => {
   console.error(message);
   console.error("usage: mem2act describe | mem2act call --arguments JSON");
   process.exit(2);
-}
+};
 
 const [command, ...args] = process.argv.slice(2);
 
 if (command === "describe" && args.length === 0) {
   console.log(JSON.stringify(parseJson(readFileSync(schemaPath, "utf-8"))));
-} else if (command === "call" && args.length === 2 && args[0] === "--arguments") {
-  const argumentsJson = args[1];
+} else if (
+  command === "call" &&
+  args.length === 2 &&
+  args[0] === "--arguments"
+) {
+  const [, argumentsJson] = args;
 
-  if (argumentsJson === undefined) fail("missing arguments JSON");
+  if (argumentsJson === undefined) {
+    fail("missing arguments JSON");
+  }
+
   let parameters = null;
 
   try {

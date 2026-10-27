@@ -89,7 +89,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -103,14 +109,21 @@
         role="img"
         aria-labelledby="state-lifecycle-title state-lifecycle-desc"
       >
-        <title id="state-lifecycle-title">Newsletter publication lifecycle</title>
+        <title id="state-lifecycle-title">
+          Newsletter publication lifecycle
+        </title>
         <desc id="state-lifecycle-desc">
-          A lifecycle phase map with Draft, Editing, Scheduled, Sending, and Sent on the primary
-          rail; Approval and Delivery Retry in a recovery band; and Cancelled and Failed terminal
-          outcomes.
+          A lifecycle phase map with Draft, Editing, Scheduled, Sending, and
+          Sent on the primary rail; Approval and Delivery Retry in a recovery
+          band; and Cancelled and Failed terminal outcomes.
         </desc>
         <defs>
-          <pattern id="lifecycle-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            id="lifecycle-dots"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
           </pattern>
           <marker
@@ -136,7 +149,12 @@
         </defs>
 
         <rect width="100%" height="100%" fill="#f5f5f5" />
-        <rect width="100%" height="100%" fill="url(#lifecycle-dots)" opacity="0.55" />
+        <rect
+          width="100%"
+          height="100%"
+          fill="url(#lifecycle-dots)"
+          opacity="0.55"
+        />
         <rect
           x="24"
           y="44"
@@ -303,30 +321,118 @@
         <!-- Primary rail: five phases. -->
         <g font-family="'Geist',sans-serif" text-anchor="middle">
           <g>
-            <rect x="64" y="220" width="150" height="72" rx="8" fill="#fff" stroke="#2d3142" />
-            <text x="139" y="251" fill="#2d3142" font-size="12" font-weight="600">Draft</text>
-            <text x="139" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <rect
+              x="64"
+              y="220"
+              width="150"
+              height="72"
+              rx="8"
+              fill="#fff"
+              stroke="#2d3142"
+            />
+            <text
+              x="139"
+              y="251"
+              fill="#2d3142"
+              font-size="12"
+              font-weight="600"
+            >
+              Draft
+            </text>
+            <text
+              x="139"
+              y="270"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               content exists
             </text>
           </g>
           <g>
-            <rect x="244" y="220" width="150" height="72" rx="8" fill="#fff" stroke="#2d3142" />
-            <text x="319" y="251" fill="#2d3142" font-size="12" font-weight="600">Editing</text>
-            <text x="319" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <rect
+              x="244"
+              y="220"
+              width="150"
+              height="72"
+              rx="8"
+              fill="#fff"
+              stroke="#2d3142"
+            />
+            <text
+              x="319"
+              y="251"
+              fill="#2d3142"
+              font-size="12"
+              font-weight="600"
+            >
+              Editing
+            </text>
+            <text
+              x="319"
+              y="270"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               owner revises
             </text>
           </g>
           <g>
-            <rect x="424" y="220" width="150" height="72" rx="8" fill="#fff" stroke="#2d3142" />
-            <text x="499" y="251" fill="#2d3142" font-size="12" font-weight="600">Scheduled</text>
-            <text x="499" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <rect
+              x="424"
+              y="220"
+              width="150"
+              height="72"
+              rx="8"
+              fill="#fff"
+              stroke="#2d3142"
+            />
+            <text
+              x="499"
+              y="251"
+              fill="#2d3142"
+              font-size="12"
+              font-weight="600"
+            >
+              Scheduled
+            </text>
+            <text
+              x="499"
+              y="270"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               send time set
             </text>
           </g>
           <g>
-            <rect x="604" y="220" width="150" height="72" rx="8" fill="#fff" stroke="#2d3142" />
-            <text x="679" y="251" fill="#2d3142" font-size="12" font-weight="600">Sending</text>
-            <text x="679" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <rect
+              x="604"
+              y="220"
+              width="150"
+              height="72"
+              rx="8"
+              fill="#fff"
+              stroke="#2d3142"
+            />
+            <text
+              x="679"
+              y="251"
+              fill="#2d3142"
+              font-size="12"
+              font-weight="600"
+            >
+              Sending
+            </text>
+            <text
+              x="679"
+              y="270"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               provider active
             </text>
           </g>
@@ -342,8 +448,22 @@
             />
             <circle cx="824" cy="244" r="7" fill="none" stroke="#eb6c36" />
             <circle cx="824" cy="244" r="4" fill="#eb6c36" />
-            <text x="875" y="251" fill="#2d3142" font-size="12" font-weight="600">Sent</text>
-            <text x="875" y="270" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <text
+              x="875"
+              y="251"
+              fill="#2d3142"
+              font-size="12"
+              font-weight="600"
+            >
+              Sent
+            </text>
+            <text
+              x="875"
+              y="270"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               delivery complete
             </text>
           </g>
@@ -371,7 +491,13 @@
               fill="none"
               stroke="rgba(79,93,117,0.45)"
             />
-            <text x="361" y="87" fill="#4f5d75" font-size="7" font-family="'Geist Mono',monospace">
+            <text
+              x="361"
+              y="87"
+              fill="#4f5d75"
+              font-size="7"
+              font-family="'Geist Mono',monospace"
+            >
               WAIT
             </text>
             <text
@@ -384,7 +510,13 @@
             >
               Approval
             </text>
-            <text x="409" y="126" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <text
+              x="409"
+              y="126"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               editor decision
             </text>
           </g>
@@ -408,7 +540,13 @@
               fill="none"
               stroke="rgba(79,93,117,0.45)"
             />
-            <text x="640" y="87" fill="#4f5d75" font-size="7" font-family="'Geist Mono',monospace">
+            <text
+              x="640"
+              y="87"
+              fill="#4f5d75"
+              font-size="7"
+              font-family="'Geist Mono',monospace"
+            >
               RECOVERY
             </text>
             <text
@@ -421,7 +559,13 @@
             >
               Delivery Retry
             </text>
-            <text x="679" y="126" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <text
+              x="679"
+              y="126"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               attempt 1 of 3
             </text>
           </g>
@@ -448,7 +592,13 @@
               fill="none"
               stroke="rgba(79,93,117,0.45)"
             />
-            <text x="461" y="435" fill="#4f5d75" font-size="7" font-family="'Geist Mono',monospace">
+            <text
+              x="461"
+              y="435"
+              fill="#4f5d75"
+              font-size="7"
+              font-family="'Geist Mono',monospace"
+            >
               TERMINAL
             </text>
             <text
@@ -461,7 +611,13 @@
             >
               Cancelled
             </text>
-            <text x="499" y="474" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <text
+              x="499"
+              y="474"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               stopped by owner
             </text>
           </g>
@@ -486,7 +642,13 @@
               fill="none"
               stroke="rgba(79,93,117,0.45)"
             />
-            <text x="711" y="435" fill="#4f5d75" font-size="7" font-family="'Geist Mono',monospace">
+            <text
+              x="711"
+              y="435"
+              fill="#4f5d75"
+              font-size="7"
+              font-family="'Geist Mono',monospace"
+            >
               TERMINAL
             </text>
             <text
@@ -499,7 +661,13 @@
             >
               Failed
             </text>
-            <text x="749" y="474" fill="#4f5d75" font-size="8" font-family="'Geist Mono',monospace">
+            <text
+              x="749"
+              y="474"
+              fill="#4f5d75"
+              font-size="8"
+              font-family="'Geist Mono',monospace"
+            >
               retries exhausted
             </text>
           </g>

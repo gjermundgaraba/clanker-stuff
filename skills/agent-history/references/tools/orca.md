@@ -18,13 +18,13 @@ Last verified: local macOS, structural inspection only.
 
 ## Sources
 
-| Priority | Location                                                  | Kind       | Authority         | Contains                          | Parser State  | Collection Policy   | Sensitivity |
-| -------- | --------------------------------------------------------- | ---------- | ----------------- | --------------------------------- | ------------- | ------------------- | ----------- |
-| 1        | `$HOME/Library/Application Support/orca/orchestration.db` | SQLite     | primary candidate | tasks/messages/dispatch context   | partial       | collect             | private     |
-| 1        | `$HOME/Library/Application Support/orca/orca-data.json`   | JSON       | app state         | projects/workspaces/session state | partial       | collect             | private     |
-| 2        | terminal history/scrollback dirs                          | text/files | secondary         | terminal interactions             | partial       | collect_when_needed | private     |
-| 2        | agent overlay/hook dirs                                   | files      | support           | agent integration state           | schema_known  | collect_when_needed | private     |
-| 3        | browser/Electron stores and keypairs                      | mixed      | auth/cache        | secrets/cache                     | metadata_only | ignore_by_default   | secret      |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/Library/Application Support/orca/orchestration.db` | SQLite | primary candidate | tasks/messages/dispatch context | partial | collect | private |
+| 1 | `$HOME/Library/Application Support/orca/orca-data.json` | JSON | app state | projects/workspaces/session state | partial | collect | private |
+| 2 | terminal history/scrollback dirs | text/files | secondary | terminal interactions | partial | collect_when_needed | private |
+| 2 | agent overlay/hook dirs | files | support | agent integration state | schema_known | collect_when_needed | private |
+| 3 | browser/Electron stores and keypairs | mixed | auth/cache | secrets/cache | metadata_only | ignore_by_default | secret |
 
 ## Find
 

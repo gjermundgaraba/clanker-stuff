@@ -14,8 +14,8 @@ const window = (seconds: number, used = 25) => ({
   reset_at: resetAt,
 });
 
-const fetchPayload = (payload: unknown) =>
-  fetchCodexUsage({
+const fetchPayload = async (payload: unknown) =>
+  await fetchCodexUsage({
     getAuth: tokenAuth(CODEX_TOKEN),
     fetchJson: okFetch(payload),
     now: () => NOW,
@@ -65,14 +65,24 @@ describe("Codex usage", () => {
     { seconds: 604_800, label: "7d" },
     { seconds: 2_592_000, label: "30d" },
     { seconds: 90, label: "90s" },
-  ])("uses the returned primary duration ($label)", async ({ seconds, label }) => {
-    await expect(
-      fetchPayload({ rate_limit: { primary_window: window(seconds), secondary_window: null } }),
-    ).resolves.toMatchObject({
-      ok: true,
-      snapshot: { quotaWindows: [{ label, remainingPercent: 75, resetsAt: resetIso }] },
-    });
-  });
+  ])(
+    "uses the returned primary duration ($label)",
+    async ({ seconds, label }) => {
+      await expect(
+        fetchPayload({
+          rate_limit: {
+            primary_window: window(seconds),
+            secondary_window: null,
+          },
+        })
+      ).resolves.toMatchObject({
+        ok: true,
+        snapshot: {
+          quotaWindows: [{ label, remainingPercent: 75, resetsAt: resetIso }],
+        },
+      });
+    }
+  );
 
   it.each([undefined, 8_640_000_000_001])(
     "preserves quota with an unrepresentable reset (%j) and clamps outlying percentages",
@@ -81,9 +91,12 @@ describe("Codex usage", () => {
         fetchPayload({
           rate_limit: {
             primary_window: { ...window(18_000, 105), reset_at },
-            secondary_window: { used_percent: -5, limit_window_seconds: 604_800 },
+            secondary_window: {
+              used_percent: -5,
+              limit_window_seconds: 604_800,
+            },
           },
-        }),
+        })
       ).resolves.toStrictEqual({
         ok: true,
         snapshot: {
@@ -95,12 +108,15 @@ describe("Codex usage", () => {
           ],
         },
       });
-    },
+    }
   );
 
   it("reports a metered credit balance without quota windows", async () => {
     await expect(
-      fetchPayload({ rate_limit: null, credits: { has_credits: true, balance: " 12.50 " } }),
+      fetchPayload({
+        rate_limit: null,
+        credits: { has_credits: true, balance: " 12.50 " },
+      })
     ).resolves.toStrictEqual({
       ok: true,
       snapshot: {
@@ -120,31 +136,48 @@ describe("Codex usage", () => {
     { has_credits: true, balance: "" },
     { has_credits: true, balance: "12 credits" },
     { has_credits: true, balance: "1e9999" },
-  ])("keeps quota but no balance for unmetered or unreadable credits: %j", async (credits) => {
-    await expect(
-      fetchPayload({ rate_limit: { primary_window: window(18_000) }, credits }),
-    ).resolves.toStrictEqual({
-      ok: true,
-      snapshot: {
-        fetchedAt: NOW,
-        provider: "openai-codex",
-        quotaWindows: [{ label: "5h", remainingPercent: 75, resetsAt: resetIso }],
-      },
-    });
-  });
+  ])(
+    "keeps quota but no balance for unmetered or unreadable credits: %j",
+    async (credits) => {
+      await expect(
+        fetchPayload({
+          rate_limit: { primary_window: window(18_000) },
+          credits,
+        })
+      ).resolves.toStrictEqual({
+        ok: true,
+        snapshot: {
+          fetchedAt: NOW,
+          provider: "openai-codex",
+          quotaWindows: [
+            { label: "5h", remainingPercent: 75, resetsAt: resetIso },
+          ],
+        },
+      });
+    }
+  );
 
   it.each([
     {},
-    { plan_type: "free", rate_limit: { primary_window: null }, credits: { has_credits: false } },
-  ])("fails a response without metrics instead of replacing cached usage: %j", async (payload) => {
-    await expect(fetchPayload(payload)).resolves.toStrictEqual({
-      ok: false,
-      error: { kind: "failure", message: "no usage data in response" },
-    });
-  });
+    {
+      plan_type: "free",
+      rate_limit: { primary_window: null },
+      credits: { has_credits: false },
+    },
+  ])(
+    "fails a response without metrics instead of replacing cached usage: %j",
+    async (payload) => {
+      await expect(fetchPayload(payload)).resolves.toStrictEqual({
+        ok: false,
+        error: { kind: "failure", message: "no usage data in response" },
+      });
+    }
+  );
 
   it.each([
-    { rate_limit: { primary_window: { ...window(18_000), used_percent: "25" } } },
+    {
+      rate_limit: { primary_window: { ...window(18_000), used_percent: "25" } },
+    },
     { rate_limit: { primary_window: window(0) } },
     { rate_limit: { primary_window: { limit_window_seconds: 18_000 } } },
     { rate_limit: { primary_window: { ...window(18_000), reset_at: "soon" } } },
@@ -163,10 +196,18 @@ describe("Codex usage", () => {
     "routes with the resolved Codex OAuth token's account claim ($token)",
     async ({ token, account }) => {
       const getAuth = vi.fn<GetAuth>(tokenAuth(token));
-      const client = { fetchJson: okFetch({ rate_limit: { primary_window: window(18_000) } }) };
+
+      const client = {
+        fetchJson: okFetch({ rate_limit: { primary_window: window(18_000) } }),
+      };
+
       const fetchJson = vi.spyOn(client, "fetchJson");
 
-      await fetchCodexUsage({ getAuth, fetchJson: client.fetchJson, now: () => NOW });
+      await fetchCodexUsage({
+        getAuth,
+        fetchJson: client.fetchJson,
+        now: () => NOW,
+      });
 
       expect(getAuth.mock.calls).toStrictEqual([["openai-codex"]]);
       expect(fetchJson).toHaveBeenCalledExactlyOnceWith(
@@ -177,9 +218,9 @@ describe("Codex usage", () => {
           Authorization: `Bearer ${token}`,
           ...account,
           "User-Agent": "pi-usage",
-        },
+        }
       );
-    },
+    }
   );
 
   it("does not send an API key to the subscription endpoint", async () => {
@@ -187,7 +228,10 @@ describe("Codex usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchCodexUsage({
-      getAuth: async () => ({ auth: { apiKey: CODEX_TOKEN }, source: "Environment" }),
+      getAuth: async () => ({
+        auth: { apiKey: CODEX_TOKEN },
+        source: "Environment",
+      }),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

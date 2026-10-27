@@ -9,7 +9,9 @@ describe("rolling-font manifest", () => {
     const font = parseRollingFont(fontManifest());
 
     for (let digit = 0; digit < 10; digit += 1) {
-      expect(font.stationary(String(digit))).toBe(String.fromCodePoint(0xf1000 + digit * 0x100));
+      expect(font.stationary(String(digit))).toBe(
+        String.fromCodePoint(0xf_10_00 + digit * 0x1_00)
+      );
       expect(visibleWidth(font.stationary(String(digit)))).toBe(1);
     }
 
@@ -24,19 +26,22 @@ describe("rolling-font manifest", () => {
     });
 
     expect(font.glyph("0", "1", 0)).toBe("0");
-    expect(font.glyph("0", "1", 0.25)).toBe(String.fromCodePoint(0xf1002));
+    expect(font.glyph("0", "1", 0.25)).toBe(String.fromCodePoint(0xf_10_02));
     expect(font.glyph("1", "0", 0.75)).toBe(font.glyph("0", "1", 0.25));
-    expect(font.glyph("9", "0", 0.5)).toBe(String.fromCodePoint(0xf1904));
-    expect(font.glyph("5", "0", 0.5)).toBe(String.fromCodePoint(0xf1a04));
+    expect(font.glyph("9", "0", 0.5)).toBe(String.fromCodePoint(0xf_19_04));
+    expect(font.glyph("5", "0", 0.5)).toBe(String.fromCodePoint(0xf_1a_04));
     expect(font.glyph("0", "5", 0.5)).toBe(font.glyph("5", "0", 0.5));
     expect(visibleWidth(font.glyph("0", "1", 0.5))).toBe(1);
-    expect(font.glyph("0", "1", 0.5).length).toBe(2); // Supplementary codepoint, one cell.
+    // Supplementary codepoint, one cell.
+    expect(font.glyph("0", "1", 0.5)).toHaveLength(2);
     expect(() => font.glyph("1", "3", 0.5)).toThrow("Unsupported");
   });
 
   it.each([1, 8, 32])("reads %i subdivisions from the manifest", (steps) => {
     const font = parseRollingFont(fontManifest(steps));
-    expect(font.glyph("0", "1", 0.5)).toBe(String.fromCodePoint(0xf1000 + Math.round(steps / 2)));
+    expect(font.glyph("0", "1", 0.5)).toBe(
+      String.fromCodePoint(0xf_10_00 + Math.round(steps / 2))
+    );
   });
 
   it.each([
@@ -45,10 +50,27 @@ describe("rolling-font manifest", () => {
     { steps: 8.5 },
     { steps: 16 },
     { transitions: {} },
-    { transitions: { ...fontManifest().transitions, "01": Array(9).fill(27) } },
-    { transitions: { ...fontManifest().transitions, "01": Array(9).fill(0xffffe) } },
-    { transitions: { ...fontManifest().transitions, "50": Array(8).fill(0xf2000) } },
+    {
+      transitions: {
+        ...fontManifest().transitions,
+        "01": Array.from({ length: 9 }, () => 27),
+      },
+    },
+    {
+      transitions: {
+        ...fontManifest().transitions,
+        "01": Array.from({ length: 9 }, () => 0xf_ff_fe),
+      },
+    },
+    {
+      transitions: {
+        ...fontManifest().transitions,
+        "50": Array.from({ length: 8 }, () => 0xf_20_00),
+      },
+    },
   ])("rejects malformed or unsafe frame mappings: %j", (patch) => {
-    expect(() => parseRollingFont({ ...fontManifest(), ...patch })).toThrow();
+    expect(() => parseRollingFont({ ...fontManifest(), ...patch })).toThrow(
+      /Invalid rolling-font manifest|Rolling-font transition \w+ must have steps \+ 1 frames/u
+    );
   });
 });

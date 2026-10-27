@@ -138,7 +138,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -146,7 +152,8 @@
       <p class="eyebrow">IT current-state · Northwind Retail</p>
       <h1>Legacy retail reporting landscape</h1>
       <p class="subtitle">
-        File exports, desktop spreadsheets, and manual publication before a shared data platform.
+        File exports, desktop spreadsheets, and manual publication before a
+        shared data platform.
       </p>
       <div class="diagram">
         <svg
@@ -155,12 +162,22 @@
           aria-labelledby="it-state-title it-state-desc"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <title id="it-state-title">Northwind Retail current IT landscape</title>
+          <title id="it-state-title">
+            Northwind Retail current IT landscape
+          </title>
           <desc id="it-state-desc">
-            Three zones show collection, processing, and dissemination through manual file handoffs.
+            Three zones show collection, processing, and dissemination through
+            manual file handoffs.
           </desc>
           <defs>
-            <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <marker
+              id="arrow"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
               <polygon points="0 0, 8 3, 0 6" fill="#4f5d75" />
             </marker>
             <marker
@@ -193,7 +210,9 @@
               stroke-linejoin="round"
             >
               <path d="M14 3v4a1 1 0 0 0 1 1h4" />
-              <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2" />
+              <path
+                d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2"
+              />
             </symbol>
             <symbol
               id="icon-screen"
@@ -215,7 +234,9 @@
               stroke-width="1.5"
             >
               <ellipse cx="12" cy="6" rx="8" ry="3" />
-              <path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+              <path
+                d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"
+              />
             </symbol>
             <symbol
               id="icon-users"
@@ -312,74 +333,353 @@
             marker-end="url(#arrow-link)"
           />
 
-          <rect class="node-mask" x="36" y="80" width="216" height="56" rx="6" />
+          <rect
+            class="node-mask"
+            x="36"
+            y="80"
+            width="216"
+            height="56"
+            rx="6"
+          />
           <rect class="node" x="36" y="80" width="216" height="56" rx="6" />
-          <use href="#icon-file" x="48" y="96" width="24" height="24" color="#2d3142" />
+          <use
+            href="#icon-file"
+            x="48"
+            y="96"
+            width="24"
+            height="24"
+            color="#2d3142"
+          />
           <text class="node-name" x="80" y="106">Point-of-Sale Exports</text>
           <text class="sub" x="80" y="122">nightly · CSV</text>
-          <rect class="node-mask" x="36" y="168" width="216" height="56" rx="6" />
+          <rect
+            class="node-mask"
+            x="36"
+            y="168"
+            width="216"
+            height="56"
+            rx="6"
+          />
           <rect class="node" x="36" y="168" width="216" height="56" rx="6" />
-          <use href="#icon-file" x="48" y="184" width="24" height="24" color="#2d3142" />
+          <use
+            href="#icon-file"
+            x="48"
+            y="184"
+            width="24"
+            height="24"
+            color="#2d3142"
+          />
           <text class="node-name" x="80" y="194">Online Store Export</text>
           <text class="sub" x="80" y="210">orders · flat file</text>
-          <rect class="node-mask" x="36" y="256" width="216" height="56" rx="6" />
-          <rect class="node external" x="36" y="256" width="216" height="56" rx="6" />
-          <use href="#icon-file" x="48" y="272" width="24" height="24" color="#4f5d75" />
+          <rect
+            class="node-mask"
+            x="36"
+            y="256"
+            width="216"
+            height="56"
+            rx="6"
+          />
+          <rect
+            class="node external"
+            x="36"
+            y="256"
+            width="216"
+            height="56"
+            rx="6"
+          />
+          <use
+            href="#icon-file"
+            x="48"
+            y="272"
+            width="24"
+            height="24"
+            color="#4f5d75"
+          />
           <text class="node-name" x="80" y="282">Supplier Price Lists</text>
           <text class="sub" x="80" y="298">external · XLSX</text>
 
-          <rect class="node-mask" x="340" y="80" width="264" height="68" rx="6" />
-          <rect class="node focal" x="340" y="80" width="264" height="68" rx="6" />
-          <use href="#icon-file" x="352" y="100" width="24" height="24" color="#eb6c36" />
+          <rect
+            class="node-mask"
+            x="340"
+            y="80"
+            width="264"
+            height="68"
+            rx="6"
+          />
+          <rect
+            class="node focal"
+            x="340"
+            y="80"
+            width="264"
+            height="68"
+            rx="6"
+          />
+          <use
+            href="#icon-file"
+            x="352"
+            y="100"
+            width="24"
+            height="24"
+            color="#eb6c36"
+          />
           <text class="node-name" x="384" y="108">Shared Drive</text>
           <text class="sub focal" x="384" y="124">no version control</text>
           <text class="sub" x="384" y="140">department folders</text>
-          <rect class="node-mask" x="340" y="232" width="264" height="72" rx="6" />
+          <rect
+            class="node-mask"
+            x="340"
+            y="232"
+            width="264"
+            height="72"
+            rx="6"
+          />
           <rect class="node" x="340" y="232" width="264" height="72" rx="6" />
-          <use href="#icon-screen" x="352" y="256" width="24" height="24" color="#2d3142" />
+          <use
+            href="#icon-screen"
+            x="352"
+            y="256"
+            width="24"
+            height="24"
+            color="#2d3142"
+          />
           <text class="node-name" x="384" y="262">Spreadsheet Handoffs</text>
           <text class="sub" x="384" y="278">local workbooks · macros</text>
           <text class="sub" x="384" y="292">manual reconciliation</text>
-          <rect class="node-mask" x="340" y="344" width="264" height="56" rx="6" />
-          <rect class="node survivor" x="340" y="344" width="264" height="56" rx="6" />
-          <use href="#icon-db" x="352" y="360" width="24" height="24" color="#7c8f6f" />
+          <rect
+            class="node-mask"
+            x="340"
+            y="344"
+            width="264"
+            height="56"
+            rx="6"
+          />
+          <rect
+            class="node survivor"
+            x="340"
+            y="344"
+            width="264"
+            height="56"
+            rx="6"
+          />
+          <use
+            href="#icon-db"
+            x="352"
+            y="360"
+            width="24"
+            height="24"
+            color="#7c8f6f"
+          />
           <text class="node-name survivor" x="384" y="370">On-prem RDBMS</text>
           <text class="sub" x="384" y="386">inventory · finance</text>
 
-          <rect class="node-mask" x="704" y="80" width="208" height="60" rx="6" />
-          <rect class="node focal" x="704" y="80" width="208" height="60" rx="6" />
-          <use href="#icon-screen" x="716" y="100" width="24" height="24" color="#eb6c36" />
+          <rect
+            class="node-mask"
+            x="704"
+            y="80"
+            width="208"
+            height="60"
+            rx="6"
+          />
+          <rect
+            class="node focal"
+            x="704"
+            y="80"
+            width="208"
+            height="60"
+            rx="6"
+          />
+          <use
+            href="#icon-screen"
+            x="716"
+            y="100"
+            width="24"
+            height="24"
+            color="#eb6c36"
+          />
           <text class="node-name" x="748" y="108">Reporting Portal</text>
           <text class="sub focal" x="748" y="124">manual refresh</text>
-          <rect class="node-mask" x="704" y="216" width="208" height="56" rx="6" />
+          <rect
+            class="node-mask"
+            x="704"
+            y="216"
+            width="208"
+            height="56"
+            rx="6"
+          />
           <rect class="node" x="704" y="216" width="208" height="56" rx="6" />
-          <use href="#icon-file" x="716" y="232" width="24" height="24" color="#2d3142" />
+          <use
+            href="#icon-file"
+            x="716"
+            y="232"
+            width="24"
+            height="24"
+            color="#2d3142"
+          />
           <text class="node-name" x="748" y="242">Email Report Packs</text>
           <text class="sub" x="748" y="258">weekly · PDF</text>
-          <rect class="node-mask" x="704" y="344" width="208" height="56" rx="6" />
-          <rect class="node external" x="704" y="344" width="208" height="56" rx="6" />
-          <use href="#icon-users" x="716" y="360" width="24" height="24" color="#4f5d75" />
+          <rect
+            class="node-mask"
+            x="704"
+            y="344"
+            width="208"
+            height="56"
+            rx="6"
+          />
+          <rect
+            class="node external"
+            x="704"
+            y="344"
+            width="208"
+            height="56"
+            rx="6"
+          />
+          <use
+            href="#icon-users"
+            x="716"
+            y="360"
+            width="24"
+            height="24"
+            color="#4f5d75"
+          />
           <text class="node-name" x="748" y="370">Regional Managers</text>
           <text class="sub" x="748" y="386">12 store regions</text>
 
-          <rect class="label-mask" x="260" y="86" width="40" height="16" rx="2" />
-          <text class="arrow-label" x="280" y="98" text-anchor="middle" fill="#2e5aa8">CSV</text>
-          <rect class="label-mask" x="260" y="174" width="52" height="16" rx="2" />
-          <text class="arrow-label" x="286" y="186" text-anchor="middle" fill="#2e5aa8">
+          <rect
+            class="label-mask"
+            x="260"
+            y="86"
+            width="40"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="280"
+            y="98"
+            text-anchor="middle"
+            fill="#2e5aa8"
+          >
+            CSV
+          </text>
+          <rect
+            class="label-mask"
+            x="260"
+            y="174"
+            width="52"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="286"
+            y="186"
+            text-anchor="middle"
+            fill="#2e5aa8"
+          >
             EXPORT
           </text>
-          <rect class="label-mask" x="260" y="262" width="44" height="16" rx="2" />
-          <text class="arrow-label" x="282" y="274" text-anchor="middle" fill="#2e5aa8">XLSX</text>
-          <rect class="label-mask" x="478" y="156" width="40" height="16" rx="2" />
-          <text class="arrow-label" x="498" y="168" text-anchor="middle" fill="#eb6c36">COPY</text>
-          <rect class="label-mask" x="478" y="312" width="40" height="16" rx="2" />
-          <text class="arrow-label" x="498" y="324" text-anchor="middle" fill="#4f5d75">LOAD</text>
-          <rect class="label-mask" x="612" y="246" width="44" height="16" rx="2" />
-          <text class="arrow-label" x="634" y="258" text-anchor="middle" fill="#eb6c36">XLSX</text>
-          <rect class="label-mask" x="814" y="148" width="36" height="16" rx="2" />
-          <text class="arrow-label" x="832" y="160" text-anchor="middle" fill="#2e5aa8">PDF</text>
-          <rect class="label-mask" x="814" y="280" width="48" height="16" rx="2" />
-          <text class="arrow-label" x="838" y="292" text-anchor="middle" fill="#2e5aa8">EMAIL</text>
+          <rect
+            class="label-mask"
+            x="260"
+            y="262"
+            width="44"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="282"
+            y="274"
+            text-anchor="middle"
+            fill="#2e5aa8"
+          >
+            XLSX
+          </text>
+          <rect
+            class="label-mask"
+            x="478"
+            y="156"
+            width="40"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="498"
+            y="168"
+            text-anchor="middle"
+            fill="#eb6c36"
+          >
+            COPY
+          </text>
+          <rect
+            class="label-mask"
+            x="478"
+            y="312"
+            width="40"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="498"
+            y="324"
+            text-anchor="middle"
+            fill="#4f5d75"
+          >
+            LOAD
+          </text>
+          <rect
+            class="label-mask"
+            x="612"
+            y="246"
+            width="44"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="634"
+            y="258"
+            text-anchor="middle"
+            fill="#eb6c36"
+          >
+            XLSX
+          </text>
+          <rect
+            class="label-mask"
+            x="814"
+            y="148"
+            width="36"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="832"
+            y="160"
+            text-anchor="middle"
+            fill="#2e5aa8"
+          >
+            PDF
+          </text>
+          <rect
+            class="label-mask"
+            x="814"
+            y="280"
+            width="48"
+            height="16"
+            rx="2"
+          />
+          <text
+            class="arrow-label"
+            x="838"
+            y="292"
+            text-anchor="middle"
+            fill="#2e5aa8"
+          >
+            EMAIL
+          </text>
 
           <line
             x1="16"
@@ -389,10 +689,26 @@
             stroke="rgba(45,49,66,0.12)"
             stroke-width="0.8"
           />
-          <text class="legend-label" x="16" y="460" letter-spacing="0.14em">LEGEND</text>
-          <line x1="80" y1="456" x2="104" y2="456" stroke="#2e5aa8" stroke-width="1.2" />
+          <text class="legend-label" x="16" y="460" letter-spacing="0.14em">
+            LEGEND
+          </text>
+          <line
+            x1="80"
+            y1="456"
+            x2="104"
+            y2="456"
+            stroke="#2e5aa8"
+            stroke-width="1.2"
+          />
           <text class="legend-label" x="112" y="460">data flow</text>
-          <line x1="208" y1="456" x2="232" y2="456" stroke="#eb6c36" stroke-width="1.4" />
+          <line
+            x1="208"
+            y1="456"
+            x2="232"
+            y2="456"
+            stroke="#eb6c36"
+            stroke-width="1.4"
+          />
           <text class="legend-label" x="240" y="460">pain-point</text>
           <rect
             x="372"

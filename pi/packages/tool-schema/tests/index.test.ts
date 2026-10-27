@@ -6,13 +6,20 @@ import { invalidArguments, structuralSchema } from "../index.js";
 
 const Rich = Type.Object(
   {
-    name: Type.String({ minLength: 1, maxLength: 8, description: "Short name" }),
+    name: Type.String({
+      minLength: 1,
+      maxLength: 8,
+      description: "Short name",
+    }),
     pattern: Type.Optional(Type.String({ pattern: "^[a-z]+$" })),
     sizes: Type.Optional(
-      Type.Array(Type.Integer({ minimum: 1, maximum: 9 }), { minItems: 1, uniqueItems: true }),
+      Type.Array(Type.Integer({ minimum: 1, maximum: 9 }), {
+        minItems: 1,
+        uniqueItems: true,
+      })
     ),
   },
-  { additionalProperties: false },
+  { additionalProperties: false }
 );
 
 describe("tool schemas", () => {
@@ -20,7 +27,10 @@ describe("tool schemas", () => {
     expect(structuralSchema(Rich)).toStrictEqual({
       additionalProperties: false,
       properties: {
-        name: { description: "Short name. Limits: 1–8 characters.", type: "string" },
+        name: {
+          description: "Short name. Limits: 1–8 characters.",
+          type: "string",
+        },
         pattern: { description: "Limits: pattern ^[a-z]+$.", type: "string" },
         sizes: {
           description: "Limits: at least 1 items; unique items.",
@@ -44,14 +54,17 @@ describe("tool schemas", () => {
           examples: [{ pattern: "literal" }],
         }),
       },
-      { additionalProperties: Type.Number({ minimum: 0 }) },
+      { additionalProperties: Type.Number({ minimum: 0 }) }
     );
 
     const original = structuredClone(schema);
     const parameters = structuralSchema(schema);
 
     expect(parameters.properties.value).toStrictEqual({
-      anyOf: [{ type: "string", description: "Limits: at least 2 characters." }, { type: "null" }],
+      anyOf: [
+        { type: "string", description: "Limits: at least 2 characters." },
+        { type: "null" },
+      ],
     });
     expect(parameters).toHaveProperty("additionalProperties", {
       type: "number",
@@ -62,7 +75,11 @@ describe("tool schemas", () => {
   });
 
   it("names each violation of the constrained schema", () => {
-    const message = invalidArguments(Rich, { name: "much too long", sizes: [0] }, "demo").message;
+    const { message } = invalidArguments(
+      Rich,
+      { name: "much too long", sizes: [0] },
+      "demo"
+    );
 
     expect(message).toContain("Invalid demo arguments: /name");
     expect(message).toContain("; /sizes/0:");

@@ -1,9 +1,20 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  setImmediate as yieldToEventLoop,
+  setTimeout as delay,
+} from "node:timers/promises";
 
 import { fauxProvider } from "@earendil-works/pi-ai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../config.js";
@@ -20,25 +31,37 @@ import type {
 } from "../runtime.js";
 import { openTree, TreeStore } from "../store.js";
 
-const model = fauxProvider({ models: [{ id: "child" }], provider: "provider" }).getModel();
+const model = fauxProvider({
+  models: [{ id: "child" }],
+  provider: "provider",
+}).getModel();
 
 class FakeRuntime implements ChildRuntime {
-  readonly #reads: PromiseWithResolvers<boolean>[] = [];
+  readonly #reads: Array<PromiseWithResolvers<boolean>> = [];
   readonly #saved: () => Promise<Tree>;
   readonly delivered: Mail[] = [];
   /** Pending until `release()` when the test holds disposal open. */
   disposal: Promise<void> = Promise.resolve();
-  readonly dispose = vi.fn<ChildRuntime["dispose"]>(() => this.disposal);
+  readonly dispose = vi.fn<ChildRuntime["dispose"]>(async () => {
+    await this.disposal;
+  });
   model = "provider/child";
   readonly request: ChildRuntimeRequest;
   readonly sessionFile: string;
   readonly steered: Envelope[] = [];
   thinkingLevel: ChildRuntime["thinkingLevel"] = "off";
-  readonly turns: { outcome: PromiseWithResolvers<ChildTurnOutcome>; text: string }[] = [];
+  readonly turns: Array<{
+    outcome: PromiseWithResolvers<ChildTurnOutcome>;
+    text: string;
+  }> = [];
   aborted = false;
   streaming = false;
 
-  constructor(request: ChildRuntimeRequest, sessionFile: string, saved: () => Promise<Tree>) {
+  constructor(
+    request: ChildRuntimeRequest,
+    sessionFile: string,
+    saved: () => Promise<Tree>
+  ) {
     this.request = request;
     this.sessionFile = request.sessionFile ?? sessionFile;
     this.#saved = saved;
@@ -107,14 +130,16 @@ class FakeRuntime implements ChildRuntime {
     const held = Promise.withResolvers<undefined>();
     this.disposal = held.promise;
 
-    return () => held.resolve(undefined);
+    return () => {
+      held.resolve(undefined);
+    };
   }
 
   /** Settles the current turn and waits until the controller has started disposing it. */
   async settle(outcome: ChildTurnOutcome): Promise<void> {
     this.turns.at(-1)?.outcome.resolve(outcome);
     await vi.waitFor(() => {
-      expect(this.dispose).toHaveBeenCalled();
+      expect(this.dispose).toHaveBeenCalledWith();
     });
   }
 
@@ -122,8 +147,10 @@ class FakeRuntime implements ChildRuntime {
   async finish(outcome: ChildTurnOutcome): Promise<void> {
     await this.settle(outcome);
     await vi.waitFor(async () => {
-      const node = (await this.#saved()).nodes.find(
-        ({ sessionFile }) => sessionFile === this.sessionFile,
+      const { nodes } = await this.#saved();
+
+      const node = nodes.find(
+        ({ sessionFile }) => sessionFile === this.sessionFile
       );
 
       expect(node?.status).not.toBe("running");
@@ -148,12 +175,17 @@ describe(Controller, () => {
   const setup = async (
     config: SubagentsConfig = DEFAULT_CONFIG,
     tree: Tree = emptyTree(),
-    startup: Partial<Pick<FakeRuntime, "model" | "thinkingLevel">>[] = [],
+    startup: Array<Partial<Pick<FakeRuntime, "model" | "thinkingLevel">>> = []
   ) => {
     const runtimes: FakeRuntime[] = [];
     const rootMail: Mail[] = [];
     const errors: unknown[] = [];
-    const saved = async (): Promise<Tree> => (await openTree(dataDir, "root-session", true)).tree;
+
+    const saved = async (): Promise<Tree> => {
+      const opened = await openTree(dataDir, "root-session", true);
+
+      return opened.tree;
+    };
 
     const controller = new Controller({
       config,
@@ -164,7 +196,7 @@ describe(Controller, () => {
         const runtime = new FakeRuntime(
           request,
           path.join(dataDir, `session-${runtimes.length}.jsonl`),
-          saved,
+          saved
         );
 
         Object.assign(runtime, startup[runtimes.length]);
@@ -189,12 +221,17 @@ describe(Controller, () => {
 
     const ctx = createExtensionHost(() => {}, { model }).createContext({
       modelRegistry: {
-        find: (provider, id) => (provider === "provider" && id === "child" ? model : undefined),
+        find: (provider, id) =>
+          provider === "provider" && id === "child" ? model : undefined,
       },
     });
 
-    const spawn = (taskName: string, caller = "/root", message = "work") =>
-      controller.spawn(
+    const spawn = async (
+      taskName: string,
+      caller = "/root",
+      message = "work"
+    ) =>
+      await controller.spawn(
         caller,
         {
           agentType: undefined,
@@ -205,14 +242,15 @@ describe(Controller, () => {
           thinking: undefined,
           tools: ["read", "spawn_agent"],
         },
-        ctx,
+        ctx
       );
 
     return { controller, ctx, errors, rootMail, runtimes, saved, spawn };
   };
 
   it("runs a spawned task and mails its final answer to the parent", async () => {
-    const { controller, errors, rootMail, runtimes, saved, spawn } = await setup();
+    const { controller, errors, rootMail, runtimes, saved, spawn } =
+      await setup();
 
     await expect(spawn("worker")).resolves.toStrictEqual({
       model: "provider/child",
@@ -223,16 +261,24 @@ describe(Controller, () => {
     const [runtime] = runtimes;
     expect(runtime?.request.tools).toStrictEqual(["read", "spawn_agent"]);
     expect(runtime?.turns[0]?.text).toBe(
-      "Message Type: NEW_TASK\nTask name: /root/worker\nSender: /root\nPayload:\nwork",
+      "Message Type: NEW_TASK\nTask name: /root/worker\nSender: /root\nPayload:\nwork"
     );
-    expect((await saved()).nodes).toMatchObject([{ path: "/root/worker", status: "running" }]);
+    const { nodes } = await saved();
+    expect(nodes).toMatchObject([{ path: "/root/worker", status: "running" }]);
 
     await runtime?.finish({ status: "completed", text: "answer" });
 
     const tree = await saved();
-    expect(tree.nodes).toMatchObject([{ lastAnswer: "answer", status: "completed" }]);
+    expect(tree.nodes).toMatchObject([
+      { lastAnswer: "answer", status: "completed" },
+    ]);
     expect(tree.outbox).toMatchObject([
-      { content: "answer", from: "/root/worker", kind: "FINAL_ANSWER", to: "/root" },
+      {
+        content: "answer",
+        from: "/root/worker",
+        kind: "FINAL_ANSWER",
+        to: "/root",
+      },
     ]);
     expect(rootMail).toStrictEqual(tree.outbox);
     expect(controller.list("/root", undefined)).toStrictEqual([
@@ -241,7 +287,8 @@ describe(Controller, () => {
     ]);
 
     await controller.acknowledge(rootMail.map(({ id }) => id));
-    expect((await saved()).outbox).toStrictEqual([]);
+    const { outbox } = await saved();
+    expect(outbox).toStrictEqual([]);
     expect(errors).toStrictEqual([]);
   });
 
@@ -253,7 +300,8 @@ describe(Controller, () => {
     await runtimes[0]?.finish({ status: "completed", text: answer });
 
     expect(rootMail).toMatchObject([{ content: answer, kind: "FINAL_ANSWER" }]);
-    expect((await saved()).nodes).toMatchObject([{ lastAnswer: cut }]);
+    const { nodes } = await saved();
+    expect(nodes).toMatchObject([{ lastAnswer: cut }]);
     expect(controller.list("/root", "worker")).toStrictEqual([
       { agent_name: "/root/worker", agent_status: { completed: cut } },
     ]);
@@ -264,9 +312,15 @@ describe(Controller, () => {
     await spawn("worker");
     await runtimes[0]?.finish({ error: "provider failed", status: "errored" });
 
-    expect(await saved()).toMatchObject({
+    await expect(saved()).resolves.toMatchObject({
       nodes: [{ error: "provider failed", status: "errored" }],
-      outbox: [{ content: errorCompletion("provider failed"), failed: true, kind: "FINAL_ANSWER" }],
+      outbox: [
+        {
+          content: errorCompletion("provider failed"),
+          failed: true,
+          kind: "FINAL_ANSWER",
+        },
+      ],
     });
   });
 
@@ -279,28 +333,37 @@ describe(Controller, () => {
     await lead?.finish({ status: "completed", text: "lead done" });
     await scout?.finish({ status: "completed", text: "scout done" });
 
-    const waiting = (await saved()).outbox.filter((mail) => mail.to === "/root/lead");
-    expect(waiting).toMatchObject([{ content: "scout done", from: "/root/lead/scout" }]);
+    const { outbox } = await saved();
+    const waiting = outbox.filter((mail) => mail.to === "/root/lead");
+
+    expect(waiting).toMatchObject([
+      { content: "scout done", from: "/root/lead/scout" },
+    ]);
 
     await controller.followUp("/root", "lead", "continue", ctx);
-    const reloaded = runtimes[2];
+    const reloaded = runtimes.at(2);
     expect(reloaded?.request.sessionFile).toBe(lead?.sessionFile);
     expect(reloaded?.delivered).toStrictEqual(waiting);
     expect(reloaded?.turns[0]?.text).toContain("Message Type: NEW_TASK");
-    expect((await saved()).outbox.filter((mail) => mail.to === "/root/lead")).toStrictEqual([]);
+    const reloadedTree = await saved();
+    expect(
+      reloadedTree.outbox.filter((mail) => mail.to === "/root/lead")
+    ).toStrictEqual([]);
   });
 
   it("records the model and thinking a reopened child switched to as it started", async () => {
-    const { controller, ctx, runtimes, saved, spawn } = await setup(DEFAULT_CONFIG, emptyTree(), [
-      {},
-      { model: "provider/other", thinkingLevel: "high" },
-    ]);
+    const { controller, ctx, runtimes, saved, spawn } = await setup(
+      DEFAULT_CONFIG,
+      emptyTree(),
+      [{}, { model: "provider/other", thinkingLevel: "high" }]
+    );
 
     await spawn("worker");
     await runtimes[0]?.finish({ status: "completed", text: "done" });
 
     await controller.followUp("/root", "worker", "again", ctx);
-    expect((await saved()).nodes).toMatchObject([
+    const { nodes } = await saved();
+    expect(nodes).toMatchObject([
       { model: "provider/other", status: "running", thinking: "high" },
     ]);
   });
@@ -318,11 +381,13 @@ describe(Controller, () => {
       kind: "MESSAGE",
       to: "/root/worker",
     });
-    expect((await saved()).outbox).toStrictEqual([mail]);
+    const { outbox } = await saved();
+    expect(outbox).toStrictEqual([mail]);
 
     runtime?.request.onDelivered(mail?.id ?? "");
     await vi.waitFor(async () => {
-      expect((await saved()).outbox).toStrictEqual([]);
+      const tree = await saved();
+      expect(tree.outbox).toStrictEqual([]);
     });
   });
 
@@ -336,14 +401,16 @@ describe(Controller, () => {
     expect(runtime?.steered).toStrictEqual([
       { content: "more", from: "/root", kind: "NEW_TASK", to: "/root/worker" },
     ]);
-    await expect(waiting).resolves.toMatchObject({ message: "Wait interrupted by new input." });
+    await expect(waiting).resolves.toMatchObject({
+      message: "Wait interrupted by new input.",
+    });
 
-    await expect(controller.followUp("/root", "/root", "self", ctx)).rejects.toThrow(
-      "cannot target the root",
-    );
-    await expect(controller.followUp("/root", "missing", "task", ctx)).rejects.toThrow(
-      "Unknown agent",
-    );
+    await expect(
+      controller.followUp("/root", "/root", "self", ctx)
+    ).rejects.toThrow("cannot target the root");
+    await expect(
+      controller.followUp("/root", "missing", "task", ctx)
+    ).rejects.toThrow("Unknown agent");
   });
 
   it("starts a new turn for a follow-up that arrives while a turn settles", async () => {
@@ -353,7 +420,7 @@ describe(Controller, () => {
     settling!.streaming = false;
 
     const following = controller.followUp("/root", "worker", "again", ctx);
-    await new Promise((resolve) => setImmediate(resolve));
+    await yieldToEventLoop();
     expect(runtimes).toHaveLength(1);
 
     // Recording the outcome needs the key the follow-up held, so this deadlocks if it waits inside.
@@ -397,7 +464,7 @@ describe(Controller, () => {
     stopped?.turns[0]?.outcome.resolve({ status: "interrupted" });
 
     // A resend would load a third runtime; give it time to appear.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await delay(50);
     expect(runtimes).toHaveLength(2);
     expect(errors).toStrictEqual([]);
   });
@@ -407,37 +474,56 @@ describe(Controller, () => {
     await spawn("worker");
     const [runtime] = runtimes;
 
-    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+    await expect(
+      controller.interrupt("/root", "worker")
+    ).resolves.toStrictEqual({
       previous_status: "running",
     });
     expect(runtime?.aborted).toBe(true);
-    expect(runtime?.dispose).toHaveBeenCalled();
+    expect(runtime?.dispose).toHaveBeenCalledWith();
 
     runtime?.turns[0]?.outcome.resolve({ status: "completed", text: "late" });
-    await new Promise((resolve) => setImmediate(resolve));
+    await yieldToEventLoop();
 
-    expect(await saved()).toMatchObject({ nodes: [{ status: "interrupted" }], outbox: [] });
+    await expect(saved()).resolves.toMatchObject({
+      nodes: [{ status: "interrupted" }],
+      outbox: [],
+    });
     expect(rootMail).toStrictEqual([]);
-    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+    await expect(
+      controller.interrupt("/root", "worker")
+    ).resolves.toStrictEqual({
       previous_status: "interrupted",
     });
-    await expect(controller.interrupt("/root", "missing")).resolves.toStrictEqual({
+    await expect(
+      controller.interrupt("/root", "missing")
+    ).resolves.toStrictEqual({
       previous_status: "not_found",
     });
-    await expect(controller.interrupt("/root/worker", "/root/worker")).rejects.toThrow(
-      "cannot interrupt itself",
-    );
+    await expect(
+      controller.interrupt("/root/worker", "/root/worker")
+    ).rejects.toThrow("cannot interrupt itself");
   });
 
   it("limits concurrent child turns and rejects duplicate paths", async () => {
-    const { runtimes, spawn } = await setup({ ...DEFAULT_CONFIG, maxConcurrent: 1 });
+    const { runtimes, spawn } = await setup({
+      ...DEFAULT_CONFIG,
+      maxConcurrent: 1,
+    });
+
     await spawn("first");
 
-    await expect(spawn("first")).rejects.toThrow("Agent already exists: /root/first");
-    await expect(spawn("second")).rejects.toThrow("Subagent concurrency limit reached (1)");
+    await expect(spawn("first")).rejects.toThrow(
+      "Agent already exists: /root/first"
+    );
+    await expect(spawn("second")).rejects.toThrow(
+      "Subagent concurrency limit reached (1)"
+    );
 
     await runtimes[0]?.finish({ status: "completed" });
-    await expect(spawn("second")).resolves.toMatchObject({ task_name: "/root/second" });
+    await expect(spawn("second")).resolves.toMatchObject({
+      task_name: "/root/second",
+    });
   });
 
   it("keeps a retired child's slot, session, and mail until its disposal settles", async () => {
@@ -451,33 +537,39 @@ describe(Controller, () => {
     const release = retired!.hold();
     await retired?.settle({ status: "completed", text: "done" });
 
-    await expect(spawn("second")).rejects.toThrow("Subagent concurrency limit reached (1)");
+    await expect(spawn("second")).rejects.toThrow(
+      "Subagent concurrency limit reached (1)"
+    );
     await controller.sendMessage("/root", "worker", "context");
     expect(retired?.delivered).toStrictEqual([]);
 
     const following = controller.followUp("/root", "worker", "continue", ctx);
-    await new Promise((resolve) => setImmediate(resolve));
+    await yieldToEventLoop();
     expect(runtimes).toHaveLength(1);
 
     release();
     await following;
     const [, reloaded] = runtimes;
     expect(reloaded?.request.sessionFile).toBe(retired?.sessionFile);
-    expect(reloaded?.delivered).toMatchObject([{ content: "context", kind: "MESSAGE" }]);
+    expect(reloaded?.delivered).toMatchObject([
+      { content: "context", kind: "MESSAGE" },
+    ]);
 
     const releaseReloaded = reloaded!.hold();
     await reloaded?.settle({ status: "completed" });
     let closed = false;
 
-    const shutdown = controller.shutdown().then(() => {
+    const shutdown = (async () => {
+      await controller.shutdown();
       closed = true;
-    });
+    })();
 
-    await new Promise((resolve) => setImmediate(resolve));
+    await yieldToEventLoop();
     expect(closed).toBe(false);
     releaseReloaded();
     await shutdown;
-    expect((await saved()).nodes).toMatchObject([{ status: "completed" }]);
+    const { nodes } = await saved();
+    expect(nodes).toMatchObject([{ status: "completed" }]);
   });
 
   it("lets a cancelled follow-up stop waiting for a retiring child", async () => {
@@ -487,8 +579,16 @@ describe(Controller, () => {
     const release = retired!.hold();
     await retired?.settle({ status: "completed", text: "done" });
     const abort = new AbortController();
-    const cancelled = controller.followUp("/root", "worker", "continue", ctx, abort.signal);
-    await new Promise((resolve) => setImmediate(resolve));
+
+    const cancelled = controller.followUp(
+      "/root",
+      "worker",
+      "continue",
+      ctx,
+      abort.signal
+    );
+
+    await yieldToEventLoop();
 
     abort.abort();
     await expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
@@ -517,13 +617,16 @@ describe(Controller, () => {
           tools: [],
         },
         ctx,
-        abort.signal,
-      ),
-    ).rejects.toThrow();
+        abort.signal
+      )
+    ).rejects.toThrow("This operation was aborted");
 
-    expect(runtimes[0]?.dispose).toHaveBeenCalled();
-    await expect(readFile(runtimes[0]?.sessionFile ?? "")).rejects.toThrow();
-    expect((await saved()).nodes).toStrictEqual([]);
+    expect(runtimes[0]?.dispose).toHaveBeenCalledWith();
+    await expect(readFile(runtimes[0]?.sessionFile ?? "")).rejects.toThrow(
+      "ENOENT"
+    );
+    const { nodes } = await saved();
+    expect(nodes).toStrictEqual([]);
   });
 
   it("records each turn's start and end, and sums usage across turns", async () => {
@@ -542,7 +645,13 @@ describe(Controller, () => {
           usage: {
             cacheRead: 2,
             cacheWrite: 1,
-            cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: cost },
+            cost: {
+              cacheRead: 0,
+              cacheWrite: 0,
+              input: 0,
+              output: 0,
+              total: cost,
+            },
             input,
             output: 5,
             totalTokens: input + 8,
@@ -556,7 +665,8 @@ describe(Controller, () => {
     reply(10, 0.25);
     clock = 4000;
     await runtimes[0]?.finish({ status: "completed", text: "first" });
-    expect((await saved()).nodes[0]).toMatchObject({
+    const finished = await saved();
+    expect(finished.nodes[0]).toMatchObject({
       endedAt: 4000,
       startedAt: 1000,
       usage: { cacheRead: 2, cacheWrite: 1, cost: 0.25, input: 10, output: 5 },
@@ -564,14 +674,16 @@ describe(Controller, () => {
 
     clock = 9000;
     await controller.followUp("/root", "worker", "again", ctx);
-    const running = (await saved()).nodes[0];
+    const reopened = await saved();
+    const [running] = reopened.nodes;
     expect(running).toMatchObject({ startedAt: 9000, status: "running" });
     expect(running?.endedAt).toBeUndefined();
 
     reply(20, 0.5);
     clock = 9500;
     await runtimes[1]?.finish({ status: "completed", text: "second" });
-    expect((await saved()).nodes[0]).toMatchObject({
+    const refinished = await saved();
+    expect(refinished.nodes[0]).toMatchObject({
       endedAt: 9500,
       usage: { cacheRead: 4, cacheWrite: 2, cost: 0.75, input: 30, output: 10 },
     });
@@ -579,10 +691,10 @@ describe(Controller, () => {
 
   it("publishes live activity while a child runs and forgets it when the turn ends", async () => {
     const { controller, runtimes, spawn } = await setup();
-    const changes = vi.fn();
+    const changes = vi.fn<() => void>();
     controller.monitor.onChange(changes);
     await spawn("worker");
-    const runtime = runtimes[0];
+    const [runtime] = runtimes;
 
     expect(controller.live("/root/worker")).toBe(runtime);
     runtime?.request.onEvent({ type: "agent_start" });
@@ -602,7 +714,7 @@ describe(Controller, () => {
     await runtime?.finish({ status: "completed", text: "done" });
     expect(controller.monitor.activity("/root/worker")).toBeUndefined();
     expect(controller.live("/root/worker")).toBeUndefined();
-    expect(changes).toHaveBeenCalled();
+    expect(changes).toHaveBeenCalledWith();
   });
 
   it("marks agents that were running when the tree was saved as interrupted", async () => {
@@ -634,13 +746,14 @@ describe(Controller, () => {
     };
 
     const { controller, ctx, saved } = await setup(DEFAULT_CONFIG, tree);
-    expect((await saved()).nodes.map((node) => node.status)).toStrictEqual([
+    const { nodes } = await saved();
+    expect(nodes.map((node) => node.status)).toStrictEqual([
       "interrupted",
       "completed",
     ]);
-    await expect(controller.followUp("/root", "b", "task", ctx)).rejects.toThrow(
-      "Model gone/model for /root/b is no longer available",
-    );
+    await expect(
+      controller.followUp("/root", "b", "task", ctx)
+    ).rejects.toThrow("Model gone/model for /root/b is no longer available");
   });
 
   it("ignores turns from a tree that was replaced", async () => {
@@ -648,9 +761,12 @@ describe(Controller, () => {
     await spawn("worker");
     await controller.open(new TreeStore(undefined), emptyTree());
 
-    expect(runtimes[0]?.dispose).toHaveBeenCalled();
-    runtimes[0]?.turns[0]?.outcome.resolve({ status: "completed", text: "stale" });
-    await new Promise((resolve) => setImmediate(resolve));
+    expect(runtimes[0]?.dispose).toHaveBeenCalledWith();
+    runtimes[0]?.turns[0]?.outcome.resolve({
+      status: "completed",
+      text: "stale",
+    });
+    await yieldToEventLoop();
 
     expect(controller.list("/root", undefined)).toHaveLength(1);
     expect(rootMail).toStrictEqual([]);
@@ -679,7 +795,7 @@ describe(Controller, () => {
     const opening = controller.open(new TreeStore(undefined), emptyTree());
     gate.resolve(undefined);
     await opening;
-    await new Promise((resolve) => setImmediate(resolve));
+    await yieldToEventLoop();
 
     expect(rootMail).toStrictEqual([]);
   });
@@ -699,11 +815,15 @@ describe(Controller, () => {
 
       const waiting = controller.wait("/root", 10_000);
       await controller.sendMessage("/root", "/root", "note");
-      await expect(waiting).resolves.toMatchObject({ message: "Wait completed." });
+      await expect(waiting).resolves.toMatchObject({
+        message: "Wait completed.",
+      });
 
       const steered = controller.wait("/root", 10_000);
       controller.notify("/root");
-      await expect(steered).resolves.toMatchObject({ message: "Wait interrupted by new input." });
+      await expect(steered).resolves.toMatchObject({
+        message: "Wait interrupted by new input.",
+      });
     });
 
     it("clamps short timeouts and reports expiry", async () => {
@@ -717,7 +837,9 @@ describe(Controller, () => {
           "Wait timed out.\n\nRequested timeout of 5ms was clamped to the minimum of 10000ms.",
         timed_out: true,
       });
-      await expect(controller.wait("/root", 3_600_001)).rejects.toThrow("must not exceed");
+      await expect(controller.wait("/root", 3_600_001)).rejects.toThrow(
+        "must not exceed"
+      );
     });
   });
 });

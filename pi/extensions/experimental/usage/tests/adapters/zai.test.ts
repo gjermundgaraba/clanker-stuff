@@ -133,14 +133,19 @@ describe("zai usage", () => {
 
   it("keeps exhausted web-search quotas separate even without main account quotas", () => {
     expect(
-      mapZaiQuotaPayload({ data: { limits: [{ type: "TIME_LIMIT", percentage: 100 }] } }, NOW),
+      mapZaiQuotaPayload(
+        { data: { limits: [{ type: "TIME_LIMIT", percentage: 100 }] } },
+        NOW
+      )
     ).toStrictEqual({
       ok: true,
       snapshot: {
         fetchedAt: NOW,
         provider: "zai",
         quotaWindows: [],
-        additionalQuotaWindows: [{ label: "web search month", remainingPercent: 0 }],
+        additionalQuotaWindows: [
+          { label: "web search month", remainingPercent: 0 },
+        ],
       },
     });
   });
@@ -154,35 +159,44 @@ describe("zai usage", () => {
           limits: [{ percentage: 30, type: "CREDIT_LIMIT", unit: 3 }],
         },
       },
-      NOW,
+      NOW
     );
 
-    expect(result.ok && result.snapshot.quotaWindows[0]?.remainingPercent).toBe(70);
+    expect(result.ok && result.snapshot.quotaWindows[0]?.remainingPercent).toBe(
+      70
+    );
   });
 
-  it.each([undefined, ""])("omits a missing or empty plan level (%s)", (level) => {
-    const result = mapZaiQuotaPayload(
-      {
-        data: {
-          ...(level === undefined ? {} : { level }),
-          limits: [{ percentage: 30, type: "CREDIT_LIMIT", unit: 3 }],
+  it.each([undefined, ""])(
+    "omits a missing or empty plan level (%s)",
+    (level) => {
+      const result = mapZaiQuotaPayload(
+        {
+          data: {
+            ...(level === undefined ? {} : { level }),
+            limits: [{ percentage: 30, type: "CREDIT_LIMIT", unit: 3 }],
+          },
         },
-      },
-      NOW,
-    );
+        NOW
+      );
 
-    expect(result).toStrictEqual({
-      ok: true,
-      snapshot: {
-        fetchedAt: NOW,
-        provider: "zai",
-        quotaWindows: [{ label: "5h", remainingPercent: 70 }],
-      },
-    });
-  });
+      expect(result).toStrictEqual({
+        ok: true,
+        snapshot: {
+          fetchedAt: NOW,
+          provider: "zai",
+          quotaWindows: [{ label: "5h", remainingPercent: 70 }],
+        },
+      });
+    }
+  );
 
   it("surfaces the error envelope returned with HTTP 200", () => {
-    const result = mapZaiQuotaPayload({ code: 401, msg: "token expired or incorrect" }, NOW);
+    const result = mapZaiQuotaPayload(
+      { code: 401, msg: "token expired or incorrect" },
+      NOW
+    );
+
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "token expired or incorrect" },
       ok: false,
@@ -201,7 +215,7 @@ describe("zai usage", () => {
           ],
         },
       },
-      NOW,
+      NOW
     );
 
     expect(result.ok && result.snapshot.quotaWindows).toStrictEqual([
@@ -236,7 +250,10 @@ describe("zai usage", () => {
   });
 
   it("fetches the quota endpoint with bearer auth", async () => {
-    const client = { fetchJson: okFetch(creditPayload) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch(creditPayload) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchZaiUsage({
@@ -245,7 +262,9 @@ describe("zai usage", () => {
       now: () => NOW,
     });
 
-    expect(fetchJson.mock.calls[0]?.[0]).toBe("https://api.z.ai/api/monitor/usage/quota/limit");
+    expect(fetchJson.mock.calls[0]?.[0]).toBe(
+      "https://api.z.ai/api/monitor/usage/quota/limit"
+    );
     expect(fetchJson.mock.calls[0]?.[2]).toMatchObject({
       Authorization: "Bearer k",
     });

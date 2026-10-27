@@ -25,41 +25,68 @@ const subagents = async (pi: ExtensionAPI) => {
   const presenter = new Presenter(manager.source);
 
   pi.registerFlag("ultra", {
-    description: "Enable proactive delegation and boost native thinking once at startup",
+    description:
+      "Enable proactive delegation and boost native thinking once at startup",
     type: "boolean",
   });
   pi.registerCommand("proactive", {
-    description: "Toggle proactive delegation for this branch without changing thinking",
-    handler: async (args, ctx) => delegation.toggle(args, ctx),
+    description:
+      "Toggle proactive delegation for this branch without changing thinking",
+    handler: async (args, ctx) => {
+      delegation.toggle(args, ctx);
+    },
   });
   pi.registerCommand("ultra", {
-    description: "Enable proactive delegation and select highest native thinking once",
-    handler: async (args, ctx) => delegation.ultra(args, ctx),
+    description:
+      "Enable proactive delegation and select highest native thinking once",
+    handler: async (args, ctx) => {
+      delegation.ultra(args, ctx);
+    },
   });
 
   pi.on("session_start", delegation.start);
-  pi.on("session_tree", (_event, ctx) => delegation.refresh(ctx));
-  pi.on("before_agent_start", (_event, ctx) => delegation.refresh(ctx));
-  pi.on("session_shutdown", (_event, ctx) => delegation.stop(ctx));
+  pi.on("session_tree", (_event, ctx) => {
+    delegation.refresh(ctx);
+  });
+  pi.on("before_agent_start", (_event, ctx) => {
+    delegation.refresh(ctx);
+  });
+  pi.on("session_shutdown", (_event, ctx) => {
+    delegation.stop(ctx);
+  });
   pi.on("session_start", manager.start.bind(manager));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
   pi.on("input", manager.input.bind(manager));
-  pi.on("context", (_event, ctx) => manager.request(ctx));
+  pi.on("context", (_event, ctx) => {
+    manager.request(ctx);
+  });
   pi.on("agent_before_settle", manager.beforeSettle.bind(manager));
   pi.on("turn_start", manager.settle.bind(manager));
   pi.on("agent_settled", manager.settled.bind(manager));
-  pi.on("ui_prompt_start", () => manager.prompt(true));
-  pi.on("ui_prompt_end", () => manager.prompt(false));
-  pi.on("session_tree", () => manager.navigate());
+  pi.on("ui_prompt_start", () => {
+    manager.prompt(true);
+  });
+  pi.on("ui_prompt_end", () => {
+    manager.prompt(false);
+  });
+  pi.on("session_tree", () => {
+    manager.navigate();
+  });
   pi.on("session_shutdown", manager.shutdown.bind(manager));
   pi.on("session_start", (_event, ctx) => {
     // Every extension has registered its commands by the time a session starts. The orbs need
     // shape-spinner's font, which its command shows is in use.
-    const shapes = pi
+    const spinnerFont = pi
       .getCommands()
-      .some(({ name, source }) => source === "extension" && name === SHAPE_SPINNER_COMMAND);
+      .some(
+        ({ name, source }) =>
+          source === "extension" && name === SHAPE_SPINNER_COMMAND
+      );
 
-    presenter.start(ctx, shapes ? orbMarks(() => manager.source.nodes()) : BRAILLE_MARKS);
+    presenter.start(
+      ctx,
+      spinnerFont ? orbMarks(() => manager.source.nodes()) : BRAILLE_MARKS
+    );
   });
   pi.on("session_shutdown", () => {
     presenter.stop();
@@ -67,11 +94,15 @@ const subagents = async (pi: ExtensionAPI) => {
   pi.registerMessageRenderer(SUBAGENT_MESSAGE_TYPE, mailRenderer);
   pi.registerCommand("agents", {
     description: "Open the subagent viewer",
-    handler: (_args, ctx) => presenter.open(ctx),
+    handler: async (_args, ctx) => {
+      await presenter.open(ctx);
+    },
   });
   pi.registerShortcut(VIEWER_SHORTCUT, {
     description: "Open the subagent viewer",
-    handler: (ctx) => presenter.open(ctx),
+    handler: async (ctx) => {
+      await presenter.open(ctx);
+    },
   });
 };
 

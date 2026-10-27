@@ -1,3 +1,7 @@
+import {
+  copyToClipboard,
+  highlightCode,
+} from "@earendil-works/pi-coding-agent";
 import type {
   BeforeProviderRequestEvent,
   ExtensionAPI,
@@ -5,14 +9,16 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { observeRequest, type ObservedRequest } from "./observation.js";
-import { ContextViews } from "./views.js";
+import { observeRequest } from "./observation.js";
+import type { ObservedRequest } from "./observation.js";
 import { OVERLAY_HEIGHT_RATIO } from "./render.js";
-import { buildSnapshot, type RequestSnapshot } from "./snapshot.js";
+import { buildSnapshot } from "./snapshot.js";
+import type { RequestSnapshot } from "./snapshot.js";
 import { buildToolsSnapshot } from "./tools.js";
+import { ContextViews } from "./views.js";
 
 export const createContextInspector = (
-  pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools">,
+  pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools">
 ) => {
   // Session start and tree navigation reset it, so it always belongs to the current branch.
   let captured: ObservedRequest | undefined;
@@ -21,9 +27,14 @@ export const createContextInspector = (
     captured = undefined;
   };
 
-  const observe = (event: BeforeProviderRequestEvent, ctx: ExtensionContext): void => {
+  const observe = (
+    event: BeforeProviderRequestEvent,
+    ctx: ExtensionContext
+  ): void => {
     // Only TUI mode can open the inspector; skip per-request serialization everywhere else.
-    if (ctx.mode === "tui") captured = observeRequest(event.payload);
+    if (ctx.mode === "tui") {
+      captured = observeRequest(event.payload);
+    }
   };
 
   const open = async (ctx: ExtensionCommandContext): Promise<void> => {
@@ -37,7 +48,9 @@ export const createContextInspector = (
       pendingPrompt: ctx.getSystemPrompt(),
       branch: ctx.sessionManager.getBranch(),
       usage: ctx.getContextUsage(),
-      modelLabel: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown model",
+      modelLabel: ctx.model
+        ? `${ctx.model.provider}/${ctx.model.id}`
+        : "unknown model",
     });
 
     const request: RequestSnapshot = { kind: "request", request: captured };
@@ -45,8 +58,18 @@ export const createContextInspector = (
 
     await ctx.ui.custom(
       (tui, theme, keybindings, done) =>
-        new ContextViews(tui, theme, keybindings, snapshot, request, tools, ctx.ui, () =>
-          done(undefined),
+        new ContextViews(
+          tui,
+          theme,
+          keybindings,
+          snapshot,
+          request,
+          tools,
+          ctx.ui,
+          { copyToClipboard, highlightCode },
+          () => {
+            done(undefined);
+          }
         ),
       {
         overlay: true,
@@ -55,7 +78,7 @@ export const createContextInspector = (
           width: "90%",
           maxHeight: `${OVERLAY_HEIGHT_RATIO * 100}%`,
         },
-      },
+      }
     );
   };
 

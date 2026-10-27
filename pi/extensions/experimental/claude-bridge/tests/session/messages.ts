@@ -12,7 +12,10 @@ import type {
   UserMessage,
 } from "@earendil-works/pi-ai";
 
-export const text = (value: string): TextContent => ({ type: "text", text: value });
+export const text = (value: string): TextContent => ({
+  type: "text",
+  text: value,
+});
 
 export const image = (data: string, mimeType: string): ImageContent => ({
   type: "image",
@@ -20,13 +23,20 @@ export const image = (data: string, mimeType: string): ImageContent => ({
   mimeType,
 });
 
-export const thinking = (value: string, signature?: string): ThinkingContent => ({
+export const thinking = (
+  value: string,
+  signature?: string
+): ThinkingContent => ({
   type: "thinking",
   thinking: value,
   ...(signature === undefined ? {} : { thinkingSignature: signature }),
 });
 
-export const toolCall = (id: string, name: string, args: JsonObject = {}): ToolCall => ({
+export const toolCall = (
+  id: string,
+  name: string,
+  args: JsonObject = {}
+): ToolCall => ({
   type: "toolCall",
   id,
   name,
@@ -34,10 +44,9 @@ export const toolCall = (id: string, name: string, args: JsonObject = {}): ToolC
 });
 
 /** A block an extension added outside pi's content types, as conversion meets it at runtime. */
-export function offTypeBlock(type: string): TextContent {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Deliberately malformed fixture: pi's types cannot express the extension blocks conversion must tolerate.
-  return { type } as TextContent;
-}
+export const offTypeBlock = (type: string): TextContent =>
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Deliberately malformed fixture: pi's types cannot express the extension blocks conversion must tolerate.
+  ({ type }) as TextContent;
 
 export const user = (content: UserMessage["content"]): UserMessage => ({
   role: "user",
@@ -47,7 +56,7 @@ export const user = (content: UserMessage["content"]): UserMessage => ({
 
 export const assistant = (
   content: AssistantMessage["content"],
-  provider = "claude-bridge",
+  provider = "claude-bridge"
 ): AssistantMessage => ({
   role: "assistant",
   content,
@@ -68,8 +77,8 @@ export const assistant = (
 
 export const toolResult = (
   toolCallId: string,
-  content: string | (TextContent | ImageContent)[],
-  isError = false,
+  content: string | Array<TextContent | ImageContent>,
+  isError = false
 ): ToolResultMessage => ({
   role: "toolResult",
   toolCallId,

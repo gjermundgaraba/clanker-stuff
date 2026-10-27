@@ -29,7 +29,7 @@ afterAll(async () => {
   restoreEnv?.();
   restoreEnv = undefined;
 
-  if (homeDir) {
+  if (homeDir !== undefined) {
     await rm(homeDir, { force: true, recursive: true });
     homeDir = undefined;
   }

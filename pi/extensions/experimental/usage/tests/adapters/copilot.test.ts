@@ -1,9 +1,11 @@
-import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchCopilotUsage, mapCopilotUsagePayload } from "../../adapters/copilot.js";
+import {
+  fetchCopilotUsage,
+  mapCopilotUsagePayload,
+} from "../../adapters/copilot.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, tokenAuth } from "./helpers.js";
+import { okFetch, NOW, tokenAuth } from "./helpers.js";
 
 describe("copilot usage", () => {
   const payload = {
@@ -43,10 +45,13 @@ describe("copilot usage", () => {
     expect(
       mapCopilotUsagePayload(
         {
-          quota_snapshots: { chat: { unlimited: true }, premium_interactions: { unlimited: true } },
+          quota_snapshots: {
+            chat: { unlimited: true },
+            premium_interactions: { unlimited: true },
+          },
         },
-        NOW,
-      ),
+        NOW
+      )
     ).toStrictEqual({
       ok: false,
       error: { kind: "unavailable", message: "no metered Copilot quota" },
@@ -54,7 +59,10 @@ describe("copilot usage", () => {
   });
 
   it("requests the Copilot endpoint with its required headers", async () => {
-    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch(payload) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchCopilotUsage({

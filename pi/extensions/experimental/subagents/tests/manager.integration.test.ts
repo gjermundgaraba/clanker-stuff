@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
+import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  getCurrentSystemPrompt,
+} from "@earendil-works/pi-ai";
 import type { FauxResponseStep } from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -22,12 +27,12 @@ const treeFile = (sessionId: string) =>
   path.join(
     getExtensionStoragePaths("subagents").dataDir,
     "trees-v4",
-    `${createHash("sha256").update(sessionId).digest("hex")}.json`,
+    `${createHash("sha256").update(sessionId).digest("hex")}.json`
   );
 
 const readTree = async (harness: AgentSessionHarness): Promise<Tree> => {
   const parsed: unknown = JSON.parse(
-    await readFile(treeFile(harness.sessionManager.getSessionId()), "utf-8"),
+    await readFile(treeFile(harness.sessionManager.getSessionId()), "utf-8")
   );
 
   return Value.Parse(TreeSchema, parsed);
@@ -37,7 +42,7 @@ const readTree = async (harness: AgentSessionHarness): Promise<Tree> => {
 const script = (
   harness: AgentSessionHarness,
   root: FauxResponseStep[],
-  child: FauxResponseStep[] = [],
+  child: FauxResponseStep[] = []
 ) => {
   const requests = { child: 0, root: 0 };
   const total = root.length + child.length;
@@ -46,59 +51,85 @@ const script = (
     Array.from(
       { length: total },
       (): FauxResponseStep => async (context, options, state, model) => {
-        const isChild = getCurrentSystemPrompt(context.messages).includes("You are subagent");
+        const isChild = getCurrentSystemPrompt(context.messages).includes(
+          "You are subagent"
+        );
+
         const queue = isChild ? child : root;
         requests[isChild ? "child" : "root"] += 1;
         const step = queue.shift();
 
         if (step === undefined) {
-          throw new Error(`Unexpected ${isChild ? "child" : "root"} provider request`);
+          throw new Error(
+            `Unexpected ${isChild ? "child" : "root"} provider request`
+          );
         }
 
-        return typeof step === "function" ? await step(context, options, state, model) : step;
-      },
-    ),
+        return typeof step === "function"
+          ? await step(context, options, state, model)
+          : step;
+      }
+    )
   );
 
   return requests;
 };
 
 const spawnWorker = fauxAssistantMessage(
-  fauxToolCall("spawn_agent", { fork_turns: "none", message: "Investigate.", task_name: "worker" }),
-  { stopReason: "toolUse" },
+  fauxToolCall("spawn_agent", {
+    fork_turns: "none",
+    message: "Investigate.",
+    task_name: "worker",
+  }),
+  { stopReason: "toolUse" }
 );
+
+const mail = (id: string, content: string) => ({
+  content,
+  from: "/root/worker",
+  id,
+  kind: "FINAL_ANSWER" as const,
+  to: "/root",
+});
 
 const mailEntries = (harness: AgentSessionHarness) =>
   harness.sessionManager
     .getEntries()
     .filter(
-      (entry) => entry.type === "custom_message" && entry.customType === SUBAGENT_MESSAGE_TYPE,
+      (entry) =>
+        entry.type === "custom_message" &&
+        entry.customType === SUBAGENT_MESSAGE_TYPE
     );
 
 const harnessWith = async (
   options: Parameters<typeof createAgentSessionHarness>[0] = {},
   wakeOnFinalAnswer = true,
-  rootMailDelivered?: () => void,
+  rootMailDelivered?: () => void
 ) =>
   await createAgentSessionHarness({
     ...options,
     extensionFactories: [
       async (pi) => {
-        const configFile = getExtensionStoragePaths("subagents").configFile;
+        const { configFile } = getExtensionStoragePaths("subagents");
 
         if (wakeOnFinalAnswer) {
           await rm(configFile, { force: true });
         } else {
           await mkdir(path.dirname(configFile), { recursive: true });
-          await writeFile(configFile, JSON.stringify({ version: 2, wake_on_final_answer: false }));
+          await writeFile(
+            configFile,
+            JSON.stringify({ version: 2, wake_on_final_answer: false })
+          );
         }
 
         await subagents({
           ...pi,
-          sendMessage(message, options) {
-            pi.sendMessage(message, options);
+          sendMessage(message, messageOptions) {
+            pi.sendMessage(message, messageOptions);
 
-            if (message.customType === SUBAGENT_MESSAGE_TYPE) rootMailDelivered?.();
+            if (message.customType === SUBAGENT_MESSAGE_TYPE) {
+              rootMailDelivered?.();
+            }
           },
         });
       },
@@ -107,27 +138,38 @@ const harnessWith = async (
   });
 
 const shutdown = async (harness: AgentSessionHarness) => {
-  await harness.session.extensionRunner.emit({ reason: "quit", type: "session_shutdown" });
+  await harness.session.extensionRunner.emit({
+    reason: "quit",
+    type: "session_shutdown",
+  });
   harness.cleanup();
 };
 
 const wakeEntries = (harness: AgentSessionHarness) =>
   harness.sessionManager
     .getEntries()
-    .filter((entry) => entry.type === "custom_message" && entry.customType === SUBAGENT_WAKE_TYPE);
+    .filter(
+      (entry) =>
+        entry.type === "custom_message" &&
+        entry.customType === SUBAGENT_WAKE_TYPE
+    );
 
 describe("root delivery", () => {
   it.each([false, true])(
     "wakes an idle root by default and keeps hook sections after a tool (child failed: %s)",
     async (failed) => {
-      const starts: { messageType: string; idle: boolean }[] = [];
+      const starts: Array<{ messageType: string; idle: boolean }> = [];
 
       const harness = await harnessWith({
         extensionFactories: [
           (pi) => {
             pi.on("before_agent_start", (event, ctx) => {
-              starts.push({ messageType: event.messageType, idle: ctx.isIdle() });
-              event.systemPromptOptions.sections["wake_test"] = `wake-${event.messageType}`;
+              starts.push({
+                messageType: event.messageType,
+                idle: ctx.isIdle(),
+              });
+              event.systemPromptOptions.sections["wake_test"] =
+                `wake-${event.messageType}`;
             });
           },
         ],
@@ -146,7 +188,7 @@ describe("root delivery", () => {
               expect(prompt).toContain("wake-custom");
               expect(prompt).toContain("You are /root");
               expect(JSON.stringify(context.messages)).toContain(
-                failed ? "child failed" : "child answer",
+                failed ? "child failed" : "child answer"
               );
 
               return fauxAssistantMessage(fauxToolCall("list_agents", {}), {
@@ -154,7 +196,9 @@ describe("root delivery", () => {
               });
             },
             (context) => {
-              expect(getCurrentSystemPrompt(context.messages)).toContain("wake-custom");
+              expect(getCurrentSystemPrompt(context.messages)).toContain(
+                "wake-custom"
+              );
 
               return fauxAssistantMessage("root continued");
             },
@@ -164,10 +208,13 @@ describe("root delivery", () => {
               await release.promise;
 
               return failed
-                ? fauxAssistantMessage("", { stopReason: "error", errorMessage: "child failed" })
+                ? fauxAssistantMessage("", {
+                    stopReason: "error",
+                    errorMessage: "child failed",
+                  })
                 : fauxAssistantMessage("child answer");
             },
-          ],
+          ]
         );
 
         await harness.prompt("Delegate.");
@@ -188,15 +235,18 @@ describe("root delivery", () => {
         release.resolve(undefined);
         await shutdown(harness);
       }
-    },
+    }
   );
 
   it.each([false, true])(
     "handles a final answer arriving during the last root request (enabled: %s)",
     async (enabled) => {
-      const delivered = Promise.withResolvers<void>();
+      const delivered = Promise.withResolvers<undefined>();
       const release = Promise.withResolvers<undefined>();
-      const harness = await harnessWith({}, enabled, () => delivered.resolve());
+
+      const harness = await harnessWith({}, enabled, () => {
+        delivered.resolve(undefined);
+      });
 
       try {
         const requests = script(
@@ -204,14 +254,18 @@ describe("root delivery", () => {
           [
             spawnWorker,
             async (context) => {
-              expect(JSON.stringify(context.messages)).not.toContain("late child answer");
+              expect(JSON.stringify(context.messages)).not.toContain(
+                "late child answer"
+              );
               release.resolve(undefined);
               await delivered.promise;
 
               return fauxAssistantMessage("root final before mail");
             },
             (context) => {
-              expect(JSON.stringify(context.messages)).toContain("late child answer");
+              expect(JSON.stringify(context.messages)).toContain(
+                "late child answer"
+              );
 
               return fauxAssistantMessage("root reviewed late mail");
             },
@@ -222,14 +276,14 @@ describe("root delivery", () => {
 
               return fauxAssistantMessage("late child answer");
             },
-          ],
+          ]
         );
 
         await harness.prompt("Delegate.");
 
         expect(requests).toStrictEqual({ child: 1, root: enabled ? 3 : 2 });
         expect(harness.session.getLastAssistantText()).toBe(
-          enabled ? "root reviewed late mail" : "root final before mail",
+          enabled ? "root reviewed late mail" : "root final before mail"
         );
         await delay(200);
         expect(requests.root).toBe(enabled ? 3 : 2);
@@ -240,13 +294,16 @@ describe("root delivery", () => {
         release.resolve(undefined);
         await shutdown(harness);
       }
-    },
+    }
   );
 
   it("does not continue again when a later root request already included the answer", async () => {
-    const delivered = Promise.withResolvers<void>();
+    const delivered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
-    const harness = await harnessWith({}, true, () => delivered.resolve());
+
+    const harness = await harnessWith({}, true, () => {
+      delivered.resolve(undefined);
+    });
 
     try {
       const requests = script(
@@ -257,10 +314,14 @@ describe("root delivery", () => {
             release.resolve(undefined);
             await delivered.promise;
 
-            return fauxAssistantMessage(fauxToolCall("list_agents", {}), { stopReason: "toolUse" });
+            return fauxAssistantMessage(fauxToolCall("list_agents", {}), {
+              stopReason: "toolUse",
+            });
           },
           (context) => {
-            expect(JSON.stringify(context.messages)).toContain("already offered answer");
+            expect(JSON.stringify(context.messages)).toContain(
+              "already offered answer"
+            );
 
             return fauxAssistantMessage("root naturally reviewed mail");
           },
@@ -271,12 +332,14 @@ describe("root delivery", () => {
 
             return fauxAssistantMessage("already offered answer");
           },
-        ],
+        ]
       );
 
       await harness.prompt("Delegate.");
       await delay(200);
-      expect(harness.session.getLastAssistantText()).toBe("root naturally reviewed mail");
+      expect(harness.session.getLastAssistantText()).toBe(
+        "root naturally reviewed mail"
+      );
       expect(requests).toStrictEqual({ child: 1, root: 3 });
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(mailEntries(harness)).toHaveLength(1);
@@ -287,7 +350,7 @@ describe("root delivery", () => {
   });
 
   it("respects a context transform that deliberately omits the mail without repeating requests", async () => {
-    const delivered = Promise.withResolvers<void>();
+    const delivered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
 
     const harness = await harnessWith(
@@ -297,14 +360,17 @@ describe("root delivery", () => {
             pi.on("context", (event) => ({
               messages: event.messages.filter(
                 (message) =>
-                  message.role !== "custom" || message.customType !== SUBAGENT_MESSAGE_TYPE,
+                  message.role !== "custom" ||
+                  message.customType !== SUBAGENT_MESSAGE_TYPE
               ),
             }));
           },
         ],
       },
       true,
-      () => delivered.resolve(),
+      () => {
+        delivered.resolve(undefined);
+      }
     );
 
     try {
@@ -319,7 +385,9 @@ describe("root delivery", () => {
             return fauxAssistantMessage("root final before mail");
           },
           (context) => {
-            expect(JSON.stringify(context.messages)).not.toContain("filtered child answer");
+            expect(JSON.stringify(context.messages)).not.toContain(
+              "filtered child answer"
+            );
 
             return fauxAssistantMessage("root followed its context policy");
           },
@@ -330,12 +398,14 @@ describe("root delivery", () => {
 
             return fauxAssistantMessage("filtered child answer");
           },
-        ],
+        ]
       );
 
       await harness.prompt("Delegate.");
       await delay(200);
-      expect(harness.session.getLastAssistantText()).toBe("root followed its context policy");
+      expect(harness.session.getLastAssistantText()).toBe(
+        "root followed its context policy"
+      );
       expect(requests).toStrictEqual({ child: 1, root: 3 });
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(mailEntries(harness)).toHaveLength(1);
@@ -365,27 +435,31 @@ describe("root delivery", () => {
                 fork_turns: "none",
                 message: "Investigate.",
                 task_name,
-              }),
+              })
             ),
-            { stopReason: "toolUse" },
+            { stopReason: "toolUse" }
           ),
           fauxAssistantMessage("root final"),
           fauxAssistantMessage("both answers received"),
         ],
-        [childAnswer, childAnswer],
+        [childAnswer, childAnswer]
       );
 
       await harness.prompt("Delegate two tasks.");
-      await vi.waitFor(() => expect(requests.child).toBe(2));
+      await vi.waitFor(() => {
+        expect(requests.child).toBe(2);
+      });
       release.resolve(undefined);
       await vi.waitFor(() => {
-        expect(harness.session.getLastAssistantText()).toBe("both answers received");
+        expect(harness.session.getLastAssistantText()).toBe(
+          "both answers received"
+        );
         expect(harness.session.isIdle).toBe(true);
       });
       expect(wakeEntries(harness)).toHaveLength(1);
       expect(wakeEntries(harness)[0]).toHaveProperty(
         "content",
-        expect.stringContaining("2 child final answers"),
+        expect.stringContaining("2 child final answers")
       );
       expect(mailEntries(harness)).toHaveLength(2);
       expect(requests.root).toBe(3);
@@ -403,7 +477,11 @@ describe("root delivery", () => {
     try {
       const requests = script(
         harness,
-        [spawnWorker, fauxAssistantMessage("root final"), fauxAssistantMessage("root continued")],
+        [
+          spawnWorker,
+          fauxAssistantMessage("root final"),
+          fauxAssistantMessage("root continued"),
+        ],
         [
           async () => {
             await releaseMessage.promise;
@@ -413,7 +491,7 @@ describe("root delivery", () => {
                 target: "/root",
                 message: "child progress",
               }),
-              { stopReason: "toolUse" },
+              { stopReason: "toolUse" }
             );
           },
           async () => {
@@ -421,17 +499,22 @@ describe("root delivery", () => {
 
             return fauxAssistantMessage("child answer");
           },
-        ],
+        ]
       );
 
       await harness.prompt("Delegate.");
       releaseMessage.resolve(undefined);
-      await vi.waitFor(() => expect(mailEntries(harness)).toHaveLength(1));
-      await delay(150); // Cross the wake batching window, with the child still running.
+      await vi.waitFor(() => {
+        expect(mailEntries(harness)).toHaveLength(1);
+      });
+      // Cross the wake batching window, with the child still running.
+      await delay(150);
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(requests.root).toBe(2);
       releaseFinal.resolve(undefined);
-      await vi.waitFor(() => expect(harness.session.getLastAssistantText()).toBe("root continued"));
+      await vi.waitFor(() => {
+        expect(harness.session.getLastAssistantText()).toBe("root continued");
+      });
       expect(wakeEntries(harness)).toHaveLength(1);
       expect(mailEntries(harness)).toHaveLength(2);
     } finally {
@@ -451,35 +534,48 @@ describe("root delivery", () => {
       await harness.session.bindExtensions({
         mode: "tui",
         uiContext: {
-          ...harness.session.extensionRunner.createToolContext("test", undefined).ui,
-          select: () => answer.promise,
+          ...harness.session.extensionRunner.createToolContext(
+            "test",
+            undefined
+          ).ui,
+          select: async () => await answer.promise,
         },
       });
 
       const requests = script(
         harness,
-        [spawnWorker, fauxAssistantMessage("root final"), fauxAssistantMessage("root continued")],
+        [
+          spawnWorker,
+          fauxAssistantMessage("root final"),
+          fauxAssistantMessage("root continued"),
+        ],
         [
           async () => {
             await release.promise;
 
             return fauxAssistantMessage("child answer");
           },
-        ],
+        ]
       );
 
       await harness.prompt("Delegate.");
-      asking = harness.session.extensionRunner.getUIContext().select("Question", ["a"]);
+      asking = harness.session.extensionRunner
+        .getUIContext()
+        .select("Question", ["a"]);
       release.resolve(undefined);
-      await vi.waitFor(() => expect(mailEntries(harness)).toHaveLength(1));
+      await vi.waitFor(() => {
+        expect(mailEntries(harness)).toHaveLength(1);
+      });
       await delay(150);
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(requests.root).toBe(2);
       answer.resolve("a");
       await asking;
       await vi.waitFor(
-        () => expect(harness.session.getLastAssistantText()).toBe("root continued"),
-        { timeout: 2500 },
+        () => {
+          expect(harness.session.getLastAssistantText()).toBe("root continued");
+        },
+        { timeout: 2500 }
       );
       expect(wakeEntries(harness)).toHaveLength(1);
     } finally {
@@ -493,8 +589,8 @@ describe("root delivery", () => {
   it.each(["success", "failure", "abort"] as const)(
     "defers waking through manual compaction (%s)",
     async (outcome) => {
-      const blocked = Promise.withResolvers<void>();
-      const releaseCompact = Promise.withResolvers<void>();
+      const blocked = Promise.withResolvers<undefined>();
+      const releaseCompact = Promise.withResolvers<undefined>();
       const releaseChild = Promise.withResolvers<undefined>();
 
       const harness = await harnessWith({
@@ -505,10 +601,12 @@ describe("root delivery", () => {
         extensionFactories: [
           (pi) => {
             pi.on("session_before_compact", async ({ preparation }) => {
-              blocked.resolve();
+              blocked.resolve(undefined);
               await releaseCompact.promise;
 
-              if (outcome === "failure") return;
+              if (outcome === "failure") {
+                return;
+              }
 
               return {
                 compaction: {
@@ -546,41 +644,55 @@ describe("root delivery", () => {
 
               return fauxAssistantMessage("child answer");
             },
-          ],
+          ]
         );
         await harness.prompt("Delegate.");
-        compacting = harness.session.compact().then(
-          (result) => ({ result }),
-          (error: unknown) => ({ error }),
-        );
+        compacting = (async () => {
+          try {
+            return { result: await harness.session.compact() };
+          } catch (error) {
+            return { error };
+          }
+        })();
         await blocked.promise;
         releaseChild.resolve(undefined);
-        await vi.waitFor(() => expect(mailEntries(harness)).toHaveLength(1));
+        await vi.waitFor(() => {
+          expect(mailEntries(harness)).toHaveLength(1);
+        });
         await delay(150);
         expect(harness.session.isIdle).toBe(false);
         expect(wakeEntries(harness)).toHaveLength(0);
 
-        if (outcome === "abort") harness.session.abortCompaction();
-        releaseCompact.resolve();
+        if (outcome === "abort") {
+          harness.session.abortCompaction();
+        }
+
+        releaseCompact.resolve(undefined);
         await compacting;
-        expect(await compacting).toHaveProperty(outcome === "success" ? "result" : "error");
+        await expect(compacting).resolves.toHaveProperty(
+          outcome === "success" ? "result" : "error"
+        );
         await vi.waitFor(
-          () => expect(harness.session.getLastAssistantText()).toBe("root continued"),
-          { timeout: 2500 },
+          () => {
+            expect(harness.session.getLastAssistantText()).toBe(
+              "root continued"
+            );
+          },
+          { timeout: 2500 }
         );
         expect(wakeEntries(harness)).toHaveLength(1);
       } finally {
-        releaseCompact.resolve();
+        releaseCompact.resolve(undefined);
         releaseChild.resolve(undefined);
         await compacting;
         await shutdown(harness);
       }
-    },
+    }
   );
 
   it("pauses on root abort until a user-started run, not an unrelated custom run", async () => {
     const harness = await harnessWith();
-    const rootStarted = Promise.withResolvers<void>();
+    const rootStarted = Promise.withResolvers<undefined>();
     const firstChild = Promise.withResolvers<undefined>();
     const nextChild = Promise.withResolvers<undefined>();
 
@@ -592,11 +704,11 @@ describe("root delivery", () => {
           async (_context, options) => {
             const signal = options?.signal;
             assert.ok(signal);
-            rootStarted.resolve();
-            await new Promise<void>((resolve) => {
-              if (signal.aborted) resolve();
-              else signal.addEventListener("abort", () => resolve(), { once: true });
-            });
+            rootStarted.resolve(undefined);
+
+            if (!signal.aborted) {
+              await once(signal, "abort");
+            }
 
             return fauxAssistantMessage("must not appear");
           },
@@ -606,7 +718,7 @@ describe("root delivery", () => {
               target: "worker",
               message: "Continue.",
             }),
-            { stopReason: "toolUse" },
+            { stopReason: "toolUse" }
           ),
           fauxAssistantMessage("resumed root"),
           fauxAssistantMessage("root continued"),
@@ -622,7 +734,7 @@ describe("root delivery", () => {
 
             return fauxAssistantMessage("next answer");
           },
-        ],
+        ]
       );
 
       const running = harness.prompt("Delegate.");
@@ -635,17 +747,21 @@ describe("root delivery", () => {
           content: "Explicit custom run",
           display: false,
         },
-        { triggerTurn: true },
+        { triggerTurn: true }
       );
       firstChild.resolve(undefined);
-      await vi.waitFor(() => expect(mailEntries(harness)).toHaveLength(1));
+      await vi.waitFor(() => {
+        expect(mailEntries(harness)).toHaveLength(1);
+      });
       await delay(150);
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(requests.root).toBe(3);
       await harness.prompt("Resume and give the worker another task.");
       expect(harness.session.getLastAssistantText()).toBe("resumed root");
       nextChild.resolve(undefined);
-      await vi.waitFor(() => expect(harness.session.getLastAssistantText()).toBe("root continued"));
+      await vi.waitFor(() => {
+        expect(harness.session.getLastAssistantText()).toBe("root continued");
+      });
       expect(requests.root).toBe(6);
       expect(wakeEntries(harness)).toHaveLength(1);
     } finally {
@@ -665,21 +781,25 @@ describe("root delivery", () => {
       const requests = script(
         harness,
         // The last root step is consumed only if delivery wrongly starts a turn.
-        [spawnWorker, fauxAssistantMessage("root final"), fauxAssistantMessage("unexpected turn")],
+        [
+          spawnWorker,
+          fauxAssistantMessage("root final"),
+          fauxAssistantMessage("unexpected turn"),
+        ],
         [
           async () => {
             await release.promise;
 
             return fauxAssistantMessage("child answer");
           },
-        ],
+        ]
       );
 
       await harness.prompt("Delegate this work.");
       release.resolve(undefined);
 
       await vi.waitFor(async () => {
-        expect(await readTree(harness)).toMatchObject({
+        await expect(readTree(harness)).resolves.toMatchObject({
           nodes: [{ path: "/root/worker", status: "completed" }],
           outbox: [],
         });
@@ -689,13 +809,15 @@ describe("root delivery", () => {
       await delay(150);
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(requests).toStrictEqual({ child: 1, root: 2 });
-      expect(mailEntries(harness).map((entry) => JSON.stringify(entry))).toStrictEqual([
-        expect.stringContaining("child answer"),
-      ]);
+      expect(
+        mailEntries(harness).map((entry) => JSON.stringify(entry))
+      ).toStrictEqual([expect.stringContaining("child answer")]);
 
       script(harness, [
         (context) => {
-          expect(JSON.stringify(context.messages)).toContain("Message Type: FINAL_ANSWER");
+          expect(JSON.stringify(context.messages)).toContain(
+            "Message Type: FINAL_ANSWER"
+          );
 
           return fauxAssistantMessage("used");
         },
@@ -717,21 +839,26 @@ describe("root delivery", () => {
         harness,
         [
           spawnWorker,
-          fauxAssistantMessage(fauxToolCall("wait_agent", { timeout_ms: 30_000 }), {
-            stopReason: "toolUse",
-          }),
+          fauxAssistantMessage(
+            fauxToolCall("wait_agent", { timeout_ms: 30_000 }),
+            {
+              stopReason: "toolUse",
+            }
+          ),
           (context) => {
             finalRequest = JSON.stringify(context.messages);
 
             return fauxAssistantMessage("root final");
           },
         ],
-        [fauxAssistantMessage("child answer")],
+        [fauxAssistantMessage("child answer")]
       );
 
       await harness.prompt("Delegate and wait.");
 
-      expect(finalRequest).toContain("Sender: /root/worker\\nPayload:\\nchild answer");
+      expect(finalRequest).toContain(
+        "Sender: /root/worker\\nPayload:\\nchild answer"
+      );
       expect(mailEntries(harness)).toHaveLength(1);
       await delay(150);
       expect(wakeEntries(harness)).toHaveLength(0);
@@ -748,14 +875,6 @@ describe("root delivery", () => {
     const first = await harnessWith({ cwd, sessionDir });
     const sessionId = first.sessionManager.getSessionId();
 
-    const mail = (id: string, content: string) => ({
-      content,
-      from: "/root/worker",
-      id,
-      kind: "FINAL_ANSWER" as const,
-      to: "/root",
-    });
-
     try {
       first.setResponses([fauxAssistantMessage("hello")]);
       await first.prompt("Start a persisted session.");
@@ -767,7 +886,7 @@ describe("root delivery", () => {
           details: mail("transcribed", "already transcribed"),
           display: false,
         },
-        { triggerTurn: false },
+        { triggerTurn: false }
       );
       await shutdown(first);
 
@@ -775,23 +894,38 @@ describe("root delivery", () => {
 
       const tree: Tree = {
         nodes: [],
-        outbox: [mail("transcribed", "already transcribed"), mail("pending", "pending answer")],
+        outbox: [
+          mail("transcribed", "already transcribed"),
+          mail("pending", "pending answer"),
+        ],
         version: 4,
       };
 
       await writeFile(treeFile(sessionId), JSON.stringify(tree));
 
-      const resumed = await harnessWith({ continueSession: true, cwd, sessionDir });
+      const resumed = await harnessWith({
+        continueSession: true,
+        cwd,
+        sessionDir,
+      });
 
       try {
         expect(resumed.sessionManager.getSessionId()).toBe(sessionId);
         await vi.waitFor(async () => {
-          expect((await readTree(resumed)).outbox).toStrictEqual([]);
+          const { outbox } = await readTree(resumed);
+          expect(outbox).toStrictEqual([]);
         });
 
-        const delivered = mailEntries(resumed).map((entry) => JSON.stringify(entry));
-        expect(delivered.filter((entry) => entry.includes("already transcribed"))).toHaveLength(1);
-        expect(delivered.filter((entry) => entry.includes("pending answer"))).toHaveLength(1);
+        const delivered = mailEntries(resumed).map((entry) =>
+          JSON.stringify(entry)
+        );
+
+        expect(
+          delivered.filter((entry) => entry.includes("already transcribed"))
+        ).toHaveLength(1);
+        expect(
+          delivered.filter((entry) => entry.includes("pending answer"))
+        ).toHaveLength(1);
         await delay(150);
         expect(wakeEntries(resumed)).toHaveLength(0);
       } finally {
@@ -815,19 +949,26 @@ describe("root delivery", () => {
       await first.prompt("Start a persisted session.");
       await shutdown(first);
       await mkdir(path.dirname(treeFile(sessionId)), { recursive: true });
-      await writeFile(treeFile(sessionId), JSON.stringify({ nodes: "corrupt", version: 2 }));
+      await writeFile(
+        treeFile(sessionId),
+        JSON.stringify({ nodes: "corrupt", version: 2 })
+      );
 
-      const resumed = await harnessWith({ continueSession: true, cwd, sessionDir });
+      const resumed = await harnessWith({
+        continueSession: true,
+        cwd,
+        sessionDir,
+      });
 
       try {
         script(
           resumed,
           [spawnWorker, fauxAssistantMessage("root final")],
-          [fauxAssistantMessage("done")],
+          [fauxAssistantMessage("done")]
         );
         await resumed.prompt("Delegate.");
         await vi.waitFor(async () => {
-          expect(await readTree(resumed)).toMatchObject({
+          await expect(readTree(resumed)).resolves.toMatchObject({
             nodes: [{ path: "/root/worker", status: "completed" }],
             version: 4,
           });

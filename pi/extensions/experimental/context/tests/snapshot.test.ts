@@ -1,20 +1,35 @@
 import { fauxAssistantMessage, Type } from "@earendil-works/pi-ai";
-import { estimateTokens, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  estimateTokens,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { fixtureSnapshot } from "./fixtures/snapshot.js";
 import { buildTree, filterTree } from "../tree.js";
+import { fixtureSnapshot } from "./fixtures/snapshot.js";
 
-const user = (content: string) => ({ role: "user" as const, content, timestamp: 0 });
+const user = (content: string) => ({
+  role: "user" as const,
+  content,
+  timestamp: 0,
+});
 
 describe("snapshot", () => {
   it("shows original and effective content with branch-local edit provenance and effective token counts", () => {
     const session = SessionManager.inMemory();
     const retained = session.appendMessage(user("unchanged"));
     const replaced = session.appendMessage(user("old request"));
-    const omitted = session.appendMessage(fauxAssistantMessage("abandoned attempt"));
+
+    const omitted = session.appendMessage(
+      fauxAssistantMessage("abandoned attempt")
+    );
+
     session.appendContextEdit(replaced, { content: "superseded replacement" });
-    const edit = session.appendContextEdit(replaced, { content: "corrected request" });
+
+    const edit = session.appendContextEdit(replaced, {
+      content: "corrected request",
+    });
+
     const omission = session.appendContextEdit(omitted, null);
     const snapshot = fixtureSnapshot({ branch: session.getBranch() });
 
@@ -34,37 +49,55 @@ describe("snapshot", () => {
       },
     ]);
     expect(snapshot.messages[0]?.body).toContain(
-      "State: unchanged\n\nEffective content:\nunchanged",
+      "State: unchanged\n\nEffective content:\nunchanged"
     );
     expect(snapshot.messages[0]?.body).not.toContain("Original content:");
     expect(snapshot.messages[0]?.body).not.toContain("Context edit:");
-    expect(snapshot.messages[1]?.body).toContain(`State: replaced\nContext edit: ${edit}`);
     expect(snapshot.messages[1]?.body).toContain(
-      "Effective content:\ncorrected request\n\nOriginal content:\nold request",
+      `State: replaced\nContext edit: ${edit}`
+    );
+    expect(snapshot.messages[1]?.body).toContain(
+      "Effective content:\ncorrected request\n\nOriginal content:\nold request"
     );
     expect(snapshot.messages[1]?.body).not.toContain("superseded replacement");
-    expect(snapshot.messages[2]?.body).toContain(`State: omitted\nContext edit: ${omission}`);
     expect(snapshot.messages[2]?.body).toContain(
-      "Effective content:\n(omitted from model context)\n\nOriginal content:\nabandoned attempt",
+      `State: omitted\nContext edit: ${omission}`
     );
-    expect(snapshot.messages[0]?.estimatedTokens).toBe(estimateTokens(user("unchanged")));
-    expect(snapshot.messages[1]?.estimatedTokens).toBe(estimateTokens(user("corrected request")));
+    expect(snapshot.messages[2]?.body).toContain(
+      "Effective content:\n(omitted from model context)\n\nOriginal content:\nabandoned attempt"
+    );
+    expect(snapshot.messages[0]?.estimatedTokens).toBe(
+      estimateTokens(user("unchanged"))
+    );
+    expect(snapshot.messages[1]?.estimatedTokens).toBe(
+      estimateTokens(user("corrected request"))
+    );
 
     const tree = buildTree(snapshot);
     const changes = filterTree(tree, "old request");
-    expect(changes[0]?.children[0]?.body).toContain(`Source entry: ${replaced}`);
-    expect(changes[0]?.children[0]?.body).toContain(`Context edit: ${edit}`);
-    expect(changes[0]?.children[0]?.body).toContain("Effective content:\ncorrected request");
-    expect(changes[0]?.children[0]?.body).toContain("Original content:\nold request");
-    expect(filterTree(tree, "abandoned attempt")[0]?.children[0]?.estimatedTokens).toBe(0);
-    expect(tree[2]?.estimatedTokens).toBe(
-      snapshot.messages.reduce((sum, part) => sum + part.estimatedTokens, 0),
+    expect(changes[0]?.children[0]?.body).toContain(
+      `Source entry: ${replaced}`
     );
-    expect(tree[2]?.body).toContain("before transient extension/provider transformations");
+    expect(changes[0]?.children[0]?.body).toContain(`Context edit: ${edit}`);
+    expect(changes[0]?.children[0]?.body).toContain(
+      "Effective content:\ncorrected request"
+    );
+    expect(changes[0]?.children[0]?.body).toContain(
+      "Original content:\nold request"
+    );
+    expect(
+      filterTree(tree, "abandoned attempt")[0]?.children[0]?.estimatedTokens
+    ).toBe(0);
+    expect(tree[2]?.estimatedTokens).toBe(
+      snapshot.messages.reduce((sum, part) => sum + part.estimatedTokens, 0)
+    );
+    expect(tree[2]?.body).toContain(
+      "before transient extension/provider transformations"
+    );
 
     session.branch(omitted);
     const branched = fixtureSnapshot({ branch: session.getBranch() });
-    expect(branched.messages.map((part) => part.sourceEntryId)).toEqual([
+    expect(branched.messages.map((part) => part.sourceEntryId)).toStrictEqual([
       retained,
       replaced,
       omitted,
@@ -76,15 +109,30 @@ describe("snapshot", () => {
       expect(part.body).not.toContain("Context edit:");
     }
 
-    expect(branched.messages[1]?.body).toContain("Effective content:\nold request");
+    expect(branched.messages[1]?.body).toContain(
+      "Effective content:\nold request"
+    );
     session.appendCompaction("summary only", null, 100);
-    expect(fixtureSnapshot({ branch: session.getBranch() }).messages).toHaveLength(1);
+    expect(
+      fixtureSnapshot({ branch: session.getBranch() }).messages
+    ).toHaveLength(1);
   });
 
   it("shows the prompt and tool declarations the latest request recorded, not live state", () => {
     const session = SessionManager.inMemory();
-    const read = { name: "read", description: "REQUEST DESCRIPTION", parameters: Type.Object({}) };
-    const bash = { name: "bash", description: "bash", parameters: Type.Object({}) };
+
+    const read = {
+      name: "read",
+      description: "REQUEST DESCRIPTION",
+      parameters: Type.Object({}),
+    };
+
+    const bash = {
+      name: "bash",
+      description: "bash",
+      parameters: Type.Object({}),
+    };
+
     session.appendMessage({
       role: "system",
       content: "",
@@ -101,23 +149,42 @@ describe("snapshot", () => {
       timestamp: 0,
     });
 
-    const snapshot = fixtureSnapshot({ pendingPrompt: "LIVE PROMPT", branch: session.getBranch() });
-    const sections = { preamble: "You are pi.", skills: "<skills>alpha</skills>" };
+    const snapshot = fixtureSnapshot({
+      pendingPrompt: "LIVE PROMPT",
+      branch: session.getBranch(),
+    });
+
+    const sections = {
+      preamble: "You are pi.",
+      skills: "<skills>alpha</skills>",
+    };
 
     expect(snapshot).toMatchObject({
       recorded: true,
       system: {
         label: "System prompt",
         body: "You are pi.\n\n<skills>alpha</skills>",
-        estimatedTokens: estimateTokens({ role: "system", content: "", sections, timestamp: 0 }),
+        estimatedTokens: estimateTokens({
+          role: "system",
+          content: "",
+          sections,
+          timestamp: 0,
+        }),
       },
     });
-    expect(snapshot.tools.map((part) => part.label)).toEqual(["read"]);
-    expect(JSON.parse(snapshot.tools[0]?.body ?? "")).toEqual(JSON.parse(JSON.stringify(read)));
+    expect(snapshot.tools.map((part) => part.label)).toStrictEqual(["read"]);
+    expect(snapshot.tools[0]?.body).toBe(JSON.stringify(read, null, 2));
     expect(snapshot.tools[0]?.estimatedTokens).toBe(
-      estimateTokens({ role: "system", content: "", toolsAdded: [read], timestamp: 0 }),
+      estimateTokens({
+        role: "system",
+        content: "",
+        toolsAdded: [read],
+        timestamp: 0,
+      })
     );
-    expect(snapshot.messages.map((part) => part.label)).toEqual(["1. user"]);
+    expect(snapshot.messages.map((part) => part.label)).toStrictEqual([
+      "1. user",
+    ]);
 
     // Compaction checkpoints the declarations; retained system messages are not replayed again.
     const kept = session.appendMessage(user("retained message"));
@@ -130,8 +197,8 @@ describe("snapshot", () => {
     });
 
     expect(compacted.system.body).toBe(snapshot.system.body);
-    expect(compacted.tools.map((part) => part.label)).toEqual(["read"]);
-    expect(compacted.messages.map((part) => part.body)).toEqual([
+    expect(compacted.tools.map((part) => part.label)).toStrictEqual(["read"]);
+    expect(compacted.messages.map((part) => part.body)).toStrictEqual([
       expect.stringContaining("COMPACTED SUMMARY"),
       expect.stringContaining("Effective content:\nretained message"),
       expect.stringContaining("Effective content:\nlatest message"),
@@ -139,14 +206,19 @@ describe("snapshot", () => {
   });
 
   it("shows the pending prompt until the first request records declarations", () => {
-    const snapshot = fixtureSnapshot({ pendingPrompt: "LIVE PROMPT", branch: [] });
+    const snapshot = fixtureSnapshot({
+      pendingPrompt: "LIVE PROMPT",
+      branch: [],
+    });
 
     expect(snapshot).toMatchObject({
       recorded: false,
       tools: [],
       system: { label: "System prompt · not yet sent", body: "LIVE PROMPT" },
     });
-    expect(buildTree(snapshot)[1]?.body).toContain("No request has recorded tool declarations yet");
+    expect(buildTree(snapshot)[1]?.body).toContain(
+      "No request has recorded tool declarations yet"
+    );
   });
 
   it("reconstructs the active branch and compaction", () => {
@@ -163,21 +235,25 @@ describe("snapshot", () => {
       usage: { tokens: null, contextWindow: 1000, percent: null },
     });
 
-    expect(snapshot.messages.map((part) => part.body).join("\n")).toContain("COMPACTED SUMMARY");
-    expect(snapshot.messages.map((part) => part.body).slice(1)).toEqual([
+    expect(snapshot.messages.map((part) => part.body).join("\n")).toContain(
+      "COMPACTED SUMMARY"
+    );
+    expect(snapshot.messages.map((part) => part.body).slice(1)).toStrictEqual([
       expect.stringContaining("Effective content:\nretained message"),
       expect.stringContaining("Effective content:\nlatest message"),
     ]);
-    expect(snapshot.messages.map((part) => part.body).join("\n")).not.toContain("old message");
     expect(snapshot.messages.map((part) => part.body).join("\n")).not.toContain(
-      "abandoned message",
+      "old message"
+    );
+    expect(snapshot.messages.map((part) => part.body).join("\n")).not.toContain(
+      "abandoned message"
     );
     expect(snapshot.usage?.tokens).toBeNull();
     session.branch(kept);
     expect(
       fixtureSnapshot({ branch: session.getBranch() })
         .messages.map((part) => part.body)
-        .join("\n"),
+        .join("\n")
     ).toContain("BRANCH SUMMARY");
   });
 
@@ -200,7 +276,9 @@ describe("snapshot", () => {
 
     const snapshot = fixtureSnapshot({ branch: session.getBranch() });
     expect(snapshot.messages).toHaveLength(2);
-    expect(snapshot.messages[0]?.body).toContain("Effective content:\ncustom content");
+    expect(snapshot.messages[0]?.body).toContain(
+      "Effective content:\ncustom content"
+    );
     expect(snapshot.messages[1]?.body).toContain("VISIBLE OUTPUT");
     expect(snapshot.messages[1]?.body).not.toContain("PRIVATE OUTPUT");
   });
@@ -237,9 +315,13 @@ describe("snapshot", () => {
     expect(snapshot.messages[0]?.body).toContain("answer");
     expect(snapshot.messages[0]?.body).toContain("files.read");
     expect(snapshot.messages[0]?.body).toContain('"path": "a.ts"');
-    expect(snapshot.messages[0]?.estimatedTokens).toBe(estimateTokens(assistant));
+    expect(snapshot.messages[0]?.estimatedTokens).toBe(
+      estimateTokens(assistant)
+    );
     expect(snapshot.messages[1]?.body).toContain("FILE CONTENT");
-    expect(snapshot.messages[1]?.body).toContain("[Image: image/png, 8 base64 characters]");
+    expect(snapshot.messages[1]?.body).toContain(
+      "[Image: image/png, 8 base64 characters]"
+    );
     expect(snapshot.messages[1]?.label).toContain("read (error)");
     expect(snapshot.messages[1]?.estimatedTokens).toBeGreaterThan(1000);
   });

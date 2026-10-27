@@ -62,12 +62,12 @@ Every cell is two overlapping `<rect>` elements: a paper-fill underlay (no data 
 
 **Every drawn cell is bound to its row, column, and value.** The paper underlay carries nothing. The data rect carries all three.
 
-| Binding                               | Without it                                                                                      |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `data-row` on the data rect           | A row cannot be identified during verification; a swapped row passes silently.                  |
-| `data-col` on the data rect           | A column cannot be identified; a shuffled column is harder to detect in a data/geometry review. |
-| `data-value` on the data rect         | The fill cannot be verified as monotone; any opacity passes.                                    |
-| `data-focal="true"` on the focal rect | The focal cell is counted as a non-focal cell with an unexplained accent fill.                  |
+| Binding | Without it |
+| --- | --- |
+| `data-row` on the data rect | A row cannot be identified during verification; a swapped row passes silently. |
+| `data-col` on the data rect | A column cannot be identified; a shuffled column is harder to detect in a data/geometry review. |
+| `data-value` on the data rect | The fill cannot be verified as monotone; any opacity passes. |
+| `data-focal="true"` on the focal rect | The focal cell is counted as a non-focal cell with an unexplained accent fill. |
 
 Manually check the complete `rows × cols` grid, a monotone fill ramp on non-focal cells, and the chosen focus. Also check cell placement against the row and column labels; the bundled structural checker does not establish data fidelity.
 

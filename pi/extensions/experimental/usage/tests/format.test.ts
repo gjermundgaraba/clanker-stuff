@@ -39,19 +39,19 @@ describe("reset duration formatting", () => {
         new Date(now + 2 * 3_600_000 + 15 * 60_000),
         new Date(now + 3 * 86_400_000),
         new Date(now + 3 * 86_400_000 + 4 * 3_600_000),
-      ].map((date) => formatResetDuration(date.toISOString(), now)),
+      ].map((date) => formatResetDuration(date.toISOString(), now))
     ).toStrictEqual(["now", "45m", "2h", "2h 15m", "3d", "3d 4h"]);
   });
 });
 
 describe("amount formatting", () => {
   it("uses standard USD and credit formatting", () => {
-    expect([formatUsd(12.5), formatUsd(-1.5), formatUsd(0), formatCredits(12.5)]).toStrictEqual([
-      "$12.50",
-      "-$1.50",
-      "$0.00",
-      "12.5",
-    ]);
+    expect([
+      formatUsd(12.5),
+      formatUsd(-1.5),
+      formatUsd(0),
+      formatCredits(12.5),
+    ]).toStrictEqual(["$12.50", "-$1.50", "$0.00", "12.5"]);
   });
 });
 
@@ -79,7 +79,7 @@ describe("detail formatting", () => {
         ],
         accounting: { kind: "credit-balance", available: 12.5 },
       },
-      now,
+      now
     );
 
     expect(text.split("\n")).toStrictEqual([
@@ -107,20 +107,23 @@ describe("detail formatting", () => {
         provider: "radius",
         quotaWindows: [],
       },
-      now,
+      now
     );
 
     expect(text).toBe(
-      "Radius\navailable  $43.26\nbalance  $46.51\nreserved  $3.25\nmonth spend  $33.48  ends in 3d",
+      "Radius\navailable  $43.26\nbalance  $46.51\nreserved  $3.25\nmonth spend  $33.48  ends in 3d"
     );
   });
 
   it("strips terminal controls from provider-controlled text", () => {
     const snapshot = claudeSnapshot();
     snapshot.planLabel = "plus\nforged\tlabel\u001B]52;c;secret\u0007";
-    const firstWindow = snapshot.quotaWindows[0];
+    const [firstWindow] = snapshot.quotaWindows;
 
-    if (firstWindow === undefined) throw new Error("expected usage window");
+    if (firstWindow === undefined) {
+      throw new Error("expected usage window");
+    }
+
     firstWindow.label = "5h\nforged\twindow\u009B";
     snapshot.additionalQuotaWindows = [
       {
@@ -133,7 +136,7 @@ describe("detail formatting", () => {
 
     const error = formatProviderError(
       "anthropic",
-      "bad\nforged\terror\u001B]8;;https://secret\u0007link",
+      "bad\nforged\terror\u001B]8;;https://secret\u0007link"
     );
 
     expect(`${detail}\n${error}`).not.toContain("\u001B");

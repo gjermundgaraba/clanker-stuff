@@ -23,13 +23,13 @@ Report the problem, supporting evidence, demonstrated consequence, and relevant 
 
 Use the user's requested scope and architectural question. Scopes can overlap:
 
-| Scope                                           | Review focus                                                                                                                                                                            |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| System or repository                            | Major components, dependency direction, ownership, and representative end-to-end flows. State which areas were inspected; avoid implying exhaustive coverage.                           |
-| Subsystem, module, or files                     | Responsibilities, public contracts, internal cohesion, and relationships with callers and dependencies.                                                                                 |
-| Flow or cross-cutting concern                   | Trace a behavior or concern across components, such as state ownership, error propagation, authentication, or persistence.                                                              |
-| Implemented change: diff, commit, branch, or PR | Establish the baseline and assess affected contracts beyond the diff. Distinguish introduced, worsened, and pre-existing issues.                                                        |
-| Unimplemented proposal or design                | Assess the proposed boundaries and affected contracts against the current system and stated requirements. Keep assumptions and proposed behavior distinct from observed implementation. |
+| Scope | Review focus |
+| --- | --- |
+| System or repository | Major components, dependency direction, ownership, and representative end-to-end flows. State which areas were inspected; avoid implying exhaustive coverage. |
+| Subsystem, module, or files | Responsibilities, public contracts, internal cohesion, and relationships with callers and dependencies. |
+| Flow or cross-cutting concern | Trace a behavior or concern across components, such as state ownership, error propagation, authentication, or persistence. |
+| Implemented change: diff, commit, branch, or PR | Establish the baseline and assess affected contracts beyond the diff. Distinguish introduced, worsened, and pre-existing issues. |
+| Unimplemented proposal or design | Assess the proposed boundaries and affected contracts against the current system and stated requirements. Keep assumptions and proposed behavior distinct from observed implementation. |
 
 If scope is unspecified, use conversation context, recent changes, or recurring maintenance pain to select a useful bounded question and state it. Ask only when ambiguity would materially change the assessment. History guides attention, not the verdict.
 

@@ -1,38 +1,28 @@
+import { Theme } from "@earendil-works/pi-coding-agent";
 import type {
   CustomEditor,
   ExtensionUIContext,
   KeybindingsManager,
-  Theme,
   ThemeAppearance,
+  ThemeBg,
+  ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import {
-  Loader,
-  matchesKey,
-  type Component,
-  type KeyId,
-  type OverlayHandle,
-  type OverlayOptions,
-  type OverlayUnfocusOptions,
-  type ProgramStatus,
-  type TUI,
+import { Loader, matchesKey, TuiMainScreen } from "@earendil-works/pi-tui";
+import type {
+  Component,
+  KeyId,
+  OverlayHandle,
+  OverlayUnfocusOptions,
+  ProgramStatus,
+  Terminal,
+  TUI,
 } from "@earendil-works/pi-tui";
 
 type CustomUiComponent = Component & { dispose?: () => void };
 
-type StatusIndicator = NonNullable<Parameters<CustomEditor["setWorkingStatusIndicator"]>[0]>;
-
-/** Pi's border status spinner: a Loader with a kind and border renderers, as Pi hands it to custom editors. */
-export const createStatusIndicator = (kind: StatusIndicator["kind"]): StatusIndicator => {
-  const identity = (text: string) => text;
-  const loader = new Loader(createMockTui(), identity, identity, "status");
-
-  return Object.assign(loader, {
-    dispose: () => loader.stop(),
-    kind,
-    renderInBorder: () => "",
-    renderSpinnerInBorder: () => "",
-  });
-};
+type StatusIndicator = NonNullable<
+  Parameters<CustomEditor["setWorkingStatusIndicator"]>[0]
+>;
 
 type TestKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
 
@@ -40,7 +30,7 @@ type CustomUiFactory<T> = (
   tui: TUI,
   theme: Theme,
   keybindings: KeybindingsManager,
-  done: (result: T) => void,
+  done: (result: T) => void
 ) => CustomUiComponent | Promise<CustomUiComponent>;
 
 interface MockTuiOptions {
@@ -69,7 +59,8 @@ interface CustomUiRunResult<T> {
 
 type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
-const createOverlayHandle = (remove?: () => void): OverlayHandle => {
+// The handle of custom UI that is not shown as an overlay.
+const createOverlayHandle = (): OverlayHandle => {
   let focused = true;
   let hidden = false;
 
@@ -79,15 +70,18 @@ const createOverlayHandle = (remove?: () => void): OverlayHandle => {
     },
     hide() {
       focused = false;
-      remove?.();
     },
-    getBounds: () => undefined,
+    getBounds: () => {
+      // Custom UI outside an overlay is not laid out, so it has no bounds.
+    },
     isFocused: () => focused,
     isHidden: () => hidden,
     setHidden(nextHidden: boolean) {
       hidden = nextHidden;
 
-      if (hidden) focused = false;
+      if (hidden) {
+        focused = false;
+      }
     },
     unfocus(_options?: OverlayUnfocusOptions) {
       focused = false;
@@ -95,86 +89,162 @@ const createOverlayHandle = (remove?: () => void): OverlayHandle => {
   };
 };
 
-export const createIdentityTheme = (appearance: ThemeAppearance = "dark"): Theme => {
-  const theme = {
-    appearance,
-    bg: (_color: string, text: string) => text,
-    bold: (text: string) => text,
-    fg: (_color: string, text: string) => text,
-    inverse: (text: string) => text,
-    italic: (text: string) => text,
-    strikethrough: (text: string) => text,
-    underline: (text: string) => text,
-  };
+const identity = (text: string) => text;
 
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi's nominal theme contract includes private state that this formatting-only test double intentionally does not implement.
-  return theme as Theme;
+// Every required theme token set to the terminal default (""). The identity theme replaces Pi's
+// text formatters, so these colors reach only the members it leaves to Pi, such as `style()`.
+const TERMINAL_DEFAULT_FOREGROUNDS: ConstructorParameters<typeof Theme>[0] = {
+  accent: "",
+  bashMode: "",
+  border: "",
+  borderAccent: "",
+  borderMuted: "",
+  customMessageLabel: "",
+  customMessageText: "",
+  dim: "",
+  error: "",
+  mdCode: "",
+  mdCodeBlock: "",
+  mdCodeBlockBorder: "",
+  mdHeading: "",
+  mdHr: "",
+  mdLink: "",
+  mdLinkUrl: "",
+  mdListBullet: "",
+  mdQuote: "",
+  mdQuoteBorder: "",
+  muted: "",
+  success: "",
+  syntaxComment: "",
+  syntaxFunction: "",
+  syntaxKeyword: "",
+  syntaxNumber: "",
+  syntaxOperator: "",
+  syntaxPunctuation: "",
+  syntaxString: "",
+  syntaxType: "",
+  syntaxVariable: "",
+  text: "",
+  thinkingHigh: "",
+  thinkingLow: "",
+  thinkingMedium: "",
+  thinkingMinimal: "",
+  thinkingOff: "",
+  thinkingText: "",
+  thinkingXhigh: "",
+  toolDiffAdded: "",
+  toolDiffContext: "",
+  toolDiffRemoved: "",
+  toolOutput: "",
+  toolTitle: "",
+  userMessageText: "",
+  warning: "",
 };
 
+const TERMINAL_DEFAULT_BACKGROUNDS: ConstructorParameters<typeof Theme>[1] = {
+  customMessageBg: "",
+  selectedBg: "",
+  toolErrorBg: "",
+  toolPendingBg: "",
+  toolSuccessBg: "",
+  userMessageBg: "",
+};
+
+/** Pi's theme with every text formatter returning its text unchanged, so tests compare plain text. */
+export const createIdentityTheme = (
+  appearance: ThemeAppearance = "dark"
+): Theme =>
+  Object.assign(
+    new Theme(
+      TERMINAL_DEFAULT_FOREGROUNDS,
+      TERMINAL_DEFAULT_BACKGROUNDS,
+      "truecolor",
+      { appearance }
+    ),
+    {
+      bg: (_color: ThemeBg, text: string) => text,
+      bold: identity,
+      fg: (_color: ThemeColor, text: string) => text,
+      inverse: identity,
+      italic: identity,
+      strikethrough: identity,
+      underline: identity,
+    }
+  );
+
+const ignore = () => {
+  // The test terminal has no device: output, cursor and title changes go nowhere.
+};
+
+/** A terminal without a device. It records Program Status reports for tests that ask for them. */
+const createTerminal = (options: MockTuiOptions): Terminal => ({
+  clearFromCursor: ignore,
+  clearLine: ignore,
+  clearScreen: ignore,
+  columns: 80,
+  drainInput: async () => {
+    // No input device, so nothing is buffered.
+  },
+  hideCursor: ignore,
+  kittyProtocolActive: false,
+  moveBy: ignore,
+  rows: options.rows ?? 40,
+  setProgramStatus(status: ProgramStatus) {
+    options.programStatus?.push(status);
+  },
+  setProgress: ignore,
+  setTitle: ignore,
+  showCursor: ignore,
+  start: ignore,
+  stop: ignore,
+  write: ignore,
+});
+
+/** Pi's TUI on a terminal without a device. It is stopped, so it never renders; components render when a test asks. */
 export const createMockTui = (options: MockTuiOptions = {}): TUI => {
-  const overlays: Array<{ handle: OverlayHandle; options?: OverlayOptions }> = [];
+  const tui = new TuiMainScreen(createTerminal(options));
 
-  const tui = {
-    hasOverlay: () =>
-      overlays.some(
-        ({ handle, options: overlayOptions }) =>
-          !handle.isHidden() && overlayOptions?.visible?.(0, 0) !== false,
-      ),
-    hideOverlay() {
-      overlays.pop()?.handle.unfocus();
+  tui.stop();
+
+  return tui;
+};
+
+/** Pi's border status spinner: a Loader with a kind and border renderers, as Pi hands it to custom editors. */
+export const createStatusIndicator = (
+  kind: StatusIndicator["kind"]
+): StatusIndicator => {
+  const loader = new Loader(createMockTui(), identity, identity, "status");
+
+  return Object.assign(loader, {
+    dispose: () => {
+      loader.stop();
     },
-    requestRender() {},
-    showOverlay(_component: Component, overlayOptions?: OverlayOptions) {
-      let entry: (typeof overlays)[number];
-
-      const handle = createOverlayHandle(() => {
-        const index = overlays.indexOf(entry);
-
-        if (index !== -1) {
-          overlays.splice(index, 1);
-        }
-      });
-
-      entry = { handle };
-
-      if (overlayOptions !== undefined) {
-        entry.options = overlayOptions;
-      }
-
-      overlays.push(entry);
-
-      return handle;
-    },
-    terminal: {
-      rows: options.rows ?? 40,
-      setProgramStatus(status: ProgramStatus) {
-        options.programStatus?.push(status);
-      },
-    },
-  };
-
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test UI implements only overlay ownership and invalidation; no terminal renderer is started.
-  return tui as TUI;
+    kind,
+    renderInBorder: () => "",
+    renderSpinnerInBorder: () => "",
+  });
 };
 
 export const createKeybindings = (
-  bindings: Partial<Record<string, KeyId[]>> = {},
+  bindings: Partial<Record<string, KeyId[]>> = {}
 ): KeybindingsManager => {
   const keybindings: TestKeybindings = {
     getKeys: (keybinding) => bindings[keybinding] ?? [],
     matches: (data, keybinding) =>
-      bindings[keybinding]?.some((key) => key === data || matchesKey(data, key)) ?? false,
+      bindings[keybinding]?.some(
+        (key) => key === data || matchesKey(data, key)
+      ) ?? false,
   };
 
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exports this nominal manager only as a type; the test double implements the keyboard contract consumed by components.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Pi exports this nominal manager only as a type; the test double implements the keyboard contract consumed by components.
   return keybindings as KeybindingsManager;
 };
 
-async function runCustomUi<T>(
+const runCustomUi = async <T>(
   factory: CustomUiFactory<T>,
   options: CustomUiDriverOptions = {},
-  customOptions?: CustomUiOptions,
-): Promise<CustomUiRunResult<T>> {
+  customOptions?: CustomUiOptions
+): Promise<CustomUiRunResult<T>> => {
   const theme = options.theme ?? createIdentityTheme();
   const keybindings = options.keybindings ?? createKeybindings();
   const tui = options.tui ?? createMockTui();
@@ -188,7 +258,7 @@ async function runCustomUi<T>(
       return;
     }
 
-    if (customOptions?.overlay) {
+    if (customOptions?.overlay === true) {
       tui.hideOverlay();
     }
 
@@ -204,13 +274,14 @@ async function runCustomUi<T>(
     const configuredOverlayOptions = customOptions?.overlayOptions;
 
     const overlayOptions =
-      configuredOverlayOptions instanceof Function
+      typeof configuredOverlayOptions === "function"
         ? configuredOverlayOptions()
         : configuredOverlayOptions;
 
-    handle = customOptions?.overlay
-      ? tui.showOverlay(component, overlayOptions)
-      : createOverlayHandle();
+    handle =
+      customOptions?.overlay === true
+        ? tui.showOverlay(component, overlayOptions)
+        : createOverlayHandle();
     customOptions?.onHandle?.(handle);
   }
 
@@ -218,17 +289,25 @@ async function runCustomUi<T>(
     if (mounted) {
       await options.onComponent?.(component);
 
-      if (options.captureRender === "before" || options.captureRender === "before-and-after") {
+      if (
+        options.captureRender === "before" ||
+        options.captureRender === "before-and-after"
+      ) {
         rendered.push(component.render(width).join("\n"));
       }
 
       for (const key of options.keys ?? []) {
         component.handleInput?.(key);
 
-        if (resolved) break;
+        if (resolved) {
+          break;
+        }
       }
 
-      if (options.captureRender === "after" || options.captureRender === "before-and-after") {
+      if (
+        options.captureRender === "after" ||
+        options.captureRender === "before-and-after"
+      ) {
         rendered.push(component.render(width).join("\n"));
       }
 
@@ -243,7 +322,7 @@ async function runCustomUi<T>(
       component.dispose?.();
     }
   }
-}
+};
 
 export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
   const rendered: string[] = [];
@@ -252,9 +331,9 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
 
   const custom: ExtensionUIContext["custom"] = async <TResult>(
     factory: CustomUiFactory<TResult>,
-    customOptions?: CustomUiOptions,
+    customOptions?: CustomUiOptions
   ): Promise<TResult> => {
-    const onComponent = options.onComponent;
+    const { onComponent } = options;
 
     const result = await runCustomUi(
       factory,
@@ -271,7 +350,7 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
           handle = nextHandle;
           customOptions?.onHandle?.(nextHandle);
         },
-      },
+      }
     );
 
     rendered.push(...result.rendered);

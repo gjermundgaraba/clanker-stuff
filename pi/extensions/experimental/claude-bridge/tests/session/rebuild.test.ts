@@ -15,7 +15,7 @@ import { assistant, text, user } from "./messages.js";
 const MODEL = "claude-haiku-5-5";
 
 /** A Claude Code session file already on disk, as an earlier query would have left it. */
-function seedSession(cwd: string, messages: SessionMessage[]): string {
+const seedSession = (cwd: string, messages: SessionMessage[]): string => {
   const sessionId = randomUUID();
   const session = createSession({ sessionId, projectPath: cwd, model: MODEL });
 
@@ -23,10 +23,12 @@ function seedSession(cwd: string, messages: SessionMessage[]): string {
   session.save();
 
   return sessionId;
-}
+};
 
 const recordTypes = (sessionId: string, cwd: string): string[] =>
-  openSession({ sessionId, projectPath: cwd }).records.map((record) => record.type);
+  openSession({ sessionId, projectPath: cwd }).records.map(
+    (record) => record.type
+  );
 
 describe(rebuildSession, () => {
   let configDir: string;
@@ -49,19 +51,28 @@ describe(rebuildSession, () => {
     rebuildSession({ priors, cwd, modelId: MODEL, previous });
 
   const contents = (sessionId: string) =>
-    openSession({ sessionId, projectPath: cwd }).messages.map((record) => record.message.content);
+    openSession({ sessionId, projectPath: cwd }).messages.map(
+      (record) => record.message.content
+    );
 
   it("writes a session holding every prior message", () => {
     const sessionId = rebuild([user("Hi"), assistant([text("Hello.")])]);
 
-    expect(sessionId).toEqual(expect.any(String));
-    expect(recordTypes(sessionId ?? "", cwd)).toEqual(["user", "assistant"]);
+    expect(sessionId).toStrictEqual(expect.any(String));
+    expect(recordTypes(sessionId ?? "", cwd)).toStrictEqual([
+      "user",
+      "assistant",
+    ]);
   });
 
   // Nothing to resume: Claude Code mints its own session for the prompt.
   it("starts clean with no priors, deleting the session it replaces", () => {
     const previous = seedSession(cwd, [{ role: "user", content: "Hi" }]);
-    const oldFile = openSession({ sessionId: previous, projectPath: cwd }).jsonlPath;
+
+    const oldFile = openSession({
+      sessionId: previous,
+      projectPath: cwd,
+    }).jsonlPath;
 
     expect(rebuild([], previous)).toBeUndefined();
     expect(existsSync(oldFile)).toBe(false);
@@ -75,16 +86,19 @@ describe(rebuildSession, () => {
       { role: "assistant", content: [{ type: "text", text: "Hello." }] },
     ]);
 
-    const oldFile = openSession({ sessionId: previous, projectPath: cwd }).jsonlPath;
+    const oldFile = openSession({
+      sessionId: previous,
+      projectPath: cwd,
+    }).jsonlPath;
 
     const sessionId = rebuild(
       [user("Summary of earlier work"), assistant([text("Ok.")])],
-      previous,
+      previous
     );
 
-    expect(sessionId).toEqual(expect.any(String));
+    expect(sessionId).toStrictEqual(expect.any(String));
     expect(sessionId).not.toBe(previous);
-    expect(contents(sessionId ?? "")).toEqual([
+    expect(contents(sessionId ?? "")).toStrictEqual([
       "Summary of earlier work",
       [{ type: "text", text: "Ok." }],
     ]);

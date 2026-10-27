@@ -1,4 +1,7 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 
 import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
@@ -22,7 +25,7 @@ export const createAnnotateHandler =
     if (!tokens.some((token) => token !== "" && !token.startsWith("-"))) {
       ctx.ui.notify(
         "Usage: /plannotator-annotate <file | folder | URL> [--markdown] [--no-jina] [--gate]",
-        "error",
+        "error"
       );
 
       return;
@@ -39,7 +42,7 @@ export const createAnnotateHandler =
 
         pi.sendUserMessage(
           `# Markdown Annotations\n\nFile: ${target}\n\n${feedback}\n\nPlease address the annotation feedback above.`,
-          { deliverAs: "followUp" },
+          { deliverAs: "followUp" }
         );
       },
       openedMessage: "Plannotator annotation opened.",

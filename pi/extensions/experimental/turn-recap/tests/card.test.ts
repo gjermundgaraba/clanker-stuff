@@ -1,51 +1,76 @@
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { renderCard, renderLive } from "../card.js";
-import type { LiveState, RecapView } from "../card.js";
+import type { LiveState, NumericText, RecapView } from "../card.js";
 import type { Snapshot } from "../entry.js";
 import { snapshot } from "./fixtures.js";
-import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 
 interface CardInput {
   data: Snapshot;
   recap?: RecapView;
 }
 
-const card = ({ data, recap }: CardInput = { data: snapshot() }, expanded = false, width = 100) =>
-  renderCard(data, recap, width, createIdentityTheme(), expanded).map(stripTerminalSequences);
+const card = (
+  { data = snapshot(), recap }: Partial<CardInput> = {},
+  expanded = false,
+  width = 100
+) =>
+  renderCard(data, recap, width, createIdentityTheme(), expanded).map(
+    stripTerminalSequences
+  );
 
-const withRecap = (recap: RecapView): CardInput => ({ data: snapshot(), recap });
+const withRecap = (recap: RecapView): CardInput => ({
+  data: snapshot(),
+  recap,
+});
 
-const running = (): LiveState => ({ elapsedMs: 1500, metrics: snapshot().metrics });
+const running = (): LiveState => ({
+  elapsedMs: 1500,
+  metrics: snapshot().metrics,
+});
 
 describe("transcript card", () => {
   it.each([
     ["completed", "Completed in 1.5s at ", "muted"],
     ["aborted", "Aborted after 1.5s at ", "muted"],
     ["error", "Failed after 1.5s at ", "error"],
-  ] as const)("titles a %s run with its duration and finish time", (outcome, title, tone) => {
-    const theme = createIdentityTheme();
-    const foreground = vi.spyOn(theme, "fg");
+  ] as const)(
+    "titles a %s run with its duration and finish time",
+    (outcome, title, tone) => {
+      const theme = createIdentityTheme();
+      const foreground = vi.spyOn(theme, "fg");
 
-    const [heading] = renderCard({ ...snapshot(), outcome }, undefined, 100, theme, false);
+      const [heading] = renderCard(
+        { ...snapshot(), outcome },
+        undefined,
+        100,
+        theme,
+        false
+      );
 
-    expect(heading).toMatch(new RegExp(`^─ Turn recap · ${title}`, "u"));
-    expect(foreground).toHaveBeenCalledWith(
-      tone,
-      expect.stringMatching(new RegExp(`^${title}`, "u")),
-    );
-  });
+      expect(heading).toMatch(new RegExp(`^─ Turn recap · ${title}`, "u"));
+      expect(foreground).toHaveBeenCalledWith(
+        tone,
+        expect.stringMatching(new RegExp(`^${title}`, "u"))
+      );
+    }
+  );
 
   it("separates recap prose from statistics with one blank row", () => {
     const stats = "  3 tools · 370 processed · +400 context · 1 compaction";
 
     expect(
       card(
-        withRecap({ status: "ready", text: "Review complete", usage: snapshot().metrics.usage }),
-      ).slice(1),
-    ).toEqual(["  Review complete", "", stats]);
-    expect(card().slice(1)).toEqual([stats]);
+        withRecap({
+          status: "ready",
+          text: "Review complete",
+          usage: snapshot().metrics.usage,
+        })
+      ).slice(1)
+    ).toStrictEqual(["  Review complete", "", stats]);
+    expect(card().slice(1)).toStrictEqual([stats]);
   });
 
   it("shows the whole recap without a row limit", () => {
@@ -54,7 +79,7 @@ describe("transcript card", () => {
     const lines = card(
       withRecap({ status: "ready", text, usage: snapshot().metrics.usage }),
       false,
-      40,
+      40
     );
 
     expect(lines.join(" ")).toContain("word final");
@@ -62,7 +87,10 @@ describe("transcript card", () => {
   });
 
   it("keeps a failure to one row until expanded", () => {
-    const failed = withRecap({ status: "failed", error: `${"No credentials ".repeat(20)}final` });
+    const failed = withRecap({
+      status: "failed",
+      error: `${"No credentials ".repeat(20)}final`,
+    });
 
     const compact = card(failed, false, 80);
     expect(compact).toHaveLength(4);
@@ -71,7 +99,7 @@ describe("transcript card", () => {
   });
 
   it("shows a recap being generated where the recap will go", () => {
-    expect(card(withRecap({ status: "generating" })).slice(1)).toEqual([
+    expect(card(withRecap({ status: "generating" })).slice(1)).toStrictEqual([
       "  Generating recap…",
       "",
       "  3 tools · 370 processed · +400 context · 1 compaction",
@@ -79,16 +107,26 @@ describe("transcript card", () => {
   });
 
   it("adds accounting details only when expanded, with context shown once", () => {
-    const data = withRecap({ status: "ready", text: "Done", usage: snapshot().metrics.usage });
+    const data = withRecap({
+      status: "ready",
+      text: "Done",
+      usage: snapshot().metrics.usage,
+    });
 
     const detailed = card(data, true, 120).join("\n");
 
     expect(detailed).toContain(
-      "3 tools · 370 processed · Context +400 (≈1.0k/10.0k, 10.0%) · 1 compaction",
+      "3 tools · 370 processed · Context +400 (≈1.0k/10.0k, 10.0%) · 1 compaction"
     );
-    expect(detailed).toContain("Reported cost $0.3300 · Reasoning 10 (included in output)");
-    expect(detailed).toContain("Recap only: 370 tokens · $0.3300 reported (excluded above)");
-    expect(detailed).toContain("Input 100 · Output 50 · Cache read 200 · Cache write 20");
+    expect(detailed).toContain(
+      "Reported cost $0.3300 · Reasoning 10 (included in output)"
+    );
+    expect(detailed).toContain(
+      "Recap only: 370 tokens · $0.3300 reported (excluded above)"
+    );
+    expect(detailed).toContain(
+      "Input 100 · Output 50 · Cache read 200 · Cache write 20"
+    );
     expect(detailed).toContain("2 responses · 1 tool errors\n");
     expect(detailed).toContain("Model 0.9s · Tools 0.4s\n");
     expect(detailed).toMatch(/\n {2}Started \d/u);
@@ -108,12 +146,15 @@ describe("transcript card", () => {
   it.each([
     [0, "  3 tools · 370 processed · +400 context"],
     [3, "  3 tools · 370 processed · +400 context · 3 compactions"],
-  ])("counts %i compactions next to context only when there are any", (compactions, stats) => {
-    const data = snapshot();
-    data.metrics.compactions = compactions;
+  ])(
+    "counts %i compactions next to context only when there are any",
+    (compactions, stats) => {
+      const data = snapshot();
+      data.metrics.compactions = compactions;
 
-    expect(card({ data }).at(-1)).toBe(stats);
-  });
+      expect(card({ data }).at(-1)).toBe(stats);
+    }
+  );
 
   it.each([
     [999, "999"],
@@ -139,13 +180,13 @@ describe("transcript card", () => {
     { growth: 0, context: undefined, label: "+0", detail: "+0 context" },
     {
       growth: 300,
-      context: { tokens: null, contextWindow: 10000, percent: null },
+      context: { tokens: null, contextWindow: 10_000, percent: null },
       label: "+300",
       detail: "Context +300 (10.0k window)",
     },
     {
       growth: 0,
-      context: { tokens: 0, contextWindow: 10000, percent: 0 },
+      context: { tokens: 0, contextWindow: 10_000, percent: 0 },
       label: "+0",
       detail: "Context +0 (≈0/10.0k, 0.0%)",
     },
@@ -155,32 +196,44 @@ describe("transcript card", () => {
       const data = snapshot();
       data.metrics.contextGrowth = growth;
 
-      if (context === undefined) delete data.metrics.context;
-      else data.metrics.context = context;
+      if (context === undefined) {
+        delete data.metrics.context;
+      } else {
+        data.metrics.context = context;
+      }
 
-      expect(card({ data }).join("\n")).toContain(`370 processed · ${label} context`);
+      expect(card({ data }).join("\n")).toContain(
+        `370 processed · ${label} context`
+      );
 
       const detailed = card({ data }, true).join("\n");
 
       expect(detailed).toContain(detail);
       expect(detailed.match(/context/giu)).toHaveLength(1);
-    },
+    }
   );
 
-  it.each([false, true])("colors context by window fullness, expanded=%s", (expanded) => {
-    const data = snapshot();
-    data.metrics.contextGrowth = 1000;
-    data.metrics.context = { tokens: 9000, contextWindow: 10000, percent: 90 };
-    const theme = createIdentityTheme();
-    const foreground = vi.spyOn(theme, "fg");
+  it.each([false, true])(
+    "colors context by window fullness, expanded=%s",
+    (expanded) => {
+      const data = snapshot();
+      data.metrics.contextGrowth = 1000;
+      data.metrics.context = {
+        tokens: 9000,
+        contextWindow: 10_000,
+        percent: 90,
+      };
+      const theme = createIdentityTheme();
+      const foreground = vi.spyOn(theme, "fg");
 
-    renderCard(data, undefined, 80, theme, expanded);
+      renderCard(data, undefined, 80, theme, expanded);
 
-    expect(foreground).toHaveBeenCalledWith(
-      "error",
-      expanded ? "+1.0k (≈9.0k/10.0k, 90.0%)" : "+1.0k",
-    );
-  });
+      expect(foreground).toHaveBeenCalledWith(
+        "error",
+        expanded ? "+1.0k (≈9.0k/10.0k, 90.0%)" : "+1.0k"
+      );
+    }
+  );
 
   it("sanitizes persisted recap text and model names", () => {
     const data = withRecap({
@@ -190,7 +243,14 @@ describe("transcript card", () => {
     });
 
     data.data.metrics.models = ["provider/\u001B[31mmodel\u202E"];
-    const rendered = renderCard(data.data, data.recap, 100, createIdentityTheme(), true).join("\n");
+
+    const rendered = renderCard(
+      data.data,
+      data.recap,
+      100,
+      createIdentityTheme(),
+      true
+    ).join("\n");
 
     expect(rendered).toContain("Done");
     expect(rendered).toContain("Models: provider/model");
@@ -199,21 +259,39 @@ describe("transcript card", () => {
     expect(rendered).not.toContain("\u202E");
   });
 
-  it.each([0, 1, 2, 10, 40, 80, 140])("fits width %i in both modes", (width) => {
-    for (const recap of [
-      {
-        status: "ready",
-        text: "🦄 Parser ready.\nNext: test it.",
-        usage: snapshot().metrics.usage,
-      },
-      { status: "failed", error: "failure ".repeat(125) },
-    ] as const) {
+  const sizedRecaps = [
+    {
+      status: "ready",
+      text: "🦄 Parser ready.\nNext: test it.",
+      usage: snapshot().metrics.usage,
+    },
+    { status: "failed", error: "failure ".repeat(125) },
+  ] as const;
+
+  it.each([1, 2, 10, 40, 80, 140])("fits width %i in both modes", (width) => {
+    for (const recap of sizedRecaps) {
       for (const expanded of [false, true]) {
-        const lines = renderCard(snapshot(), recap, width, createIdentityTheme(), expanded);
+        const lines = renderCard(
+          snapshot(),
+          recap,
+          width,
+          createIdentityTheme(),
+          expanded
+        );
 
-        expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+        expect(
+          lines.filter((line) => visibleWidth(line) > width)
+        ).toStrictEqual([]);
+      }
+    }
+  });
 
-        if (width === 0) expect(lines).toEqual([]);
+  it("renders nothing at width 0 in both modes", () => {
+    for (const recap of sizedRecaps) {
+      for (const expanded of [false, true]) {
+        expect(
+          renderCard(snapshot(), recap, 0, createIdentityTheme(), expanded)
+        ).toStrictEqual([]);
       }
     }
   });
@@ -223,7 +301,7 @@ describe("live row", () => {
   it("shows running statistics on one row in whole seconds", () => {
     const theme = createIdentityTheme();
 
-    expect(renderLive(running(), 100, theme)).toEqual([
+    expect(renderLive(running(), 100, theme)).toStrictEqual([
       "  1s elapsed · 3 tools · 370 processed · +400 context · 1 compaction",
     ]);
 
@@ -237,12 +315,15 @@ describe("live row", () => {
   it("marks only numeric fields before styling and layout", () => {
     const theme = createIdentityTheme();
     const foreground = vi.spyOn(theme, "fg");
-    const numeric = vi.fn((_id: string, text: string) => text.replace(/\d/gu, "X"));
 
-    expect(renderLive(running(), 100, theme, numeric)).toEqual([
+    const numeric = vi.fn<NumericText>((_id, text) =>
+      text.replaceAll(/\d/gu, "X")
+    );
+
+    expect(renderLive(running(), 100, theme, numeric)).toStrictEqual([
       "  Xs elapsed · X tools · XXX processed · +XXX context · X compaction",
     ]);
-    expect(numeric.mock.calls.map(([id]) => id).sort()).toEqual([
+    expect(numeric.mock.calls.map(([id]) => id).toSorted()).toStrictEqual([
       "compactions",
       "context",
       "elapsed",

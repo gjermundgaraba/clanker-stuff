@@ -1,15 +1,16 @@
 import { EditorHost } from "@clanker-stuff/editor";
+
 import {
   createIdentityTheme,
   createKeybindings,
   createMockTui,
 } from "../../../../tests/harness/tui.js";
-import { mountVim } from "../runtime.js";
 import type { Mode } from "../core/commands.js";
+import { mountVim } from "../runtime.js";
 
 const identity = (text: string) => text;
 
-export function setup(text = "") {
+export const setup = (text = "") => {
   const host = new EditorHost(createIdentityTheme);
   let mode: Mode = "insert";
   mountVim(host, (next) => {
@@ -36,17 +37,21 @@ export function setup(text = "") {
       "tui.editor.undo": ["ctrl+-"],
       "tui.input.submit": ["enter"],
       "tui.input.newLine": ["ctrl+j"],
-    }),
+    })
   );
 
   editor.render(80);
   editor.setText(text);
 
   const keys = (...inputs: string[]) => {
-    for (const input of inputs) editor.handleInput(input);
+    for (const input of inputs) {
+      editor.handleInput(input);
+    }
   };
 
-  const normal = () => keys("\x1b", "gg", "0");
+  const normal = () => {
+    keys("\u001B", "gg", "0");
+  };
 
   return { editor, keys, normal, mode: () => mode };
-}
+};

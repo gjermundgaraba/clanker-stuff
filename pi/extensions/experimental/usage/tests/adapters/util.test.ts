@@ -11,23 +11,35 @@ const URL = "https://usage.example/v1/credits";
 
 const Schema = Type.Object({ available: Type.Number() });
 
-const fetchCredits = (deps: AdapterDeps) =>
-  fetchUsage(deps, "openrouter", { url: URL, schema: Schema }, (payload, nowMs) =>
-    usageResult({
-      accounting: { available: payload.available, kind: "credit-balance" },
-      fetchedAt: nowMs,
-      provider: "openrouter",
-      quotaWindows: [],
-    }),
+const fetchCredits = async (deps: AdapterDeps) =>
+  await fetchUsage(
+    deps,
+    "openrouter",
+    { url: URL, schema: Schema },
+    (payload, nowMs) =>
+      usageResult({
+        accounting: { available: payload.available, kind: "credit-balance" },
+        fetchedAt: nowMs,
+        provider: "openrouter",
+        quotaWindows: [],
+      })
   );
 
 const failing =
   (status: number): FetchJson =>
-  async () => ({ kind: "response", message: `HTTP ${status}`, ok: false, status });
+  async () => ({
+    kind: "response",
+    message: `HTTP ${status}`,
+    ok: false,
+    status,
+  });
 
 describe("usage fetch", () => {
   it("sends the credential as a bearer token and maps the checked payload", async () => {
-    const client = { fetchJson: okFetch({ available: 3 }) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch({ available: 3 }) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchCredits({
@@ -47,11 +59,14 @@ describe("usage fetch", () => {
   });
 
   it("does not send a request without a credential", async () => {
-    const client = { fetchJson: okFetch({ available: 3 }) } satisfies { fetchJson: FetchJson };
+    const client = { fetchJson: okFetch({ available: 3 }) } satisfies {
+      fetchJson: FetchJson;
+    };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchCredits({
-      getAuth: async () => undefined,
+      getAuth: async () => {},
       fetchJson: client.fetchJson,
       now: () => NOW,
     });
@@ -69,7 +84,14 @@ describe("usage fetch", () => {
     [503, "failure"],
   ] as const)("reports HTTP %s as %s", async (status, kind) => {
     await expect(
-      fetchCredits({ getAuth: tokenAuth("token"), fetchJson: failing(status), now: () => NOW }),
-    ).resolves.toStrictEqual({ error: { kind, message: `HTTP ${status}` }, ok: false });
+      fetchCredits({
+        getAuth: tokenAuth("token"),
+        fetchJson: failing(status),
+        now: () => NOW,
+      })
+    ).resolves.toStrictEqual({
+      error: { kind, message: `HTTP ${status}` },
+      ok: false,
+    });
   });
 });

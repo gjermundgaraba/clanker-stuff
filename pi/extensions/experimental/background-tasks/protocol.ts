@@ -1,6 +1,7 @@
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { JsonValue } from "@earendil-works/pi-ai";
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 /** Custom message type of automatic task notifications. */
@@ -15,7 +16,7 @@ const eventSchema = Type.Object(
     key: Type.Optional(Type.String({ maxLength: 128 })),
     data: Type.Unsafe<JsonValue>(Type.Unknown()),
   },
-  { additionalProperties: false },
+  { additionalProperties: false }
 );
 
 const resultSchema = Type.Object(
@@ -24,7 +25,7 @@ const resultSchema = Type.Object(
     type: Type.Literal("result"),
     data: Type.Unsafe<JsonValue>(Type.Unknown()),
   },
-  { additionalProperties: false },
+  { additionalProperties: false }
 );
 
 const recordSchema = Type.Union([eventSchema, resultSchema]);
@@ -35,15 +36,18 @@ type WatchRecord = Static<typeof recordSchema>;
 export class WatchDecoder {
   private pending = Buffer.alloc(0);
   private ended = false;
-  private decoder = new TextDecoder("utf-8", { fatal: true });
+  private readonly decoder = new TextDecoder("utf-8", { fatal: true });
 
   push(chunk: Buffer, accept: (record: WatchRecord) => void): void {
-    if (this.ended) return;
+    if (this.ended) {
+      return;
+    }
+
     let offset = 0;
 
     while (offset < chunk.length) {
       const newline = chunk.indexOf(10, offset);
-      const end = newline < 0 ? chunk.length : newline;
+      const end = newline === -1 ? chunk.length : newline;
       const fragment = chunk.subarray(offset, end);
 
       if (this.pending.length + fragment.length > MAX_RECORD_BYTES) {
@@ -52,7 +56,10 @@ export class WatchDecoder {
 
       this.pending = Buffer.concat([this.pending, fragment]);
 
-      if (newline < 0) return;
+      if (newline === -1) {
+        return;
+      }
+
       let record: unknown;
 
       try {
@@ -63,12 +70,17 @@ export class WatchDecoder {
 
       this.pending = Buffer.alloc(0);
 
-      if (!Value.Check(recordSchema, record)) throw new Error("stdout record violates events-v1");
+      if (!Value.Check(recordSchema, record)) {
+        throw new Error("stdout record violates events-v1");
+      }
 
       // Parsed values can render larger than their source (1e20 becomes 21 digits, U+202E a
       // 6-byte escape); bound the JSON tool text carries, so a result leaves room for logs.
-      if (Buffer.byteLength(jsonText(record.data)) > MAX_RECORD_BYTES)
-        throw new Error(`stdout record data exceeds ${MAX_RECORD_BYTES} bytes as rendered JSON`);
+      if (Buffer.byteLength(jsonText(record.data)) > MAX_RECORD_BYTES) {
+        throw new Error(
+          `stdout record data exceeds ${MAX_RECORD_BYTES} bytes as rendered JSON`
+        );
+      }
 
       accept(record);
 
@@ -83,8 +95,10 @@ export class WatchDecoder {
   }
 
   finish(): void {
-    if (!this.ended && this.pending.length)
+    if (!this.ended && this.pending.length) {
       throw new Error("stdout ended with an incomplete record (missing LF)");
+    }
+
     this.ended = true;
   }
 }

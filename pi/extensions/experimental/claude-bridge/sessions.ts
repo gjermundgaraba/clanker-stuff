@@ -48,16 +48,22 @@ export class Sessions {
 
   cwd(piSessionId: string | undefined): string {
     return (
-      (piSessionId === undefined ? undefined : this.byId.get(piSessionId)?.cwd) ?? process.cwd()
+      (piSessionId === undefined
+        ? undefined
+        : this.byId.get(piSessionId)?.cwd) ?? process.cwd()
     );
   }
 
   /** Provider and Claude Code text reaches the terminal only sanitized. */
   notify(piSessionId: string | undefined, message: string): void {
-    const ui = piSessionId === undefined ? undefined : this.byId.get(piSessionId)?.ui;
+    const ui =
+      piSessionId === undefined ? undefined : this.byId.get(piSessionId)?.ui;
 
-    if (ui === undefined) debug(`notice with no UI to show it: ${message}`);
-    else ui.notify(safeText(message), "warning");
+    if (ui === undefined) {
+      debug(`notice with no UI to show it: ${message}`);
+    } else {
+      ui.notify(safeText(message), "warning");
+    }
   }
 
   /** The session's conversation, started on its first request. */
@@ -73,12 +79,22 @@ export class Sessions {
   /** A conversation no session keeps, for a one-off request. */
   ephemeral(piSessionId: string | undefined): Conversation {
     return createActor(conversationMachine, {
-      input: { run: this.run, notify: (message) => this.notify(piSessionId, message) },
+      input: {
+        run: this.run,
+        notify: (message) => {
+          this.notify(piSessionId, message);
+        },
+      },
     }).start();
   }
 }
 
 /** The conversation once a finished query has exited: until then Claude Code is still
  *  writing the session file the next query resumes. */
-export const settled = (conversation: Conversation): Promise<ConversationSnapshot> =>
-  waitFor(conversation, (snapshot) => !snapshot.matches({ active: "closing" }));
+export const settled = async (
+  conversation: Conversation
+): Promise<ConversationSnapshot> =>
+  await waitFor(
+    conversation,
+    (snapshot) => !snapshot.matches({ active: "closing" })
+  );

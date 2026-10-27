@@ -5,35 +5,43 @@ export interface TreeNode extends ContextPart {
   readonly children: readonly TreeNode[];
 }
 
-const leaf = (part: ContextPart, id: string): TreeNode => ({ ...part, id, children: [] });
+const leaf = (part: ContextPart, id: string): TreeNode => ({
+  ...part,
+  id,
+  children: [],
+});
 
 const group = (
   id: string,
   label: string,
   children: readonly TreeNode[],
-  body = `${children.length} entries. Expand this group to inspect individual entries. Token counts are estimates.`,
+  body = `${children.length} entries. Expand this group to inspect individual entries. Token counts are estimates.`
 ): TreeNode => ({
   id,
   label,
   body,
   format: "text",
   tone: "text",
-  estimatedTokens: children.reduce((sum, child) => sum + child.estimatedTokens, 0),
+  estimatedTokens: children.reduce(
+    (sum, child) => sum + child.estimatedTokens,
+    0
+  ),
   children,
 });
 
 export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
-  if (snapshot.kind === "tools")
+  if (snapshot.kind === "tools") {
     return [
       group(
         "registered",
         "Registered tools",
         snapshot.tools.map((part, index) => leaf(part, `registered-${index}`)),
-        "Registration is not a model declaration. Direct tools are callable from tools only while active; codemode and deferred tools are callable while registered. Model-only and hidden tools are never callable from tools. reachesTools is a capability flag, not an exact dependency list. No token estimates.",
+        "Registration is not a model declaration. Direct tools are callable from tools only while active; codemode and deferred tools are callable while registered. Model-only and hidden tools are never callable from tools. reachesTools is a capability flag, not an exact dependency list. No token estimates."
       ),
     ];
+  }
 
-  if (snapshot.kind === "request")
+  if (snapshot.kind === "request") {
     return snapshot.request
       ? [
           leaf(
@@ -44,10 +52,11 @@ export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
               tone: "code",
               estimatedTokens: 0,
             },
-            "payload",
+            "payload"
           ),
         ]
       : [];
+  }
 
   return [
     leaf(snapshot.system, "system"),
@@ -59,13 +68,15 @@ export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
         .map((part, index) => leaf(part, `tools-${index}`)),
       snapshot.recorded
         ? undefined
-        : "No request has recorded tool declarations yet. Run a turn, then reopen /context.",
+        : "No request has recorded tool declarations yet. Run a turn, then reopen /context."
     ),
     group(
       "messages",
       "Messages",
-      snapshot.messages.map((message) => leaf(message, `messages-${message.sourceEntryId}`)),
-      "Canonical session context before transient extension/provider transformations. Token estimates count effective content only; original content and omitted entries do not add tokens.",
+      snapshot.messages.map((message) =>
+        leaf(message, `messages-${message.sourceEntryId}`)
+      ),
+      "Canonical session context before transient extension/provider transformations. Token estimates count effective content only; original content and omitted entries do not add tokens."
     ),
   ];
 };
@@ -83,7 +94,7 @@ export const flattenTree = (
   nodes: readonly TreeNode[],
   expanded: ReadonlySet<string>,
   depth = 0,
-  parentTokens = nodes.reduce((sum, node) => sum + node.estimatedTokens, 0),
+  parentTokens = nodes.reduce((sum, node) => sum + node.estimatedTokens, 0)
 ): FlatRow[] =>
   nodes.flatMap((node, index) => [
     {
@@ -98,11 +109,17 @@ export const flattenTree = (
       : []),
   ]);
 
-export const filterTree = (nodes: readonly TreeNode[], query: string): TreeNode[] => {
+export const filterTree = (
+  nodes: readonly TreeNode[],
+  query: string
+): TreeNode[] => {
   const needle = query.trim().toLowerCase();
 
   return nodes.flatMap((node) => {
-    if (node.label.toLowerCase().includes(needle) || node.body.toLowerCase().includes(needle)) {
+    if (
+      node.label.toLowerCase().includes(needle) ||
+      node.body.toLowerCase().includes(needle)
+    ) {
       return [node];
     }
 
@@ -116,9 +133,12 @@ export const followSelection = (
   selected: number,
   scroll: number,
   viewport: number,
-  total: number,
+  total: number
 ): number => {
-  if (viewport <= 0) return 0;
+  if (viewport <= 0) {
+    return 0;
+  }
+
   const next = Math.max(selected - viewport + 1, Math.min(scroll, selected));
 
   return Math.max(0, Math.min(next, total - viewport));

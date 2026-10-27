@@ -4,14 +4,18 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { piToolName, resolveServedTools, sdkToolName } from "../tools.js";
 
-const tool = (name: string): Tool => ({ name, description: "", parameters: Type.Object({}) });
+const tool = (name: string): Tool => ({
+  name,
+  description: "",
+  parameters: Type.Object({}),
+});
 
 describe("served tool names", () => {
   it("serves every pi tool under the custom-tools MCP prefix", () => {
     expect(sdkToolName("read")).toBe("mcp__custom-tools__read");
-    expect(resolveServedTools([tool("read"), tool("ask_user")]).names).toEqual(
-      new Set(["read", "ask_user"]),
-    );
+    expect(
+      resolveServedTools([tool("read"), tool("ask_user")]).names
+    ).toStrictEqual(new Set(["read", "ask_user"]));
   });
 
   it("maps a served name back to its pi tool", () => {
@@ -37,10 +41,10 @@ describe("served tool descriptions", () => {
   it("carry each tool's prompt guidelines", () => {
     const served = resolveServedTools(
       [{ ...tool("task_start"), description: "Start a job." }, tool("read")],
-      new Map([["task_start", ["Do not poll task_list.", "  "]]]),
+      new Map([["task_start", ["Do not poll task_list.", "  "]]])
     );
 
-    expect(served.tools.map(({ description }) => description)).toEqual([
+    expect(served.tools.map(({ description }) => description)).toStrictEqual([
       "Start a job.\n\nGuidelines:\n- Do not poll task_list.",
       "",
     ]);

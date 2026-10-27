@@ -4,11 +4,26 @@ import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 
 import { initTheme, SessionManager } from "@earendil-works/pi-coding-agent";
-import { KeybindingsManager, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  KeybindingsManager,
+  TUI_KEYBINDINGS,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
-import { createIdentityTheme, createMockTui } from "../../../../../tests/harness/tui.js";
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../../tests/harness/tui.js";
 import { Monitor } from "../../monitor.js";
 import { emptyUsage, envelopeText } from "../../protocol.js";
 import type { AgentNode } from "../../protocol.js";
@@ -18,7 +33,9 @@ import { AgentsViewer } from "../../ui/viewer.js";
 
 type HistoryMessage = Parameters<SessionManager["appendMessage"]>[0];
 
-const assistant = (text: string): Extract<HistoryMessage, { role: "assistant" }> => ({
+const assistant = (
+  text: string
+): Extract<HistoryMessage, { role: "assistant" }> => ({
   api: "faux",
   content: [{ text, type: "text" }],
   model: "child",
@@ -68,10 +85,17 @@ const press = (x: number, y: number): TuiMouseEvent => ({
   y,
 });
 
-beforeAll(() => initTheme("dark"));
+const messageStart = (content: string) => ({
+  message: { content, role: "user" as const, timestamp: 0 },
+  type: "message_start" as const,
+});
 
 describe(AgentsViewer, () => {
   let dir: string;
+
+  beforeAll(() => {
+    initTheme("dark");
+  });
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "subagents-viewer-"));
@@ -84,7 +108,7 @@ describe(AgentsViewer, () => {
   const setup = (
     extra: AgentNode[] = [],
     liveText = "Looking into it",
-    theme = createIdentityTheme(),
+    theme = createIdentityTheme()
   ) => {
     // A finished agent is read from its session file.
     const stored = SessionManager.create(dir, dir);
@@ -102,7 +126,7 @@ describe(AgentsViewer, () => {
         executing: new Set<string>(),
         streaming: undefined,
       }),
-      toolRenderers: () => undefined,
+      toolRenderers: (): undefined => undefined,
     };
 
     const monitor = new Monitor((cause) => {
@@ -120,7 +144,7 @@ describe(AgentsViewer, () => {
       ...extra,
     ];
 
-    const done = vi.fn();
+    const done = vi.fn<() => void>();
 
     const viewer = new AgentsViewer(
       createMockTui({ rows: 40 }),
@@ -135,7 +159,7 @@ describe(AgentsViewer, () => {
       BRAILLE_MARKS,
       dir,
       done,
-      () => 5000,
+      () => 5000
     );
 
     const render = (width = 120) => viewer.render(width).join("\n");
@@ -160,7 +184,11 @@ describe(AgentsViewer, () => {
     render();
     // Only the transcript draws messages; the header shows activity, never message text.
     monitor.record("/root/worker", {
-      message: { content: "Also check the CI logs", role: "user", timestamp: 0 },
+      message: {
+        content: "Also check the CI logs",
+        role: "user",
+        timestamp: 0,
+      },
       type: "message_start",
     });
     const text = render();
@@ -172,7 +200,7 @@ describe(AgentsViewer, () => {
   it("keeps terminal controls in session text from reaching the terminal", () => {
     const { render, viewer } = setup(
       [],
-      "before\x1b]52;c;SGVsbG8=\x07after \u202eevil \x1b[2Jdone \x1b]8;;https://x/\u202e\x9b2J\x07link\x1b]8;;\x07 keys\x1b[>4;2m\x1b[?4m",
+      "before\u001B]52;c;SGVsbG8=\u0007after \u202Eevil \u001B[2Jdone \u001B]8;;https://x/\u202E\u009B2J\u0007link\u001B]8;;\u0007 keys\u001B[>4;2m\u001B[?4m"
     );
 
     const text = render();
@@ -180,15 +208,15 @@ describe(AgentsViewer, () => {
 
     expect(text).toContain("beforeafter");
     expect(text).toContain("evil done");
-    expect(text).not.toContain("\x1b]52");
-    expect(text).not.toContain("\u202e");
-    expect(text).not.toContain("\x1b[2J");
+    expect(text).not.toContain("\u001B]52");
+    expect(text).not.toContain("\u202E");
+    expect(text).not.toContain("\u001B[2J");
     // Controls inside a link's target do not ride through with the link.
-    expect(text).not.toContain("\x9b");
+    expect(text).not.toContain("\u009B");
     expect(text).toContain("link");
     // Keyboard-mode commands end in `m` like colours do.
-    expect(text).not.toContain("\x1b[>4;2m");
-    expect(text).not.toContain("\x1b[?4m");
+    expect(text).not.toContain("\u001B[>4;2m");
+    expect(text).not.toContain("\u001B[?4m");
   });
 
   it("reports unreadable sessions without writing to them", async () => {
@@ -197,25 +225,34 @@ describe(AgentsViewer, () => {
 
     const { render, viewer } = setup([
       node("/root/empty", { endedAt: 3000, sessionFile: empty }),
-      node("/root/missing", { endedAt: 3000, sessionFile: path.join(dir, "missing.jsonl") }),
+      node("/root/missing", {
+        endedAt: 3000,
+        sessionFile: path.join(dir, "missing.jsonl"),
+      }),
     ]);
 
-    viewer.handleInput("\x1b[B"); // down
+    // Down.
+    viewer.handleInput("\u001B[B");
     expect(render()).toContain("holds no session");
-    viewer.handleInput("\x1b[B");
+    viewer.handleInput("\u001B[B");
     expect(render()).toContain("ENOENT");
     viewer.dispose();
 
-    expect((await stat(empty)).size).toBe(0);
-    expect(await readFile(empty, "utf-8")).toBe("");
+    const { size } = await stat(empty);
+    expect(size).toBe(0);
+    await expect(readFile(empty, "utf-8")).resolves.toBe("");
   });
 
   it("retries an unreadable agent once it is active again", () => {
     const { lives, monitor, render, runtime, viewer } = setup([
-      node("/root/missing", { endedAt: 3000, sessionFile: path.join(dir, "missing.jsonl") }),
+      node("/root/missing", {
+        endedAt: 3000,
+        sessionFile: path.join(dir, "missing.jsonl"),
+      }),
     ]);
 
-    viewer.handleInput("\x1b[B"); // down
+    // Down.
+    viewer.handleInput("\u001B[B");
     expect(render()).toContain("ENOENT");
 
     // A follow-up gives the agent a live session again.
@@ -237,7 +274,9 @@ describe(AgentsViewer, () => {
       let broken = false;
 
       theme.fg = (color, text) => {
-        if (broken) throw new Error("theme broke");
+        if (broken) {
+          throw new Error("theme broke");
+        }
 
         return fg(color, text);
       };
@@ -261,23 +300,23 @@ describe(AgentsViewer, () => {
         type: "tool_execution_update",
       });
 
-      const message = (content: string) => ({
-        message: { content, role: "user" as const, timestamp: 0 },
-        type: "message_start" as const,
-      });
-
       broken = true;
       monitor.record(
         "/root/worker",
-        message(
-          envelopeText({ content: "More", from: "/root", kind: "MESSAGE", to: "/root/worker" }),
-        ),
+        messageStart(
+          envelopeText({
+            content: "More",
+            from: "/root",
+            kind: "MESSAGE",
+            to: "/root/worker",
+          })
+        )
       );
       broken = false;
       expect(render()).toContain("theme broke");
 
       // Mid-turn, the session may not hold every message drawn so far.
-      monitor.record("/root/worker", message("Not yet"));
+      monitor.record("/root/worker", messageStart("Not yet"));
       expect(render()).toContain("theme broke");
 
       monitor.record("/root/worker", { type: "turn_start" });
@@ -295,15 +334,17 @@ describe(AgentsViewer, () => {
   it("selects agents by clicking tree rows and ignores clicks below the tree body", () => {
     // More agents than the 30 body rows of a 40-row terminal, so rows exist below the body.
     const extra = Array.from({ length: 40 }, (_, index) =>
-      node(`/root/extra_${index}`, { endedAt: 3000 }),
+      node(`/root/extra_${index}`, { endedAt: 3000 })
     );
 
     const { render, viewer } = setup(extra);
     render();
-    viewer.handleMouse(press(5, 34)); // The footer row, inside the tree column.
+    // The footer row, inside the tree column.
+    viewer.handleMouse(press(5, 34));
     expect(render()).toContain("⠋ worker · /root/worker");
 
-    viewer.handleMouse(press(5, 4)); // The body's second row: the first agent under root.
+    // The body's second row: the first agent under root.
+    viewer.handleMouse(press(5, 4));
     const text = render();
     viewer.dispose();
 
@@ -312,16 +353,17 @@ describe(AgentsViewer, () => {
 
   it("keeps the selection highlight across a truncated name", () => {
     const theme = createIdentityTheme();
-    const highlight = "\x1b[48;5;4m";
-    theme.bg = (_color, text) => `${highlight}${text}\x1b[49m`;
+    const highlight = "\u001B[48;5;4m";
+    theme.bg = (_color, text) => `${highlight}${text}\u001B[49m`;
 
     const { render, viewer } = setup(
       [node(`/root/${"long_name_".repeat(6)}`, { endedAt: 3000 })],
       undefined,
-      theme,
+      theme
     );
 
-    viewer.handleInput("\x1b[B"); // down, to the long name
+    // Down, to the long name.
+    viewer.handleInput("\u001B[B");
 
     const row = render()
       .split("\n")
@@ -333,9 +375,9 @@ describe(AgentsViewer, () => {
     // Every reset that truncation adds is followed by the highlight again.
     expect(
       row
-        ?.split("\x1b[0m")
+        ?.split("\u001B[0m")
         .slice(1)
-        .every((part) => part.startsWith(highlight)),
+        .every((part) => part.startsWith(highlight))
     ).toBe(true);
   });
 
@@ -350,14 +392,21 @@ describe(AgentsViewer, () => {
       createMockTui({ rows: 40 }),
       createIdentityTheme(),
       new KeybindingsManager(TUI_KEYBINDINGS),
-      { live: () => undefined, monitor, nodes: () => nodes, rootRunning: () => true },
+      {
+        live: (): undefined => undefined,
+        monitor,
+        nodes: () => nodes,
+        rootRunning: () => true,
+      },
       BRAILLE_MARKS,
       dir,
       () => {},
-      () => 5000,
+      () => 5000
     );
 
-    expect(viewer.render(120).join("\n")).toContain("No subagents in this session yet.");
+    expect(viewer.render(120).join("\n")).toContain(
+      "No subagents in this session yet."
+    );
 
     nodes.push(node("/root/late", { startedAt: 1000, status: "running" }));
     monitor.changed();
@@ -371,7 +420,8 @@ describe(AgentsViewer, () => {
 
   it("reads a finished agent's transcript from its session file", () => {
     const { render, viewer } = setup();
-    viewer.handleInput("\x1b[A"); // up
+    // Up.
+    viewer.handleInput("\u001B[A");
     const text = render();
     viewer.dispose();
 
@@ -396,7 +446,12 @@ describe(AgentsViewer, () => {
       stopReason: "toolUse",
     });
     stored.appendMessage({
-      content: [{ text: JSON.stringify({ task_name: "/root/lead/docs" }), type: "text" }],
+      content: [
+        {
+          text: JSON.stringify({ task_name: "/root/lead/docs" }),
+          type: "text",
+        },
+      ],
       isError: false,
       role: "toolResult",
       timestamp: 0,
@@ -406,10 +461,14 @@ describe(AgentsViewer, () => {
 
     // No live session is left to ask for its renderers.
     const { render, viewer } = setup([
-      node("/root/lead", { endedAt: 3000, sessionFile: stored.getSessionFile() ?? "" }),
+      node("/root/lead", {
+        endedAt: 3000,
+        sessionFile: stored.getSessionFile() ?? "",
+      }),
     ]);
 
-    viewer.handleInput("\x1b[B"); // down, to the lead
+    // Down, to the lead.
+    viewer.handleInput("\u001B[B");
     const text = stripVTControlCharacters(render());
     viewer.dispose();
 
@@ -420,16 +479,16 @@ describe(AgentsViewer, () => {
     const { done, render, viewer } = setup();
 
     viewer.handleInput("\t");
-    viewer.handleInput("\x1b");
+    viewer.handleInput("\u001B");
     expect(done).not.toHaveBeenCalled();
-    viewer.handleInput("\x1b");
+    viewer.handleInput("\u001B");
     expect(done).toHaveBeenCalledOnce();
 
     for (const width of [40, 79, 80, 160]) {
       expect(
         render(width)
           .split("\n")
-          .every((line) => visibleWidth(line) === width),
+          .every((line) => visibleWidth(line) === width)
       ).toBe(true);
     }
 

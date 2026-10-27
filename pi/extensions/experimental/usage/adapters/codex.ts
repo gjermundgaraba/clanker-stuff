@@ -5,7 +5,12 @@ import { Value } from "typebox/value";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { durationLabel, fetchUsage, isDefined, isoFromEpochMs, makeUsageWindow } from "./util.js";
+import {
+  durationLabel,
+  fetchUsage,
+  isoFromEpochMs,
+  makeUsageWindow,
+} from "./util.js";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
@@ -36,7 +41,7 @@ const CodexUsageSchema = Type.Object({
         balance: Type.Optional(Type.Union([Type.String(), Type.Null()])),
       }),
       Type.Null(),
-    ]),
+    ])
   ),
   rate_limit: Type.Optional(Type.Union([CodexRateLimitSchema, Type.Null()])),
   additional_rate_limits: Type.Optional(
@@ -44,11 +49,13 @@ const CodexUsageSchema = Type.Object({
       Type.Array(
         Type.Object({
           limit_name: Type.String({ minLength: 1 }),
-          rate_limit: Type.Optional(Type.Union([CodexRateLimitSchema, Type.Null()])),
-        }),
+          rate_limit: Type.Optional(
+            Type.Union([CodexRateLimitSchema, Type.Null()])
+          ),
+        })
       ),
       Type.Null(),
-    ]),
+    ])
   ),
 });
 
@@ -58,11 +65,14 @@ type CodexUsage = Static<typeof CodexUsageSchema>;
 const accountHeaders = (token: string): Record<string, string> => {
   try {
     const claims: unknown = JSON.parse(
-      Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"),
+      Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf-8")
     );
 
     return Value.Check(CodexClaimsSchema, claims)
-      ? { "ChatGPT-Account-Id": claims["https://api.openai.com/auth"].chatgpt_account_id }
+      ? {
+          "ChatGPT-Account-Id":
+            claims["https://api.openai.com/auth"].chatgpt_account_id,
+        }
       : {};
   } catch {
     return {};
@@ -71,25 +81,31 @@ const accountHeaders = (token: string): Record<string, string> => {
 
 const parseWindows = (
   limit: Static<typeof CodexRateLimitSchema> | null | undefined,
-  bucket?: string,
+  bucket?: string
 ): UsageWindow[] =>
-  [limit?.primary_window, limit?.secondary_window]
-    .map((window) => {
-      if (window === undefined || window === null) return undefined;
+  [limit?.primary_window, limit?.secondary_window].flatMap((window) => {
+    if (window === undefined || window === null) {
+      return [];
+    }
 
-      const duration = durationLabel(window.limit_window_seconds);
+    const duration = durationLabel(window.limit_window_seconds);
 
-      return makeUsageWindow(
+    return [
+      makeUsageWindow(
         bucket === undefined ? duration : `${bucket} ${duration}`,
         100 - window.used_percent,
-        isoFromEpochMs(window.reset_at === undefined ? undefined : window.reset_at * 1000),
-      );
-    })
-    .filter(isDefined);
+        isoFromEpochMs(
+          window.reset_at === undefined ? undefined : window.reset_at * 1000
+        )
+      ),
+    ];
+  });
 
 /** Like Codex itself, show a balance only for metered credits and ignore one that does not parse. */
 const creditBalance = (credits: CodexUsage["credits"]): number | undefined => {
-  if (credits?.has_credits !== true || credits.unlimited === true) return undefined;
+  if (credits?.has_credits !== true || credits.unlimited === true) {
+    return undefined;
+  }
 
   const balance = credits.balance?.trim();
   const available = Number(balance);
@@ -99,32 +115,44 @@ const creditBalance = (credits: CodexUsage["credits"]): number | undefined => {
     : available;
 };
 
-export const mapCodexUsagePayload = (payload: CodexUsage, nowMs: number): UsageFetchResult => {
+export const mapCodexUsagePayload = (
+  payload: CodexUsage,
+  nowMs: number
+): UsageFetchResult => {
   const available = creditBalance(payload.credits);
 
-  const additionalQuotaWindows = (payload.additional_rate_limits ?? []).flatMap((limit) =>
-    parseWindows(limit.rate_limit, limit.limit_name),
+  const additionalQuotaWindows = (payload.additional_rate_limits ?? []).flatMap(
+    (limit) => parseWindows(limit.rate_limit, limit.limit_name)
   );
 
   return usageResult({
     fetchedAt: nowMs,
     provider: "openai-codex",
-    ...(payload.plan_type === undefined ? {} : { planLabel: payload.plan_type }),
+    ...(payload.plan_type === undefined
+      ? {}
+      : { planLabel: payload.plan_type }),
     quotaWindows: parseWindows(payload.rate_limit),
     ...(additionalQuotaWindows.length === 0 ? {} : { additionalQuotaWindows }),
-    ...(available === undefined ? {} : { accounting: { kind: "credit-balance", available } }),
+    ...(available === undefined
+      ? {}
+      : { accounting: { kind: "credit-balance", available } }),
   });
 };
 
-export const fetchCodexUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchCodexUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "openai-codex",
     {
       url: CODEX_USAGE_URL,
       schema: CodexUsageSchema,
       oauth: true,
-      headers: (token) => ({ ...accountHeaders(token), "User-Agent": "pi-usage" }),
+      headers: (token) => ({
+        ...accountHeaders(token),
+        "User-Agent": "pi-usage",
+      }),
     },
-    mapCodexUsagePayload,
+    mapCodexUsagePayload
   );

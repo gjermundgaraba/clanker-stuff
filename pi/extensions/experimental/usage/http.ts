@@ -6,12 +6,17 @@ const USAGE_HTTP_TIMEOUT_MS = 12_000;
 
 export type FetchJsonResult<T> =
   | { ok: true; json: T }
-  | { ok: false; kind: "response" | "payload"; message: string; status?: number };
+  | {
+      ok: false;
+      kind: "response" | "payload";
+      message: string;
+      status?: number;
+    };
 
 export type FetchJson = <S extends TSchema>(
   url: string,
   schema: S,
-  headers: Record<string, string>,
+  headers: Record<string, string>
 ) => Promise<FetchJsonResult<Static<S>>>;
 
 const HttpErrorMessageSchema = Type.Object({
@@ -24,7 +29,9 @@ const messageFromErrorBody = (text: string): string | undefined => {
   try {
     const json: unknown = JSON.parse(text);
 
-    return Value.Check(HttpErrorMessageSchema, json) ? json.error.message : undefined;
+    return Value.Check(HttpErrorMessageSchema, json)
+      ? json.error.message
+      : undefined;
   } catch {
     return undefined;
   }
@@ -64,7 +71,8 @@ export const defaultFetchJson: FetchJson = async (url, schema, headers) => {
       return { kind: "response", message: "request timed out", ok: false };
     }
 
-    const message = error instanceof Error ? error.message : "network request failed";
+    const message =
+      error instanceof Error ? error.message : "network request failed";
 
     return { kind: "response", message, ok: false };
   }

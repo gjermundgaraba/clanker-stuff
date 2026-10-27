@@ -20,11 +20,11 @@ Last verified: 2026-09-11, macOS, `v0.2026.09.09.08.26.stable_02`.
 
 ## Sources
 
-| Priority | Location                                                                                                              | Kind   | Authority                     | Contains                                                                                      | Parser State  | Collection Policy | Sensitivity |
-| -------- | --------------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------- | --------------------------------------------------------------------------------------------- | ------------- | ----------------- | ----------- |
-| 1        | `$HOME/Library/Group Containers/2BBY89MBSN.dev.warp/Library/Application Support/dev.warp.Warp-Stable/tui/warp.sqlite` | SQLite | local conversation/task store | conversation metadata, binary tasks, AI queries, command history, unrelated app/account state | opaque        | collect           | secret      |
-| 3        | `$HOME/.warp_cli/settings.toml`                                                                                       | TOML   | configuration                 | settings, not a transcript                                                                    | metadata_only | ignore_by_default | private     |
-| 3        | `$HOME/Library/Logs/warp-cli/warp.log*`                                                                               | logs   | diagnostics                   | operational logs, not verified transcript authority                                           | pending       | ignore_by_default | secret      |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/Library/Group Containers/2BBY89MBSN.dev.warp/Library/Application Support/dev.warp.Warp-Stable/tui/warp.sqlite` | SQLite | local conversation/task store | conversation metadata, binary tasks, AI queries, command history, unrelated app/account state | opaque | collect | secret |
+| 3 | `$HOME/.warp_cli/settings.toml` | TOML | configuration | settings, not a transcript | metadata_only | ignore_by_default | private |
+| 3 | `$HOME/Library/Logs/warp-cli/warp.log*` | logs | diagnostics | operational logs, not verified transcript authority | pending | ignore_by_default | secret |
 
 `2BBY89MBSN.dev.warp` is the application's macOS group identifier, not an account identifier. The `tui/` component distinguishes this observed CLI store from desktop app storage.
 

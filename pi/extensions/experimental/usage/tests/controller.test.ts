@@ -1,5 +1,5 @@
-import { CODEX_TOKEN, okFetch } from "./adapters/helpers.js";
-import { fauxAssistantMessage, type Api, type Model } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -8,6 +8,7 @@ import type { GetAuth } from "../auth.js";
 import { resolveRadiusBillingUrl } from "../controller.js";
 import type { FetchJson } from "../http.js";
 import { createUsageExtension } from "../index.js";
+import { CODEX_TOKEN, okFetch } from "./adapters/helpers.js";
 
 const claudeModel: Model<Api> = {
   api: "test",
@@ -29,7 +30,10 @@ const radiusModel: Model<Api> = {
   provider: "radius",
 };
 
-const oauth: GetAuth = async () => ({ auth: { apiKey: "fake-token" }, source: "OAuth" });
+const oauth: GetAuth = async () => ({
+  auth: { apiKey: "fake-token" },
+  source: "OAuth",
+});
 
 const successfulFetchJson: FetchJson = okFetch({
   five_hour: { utilization: 32 },
@@ -38,7 +42,7 @@ const successfulFetchJson: FetchJson = okFetch({
 
 const stubDependencies = (
   nowRef: { value: number },
-  radiusBillingUrl: string | null = "https://radius.pi.dev/v1/billing",
+  radiusBillingUrl: string | null = "https://radius.pi.dev/v1/billing"
 ) => {
   const client = { fetchJson: successfulFetchJson };
   const fetchJson = vi.spyOn(client, "fetchJson");
@@ -57,8 +61,17 @@ const stubDependencies = (
 describe("usage controller", () => {
   it("targets failed physical routes through turn ends, settlement, and branch reconstruction", async () => {
     const session = SessionManager.inMemory();
-    const original = session.appendMessage({ role: "user", content: "start", timestamp: 1000 });
-    const auth = vi.fn<GetAuth>(async () => ({ auth: { apiKey: "token" }, source: "OAuth" }));
+
+    const original = session.appendMessage({
+      role: "user",
+      content: "start",
+      timestamp: 1000,
+    });
+
+    const auth = vi.fn<GetAuth>(async () => ({
+      auth: { apiKey: "token" },
+      source: "OAuth",
+    }));
 
     const host = createExtensionHost(
       createUsageExtension({
@@ -66,20 +79,29 @@ describe("usage controller", () => {
         getAuth: () => auth,
         radiusBillingUrl: () => "https://gateway.example/v1/billing",
         fetchJson: async (url, schema, headers) =>
-          okFetch(
+          await okFetch(
             url.includes("/v1/billing")
               ? {
                   balance: { available: 0, credit_balance: 0, reserved: 0 },
                   currency: "USD",
-                  current_period: { actual_charged: 30, ends_at: "2026-10-01T00:00:00.000Z" },
+                  current_period: {
+                    actual_charged: 30,
+                    ends_at: "2026-10-01T00:00:00.000Z",
+                  },
                   ok: true,
                 }
-              : { five_hour: { utilization: 30 } },
+              : { five_hour: { utilization: 30 } }
           )(url, schema, headers),
       }),
       {
-        model: { ...claudeModel, api: "pi-virtual", provider: "router", id: "auto", name: "Auto" },
-      },
+        model: {
+          ...claudeModel,
+          api: "pi-virtual",
+          provider: "router",
+          id: "auto",
+          name: "Auto",
+        },
+      }
     );
 
     const ctx = host.createContext({ sessionManager: session });
@@ -87,19 +109,34 @@ describe("usage controller", () => {
     await host.emitSessionStart(ctx);
 
     // turn_end runs after Pi has appended the response.
-    session.appendMessage({ ...fauxAssistantMessage("done"), provider: "anthropic", model: "x" });
+    session.appendMessage({
+      ...fauxAssistantMessage("done"),
+      provider: "anthropic",
+      model: "x",
+    });
     await host.emit("turn_end", { type: "turn_end" }, ctx);
-    await vi.waitFor(() => expect(active()).toMatch(/^Claude 5h .* 30%$/));
+    await vi.waitFor(() => {
+      expect(active()).toMatch(/^Claude 5h .* 30%$/u);
+    });
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
-    await host.emit("model_select", { type: "model_select", model: ctx.model }, ctx);
-    expect(active()).toMatch(/^Claude 5h /);
+    await host.emit(
+      "model_select",
+      { type: "model_select", model: ctx.model },
+      ctx
+    );
+    expect(active()).toMatch(/^Claude 5h /u);
 
     session.appendMessage({
-      ...fauxAssistantMessage("", { stopReason: "error", errorMessage: "quota exhausted" }),
+      ...fauxAssistantMessage("", {
+        stopReason: "error",
+        errorMessage: "quota exhausted",
+      }),
       provider: "radius",
     });
     await host.emit("turn_end", { type: "turn_end" }, ctx);
-    await vi.waitFor(() => expect(active()).toBe("Radius $0.00 available"));
+    await vi.waitFor(() => {
+      expect(active()).toBe("Radius $0.00 available");
+    });
 
     session.appendMessage({
       ...fauxAssistantMessage("", { stopReason: "error" }),
@@ -108,12 +145,23 @@ describe("usage controller", () => {
     });
     await host.emitSessionTree(ctx);
     expect(active()).toBe("Radius $0.00 available");
-    expect(auth.mock.calls.map(([provider]) => provider)).toEqual(["anthropic", "radius"]);
+    expect(auth.mock.calls.map(([provider]) => provider)).toStrictEqual([
+      "anthropic",
+      "radius",
+    ]);
 
     // A physical selection changes quota immediately, even after a different routed attempt.
-    const physical = host.createContext({ sessionManager: session, model: claudeModel });
-    await host.emit("model_select", { type: "model_select", model: claudeModel }, physical);
-    expect(active()).toMatch(/^Claude 5h /);
+    const physical = host.createContext({
+      sessionManager: session,
+      model: claudeModel,
+    });
+
+    await host.emit(
+      "model_select",
+      { type: "model_select", model: claudeModel },
+      physical
+    );
+    expect(active()).toMatch(/^Claude 5h /u);
 
     session.branch(original);
     await host.emitSessionTree(ctx);
@@ -126,17 +174,18 @@ describe("usage controller", () => {
     async (scenario) => {
       const session = SessionManager.inMemory();
 
-      if (scenario !== "selected")
+      if (scenario !== "selected") {
         session.appendMessage({
           ...fauxAssistantMessage("done"),
           provider: "openai",
           model: "physical",
         });
+      }
 
       const auth = vi.fn<GetAuth>(async (provider) =>
         scenario === "routed-with-account" && provider === "anthropic"
           ? { auth: { apiKey: "offline" }, source: "OAuth" }
-          : undefined,
+          : undefined
       );
 
       const fetchClient = { fetchJson: successfulFetchJson };
@@ -147,35 +196,45 @@ describe("usage controller", () => {
           fetchJson: fetchClient.fetchJson,
           now: () => 1000,
           getAuth: () => auth,
-          radiusBillingUrl: () => undefined,
+          radiusBillingUrl: () => {},
         }),
         {
           model:
             scenario === "selected"
               ? { ...claudeModel, provider: "openai" }
-              : { ...claudeModel, api: "pi-virtual", provider: "router", id: "auto" },
-        },
+              : {
+                  ...claudeModel,
+                  api: "pi-virtual",
+                  provider: "router",
+                  id: "auto",
+                },
+        }
       );
 
       const ctx = host.createContext({ sessionManager: session });
       await host.emitSessionStart(ctx);
       await host.runCommand("usage", "", ctx);
       const message = host.getNotifications().at(-1)?.message;
-      expect(message).toContain("usage: quota reporting is unsupported for openai");
+      expect(message).toContain(
+        "usage: quota reporting is unsupported for openai"
+      );
       expect(message).not.toContain("log in");
       expect(host.getStatus("usage")).toBeUndefined();
 
-      if (scenario === "routed-with-account") {
-        expect(message).toContain("Claude");
-        expect(fetch).toHaveBeenCalledTimes(1);
-      } else expect(fetch).not.toHaveBeenCalled();
+      const withAccount = scenario === "routed-with-account";
+
+      expect(message?.includes("Claude"), message).toBe(withAccount);
+      expect(fetch).toHaveBeenCalledTimes(withAccount ? 1 : 0);
+
       await host.emitSessionShutdown(ctx);
-    },
+    }
   );
 
   it("lists Codex separately and never substitutes its quota for native OpenAI", async () => {
     const auth = vi.fn<GetAuth>(async (provider) =>
-      provider === "openai-codex" ? { auth: { apiKey: CODEX_TOKEN }, source: "OAuth" } : undefined,
+      provider === "openai-codex"
+        ? { auth: { apiKey: CODEX_TOKEN }, source: "OAuth" }
+        : undefined
     );
 
     const client = {
@@ -187,7 +246,12 @@ describe("usage controller", () => {
         additional_rate_limits: [
           {
             limit_name: "Spark",
-            rate_limit: { primary_window: { used_percent: 100, limit_window_seconds: 18_000 } },
+            rate_limit: {
+              primary_window: {
+                used_percent: 100,
+                limit_window_seconds: 18_000,
+              },
+            },
           },
         ],
       }),
@@ -202,9 +266,9 @@ describe("usage controller", () => {
         fetchJson: client.fetchJson,
         now: () => 1000,
         getAuth: () => auth,
-        radiusBillingUrl: () => undefined,
+        radiusBillingUrl: () => {},
       }),
-      { model: nativeModel },
+      { model: nativeModel }
     );
 
     const native = host.createContext({ model: nativeModel });
@@ -212,17 +276,27 @@ describe("usage controller", () => {
     await host.emitSessionStart(native);
     await host.runCommand("usage", "", native);
     expect(host.getNotifications().at(-1)?.message).toBe(
-      "usage: quota reporting is unsupported for openai\n\nCodex (plus)\n5h  65% left  resets unknown\nSpark 5h  0% left  resets unknown",
+      "usage: quota reporting is unsupported for openai\n\nCodex (plus)\n5h  65% left  resets unknown\nSpark 5h  0% left  resets unknown"
     );
     expect(host.getStatus("usage")).toBeUndefined();
-    expect(fetchJson).toHaveBeenCalledTimes(1);
+    expect(fetchJson).toHaveBeenCalledOnce();
 
     const codex = host.createContext({ model: codexModel });
-    await host.emit("model_select", { type: "model_select", model: codexModel }, codex);
-    await vi.waitFor(() => expect(host.getStatus("usage")).toMatch(/^Codex \(plus\) 5h .* 35%$/));
-    expect(fetchJson).toHaveBeenCalledTimes(1);
+    await host.emit(
+      "model_select",
+      { type: "model_select", model: codexModel },
+      codex
+    );
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toMatch(/^Codex \(plus\) 5h .* 35%$/u);
+    });
+    expect(fetchJson).toHaveBeenCalledOnce();
 
-    await host.emit("model_select", { type: "model_select", model: nativeModel }, native);
+    await host.emit(
+      "model_select",
+      { type: "model_select", model: nativeModel },
+      native
+    );
     expect(host.getStatus("usage")).toBeUndefined();
     await host.emitSessionShutdown(native);
   });
@@ -236,18 +310,20 @@ describe("usage controller", () => {
           provider === "anthropic"
             ? { auth: { apiKey: "sk-ant" }, source: "ANTHROPIC_API_KEY" }
             : undefined,
-        radiusBillingUrl: () => undefined,
+        radiusBillingUrl: () => {},
       }),
-      { model: claudeModel },
+      { model: claudeModel }
     );
 
     const ctx = host.createContext({ model: claudeModel });
     await host.emitSessionStart(ctx);
-    await vi.waitFor(() => expect(host.getStatus("usage")).toBe("Claude usage unavailable"));
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toBe("Claude usage unavailable");
+    });
     await host.runCommand("usage", "", ctx);
 
     expect(host.getNotifications().at(-1)?.message).toBe(
-      "usage: anthropic: subscription usage requires OAuth login (not API key)",
+      "usage: anthropic: subscription usage requires OAuth login (not API key)"
     );
     await host.emitSessionShutdown(ctx);
   });
@@ -255,23 +331,29 @@ describe("usage controller", () => {
   it.each(["settled", "model", "shutdown"] as const)(
     "delivers account results across refreshes but not shutdown (%s)",
     async (event) => {
-      const started = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
+      const started = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
 
       const host = createExtensionHost(
         createUsageExtension({
           now: () => 1000,
-          radiusBillingUrl: () => undefined,
+          radiusBillingUrl: () => {},
           getAuth: () => async (provider) =>
-            provider === "anthropic" ? { auth: { apiKey: "offline" }, source: "OAuth" } : undefined,
+            provider === "anthropic"
+              ? { auth: { apiKey: "offline" }, source: "OAuth" }
+              : undefined,
           fetchJson: async (url, schema, headers) => {
-            started.resolve();
+            started.resolve(undefined);
             await release.promise;
 
-            return okFetch({ five_hour: { utilization: 20 } })(url, schema, headers);
+            return await okFetch({ five_hour: { utilization: 20 } })(
+              url,
+              schema,
+              headers
+            );
           },
         }),
-        { model: claudeModel },
+        { model: claudeModel }
       );
 
       await host.ready;
@@ -279,43 +361,62 @@ describe("usage controller", () => {
       const command = host.runCommand("usage", "", ctx);
       await started.promise;
 
-      if (event === "settled") await host.emit("agent_settled", { type: "agent_settled" }, ctx);
-      else if (event === "model")
+      if (event === "settled") {
+        await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+      } else if (event === "model") {
         await host.emit(
           "model_select",
-          { type: "model_select", model: radiusModel, previousModel: claudeModel, source: "set" },
-          host.createContext({ model: radiusModel }),
+          {
+            type: "model_select",
+            model: radiusModel,
+            previousModel: claudeModel,
+            source: "set",
+          },
+          host.createContext({ model: radiusModel })
         );
-      else await host.emitSessionShutdown(ctx);
-      release.resolve();
-      await command;
-      expect(host.getNotifications()).toHaveLength(event === "shutdown" ? 0 : 1);
+      } else {
+        await host.emitSessionShutdown(ctx);
+      }
 
-      if (event !== "shutdown") await host.emitSessionShutdown(ctx);
-    },
+      release.resolve(undefined);
+      await command;
+      expect(host.getNotifications()).toHaveLength(
+        event === "shutdown" ? 0 : 1
+      );
+
+      if (event !== "shutdown") {
+        await host.emitSessionShutdown(ctx);
+      }
+    }
   );
 
   it("does not lose a command when the periodic refresh runs", async () => {
-    const release = Promise.withResolvers<void>();
-    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<undefined>();
+    const entered = Promise.withResolvers<undefined>();
     let delayFetch = false;
 
     const host = createExtensionHost(
       createUsageExtension({
         now: () => 1000,
-        radiusBillingUrl: () => undefined,
+        radiusBillingUrl: () => {},
         getAuth: () => async (provider) =>
-          provider === "anthropic" ? { auth: { apiKey: "offline" }, source: "OAuth" } : undefined,
+          provider === "anthropic"
+            ? { auth: { apiKey: "offline" }, source: "OAuth" }
+            : undefined,
         fetchJson: async (url, schema, headers) => {
           if (delayFetch) {
-            entered.resolve();
+            entered.resolve(undefined);
             await release.promise;
           }
 
-          return okFetch({ five_hour: { utilization: 20 } })(url, schema, headers);
+          return await okFetch({ five_hour: { utilization: 20 } })(
+            url,
+            schema,
+            headers
+          );
         },
       }),
-      { model: claudeModel },
+      { model: claudeModel }
     );
 
     await host.ready;
@@ -329,11 +430,11 @@ describe("usage controller", () => {
       const command = host.runCommand("usage", "refresh", ctx);
       await entered.promise;
       await vi.advanceTimersByTimeAsync(5 * 60_000);
-      release.resolve();
+      release.resolve(undefined);
       await command;
       expect(host.getNotifications()).toHaveLength(2);
     } finally {
-      release.resolve();
+      release.resolve(undefined);
       await host.emitSessionShutdown(ctx);
       vi.useRealTimers();
     }
@@ -345,10 +446,13 @@ describe("usage controller", () => {
         undefined,
         "https://gateway.example/v1",
         "https://gateway.example/v1/",
-      ]),
+      ])
     ).toBe("https://gateway.example/v1/billing");
     expect(
-      resolveRadiusBillingUrl(["https://gateway.example/v1", "https://other.example/v1"]),
+      resolveRadiusBillingUrl([
+        "https://gateway.example/v1",
+        "https://other.example/v1",
+      ])
     ).toBeUndefined();
     expect(resolveRadiusBillingUrl(["not a URL"])).toBeUndefined();
   });
@@ -357,7 +461,10 @@ describe("usage controller", () => {
     { name: "empty catalog", baseUrls: [] },
     { name: "missing URL", baseUrls: [undefined] },
     { name: "non-HTTP URL", baseUrls: ["ftp://gateway.example/v1"] },
-    { name: "valid and malformed URLs", baseUrls: ["https://gateway.example/v1", "not a URL"] },
+    {
+      name: "valid and malformed URLs",
+      baseUrls: ["https://gateway.example/v1", "not a URL"],
+    },
     {
       name: "valid and non-HTTP URLs",
       baseUrls: ["https://gateway.example/v1", "ftp://gateway.example/v1"],
@@ -373,7 +480,7 @@ describe("usage controller", () => {
 
     await host.emitSessionStart(context);
     await vi.waitFor(() => {
-      expect(host.getStatus("usage")).toMatch(/^Claude week .* 66%$/);
+      expect(host.getStatus("usage")).toMatch(/^Claude week .* 66%$/u);
     });
     await host.emitSessionShutdown(context);
     expect(host.getStatus("usage")).toBeUndefined();
@@ -382,7 +489,7 @@ describe("usage controller", () => {
   it("renders Radius balance usage from the effective gateway", async () => {
     const { extension, fetchJson } = stubDependencies(
       { value: 1000 },
-      "https://gateway.example/v1/billing",
+      "https://gateway.example/v1/billing"
     );
 
     fetchJson.mockImplementation(
@@ -394,7 +501,7 @@ describe("usage controller", () => {
           ends_at: "2026-10-01T00:00:00.000Z",
         },
         ok: true,
-      }),
+      })
     );
     const host = createExtensionHost(extension, { model: radiusModel });
     const context = host.createContext({ model: radiusModel });
@@ -403,7 +510,9 @@ describe("usage controller", () => {
     await vi.waitFor(() => {
       expect(host.getStatus("usage")).toBe("Radius $43.26 available");
     });
-    expect(fetchJson.mock.calls[0]?.[0]).toBe("https://gateway.example/v1/billing");
+    expect(fetchJson.mock.calls[0]?.[0]).toBe(
+      "https://gateway.example/v1/billing"
+    );
     await host.emitSessionShutdown(context);
   });
 
@@ -447,11 +556,15 @@ describe("usage controller", () => {
 
     fetchJson.mockImplementation(async (url, schema, headers) => {
       if (url.includes("/v1/billing")) {
-        return okFetch((await radius.promise).json)(url, schema, headers);
+        const { json } = await radius.promise;
+
+        return await okFetch(json)(url, schema, headers);
       }
 
       if (url.includes("anthropic.com")) {
-        return okFetch((await claude.promise).json)(url, schema, headers);
+        const { json } = await claude.promise;
+
+        return await okFetch(json)(url, schema, headers);
       }
 
       return { kind: "response", message: "unavailable", ok: false };
@@ -464,7 +577,7 @@ describe("usage controller", () => {
       expect(fetchJson).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Object),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
     const claudeContext = host.createContext({ model: claudeModel });
@@ -476,7 +589,7 @@ describe("usage controller", () => {
         source: "set",
         type: "model_select",
       },
-      claudeContext,
+      claudeContext
     );
     claude.resolve({
       json: {
@@ -511,7 +624,7 @@ describe("usage controller", () => {
       requests += 1;
 
       if (requests === 2) {
-        return successfulFetchJson(url, schema, headers);
+        return await successfulFetchJson(url, schema, headers);
       }
 
       return { kind: "response", message: "boom\n[31mred", ok: false };
@@ -527,17 +640,17 @@ describe("usage controller", () => {
     await host.emit("agent_settled", { type: "agent_settled" }, context);
     await vi.waitFor(() => {
       expect(requests).toBe(2);
-      expect(host.getStatus("usage")).toMatch(/^Claude week .* 66%$/);
+      expect(host.getStatus("usage")).toMatch(/^Claude week .* 66%$/u);
     });
 
     nowRef.value = 61_000;
     await host.emit("agent_settled", { type: "agent_settled" }, context);
     await vi.waitFor(() => {
       expect(requests).toBe(3);
-      expect(host.getStatus("usage")).toMatch(/^Claude week .* 66% !$/);
+      expect(host.getStatus("usage")).toMatch(/^Claude week .* 66% !$/u);
     });
 
-    expect(vi.mocked(context.ui.setStatus).mock.calls[0]).toEqual([
+    expect(vi.mocked(context.ui.setStatus).mock.calls[0]).toStrictEqual([
       "usage",
       "Claude usage loading",
     ]);

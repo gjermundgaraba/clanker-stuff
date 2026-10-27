@@ -16,15 +16,19 @@ const growth = (before: Build, run: Build) => {
   return collectMetrics(session.getBranch(), runStart).contextGrowth;
 };
 
-const respond = (session: SessionManager, ...args: Parameters<typeof measuredResponse>) =>
-  session.appendMessage(measuredResponse(...args));
+const respond = (
+  session: SessionManager,
+  ...args: Parameters<typeof measuredResponse>
+) => session.appendMessage(measuredResponse(...args));
 
 describe("context growth", () => {
   // Responses report 50 output tokens unless stated.
   it.each<{ name: string; before: Build; run: Build; expected: number }>([
     {
       name: "counts a fresh session from zero, prompt to prompt plus the last output",
-      before: (s) => s.appendMessage(userMessage("first")),
+      before: (s) => {
+        s.appendMessage(userMessage("first"));
+      },
       run: (s) => {
         respond(s, 7621);
         respond(s, 8556);
@@ -34,7 +38,9 @@ describe("context growth", () => {
     },
     {
       name: "starts from the size the previous response reported",
-      before: (s) => respond(s, 5000),
+      before: (s) => {
+        respond(s, 5000);
+      },
       run: (s) => {
         s.appendMessage(userMessage("next"));
         respond(s, 9920);
@@ -43,13 +49,19 @@ describe("context growth", () => {
     },
     {
       name: "reads zero before the run's first response",
-      before: (s) => respond(s, 5000),
-      run: (s) => s.appendMessage(userMessage("next")),
+      before: (s) => {
+        respond(s, 5000);
+      },
+      run: (s) => {
+        s.appendMessage(userMessage("next"));
+      },
       expected: 0,
     },
     {
       name: "adds nothing for a prompt that compaction shrank",
-      before: (s) => respond(s, 1000),
+      before: (s) => {
+        respond(s, 1000);
+      },
       run: (s) => {
         s.appendCompaction("summary", respond(s, 1500), 1550);
         respond(s, 300);
@@ -59,7 +71,9 @@ describe("context growth", () => {
     },
     {
       name: "skips failed and empty responses",
-      before: (s) => respond(s, 1000),
+      before: (s) => {
+        respond(s, 1000);
+      },
       run: (s) => {
         respond(s, 9000, { stopReason: "aborted" });
         respond(s, 9000, { stopReason: "error" });
@@ -75,12 +89,16 @@ describe("context growth", () => {
         s.appendMessage(userMessage("aborted"));
         respond(s, 500, { stopReason: "aborted" });
       },
-      run: (s) => respond(s, 6000),
+      run: (s) => {
+        respond(s, 6000);
+      },
       expected: 1000,
     },
     {
       name: "leaves out reasoning, which providers drop once a new prompt arrives",
-      before: (s) => respond(s, 10_000, { output: 3000, reasoning: 2800 }),
+      before: (s) => {
+        respond(s, 10_000, { output: 3000, reasoning: 2800 });
+      },
       run: (s) => {
         s.appendMessage(userMessage("next"));
         respond(s, 10_350, { output: 100, reasoning: 60 });
@@ -89,8 +107,12 @@ describe("context growth", () => {
     },
     {
       name: "ignores provider totals that differ from the reported parts",
-      before: (s) => respond(s, 1000, { totalTokens: 1 }),
-      run: (s) => respond(s, 1200, { totalTokens: 99_999 }),
+      before: (s) => {
+        respond(s, 1000, { totalTokens: 1 });
+      },
+      run: (s) => {
+        respond(s, 1200, { totalTokens: 99_999 });
+      },
       expected: 200,
     },
   ])("$name", ({ before, run, expected }) => {
@@ -117,12 +139,24 @@ describe("run metrics", () => {
       usage: sampleUsage(),
       timestamp: 0,
     });
-    session.appendCompaction("summary", user, 100, undefined, false, sampleUsage());
+    session.appendCompaction(
+      "summary",
+      user,
+      100,
+      undefined,
+      false,
+      sampleUsage()
+    );
     session.appendUsage("cache_warm", "provider", "model", sampleUsage());
     session.appendContextEdit(assistant, null);
     session.appendCustomEntry("ignored", { usage: sampleUsage() });
     const metrics = collectMetrics(session.getBranch());
-    expect(metrics).toMatchObject({ toolCalls: 1, toolErrors: 1, responses: 1, compactions: 1 });
+    expect(metrics).toMatchObject({
+      toolCalls: 1,
+      toolErrors: 1,
+      responses: 1,
+      compactions: 1,
+    });
     expect(metrics.usage).toMatchObject({
       input: 400,
       output: 200,
@@ -138,7 +172,9 @@ describe("run metrics", () => {
 
   it("counts the calls a tool made itself, such as Code Mode's, with their errors", () => {
     const session = SessionManager.inMemory();
-    session.appendMessage(fauxAssistantMessage([fauxToolCall("codemode", {}, { id: "call-1" })]));
+    session.appendMessage(
+      fauxAssistantMessage([fauxToolCall("codemode", {}, { id: "call-1" })])
+    );
 
     session.appendMessage({
       role: "toolResult",
@@ -157,14 +193,23 @@ describe("run metrics", () => {
       timestamp: 0,
     });
 
-    expect(collectMetrics(session.getBranch())).toMatchObject({ toolCalls: 4, toolErrors: 1 });
+    expect(collectMetrics(session.getBranch())).toMatchObject({
+      toolCalls: 4,
+      toolErrors: 1,
+    });
   });
 
   it("sums response time and merges overlapping tool time, from the run's start", () => {
     const session = SessionManager.inMemory();
-    session.appendMessage({ ...fauxAssistantMessage("before"), durationMs: 5000 });
+    session.appendMessage({
+      ...fauxAssistantMessage("before"),
+      durationMs: 5000,
+    });
     const runStart = session.getBranch().length;
-    session.appendMessage({ ...fauxAssistantMessage("timed"), durationMs: 1200 });
+    session.appendMessage({
+      ...fauxAssistantMessage("timed"),
+      durationMs: 1200,
+    });
     session.appendMessage(fauxAssistantMessage("untimed"));
 
     const result = (id: string, timestamp: number, durationMs?: number) =>
@@ -197,9 +242,16 @@ describe("run metrics", () => {
     const usage = sampleUsage();
     const { reasoning: _reasoning, ...unreported } = usage;
     session.appendMessage({ ...fauxAssistantMessage("a"), usage: unreported });
-    session.appendMessage({ ...fauxAssistantMessage("b"), usage: { ...usage, reasoning: 0 } });
+    session.appendMessage({
+      ...fauxAssistantMessage("b"),
+      usage: { ...usage, reasoning: 0 },
+    });
     const metrics = collectMetrics(session.getBranch());
-    expect(metrics.usage).toMatchObject({ reasoning: 0, reasoningReports: 1, reports: 2 });
+    expect(metrics.usage).toMatchObject({
+      reasoning: 0,
+      reasoningReports: 1,
+      reports: 2,
+    });
     expect(metrics.models).toHaveLength(1);
   });
 });

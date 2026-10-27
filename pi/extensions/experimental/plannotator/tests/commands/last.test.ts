@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+
 import { describe, expect, it } from "vite-plus/test";
 
-import { assistantEntry, exited, setup, userEntry, waitForMessages } from "../helpers.js";
+import {
+  assistantEntry,
+  exited,
+  setup,
+  userEntry,
+  waitForMessages,
+} from "../helpers.js";
 
 describe("plannotator-last", () => {
   it("passes the last assistant message through stdin with the given flags", async () => {
@@ -18,8 +25,17 @@ describe("plannotator-last", () => {
     const assistant = assistantEntry("assistant", null, "  Original answer\n");
     const user = userEntry("user", assistant.id, "Another request");
     const blank = assistantEntry("blank", user.id, " \n ");
-    const otherBranch = assistantEntry("other-branch", assistant.id, "Unrelated answer");
-    const { ctx, host, pending } = setup([assistant, user, blank, otherBranch], blank.id);
+
+    const otherBranch = assistantEntry(
+      "other-branch",
+      assistant.id,
+      "Unrelated answer"
+    );
+
+    const { ctx, host, pending } = setup(
+      [assistant, user, blank, otherBranch],
+      blank.id
+    );
 
     await host.runCommand("plannotator-last", "", ctx);
 
@@ -46,7 +62,9 @@ describe("plannotator-last", () => {
 
     const [child] = pending;
     assert.ok(child);
-    child.resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Clarify it." })));
+    child.resolve(
+      exited(JSON.stringify({ decision: "annotated", feedback: "Clarify it." }))
+    );
     await waitForMessages(host, 1);
     const content = host.getSentUserMessages()[0]?.content;
     assert.equal(typeof content, "string");

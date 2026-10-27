@@ -11,5 +11,8 @@ npm install @clanker-stuff/pi-tool-schema
 ## Usage
 
 ```ts
-import { invalidArguments, structuralSchema } from "@clanker-stuff/pi-tool-schema";
+import {
+  invalidArguments,
+  structuralSchema,
+} from "@clanker-stuff/pi-tool-schema";
 ```

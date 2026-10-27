@@ -38,7 +38,9 @@ describe("usage cache", () => {
   it("shares a single in-flight fetch across callers", async () => {
     const cache = new UsageCache(() => 5000);
     let starts = 0;
-    const { promise: gate, resolve: release } = Promise.withResolvers<UsageSnapshot>();
+
+    const { promise: gate, resolve: release } =
+      Promise.withResolvers<UsageSnapshot>();
 
     const fetcher = async () => {
       starts += 1;
@@ -54,7 +56,7 @@ describe("usage cache", () => {
         fetchedAt: 5000,
         provider: "xai",
         quotaWindows: [{ label: "month", remainingPercent: 80 }],
-      }),
+      })
     );
     const [a, b] = await Promise.all([first, second]);
     expect(a.ok && b.ok).toBeTruthy();
@@ -77,7 +79,9 @@ describe("usage cache", () => {
 
     expect(result.ok).toBeFalsy();
     expect(cache.getLastSuccess("anthropic")?.fetchedAt).toBe(1000);
-    expect(cache.getLastSuccess("anthropic")?.quotaWindows[0]?.remainingPercent).toBe(68);
+    expect(
+      cache.getLastSuccess("anthropic")?.quotaWindows[0]?.remainingPercent
+    ).toBe(68);
   });
 
   it("replaces the last success after a forced successful refresh", async () => {
@@ -96,6 +100,8 @@ describe("usage cache", () => {
     }));
 
     expect(result.ok).toBeTruthy();
-    expect(cache.getLastSuccess("anthropic")?.quotaWindows[0]?.remainingPercent).toBe(10);
+    expect(
+      cache.getLastSuccess("anthropic")?.quotaWindows[0]?.remainingPercent
+    ).toBe(10);
   });
 });

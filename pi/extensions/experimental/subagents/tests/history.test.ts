@@ -1,4 +1,9 @@
-import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxText,
+  fauxThinking,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
 import type { Message } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
@@ -7,8 +12,12 @@ import { forkHistory } from "../history.js";
 
 const assistant = (text: string, stopReason: "stop" | "toolUse" = "stop") =>
   fauxAssistantMessage(
-    [fauxThinking("private"), fauxText(text), fauxToolCall("read", { path: "secret" })],
-    { responseId: "parent-response", stopReason },
+    [
+      fauxThinking("private"),
+      fauxText(text),
+      fauxToolCall("read", { path: "secret" }),
+    ],
+    { responseId: "parent-response", stopReason }
   );
 
 const user = (text: string): Message => ({
@@ -36,14 +45,23 @@ describe(forkHistory, () => {
 
     const history = forkHistory(session.buildSessionProjection().messages, 1);
 
-    expect(history.map((message) => message.role)).toStrictEqual(["user", "assistant"]);
+    expect(history.map((message) => message.role)).toStrictEqual([
+      "user",
+      "assistant",
+    ]);
     expect(history[0]?.content).toBe("new");
-    expect(history[1]?.content).toStrictEqual([{ text: "final", type: "text" }]);
+    expect(history[1]?.content).toStrictEqual([
+      { text: "final", type: "text" },
+    ]);
     expect(history[1]).not.toHaveProperty("responseId");
     expect(history[1]).toHaveProperty("usage.cost.total", 0);
-    expect(forkHistory(session.buildSessionProjection().messages, "none")).toStrictEqual([]);
     expect(
-      forkHistory(session.buildSessionProjection().messages, "all").map(({ content }) => content),
+      forkHistory(session.buildSessionProjection().messages, "none")
+    ).toStrictEqual([]);
+    expect(
+      forkHistory(session.buildSessionProjection().messages, "all").map(
+        ({ content }) => content
+      )
     ).toStrictEqual([
       "old",
       [{ type: "text", text: "old answer" }],
@@ -58,10 +76,18 @@ describe(forkHistory, () => {
     const kept = session.appendMessage(user("recent"));
     session.appendCompaction("Earlier decisions", kept, 100);
 
-    const history = forkHistory(session.buildSessionProjection().messages, "all");
+    const history = forkHistory(
+      session.buildSessionProjection().messages,
+      "all"
+    );
 
-    expect(history.map((message) => message.role)).toStrictEqual(["user", "user"]);
-    expect(history[0]?.content).toBe("Previous conversation summary:\nEarlier decisions");
+    expect(history.map((message) => message.role)).toStrictEqual([
+      "user",
+      "user",
+    ]);
+    expect(history[0]?.content).toBe(
+      "Previous conversation summary:\nEarlier decisions"
+    );
     expect(history[1]?.content).toBe("recent");
   });
 
@@ -73,19 +99,27 @@ describe(forkHistory, () => {
     session.appendContextEdit(old, { content: "corrected request" });
     session.appendContextEdit(abandoned, null);
 
-    const history = forkHistory(session.buildSessionProjection().messages, "all");
+    const history = forkHistory(
+      session.buildSessionProjection().messages,
+      "all"
+    );
+
     expect(history.map(({ content }) => content)).toStrictEqual([
       "corrected request",
       "recent request",
     ]);
-    expect(forkHistory(session.buildSessionProjection().messages, 1)).toHaveLength(1);
+    expect(
+      forkHistory(session.buildSessionProjection().messages, 1)
+    ).toHaveLength(1);
     expect(session.getEntry(abandoned)).toHaveProperty(
       "message.content.1.text",
-      "abandoned answer",
+      "abandoned answer"
     );
 
     session.branch(abandoned);
-    expect(forkHistory(session.buildSessionProjection().messages, "all")).toHaveLength(2);
+    expect(
+      forkHistory(session.buildSessionProjection().messages, "all")
+    ).toHaveLength(2);
   });
 
   it("forks only the summary after retain-none compaction", () => {
@@ -93,8 +127,13 @@ describe(forkHistory, () => {
     session.appendMessage(user("old request"));
     session.appendCompaction("all earlier decisions", null, 100);
 
-    expect(forkHistory(session.buildSessionProjection().messages, "all")).toMatchObject([
-      { content: "Previous conversation summary:\nall earlier decisions", role: "user" },
+    expect(
+      forkHistory(session.buildSessionProjection().messages, "all")
+    ).toMatchObject([
+      {
+        content: "Previous conversation summary:\nall earlier decisions",
+        role: "user",
+      },
     ]);
   });
 });

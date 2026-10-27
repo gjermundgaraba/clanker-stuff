@@ -1,11 +1,18 @@
-import type { SupportedProvider, UsageFetchResult, UsageSnapshot } from "./providers.js";
+import type {
+  SupportedProvider,
+  UsageFetchResult,
+  UsageSnapshot,
+} from "./providers.js";
 import { usageFailure } from "./providers.js";
 
 const CACHE_TTL_MS = 60_000;
 
 export class UsageCache {
   private readonly success = new Map<SupportedProvider, UsageSnapshot>();
-  private readonly inflight = new Map<SupportedProvider, Promise<UsageFetchResult>>();
+  private readonly inflight = new Map<
+    SupportedProvider,
+    Promise<UsageFetchResult>
+  >();
 
   private readonly now: () => number;
 
@@ -20,11 +27,15 @@ export class UsageCache {
   async getOrFetch(
     provider: SupportedProvider,
     force: boolean,
-    fetcher: () => Promise<UsageFetchResult>,
+    fetcher: () => Promise<UsageFetchResult>
   ): Promise<UsageFetchResult> {
     const last = this.success.get(provider);
 
-    if (!force && last !== undefined && this.now() - last.fetchedAt < CACHE_TTL_MS) {
+    if (
+      !force &&
+      last !== undefined &&
+      this.now() - last.fetchedAt < CACHE_TTL_MS
+    ) {
       return { ok: true, snapshot: last };
     }
 
@@ -46,7 +57,7 @@ export class UsageCache {
 
   private async runFetch(
     provider: SupportedProvider,
-    fetcher: () => Promise<UsageFetchResult>,
+    fetcher: () => Promise<UsageFetchResult>
   ): Promise<UsageFetchResult> {
     try {
       const result = await fetcher();
@@ -57,7 +68,8 @@ export class UsageCache {
 
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "unexpected fetch error";
+      const message =
+        error instanceof Error ? error.message : "unexpected fetch error";
 
       return usageFailure(message);
     }

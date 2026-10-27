@@ -18,13 +18,13 @@ Last verified: local macOS, event schema inspected without bodies.
 
 ## Sources
 
-| Priority | Location                               | Kind   | Authority         | Contains                     | Parser State  | Collection Policy | Sensitivity |
-| -------- | -------------------------------------- | ------ | ----------------- | ---------------------------- | ------------- | ----------------- | ----------- |
-| 1        | `$HOME/.cache/amp/logs/threads/*.log`  | JSONL  | primary candidate | thread events/messages/tools | partial       | collect           | private     |
-| 2        | `$HOME/.local/share/amp/history.jsonl` | JSONL  | secondary         | input history                | schema_known  | collect           | private     |
-| 2        | `$HOME/.local/share/amp/session.json`  | JSON   | session state     | active thread pointers       | schema_known  | collect           | private     |
-| 3        | `$HOME/.local/share/amp/secrets.json`  | JSON   | secret            | API keys                     | blocked       | never_collect     | secret      |
-| 3        | VS Code state                          | SQLite | UI/secret support | extension state              | metadata_only | ignore_by_default | secret      |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/.cache/amp/logs/threads/*.log` | JSONL | primary candidate | thread events/messages/tools | partial | collect | private |
+| 2 | `$HOME/.local/share/amp/history.jsonl` | JSONL | secondary | input history | schema_known | collect | private |
+| 2 | `$HOME/.local/share/amp/session.json` | JSON | session state | active thread pointers | schema_known | collect | private |
+| 3 | `$HOME/.local/share/amp/secrets.json` | JSON | secret | API keys | blocked | never_collect | secret |
+| 3 | VS Code state | SQLite | UI/secret support | extension state | metadata_only | ignore_by_default | secret |
 
 ## Find
 

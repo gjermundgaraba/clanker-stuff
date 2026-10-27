@@ -1,38 +1,47 @@
 import assert from "node:assert/strict";
-import fixtures from "./fixtures/projections.json" with { type: "json" };
 
 import { manifest as metadata } from "@clanker-stuff/pi-shape-glyphs";
 import { describe, expect, it } from "vite-plus/test";
 
 import { frame, FPS, INKS, paint, VIEWBOX } from "../scripts/frames.ts";
 import { geometry, project, SHAPES, TAU } from "../scripts/geometry.ts";
+import fixtures from "./fixtures/projections.json" with { type: "json" };
 
 describe("reconstructed geometry", () => {
   it("matches independent projected coordinates, depth, silhouettes and whole-path opacity", () => {
     for (const fixture of fixtures) {
-      const actual = project(geometry(fixture.seed, fixture.shape), fixture.yaw, fixture.weight);
+      const actual = project(
+        geometry(fixture.seed, fixture.shape),
+        fixture.yaw,
+        fixture.weight
+      );
+
       expect(actual).toHaveLength(fixture.lines.length);
 
       for (const expected of fixture.lines) {
         const line = actual.find((candidate) => candidate.id === expected.id);
 
-        if (!line) throw new Error("Missing projected path");
+        if (!line) {
+          throw new Error("Missing projected path");
+        }
+
         expect(line.depth).toBeCloseTo(expected.depth, 10);
         expect(line.opacity).toBeCloseTo(expected.opacity, 10);
         expect(line.outline).toBeCloseTo(expected.outline, 10);
         const xy = line.points.flatMap((point) => point.slice(0, 2));
         expect(xy).toHaveLength(expected.points.length);
-        xy.forEach((value, i) => {
+
+        for (const [i, value] of xy.entries()) {
           const coordinate = expected.points[i];
-          assert(coordinate !== undefined);
+          assert.ok(coordinate !== undefined);
           expect(value).toBeCloseTo(coordinate, 10);
-        });
+        }
       }
     }
   });
 
   it("keeps source inks in sync with the shipped palette", () => {
-    expect(INKS).toEqual(metadata.inks);
+    expect(INKS).toStrictEqual(metadata.inks);
   });
 
   it("keeps native compact radii and 16 six-point orb paths", () => {
@@ -41,8 +50,10 @@ describe("reconstructed geometry", () => {
     expect(orb.strokeWidth).toBe(1.2);
     expect(orb.vertices).toHaveLength(80);
     expect(orb.lines).toHaveLength(16);
-    expect(new Set(orb.lines.map((line) => line.indices.length))).toEqual(new Set([6]));
-    expect(orb.lines[3]?.indices).toEqual([15, 16, 17, 18, 19, 0]);
+    expect(new Set(orb.lines.map((line) => line.indices.length))).toStrictEqual(
+      new Set([6])
+    );
+    expect(orb.lines[3]?.indices).toStrictEqual([15, 16, 17, 18, 19, 0]);
     expect(geometry("amp-orb", "cube").lines).toHaveLength(12);
     expect(geometry("amp-orb", "octahedron").lines).toHaveLength(12);
     expect(geometry("amp-orb", "tetrahedron").lines).toHaveLength(6);
@@ -56,9 +67,13 @@ describe("reconstructed geometry", () => {
       for (const { indices, planes } of g.lines) {
         expect(indices.length).toBeGreaterThan(0);
 
-        for (const index of indices) expect(g.vertices[index]).toBeDefined();
+        for (const index of indices) {
+          expect(g.vertices[index]).toBeDefined();
+        }
 
-        for (const index of planes) expect(g.normals[index]).toBeDefined();
+        for (const index of planes) {
+          expect(g.normals[index]).toBeDefined();
+        }
       }
     }
   });
@@ -71,48 +86,66 @@ describe("reconstructed geometry", () => {
       for (const line of project(g, TAU, 0)) {
         const first = start.find((candidate) => candidate.id === line.id);
 
-        if (!first) throw new Error("Missing seam path");
-        line.points.forEach((point, i) => {
+        if (!first) {
+          throw new Error("Missing seam path");
+        }
+
+        for (const [i, point] of line.points.entries()) {
           const previous = first.points[i];
-          assert(previous);
+
+          if (!previous) {
+            throw new Error("Missing seam point");
+          }
+
           expect(point[0]).toBeCloseTo(previous[0], 10);
           expect(point[1]).toBeCloseTo(previous[1], 10);
           expect(point[2]).toBeCloseTo(previous[2], 10);
-        });
+        }
+
         expect(line.opacity).toBeCloseTo(first.opacity, 10);
       }
 
-      expect(frame(shape, 0).lines).not.toEqual(frame(shape, 1).lines);
-      expect(frame(shape, 0, true).lines).not.toEqual(frame(shape, 0).lines);
+      expect(frame(shape, 0).lines).not.toStrictEqual(frame(shape, 1).lines);
+      expect(frame(shape, 0, true).lines).not.toStrictEqual(
+        frame(shape, 0).lines
+      );
 
-      for (let i = 0; i < FPS * 8; i++) {
+      for (let i = 0; i < FPS * 8; i += 1) {
         const scene = frame(shape, i / FPS);
         const radius = scene.strokeWidth / 2;
-        scene.lines.forEach((line, index) => {
+
+        for (const [index, line] of scene.lines.entries()) {
           const previous = scene.lines[index - 1];
 
-          if (previous) expect(line.depth).toBeGreaterThanOrEqual(previous.depth);
+          expect(line.depth).toBeGreaterThanOrEqual(
+            previous?.depth ?? Number.NEGATIVE_INFINITY
+          );
+
           expect(line.opacity).toBeGreaterThanOrEqual(0.16);
           expect(line.opacity).toBeLessThanOrEqual(1);
 
-          for (const point of line.points)
+          for (const point of line.points) {
             for (const value of point.slice(0, 2)) {
               const position = VIEWBOX / 2 + (value - 12);
               expect(position - radius).toBeGreaterThan(0);
               expect(position + radius).toBeLessThan(VIEWBOX);
             }
-        });
+          }
+        }
       }
     }
   });
 
-  it.each(["cube", "octahedron", "tetrahedron"])("does not seed %s geometry", (shape) => {
-    expect(geometry("amp-orb", shape)).toEqual(geometry("😀", shape));
-  });
+  it.each(["cube", "octahedron", "tetrahedron"])(
+    "does not seed %s geometry",
+    (shape) => {
+      expect(geometry("amp-orb", shape)).toStrictEqual(geometry("😀", shape));
+    }
+  );
 
   it("strokes whole paths with depth opacity at the fixed viewport scale", () => {
-    const strokes: number[] = [],
-      transforms: number[][] = [];
+    const strokes: number[] = [];
+    const transforms: number[][] = [];
 
     let segments = 0;
 
@@ -126,7 +159,7 @@ describe("reconstructed geometry", () => {
       beginPath: () => {},
       moveTo: () => {},
       lineTo: () => {
-        segments++;
+        segments += 1;
       },
       stroke: () => strokes.push(context.globalAlpha),
     };
@@ -134,7 +167,7 @@ describe("reconstructed geometry", () => {
     const canvas = { width: 0, height: 0, getContext: () => context };
     const scene = frame("orb", 1);
     paint(canvas, scene, 64, "#fff", VIEWBOX);
-    expect(strokes).toEqual(scene.lines.map((line) => line.opacity));
+    expect(strokes).toStrictEqual(scene.lines.map((line) => line.opacity));
     expect(segments).toBe(80);
     expect(context.lineCap).toBe("round");
     expect(context.lineJoin).toBe("round");

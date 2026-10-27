@@ -33,7 +33,10 @@ const DELEGATION_GUIDANCE = [
 const COMMUNICATION_GUIDANCE =
   "Reuse a suitable existing agent when the next task depends on its accumulated context. Inter-agent messages and final answers may be read by humans; keep them concise and legible.";
 
-export const rootPrompt = (config: SubagentsConfig, policy: DelegationPolicy): string =>
+export const rootPrompt = (
+  config: SubagentsConfig,
+  policy: DelegationPolicy
+): string =>
   [
     "You are /root, the primary agent in a collaboration tree. Canonical identities are hierarchical paths rooted at /root; a parent may address a direct child by its relative task name. All agents share the same cwd and filesystem, so edits are immediately visible.",
     concurrency(config),
@@ -47,7 +50,7 @@ export const rootPrompt = (config: SubagentsConfig, policy: DelegationPolicy): s
 export const childPrompt = (
   config: SubagentsConfig,
   path: string,
-  policy: DelegationPolicy,
+  policy: DelegationPolicy
 ): string =>
   [
     `You are subagent ${path}. Your final response is delivered directly to your parent; do not address the user directly. Work in the shared cwd and filesystem, where edits are immediately visible to every agent. Complete the concrete assigned task and keep changes within its stated scope.`,
@@ -74,7 +77,9 @@ export const REASONING_EFFORT_DESCRIPTION =
 
 export const roleDescription = (name: string, role: RoleConfig): string => {
   const constraints = [
-    role.model === undefined ? undefined : `configured model ${role.model} cannot be overridden`,
+    role.model === undefined
+      ? undefined
+      : `configured model ${role.model} cannot be overridden`,
     role.thinking === undefined
       ? undefined
       : `configured reasoning effort ${role.thinking} cannot be overridden`,

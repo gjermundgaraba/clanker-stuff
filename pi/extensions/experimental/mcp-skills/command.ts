@@ -1,6 +1,6 @@
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 
 import type { McpSkills } from "./runtime.js";
 import type { ServerStatus } from "./servers.js";
@@ -20,12 +20,15 @@ const statusReport = (skills: McpSkills): string => {
   const lines = skills.servers
     .statuses()
     .flatMap((status) => [
-      `${status.name}: ${STATE_LABELS[status.state]}${status.error ? ` (${inlineText(status.error)})` : ""}`,
+      `${status.name}: ${STATE_LABELS[status.state]}${status.error !== undefined && status.error !== "" ? ` (${inlineText(status.error)})` : ""}`,
       ...catalog
         .filter((skill) => skill.server === status.name)
-        .map((skill) => `  /skill:${skill.name}  ${inlineText(skill.entry.uri)}`),
+        .map(
+          (skill) => `  /skill:${skill.name}  ${inlineText(skill.entry.uri)}`
+        ),
       ...status.declined.map(
-        (skill) => `  not loaded: ${inlineText(skill.uri)} ${inlineText(skill.reason)}`,
+        (skill) =>
+          `  not loaded: ${inlineText(skill.uri)} ${inlineText(skill.reason)}`
       ),
     ]);
 
@@ -43,11 +46,14 @@ export const completeSkillsCommand = (prefix: string): AutocompleteItem[] =>
 export const runSkillsCommand = async (
   skills: McpSkills,
   args: string,
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionCommandContext
 ): Promise<void> => {
   if (args.trim() === "forget") {
     await skills.forget();
-    ctx.ui.notify("Forgot every MCP skill approval and deleted the stored skills.", "info");
+    ctx.ui.notify(
+      "Forgot every MCP skill approval and deleted the stored skills.",
+      "info"
+    );
 
     return;
   }

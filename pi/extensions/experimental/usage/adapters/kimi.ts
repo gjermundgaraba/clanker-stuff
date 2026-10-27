@@ -4,7 +4,13 @@ import type { Static } from "typebox";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { durationLabel, fetchUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
+import {
+  durationLabel,
+  fetchUsage,
+  isDefined,
+  makeUsageWindow,
+  parseIso,
+} from "./util.js";
 
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 
@@ -20,7 +26,7 @@ const KimiLimitSchema = Type.Object({
     Type.Object({
       duration: Type.Optional(Type.Number()),
       timeUnit: Type.Optional(Type.String()),
-    }),
+    })
   ),
 });
 
@@ -29,7 +35,10 @@ const KimiUsagePayloadSchema = Type.Object({
   usage: Type.Optional(KimiUsageSummarySchema),
 });
 
-const remainingFromLimit = (limit: number, remaining: number): number | undefined => {
+const remainingFromLimit = (
+  limit: number,
+  remaining: number
+): number | undefined => {
   if (limit <= 0) {
     return undefined;
   }
@@ -44,7 +53,7 @@ const UNIT_SECONDS = new Map([
 ]);
 
 const windowSeconds = (
-  windowInfo: Static<typeof KimiLimitSchema>["window"],
+  windowInfo: Static<typeof KimiLimitSchema>["window"]
 ): number | undefined => {
   const unit = UNIT_SECONDS.get(windowInfo?.timeUnit ?? "");
 
@@ -53,7 +62,9 @@ const windowSeconds = (
     : windowInfo.duration * unit;
 };
 
-const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindow | undefined => {
+const parseLimitEntry = (
+  limitEntry: Static<typeof KimiLimitSchema>
+): UsageWindow | undefined => {
   const { detail, window: windowInfo } = limitEntry;
   const limit = detail?.limit ?? 0;
   const remaining = detail?.remaining ?? 0;
@@ -76,7 +87,7 @@ const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindo
 
 export const mapKimiUsagePayload = (
   payload: Static<typeof KimiUsagePayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const { limits = [], usage } = payload;
   const weeklyLimit = usage?.limit ?? 0;
@@ -90,11 +101,17 @@ export const mapKimiUsagePayload = (
       : makeUsageWindow("week", weeklyPercent, parseIso(usage?.resetTime)),
   ].filter(isDefined);
 
-  return usageResult({ fetchedAt: nowMs, provider: "kimi-coding", quotaWindows: windows });
+  return usageResult({
+    fetchedAt: nowMs,
+    provider: "kimi-coding",
+    quotaWindows: windows,
+  });
 };
 
-export const fetchKimiUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchKimiUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "kimi-coding",
     {
@@ -102,5 +119,5 @@ export const fetchKimiUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
       schema: KimiUsagePayloadSchema,
       headers: () => ({ "Content-Type": "application/json" }),
     },
-    mapKimiUsagePayload,
+    mapKimiUsagePayload
   );

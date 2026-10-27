@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { SETTINGS, createServices, SERVICE_NAMES } from "/opt/pi-evals/services.mjs";
-import { oracle, score, serviceMetrics } from "/tests/scoring.mjs";
-import { solve } from "/solution/solve.mjs";
 
 import { definitions } from "/opt/pi-evals/pi-eval-tools.mjs";
+import {
+  SETTINGS,
+  createServices,
+  SERVICE_NAMES,
+} from "/opt/pi-evals/services.mjs";
+import { solve } from "/solution/solve.mjs";
+import { readComparison } from "/tests/comparison.mjs";
+import { oracle, score, serviceMetrics } from "/tests/scoring.mjs";
+import { validateToolMode } from "/tests/tool-mode.mjs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -14,14 +20,16 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { validateToolMode } from "/tests/tool-mode.mjs";
-import { readComparison } from "/tests/comparison.mjs";
 
 const comparison = readComparison();
 
 for (const arm of ["direct", "code"]) {
   const mode = arm === "direct" ? "direct" : "code_mode_only";
-  const names = arm === "direct" ? SERVICE_NAMES : [...SERVICE_NAMES, "codemode"].sort();
+
+  const names =
+    arm === "direct"
+      ? SERVICE_NAMES
+      : [...SERVICE_NAMES, "codemode"].toSorted();
 
   const t = {
     agent: {
@@ -32,7 +40,8 @@ for (const arm of ["direct", "code"]) {
           arm,
           tool_mode: mode,
           pair_id: "preflight",
-          platform: arm === "direct" ? "pi-without-code-mode" : "pi-with-code-mode",
+          platform:
+            arm === "direct" ? "pi-without-code-mode" : "pi-with-code-mode",
           compaction_mode: "off",
           expected_mechanism: "pi-builtin",
           expected_protocol: null,
@@ -54,7 +63,10 @@ for (const arm of ["direct", "code"]) {
 
   assert.equal(validateToolMode(t).valid_experiment, 1);
 
-  for (const evidence of t.agent.extra.tool_mode_evidence) evidence.activeTools = ["exec_command"];
+  for (const evidence of t.agent.extra.tool_mode_evidence) {
+    evidence.activeTools = ["exec_command"];
+  }
+
   assert.equal(validateToolMode(t).valid_experiment, 0);
 }
 
@@ -74,17 +86,21 @@ for (const mode of ["direct", "code"]) {
 
   const defs = definitions(backend);
 
-  if (mode === "direct")
+  if (mode === "direct") {
     await solve(async (name, args) => {
       const definition = defs.find((d) => d.name === name);
       assert.ok(definition, `unknown service ${name}`);
-      const [content] = (await definition.execute("test", args)).content;
+      const result = await definition.execute("test", args);
+      const [content] = result.content;
       assert.ok(content);
+      /** @type {unknown} */
+      const decoded = JSON.parse(content.text);
+      // Solve receives the decoded JSON, as through the real tool transport; it must match the typed result.
+      assert.deepEqual(decoded, result.structuredContent);
 
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This owned definition JSON-encodes its backend's JSON-only ServiceResult; test the real tool transport instead of bypassing it.
-      return /** @type {import("./services.mjs").ServiceResult} */ (JSON.parse(content.text));
+      return decoded;
     });
-  else {
+  } else {
     const settingsManager = SettingsManager.inMemory();
 
     const resourceLoader = new DefaultResourceLoader({
@@ -98,7 +114,9 @@ for (const mode of ["direct", "code"]) {
       extensionFactories: [
         createCodemodeExtension({ mode: "only", models: false }),
         (pi) => {
-          for (const definition of defs) pi.registerTool(definition);
+          for (const definition of defs) {
+            pi.registerTool(definition);
+          }
         },
       ],
     });
@@ -117,11 +135,19 @@ for (const mode of ["direct", "code"]) {
     await session.bindExtensions({});
     session.agent.state.messages = [
       ...session.agent.state.messages,
-      fauxAssistantMessage(fauxToolCall("codemode", { code: "preflight" }, { id: "preflight" }), {
-        stopReason: "toolUse",
-      }),
+      fauxAssistantMessage(
+        fauxToolCall("codemode", { code: "preflight" }, { id: "preflight" }),
+        {
+          stopReason: "toolUse",
+        }
+      ),
     ];
-    const context = session.extensionRunner.createToolContext("preflight", undefined);
+
+    const context = session.extensionRunner.createToolContext(
+      "preflight",
+      undefined
+    );
+
     const codemode = session.getToolDefinition("codemode");
     assert.ok(codemode);
 
@@ -133,17 +159,19 @@ for (const mode of ["direct", "code"]) {
         },
         new AbortController().signal,
         undefined,
-        context,
+        context
       );
 
       assert.notEqual(result.isError, true, JSON.stringify(result));
 
       const denied = await codemode.execute(
         "preflight",
-        { code: 'await tools.exec_command({cmd:"cat /opt/pi-evals/services.mjs"})' },
+        {
+          code: 'await tools.exec_command({cmd:"cat /opt/pi-evals/services.mjs"})',
+        },
         new AbortController().signal,
         undefined,
-        context,
+        context
       );
 
       assert.equal(denied.isError, true);
@@ -152,53 +180,71 @@ for (const mode of ["direct", "code"]) {
     }
   }
 
-  const answer = events.findLast((e) => e.type === "pi_eval_submission")?.report;
+  const answer = events.findLast(
+    (e) => e.type === "pi_eval_submission"
+  )?.report;
+
   assert.deepEqual(answer, oracle());
   assert.equal(score(answer, oracle(), events).quality, 1);
   assert.equal(score(null, oracle(), events).quality, 0);
   assert.equal(score({}, oracle(), events).quality, 0);
   const eventPath = `/logs/${mode}-events.jsonl`;
-  writeFileSync(eventPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(
+    eventPath,
+    `${events.map((e) => JSON.stringify(e)).join("\n")}\n`
+  );
   const gradeLogs = `/logs/${mode}-grade`;
 
   /** @type {unknown} */
   const graded = JSON.parse(
     execFileSync("node", ["/tests/grade.mjs"], {
-      encoding: "utf8",
+      encoding: "utf-8",
       env: { ...process.env, EVAL_EVENTS: eventPath, EVAL_LOGS: gradeLogs },
-    }),
+    })
   );
 
-  assert.partialDeepStrictEqual(graded, { reward: { quality: 1, valid_experiment: 0 } });
+  assert.partialDeepStrictEqual(graded, {
+    reward: { quality: 1, valid_experiment: 0 },
+  });
   const metrics = serviceMetrics(events);
   summaries.set(mode, metrics);
   assert.equal(metrics.ledger_complete, true);
   const expected = oracle();
   assert.ok(
-    score({ ...expected, rows: expected.rows.slice(1) }, expected, events).row_accuracy < 1,
+    score({ ...expected, rows: expected.rows.slice(1) }, expected, events)
+      .row_accuracy < 1
   );
   assert.equal(
-    score({ ...expected, total_cents: expected.total_cents + 1 }, expected, events).quality,
-    0,
+    score(
+      { ...expected, total_cents: expected.total_cents + 1 },
+      expected,
+      events
+    ).quality,
+    0
   );
 
   const over = [
     ...events,
-    ...Array.from({ length: SETTINGS.budget + 1 }, () => ({ type: "pi_eval_service_start" })),
+    ...Array.from({ length: SETTINGS.budget + 1 }, () => ({
+      type: "pi_eval_service_start",
+    })),
   ];
 
   assert.equal(score(answer, oracle(), over).quality, 0);
 }
 
-const direct = summaries.get("direct"),
-  code = summaries.get("code");
+const direct = summaries.get("direct");
+const code = summaries.get("code");
 
 assert.ok(direct && code);
 
 assert.equal(direct.response_bytes, code.response_bytes);
 
-writeFileSync("/logs/preflight.json", JSON.stringify(Object.fromEntries(summaries), null, 2));
+writeFileSync(
+  "/logs/preflight.json",
+  JSON.stringify(Object.fromEntries(summaries), null, 2)
+);
 
 console.log(
-  "Ledger reference, negative scoring, budget controls, and real Pi Code Mode parity passed.",
+  "Ledger reference, negative scoring, budget controls, and real Pi Code Mode parity passed."
 );

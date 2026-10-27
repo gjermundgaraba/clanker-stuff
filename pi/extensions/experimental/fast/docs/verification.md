@@ -10,19 +10,19 @@ The native model catalog is version-sensitive. The earlier unversioned request r
 
 Authorized native Pi 1.0.3 checks on 2026-10-05 used `openai/gpt-6.1-sol`. The first two rounds each compared standard and priority requests, with and without Codex-style routing headers; all four terminal responses reported `default`. The substantive follow-up used the same code-review prompt and medium thinking for both request spellings:
 
-| Requested tier | Actual wire tier | HTTP | Terminal reported tier | Outcome                                                                                                                |
-| -------------- | ---------------- | ---- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `priority`     | `priority`       | 200  | `default`              | Completed normally: 174 input tokens, 818 output tokens including 262 reasoning tokens; Fast processing not confirmed. |
-| `fast`         | `fast`           | 400  | None                   | Rejected: `Unsupported service_tier: fast`; no generated tokens.                                                       |
+| Requested tier | Actual wire tier | HTTP | Terminal reported tier | Outcome |
+| --- | --- | --- | --- | --- |
+| `priority` | `priority` | 200 | `default` | Completed normally: 174 input tokens, 818 output tokens including 262 reasoning tokens; Fast processing not confirmed. |
+| `fast` | `fast` | 400 | None | Rejected: `Unsupported service_tier: fast`; no generated tokens. |
 
 One additional diagnostic request repeated only the rejected `fast` spelling and confirmed the same HTTP 400 reason. The endpoint and serialized model/tier were checked before sending. This route did not honor the generic API documentation's request-alias behavior for this authentication/model combination. The production extension sends only `priority`, never the `fast` request spelling.
 
 A subsequent substantive standard/priority control used the advertised Astra model:
 
 | Requested tier | Actual wire tier | HTTP | Terminal reported tier | Tokens (input / output) | Elapsed |
-| -------------- | ---------------- | ---- | ---------------------- | ----------------------- | ------- |
-| `default`      | `default`        | 200  | `default`              | 174 / 734               | 31.96 s |
-| `priority`     | `priority`       | 200  | `default`              | 174 / 799               | 21.75 s |
+| --- | --- | --- | --- | --- | --- |
+| `default` | `default` | 200 | `default` | 174 / 734 | 31.96 s |
+| `priority` | `priority` | 200 | `default` | 174 / 799 | 21.75 s |
 
 Both Astra requests completed normally with useful code reviews. The completed priority requests plus versioned native capability metadata supported the former qualification policy for 6.1 Sol and Astra; that policy is no longer a prerequisite. Actual Fast processing remains unconfirmed: neither the faster single request nor estimated cost establishes it. No documented reporting defect was found.
 

@@ -88,7 +88,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -103,15 +109,23 @@
           role="img"
           aria-labelledby="marimekko-title marimekko-desc"
         >
-          <title id="marimekko-title">One pipeline on one runner is a fifth of all CI time</title>
+          <title id="marimekko-title">
+            One pipeline on one runner is a fifth of all CI time
+          </title>
           <desc id="marimekko-desc">
-            Marimekko chart of 10,000 CI minutes over 30 days, split five pipelines wide and up to
-            three runner operating systems tall; column width is each pipeline's share of all
-            minutes, segment height is each runner's share within its pipeline, and the mobile
-            pipeline's macOS runners alone account for about 20 percent of the total.
+            Marimekko chart of 10,000 CI minutes over 30 days, split five
+            pipelines wide and up to three runner operating systems tall; column
+            width is each pipeline's share of all minutes, segment height is
+            each runner's share within its pipeline, and the mobile pipeline's
+            macOS runners alone account for about 20 percent of the total.
           </desc>
           <defs>
-            <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <pattern
+              id="dots"
+              width="22"
+              height="22"
+              patternUnits="userSpaceOnUse"
+            >
               <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
             </pattern>
           </defs>
@@ -376,7 +390,14 @@
           </text>
 
           <!-- mobile × macOS FOCAL: the one segment the figure is about -->
-          <rect x="580" y="106" width="216" height="314" rx="2" fill="#f5f5f5" />
+          <rect
+            x="580"
+            y="106"
+            width="216"
+            height="314"
+            rx="2"
+            fill="#f5f5f5"
+          />
           <rect
             x="580"
             y="106"
@@ -624,8 +645,9 @@
             letter-spacing="0.06em"
             text-anchor="end"
           >
-            WIDTH = PIPELINE SHARE · HEIGHT = RUNNER SHARE WITHIN PIPELINE · AREA = SHARE OF ALL CI
-            MINUTES · 30 DAYS · 10,000 MIN · ILLUSTRATIVE FIGURES
+            WIDTH = PIPELINE SHARE · HEIGHT = RUNNER SHARE WITHIN PIPELINE ·
+            AREA = SHARE OF ALL CI MINUTES · 30 DAYS · 10,000 MIN · ILLUSTRATIVE
+            FIGURES
           </text>
 
           <rect

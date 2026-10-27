@@ -12,17 +12,30 @@ import {
 } from "../../../../tests/harness/tui.js";
 import { DEFAULT_CONFIG, formatFooterConfig } from "../config.js";
 import type { FooterConfig, FooterConfigStore } from "../config.js";
-import type { GitDetails } from "../git.js";
+import type { GitDetails, readGitDetails } from "../git.js";
 import footerExtension from "../index.js";
 import { editorTheme, sessionReads } from "./helpers.js";
 
-type FooterFactory = NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>;
+type FooterFactory = NonNullable<
+  Parameters<ExtensionContext["ui"]["setFooter"]>[0]
+>;
 
-type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
+type EditorFactory = NonNullable<
+  ReturnType<ExtensionContext["ui"]["getEditorComponent"]>
+>;
 
-const DETAILS: GitDetails = { ahead: 0, behind: 0, staged: 0, unstaged: 2, untracked: 0 };
+const DETAILS: GitDetails = {
+  ahead: 0,
+  behind: 0,
+  staged: 0,
+  unstaged: 2,
+  untracked: 0,
+};
 
-const withRows = (rows: FooterConfig["rows"], border: string[] = []): FooterConfig => ({
+const withRows = (
+  rows: FooterConfig["rows"],
+  border: string[] = []
+): FooterConfig => ({
   ...DEFAULT_CONFIG,
   border,
   rows,
@@ -40,12 +53,17 @@ const start = async (options: StartOptions = {}) => {
   const statuses = new Map<string, string>();
   const branchListeners = new Set<() => void>();
   const save = vi.fn<FooterConfigStore["save"]>(async () => {});
-  const readGit = vi.fn(options.readGit ?? (async () => await Promise.resolve(DETAILS)));
+
+  const readGit = vi.fn<typeof readGitDetails>(
+    options.readGit ?? (async () => await Promise.resolve(DETAILS))
+  );
+
   const setFooter = vi.fn<ExtensionContext["ui"]["setFooter"]>();
   let component: ReturnType<FooterFactory> | undefined;
 
   const store: FooterConfigStore = {
-    load: async () => await Promise.resolve({ config: options.config ?? DEFAULT_CONFIG }),
+    load: async () =>
+      await Promise.resolve({ config: options.config ?? DEFAULT_CONFIG }),
     path: "/tmp/footer.json",
     save,
   };
@@ -53,7 +71,8 @@ const start = async (options: StartOptions = {}) => {
   const footerData = {
     getAvailableProviderCount: () => 1,
     getExtensionStatuses: () => statuses,
-    getGitBranch: () => (options.branch === undefined ? "main" : options.branch),
+    getGitBranch: () =>
+      options.branch === undefined ? "main" : options.branch,
     onBranchChange: (listener: () => void) => {
       branchListeners.add(listener);
 
@@ -61,7 +80,9 @@ const start = async (options: StartOptions = {}) => {
     },
   };
 
-  const host = createExtensionHost((pi) => footerExtension(pi, store, readGit));
+  const host = createExtensionHost((pi) => {
+    footerExtension(pi, store, readGit);
+  });
 
   const ctx = host.createContext({
     cwd: "/tmp/project",
@@ -69,7 +90,11 @@ const start = async (options: StartOptions = {}) => {
     ui: {
       setFooter: (factory) => {
         setFooter(factory);
-        component = factory?.(createMockTui(), createIdentityTheme(), footerData);
+        component = factory?.(
+          createMockTui(),
+          createIdentityTheme(),
+          footerData
+        );
       },
       ...options.ui,
     },
@@ -82,7 +107,9 @@ const start = async (options: StartOptions = {}) => {
   const editor = () => {
     const factory = host.getEditorFactory();
 
-    if (!factory) throw new Error("No editor installed");
+    if (!factory) {
+      throw new Error("No editor installed");
+    }
 
     return factory(createMockTui(), editorTheme, createKeybindings());
   };
@@ -92,7 +119,8 @@ const start = async (options: StartOptions = {}) => {
     ctx,
     host,
     readGit,
-    render: (width = 160) => stripTerminalSequences(component?.render(width).join("\n") ?? ""),
+    render: (width = 160) =>
+      stripTerminalSequences(component?.render(width).join("\n") ?? ""),
     save,
     setFooter,
     statuses,
@@ -114,7 +142,13 @@ describe("footer host", () => {
     const usage: Usage = {
       cacheRead: 50_000,
       cacheWrite: 0,
-      cost: { cacheRead: 0.015, cacheWrite: 0, input: 0, output: 0, total: 0.015 },
+      cost: {
+        cacheRead: 0.015,
+        cacheWrite: 0,
+        input: 0,
+        output: 0,
+        total: 0.015,
+      },
       input: 0,
       output: 1,
       totalTokens: 50_001,
@@ -137,16 +171,24 @@ describe("footer host", () => {
   });
 
   it("scans for placed details only inside a repository and again after each turn", async () => {
-    const config = withRows([{ left: ["footer.git", "footer.git.details"], right: [] }]);
+    const config = withRows([
+      { left: ["footer.git", "footer.git.details"], right: [] },
+    ]);
+
     const footer = await start({ config });
 
-    expect(footer.readGit).toHaveBeenCalledWith(expect.anything(), "/tmp/project");
+    expect(footer.readGit).toHaveBeenCalledWith(
+      expect.anything(),
+      "/tmp/project"
+    );
     expect(footer.render()).toContain("main · ~2");
 
     await footer.host.emitTurnEnd({}, footer.ctx);
     expect(footer.readGit).toHaveBeenCalledTimes(2);
 
-    expect((await start({ branch: null, config })).readGit).not.toHaveBeenCalled();
+    const detached = await start({ branch: null, config });
+
+    expect(detached.readGit).not.toHaveBeenCalled();
   });
 
   it("reports a failed scan instead of showing a clean tree", async () => {
@@ -161,7 +203,7 @@ describe("footer host", () => {
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
     expect(footer.host.getNotifications().at(-1)?.message).toContain(
-      "error: git status timed out after 1000ms",
+      "error: git status timed out after 1000ms"
     );
   });
 
@@ -182,7 +224,10 @@ describe("footer host", () => {
   });
 
   it("lists border statuses in footer.statuses while another editor owns the border", async () => {
-    const footer = await start({ ui: { getEditorComponent: () => vi.fn<EditorFactory>() } });
+    const footer = await start({
+      ui: { getEditorComponent: () => vi.fn<EditorFactory>() },
+    });
+
     footer.statuses.set("vim", "NORMAL");
 
     expect(footer.render()).toContain("NORMAL");
@@ -190,7 +235,7 @@ describe("footer host", () => {
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
     expect(footer.host.getNotifications().at(-1)?.message).toContain(
-      "status:vim · footer.statuses: NORMAL",
+      "status:vim · footer.statuses: NORMAL"
     );
   });
 
@@ -207,7 +252,7 @@ describe("footer host", () => {
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
     expect(footer.host.getNotifications().at(-1)?.message).toContain(
-      "status:vim · footer.statuses: NORMAL",
+      "status:vim · footer.statuses: NORMAL"
     );
   });
 
@@ -223,12 +268,17 @@ describe("footer host", () => {
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
     expect(footer.render()).not.toContain("main");
-    expect(footer.host.getNotifications().at(-1)?.message).toContain("footer.git · not placed");
+    expect(footer.host.getNotifications().at(-1)?.message).toContain(
+      "footer.git · not placed"
+    );
   });
 
   it("reopens invalid JSON with the user's text, then saves and applies the edit", async () => {
-    const valid = formatFooterConfig(withRows([{ left: ["footer.cwd"], right: [] }]));
-    const prefills: (string | undefined)[] = [];
+    const valid = formatFooterConfig(
+      withRows([{ left: ["footer.cwd"], right: [] }])
+    );
+
+    const prefills: Array<string | undefined> = [];
     const replies = ["{ broken", valid];
 
     const footer = await start({
@@ -243,24 +293,39 @@ describe("footer host", () => {
 
     await footer.host.runCommand("footer", "", footer.ctx);
 
-    expect(prefills).toStrictEqual([formatFooterConfig(DEFAULT_CONFIG), "{ broken"]);
-    expect(footer.host.getNotifications().map(({ type }) => type)).toStrictEqual(["error", "info"]);
+    expect(prefills).toStrictEqual([
+      formatFooterConfig(DEFAULT_CONFIG),
+      "{ broken",
+    ]);
+    expect(
+      footer.host.getNotifications().map(({ type }) => type)
+    ).toStrictEqual(["error", "info"]);
     expect(footer.save).toHaveBeenCalledExactlyOnceWith(JSON.parse(valid));
     expect(footer.render()).toBe("▸ /tmp/project");
   });
 
   it("offers reset and inspect, narrowed by a fuzzy argument", async () => {
     const footer = await start();
-    const complete = footer.host.getRegisteredCommands().get("footer")?.getArgumentCompletions;
-    const values = async (prefix: string) => (await complete?.(prefix))?.map((item) => item.value);
 
-    expect(await values("")).toEqual(["reset", "inspect"]);
-    expect(await values("ins")).toEqual(["inspect"]);
-    expect(await values("x")).toEqual([]);
+    const complete = footer.host
+      .getRegisteredCommands()
+      .get("footer")?.getArgumentCompletions;
+
+    const values = async (prefix: string) => {
+      const items = await complete?.(prefix);
+
+      return items?.map((item) => item.value);
+    };
+
+    await expect(values("")).resolves.toStrictEqual(["reset", "inspect"]);
+    await expect(values("ins")).resolves.toStrictEqual(["inspect"]);
+    await expect(values("x")).resolves.toStrictEqual([]);
   });
 
   it("resets the saved layout to the default", async () => {
-    const footer = await start({ config: withRows([{ left: ["footer.cwd"], right: [] }]) });
+    const footer = await start({
+      config: withRows([{ left: ["footer.cwd"], right: [] }]),
+    });
 
     await footer.host.runCommand("footer", "reset", footer.ctx);
 
@@ -270,7 +335,10 @@ describe("footer host", () => {
 
   it("names unknown widget IDs when loading and in inspect", async () => {
     const footer = await start({
-      config: withRows([{ left: ["footer.cwd", "clanker.codex.fast"], right: [] }], ["status:vim"]),
+      config: withRows(
+        [{ left: ["footer.cwd", "clanker.codex.fast"], right: [] }],
+        ["status:vim"]
+      ),
     });
 
     footer.statuses.set("vim", "INSERT");
@@ -282,7 +350,9 @@ describe("footer host", () => {
       message: "Footer ignores unknown widget IDs: clanker.codex.fast",
       type: "warning",
     });
-    expect(inspect?.message).toContain("clanker.codex.fast · row 1 left · not present");
+    expect(inspect?.message).toContain(
+      "clanker.codex.fast · row 1 left · not present"
+    );
     expect(inspect?.message).toContain("status:vim · border: INSERT");
   });
 });

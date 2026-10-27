@@ -1,4 +1,7 @@
-import { getCurrentSystemMessage, getSystemMessageText } from "@earendil-works/pi-ai";
+import {
+  getCurrentSystemMessage,
+  getSystemMessageText,
+} from "@earendil-works/pi-ai";
 import type { Message, SystemMessage } from "@earendil-works/pi-ai";
 import {
   buildSessionProjection,
@@ -6,7 +9,11 @@ import {
   estimateTokens,
   sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
-import type { ContextUsage, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ContextUsage,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
+
 import type { ObservedRequest } from "./observation.js";
 import type { ToolsSnapshot } from "./tools.js";
 
@@ -39,7 +46,10 @@ export interface RequestSnapshot {
   readonly request: ObservedRequest | undefined;
 }
 
-export type InspectorSnapshot = ContextSnapshot | RequestSnapshot | ToolsSnapshot;
+export type InspectorSnapshot =
+  | ContextSnapshot
+  | RequestSnapshot
+  | ToolsSnapshot;
 
 export interface ContextMessagePart extends ContextPart {
   readonly sourceEntryId: string;
@@ -53,27 +63,44 @@ interface SnapshotInput {
   modelLabel: string;
 }
 
-const messageBody = (message: Message): string => {
-  if (!Array.isArray(message.content)) return message.content;
+/** Exhaustive over Pi's content blocks, so a new block type fails to type-check here. */
+const blockBody = (
+  block: Exclude<Message["content"], string>[number]
+): string => {
+  switch (block.type) {
+    case "text": {
+      return block.text;
+    }
 
-  return message.content
-    .map((block) => {
-      switch (block.type) {
-        case "text":
-          return block.text;
-        case "thinking":
-          return block.redacted ? "[Redacted thinking]" : `[Thinking]\n${block.thinking}`;
-        case "toolCall":
-          return `[Tool call: ${block.namespace ? `${block.namespace}.` : ""}${block.name}]\n${JSON.stringify(block.arguments, null, 2)}`;
-        case "image":
-          return `[Image: ${block.mimeType}, ${block.data.length} base64 characters]`;
-      }
-    })
-    .join("\n\n");
+    case "thinking": {
+      return block.redacted === true
+        ? "[Redacted thinking]"
+        : `[Thinking]\n${block.thinking}`;
+    }
+
+    case "toolCall": {
+      return `[Tool call: ${block.namespace === undefined || block.namespace === "" ? "" : `${block.namespace}.`}${block.name}]\n${JSON.stringify(block.arguments, null, 2)}`;
+    }
+
+    case "image": {
+      return `[Image: ${block.mimeType}, ${block.data.length} base64 characters]`;
+    }
+    // no default
+  }
+};
+
+const messageBody = (message: Message): string => {
+  if (!Array.isArray(message.content)) {
+    return message.content;
+  }
+
+  return message.content.map(blockBody).join("\n\n");
 };
 
 const messageTone = (message: Message): NodeTone => {
-  if (message.role === "toolResult") return message.isError ? "error" : "muted";
+  if (message.role === "toolResult") {
+    return message.isError ? "error" : "muted";
+  }
 
   return message.role === "user" ? "accent" : "text";
 };
@@ -81,7 +108,7 @@ const messageTone = (message: Message): NodeTone => {
 /** The prompt and tool declarations the latest request recorded in the transcript. */
 const declarations = (
   declared: SystemMessage | undefined,
-  pendingPrompt: string,
+  pendingPrompt: string
 ): Pick<ContextSnapshot, "recorded" | "system" | "tools"> => {
   const { toolsAdded = [], ...prompt }: SystemMessage = declared ?? {
     role: "system",
@@ -118,29 +145,42 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
 
   const edits = new Map(
     projection.entries.flatMap(({ sourceEntry }) =>
-      sourceEntry.type === "context_edit" ? [[sourceEntry.targetId, sourceEntry] as const] : [],
-    ),
+      sourceEntry.type === "context_edit"
+        ? [[sourceEntry.targetId, sourceEntry] as const]
+        : []
+    )
   );
 
   // Only the canonical retained range is inspected; this is not a raw-history browser.
   const messages: ContextMessagePart[] = [];
 
   for (const { sourceEntry, messages: projected } of projection.entries) {
-    const effective = convertToLlm(projected).filter((message) => message.role !== "system");
+    const effective = convertToLlm(projected).filter(
+      (message) => message.role !== "system"
+    );
+
     const edit = edits.get(sourceEntry.id);
 
     const original = edit
       ? convertToLlm(sessionEntryToContextMessages(sourceEntry)).filter(
-          (message) => message.role !== "system",
+          (message) => message.role !== "system"
         )
       : [];
 
     const message = effective[0] ?? original[0];
 
     // Excludes metadata, prompt/tool declarations, !! executions, and older compaction summaries.
-    if (!message) continue;
+    if (!message) {
+      continue;
+    }
 
-    const state = edit?.replacement === null ? "omitted" : edit ? "replaced" : "unchanged";
+    let state: "omitted" | "replaced" | "unchanged" = "unchanged";
+
+    if (edit?.replacement === null) {
+      state = "omitted";
+    } else if (edit) {
+      state = "replaced";
+    }
 
     const role =
       message.role === "toolResult"
@@ -158,11 +198,16 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
         state === "omitted"
           ? "(omitted from model context)"
           : effective.map(messageBody).join("\n\n"),
-        ...(edit ? ["", "Original content:", original.map(messageBody).join("\n\n")] : []),
+        ...(edit
+          ? ["", "Original content:", original.map(messageBody).join("\n\n")]
+          : []),
       ].join("\n"),
       format: "text",
       tone: state === "omitted" ? "muted" : messageTone(message),
-      estimatedTokens: effective.reduce((total, item) => total + estimateTokens(item), 0),
+      estimatedTokens: effective.reduce(
+        (total, item) => total + estimateTokens(item),
+        0
+      ),
       sourceEntryId: sourceEntry.id,
     });
   }
@@ -171,7 +216,10 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
     kind: "state",
     modelLabel: input.modelLabel,
     usage: input.usage,
-    ...declarations(getCurrentSystemMessage(projection.messages), input.pendingPrompt),
+    ...declarations(
+      getCurrentSystemMessage(projection.messages),
+      input.pendingPrompt
+    ),
     messages,
   };
 };

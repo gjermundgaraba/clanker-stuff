@@ -18,12 +18,12 @@ Last verified: local macOS, storage format verified without transcript bodies.
 
 ## Sources
 
-| Priority | Location                                                               | Kind   | Authority | Contains                | Parser State  | Collection Policy | Sensitivity |
-| -------- | ---------------------------------------------------------------------- | ------ | --------- | ----------------------- | ------------- | ----------------- | ----------- |
-| 1        | `$CODEX_HOME/sessions/<date>/rollout-<timestamp>-<session-id>.jsonl`   | JSONL  | primary   | full session stream     | partial       | collect           | private     |
-| 1        | `$CODEX_HOME/archived_sessions/rollout-<timestamp>-<session-id>.jsonl` | JSONL  | primary   | archived session stream | partial       | collect           | private     |
-| 2        | `$CODEX_HOME/state_*.sqlite`                                           | SQLite | index     | thread metadata         | schema_known  | collect           | private     |
-| 3        | `$CODEX_HOME/logs_*.sqlite`                                            | SQLite | log       | app/runtime logs        | metadata_only | ignore_by_default | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$CODEX_HOME/sessions/<date>/rollout-<timestamp>-<session-id>.jsonl` | JSONL | primary | full session stream | partial | collect | private |
+| 1 | `$CODEX_HOME/archived_sessions/rollout-<timestamp>-<session-id>.jsonl` | JSONL | primary | archived session stream | partial | collect | private |
+| 2 | `$CODEX_HOME/state_*.sqlite` | SQLite | index | thread metadata | schema_known | collect | private |
+| 3 | `$CODEX_HOME/logs_*.sqlite` | SQLite | log | app/runtime logs | metadata_only | ignore_by_default | private |
 
 ## Find
 
@@ -37,13 +37,13 @@ Read selected rollout JSONL directly. Include referenced attachments or generate
 
 Check the record's `type` before interpreting its `payload`; retain JSONL order and any available `ordinal`. Known response-item fields from the cited source revision:
 
-| Record                                   | Useful native fields                                                                                                                                                                     |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session_meta`                           | Session identity and provenance in `payload.id`, `timestamp`, `cwd`, `cli_version`; newer formats add lineage/history fields. The first session metadata record identifies this rollout. |
-| `response_item` / `message`              | `payload.role`, ordered `payload.content` blocks; `input_text` and `output_text` blocks carry `text`. Message IDs may be absent.                                                         |
-| `response_item` / `function_call`        | `name`, `arguments` (JSON string), `call_id`                                                                                                                                             |
-| `response_item` / `function_call_output` | `call_id` where present and `output`, which may be structured                                                                                                                            |
-| `response_item` / `custom_tool_call`     | `name`, `call_id`, and string `input`; matching output records carry `call_id` and `output`                                                                                              |
+| Record | Useful native fields |
+| --- | --- |
+| `session_meta` | Session identity and provenance in `payload.id`, `timestamp`, `cwd`, `cli_version`; newer formats add lineage/history fields. The first session metadata record identifies this rollout. |
+| `response_item` / `message` | `payload.role`, ordered `payload.content` blocks; `input_text` and `output_text` blocks carry `text`. Message IDs may be absent. |
+| `response_item` / `function_call` | `name`, `arguments` (JSON string), `call_id` |
+| `response_item` / `function_call_output` | `call_id` where present and `output`, which may be structured |
+| `response_item` / `custom_tool_call` | `name`, `call_id`, and string `input`; matching output records carry `call_id` and `output` |
 
 Use explicit call IDs for associations. Do not count event mirrors, compaction summaries, or retained context as additional user/assistant messages. Searching historical text is different from reconstructing the active model context. Keep missing IDs/times and opaque media or encrypted blocks unresolved rather than inventing text.
 

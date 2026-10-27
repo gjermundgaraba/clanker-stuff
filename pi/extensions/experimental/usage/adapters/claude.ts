@@ -20,7 +20,7 @@ const ClaudeUsagePayloadSchema = Type.Object({
 
 const parseWindow = (
   raw: Static<typeof ClaudeWindowSchema> | null | undefined,
-  label: string,
+  label: string
 ): UsageWindow | undefined => {
   if (raw === undefined || raw === null) {
     return undefined;
@@ -31,18 +31,24 @@ const parseWindow = (
 
 export const mapClaudeUsagePayload = (
   payload: Static<typeof ClaudeUsagePayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const windows = [
     parseWindow(payload.five_hour, "5h"),
     parseWindow(payload.seven_day, "week"),
   ].filter(isDefined);
 
-  return usageResult({ fetchedAt: nowMs, provider: "anthropic", quotaWindows: windows });
+  return usageResult({
+    fetchedAt: nowMs,
+    provider: "anthropic",
+    quotaWindows: windows,
+  });
 };
 
-export const fetchClaudeUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchClaudeUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "anthropic",
     {
@@ -51,5 +57,5 @@ export const fetchClaudeUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =
       oauth: true,
       headers: () => ({ "anthropic-beta": "oauth-2025-04-20" }),
     },
-    mapClaudeUsagePayload,
+    mapClaudeUsagePayload
   );

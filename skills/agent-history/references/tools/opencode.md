@@ -18,12 +18,12 @@ Last verified: local macOS, schema inspected without transcript bodies.
 
 ## Sources
 
-| Priority | Location                                 | Kind   | Authority      | Contains                  | Parser State  | Collection Policy       | Sensitivity |
-| -------- | ---------------------------------------- | ------ | -------------- | ------------------------- | ------------- | ----------------------- | ----------- |
-| 1        | OpenCode DB path from `opencode db path` | SQLite | primary        | sessions, messages, parts | partial       | collect                 | private     |
-| 2        | OpenCode session diff storage            | JSON   | secondary      | diffs/snapshots           | partial       | collect_when_referenced | private     |
-| 2        | OpenCode tool-output storage             | files  | artifact store | tool outputs              | partial       | collect_when_referenced | private     |
-| 3        | config/cache/log dirs                    | mixed  | support        | settings/logs             | metadata_only | ignore_by_default       | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | OpenCode DB path from `opencode db path` | SQLite | primary | sessions, messages, parts | partial | collect | private |
+| 2 | OpenCode session diff storage | JSON | secondary | diffs/snapshots | partial | collect_when_referenced | private |
+| 2 | OpenCode tool-output storage | files | artifact store | tool outputs | partial | collect_when_referenced | private |
+| 3 | config/cache/log dirs | mixed | support | settings/logs | metadata_only | ignore_by_default | private |
 
 ## Find
 
@@ -43,11 +43,11 @@ Query the selected database read-only. Use a [consistent backup](../collect/sqli
 
 Identify the actual schema generation before querying. The cited upstream revision contains both message/part tables and a newer `session_message` table; the following fields apply to the message/part generation only.
 
-| Table     | Relevant columns and JSON fields                                                              |
-| --------- | --------------------------------------------------------------------------------------------- |
-| `session` | `id`, optional `parent_id`, and directory/title metadata                                      |
+| Table | Relevant columns and JSON fields |
+| --- | --- |
+| `session` | `id`, optional `parent_id`, and directory/title metadata |
 | `message` | `id`, `session_id`, `time_created`, `time_updated`, JSON `data` with `role` and time metadata |
-| `part`    | `id`, `message_id`, `session_id`, timestamps, and JSON `data`                                 |
+| `part` | `id`, `message_id`, `session_id`, timestamps, and JSON `data` |
 
 Join `message.session_id` to `session.id` and `part.message_id` to `message.id`, preserving session identity. The checked reader orders messages by `time_created` with an `id` tie-breaker, then parts by `id` within a message. IDs are restored from table columns and need not appear inside JSON `data`.
 

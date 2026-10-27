@@ -20,8 +20,8 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { readEnvelope, SUBAGENT_MESSAGE_TYPE } from "../protocol.js";
-import type { AgentMessage } from "../runtime.js";
 import { mailRenderer } from "../renderers.js";
+import type { AgentMessage } from "../runtime.js";
 import { agentName } from "./format.js";
 
 type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
@@ -34,7 +34,7 @@ const ToolResultSchema = Type.Object({
       mimeType: Type.Optional(Type.String()),
       text: Type.Optional(Type.String()),
       type: Type.String(),
-    }),
+    })
   ),
   details: Type.Optional(Type.Unknown()),
 });
@@ -44,7 +44,9 @@ interface Expandable {
 }
 
 /** Whatever Pi's tool row accepts: an extension's renderers or a whole tool definition. */
-export type ToolDisplay = ConstructorParameters<typeof ToolExecutionComponent>[4];
+export type ToolDisplay = ConstructorParameters<
+  typeof ToolExecutionComponent
+>[4];
 
 export interface TranscriptOptions {
   cwd: string;
@@ -74,18 +76,23 @@ export class Transcript extends Container {
   setExpanded(expanded: boolean): void {
     this.#expanded = expanded;
 
-    for (const component of this.#expandable) component.setExpanded(expanded);
+    for (const component of this.#expandable) {
+      component.setExpanded(expanded);
+    }
   }
 
   /** Draws stored history, then what a live agent was doing when the viewer opened. */
   load(
     messages: readonly AgentMessage[],
     streaming: AgentMessage | undefined,
-    executing: ReadonlySet<string> = new Set(),
+    executing: ReadonlySet<string> = new Set()
   ): void {
     for (const message of messages) {
-      if (message.role === "assistant") this.#assistant(message);
-      else this.#message(message);
+      if (message.role === "assistant") {
+        this.#assistant(message);
+      } else {
+        this.#message(message);
+      }
     }
 
     if (streaming?.role === "assistant") {
@@ -93,38 +100,70 @@ export class Transcript extends Container {
       this.#updateStreaming(streaming);
     }
 
-    for (const id of executing) this.#pending.get(id)?.markExecutionStarted();
+    for (const id of executing) {
+      this.#pending.get(id)?.markExecutionStarted();
+    }
   }
 
   /** Settles rows still running, since some tool renderers keep timers until a final result. */
   dispose(): void {
-    for (const component of this.#pending.values())
+    for (const component of this.#pending.values()) {
       component.updateResult({ content: [], isError: false });
+    }
+
     this.#pending.clear();
   }
 
   handle(event: AgentSessionEvent): void {
     switch (event.type) {
-      case "message_start":
-        if (event.message.role === "assistant") this.#startStreaming();
-        else this.#message(event.message);
+      case "message_start": {
+        if (event.message.role === "assistant") {
+          this.#startStreaming();
+        } else {
+          this.#message(event.message);
+        }
+
         break;
-      case "message_update":
-        if (event.message.role === "assistant") this.#updateStreaming(event.message);
+      }
+
+      case "message_update": {
+        if (event.message.role === "assistant") {
+          this.#updateStreaming(event.message);
+        }
+
         break;
-      case "message_end":
-        if (event.message.role === "assistant") this.#endStreaming(event.message);
+      }
+
+      case "message_end": {
+        if (event.message.role === "assistant") {
+          this.#endStreaming(event.message);
+        }
+
         break;
-      case "tool_execution_start":
+      }
+
+      case "tool_execution_start": {
         // Nested calls from Code Mode scripts are shown inside their parent's row.
-        if (event.parentToolCallId === undefined)
-          this.#tool(event.toolCallId, event.toolName, event.args).markExecutionStarted();
+        if (event.parentToolCallId === undefined) {
+          this.#tool(
+            event.toolCallId,
+            event.toolName,
+            event.args
+          ).markExecutionStarted();
+        }
+
         break;
+      }
+
       case "tool_execution_update": {
         const partial: unknown = event.partialResult;
 
-        if (Value.Check(ToolResultSchema, partial))
-          this.#pending.get(event.toolCallId)?.updateResult({ ...partial, isError: false }, true);
+        if (Value.Check(ToolResultSchema, partial)) {
+          this.#pending
+            .get(event.toolCallId)
+            ?.updateResult({ ...partial, isError: false }, true);
+        }
+
         break;
       }
 
@@ -136,27 +175,54 @@ export class Transcript extends Container {
         component?.updateResult({
           ...(Value.Check(ToolResultSchema, result) ? result : { content: [] }),
           isError: event.isError,
-          ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
+          ...(event.durationMs === undefined
+            ? {}
+            : { durationMs: event.durationMs }),
         });
         break;
       }
 
-      case "agent_end":
-        if (this.#streaming !== undefined) this.removeChild(this.#streaming);
+      case "agent_end": {
+        if (this.#streaming !== undefined) {
+          this.removeChild(this.#streaming);
+        }
+
         this.#streaming = undefined;
         this.#pending.clear();
         break;
-      case "compaction_end":
-        if (event.result !== undefined)
+      }
+
+      case "compaction_end": {
+        if (event.result !== undefined) {
           this.#message({
             role: "compactionSummary",
             summary: event.result.summary,
             timestamp: Date.now(),
             tokensBefore: event.result.tokensBefore,
           });
+        }
+
         break;
-      default:
+      }
+
+      case "agent_settled":
+      case "agent_start":
+      case "auto_retry_end":
+      case "auto_retry_start":
+      case "bash_execution_update":
+      case "compaction_start":
+      case "entry_appended":
+      case "queue_update":
+      case "session_info_changed":
+      case "summarization_retry_attempt_start":
+      case "summarization_retry_finished":
+      case "summarization_retry_scheduled":
+      case "thinking_level_changed":
+      case "turn_end":
+      case "turn_start": {
         break;
+      }
+      // no default
     }
   }
 
@@ -174,7 +240,10 @@ export class Transcript extends Container {
   #tool(id: string, name: string, args: unknown): ToolExecutionComponent {
     const existing = this.#pending.get(id);
 
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      return existing;
+    }
+
     const { cwd, renderers, tui } = this.#options;
 
     // Image protocols cannot draw inside an overlay; Pi then describes the image in text.
@@ -185,7 +254,7 @@ export class Transcript extends Container {
       { showImages: false },
       renderers(name),
       tui,
-      cwd,
+      cwd
     );
 
     this.#add(component, component);
@@ -195,16 +264,25 @@ export class Transcript extends Container {
   }
 
   #assistant(message: AssistantMessage): void {
-    this.#add(new AssistantMessageComponent(message, false, this.#markdownTheme));
-    const failed = message.stopReason === "aborted" || message.stopReason === "error";
+    this.#add(
+      new AssistantMessageComponent(message, false, this.#markdownTheme)
+    );
+
+    const failed =
+      message.stopReason === "aborted" || message.stopReason === "error";
 
     for (const content of message.content) {
-      if (content.type !== "toolCall") continue;
+      if (content.type !== "toolCall") {
+        continue;
+      }
+
       const component = this.#tool(content.id, content.name, content.arguments);
 
       if (failed) {
         component.updateResult({
-          content: [{ text: message.errorMessage ?? "Operation aborted", type: "text" }],
+          content: [
+            { text: message.errorMessage ?? "Operation aborted", type: "text" },
+          ],
           isError: true,
         });
         this.#pending.delete(content.id);
@@ -214,7 +292,7 @@ export class Transcript extends Container {
 
   #startStreaming(): void {
     this.#streaming = this.#add(
-      new AssistantMessageComponent(undefined, false, this.#markdownTheme),
+      new AssistantMessageComponent(undefined, false, this.#markdownTheme)
     );
   }
 
@@ -222,29 +300,43 @@ export class Transcript extends Container {
     this.#streaming?.updateContent(message, true);
 
     for (const content of message.content) {
-      if (content.type !== "toolCall") continue;
+      if (content.type !== "toolCall") {
+        continue;
+      }
 
       const component = this.#pending.get(content.id);
 
-      if (component !== undefined) component.updateArgs(content.arguments);
-      else this.#tool(content.id, content.name, content.arguments);
+      if (component === undefined) {
+        this.#tool(content.id, content.name, content.arguments);
+      } else {
+        component.updateArgs(content.arguments);
+      }
     }
   }
 
   #endStreaming(message: AssistantMessage): void {
-    if (this.#streaming === undefined) return;
+    if (this.#streaming === undefined) {
+      return;
+    }
+
     this.#streaming.updateContent(message, false);
     this.#streaming = undefined;
 
     if (message.stopReason === "aborted" || message.stopReason === "error") {
-      for (const component of this.#pending.values())
+      for (const component of this.#pending.values()) {
         component.updateResult({
-          content: [{ text: message.errorMessage ?? "Operation aborted", type: "text" }],
+          content: [
+            { text: message.errorMessage ?? "Operation aborted", type: "text" },
+          ],
           isError: true,
         });
+      }
+
       this.#pending.clear();
     } else {
-      for (const component of this.#pending.values()) component.setArgsComplete();
+      for (const component of this.#pending.values()) {
+        component.setArgsComplete();
+      }
     }
   }
 
@@ -252,15 +344,19 @@ export class Transcript extends Container {
     switch (message.role) {
       // A result arrives as a message once its whole parallel batch has finished; a viewer opened
       // mid-batch has missed the earlier calls' execution events.
-      case "toolResult":
+      case "toolResult": {
         this.#pending.get(message.toolCallId)?.updateResult(message);
         this.#pending.delete(message.toolCallId);
         break;
+      }
+
       case "user": {
         const text = contentText(message.content);
         const envelope = readEnvelope(text);
 
-        if (this.children.length > 0) this.#add(new Spacer(1));
+        if (this.children.length > 0) {
+          this.#add(new Spacer(1));
+        }
 
         if (envelope === undefined) {
           this.#add(new UserMessageComponent(text, this.#markdownTheme));
@@ -273,10 +369,12 @@ export class Transcript extends Container {
           new Text(
             `${theme.fg("muted", envelope.kind === "NEW_TASK" ? "▸ task from" : "▸ from")} ${theme.bold(displayText(agentName(envelope.from)))}`,
             1,
-            0,
-          ),
+            0
+          )
         );
-        this.#add(new UserMessageComponent(envelope.content, this.#markdownTheme));
+        this.#add(
+          new UserMessageComponent(envelope.content, this.#markdownTheme)
+        );
         break;
       }
 
@@ -288,7 +386,7 @@ export class Transcript extends Container {
           const component = new CustomMessageComponent(
             message,
             isMail ? mailRenderer : undefined,
-            this.#markdownTheme,
+            this.#markdownTheme
           );
 
           this.#add(component, component);
@@ -299,20 +397,33 @@ export class Transcript extends Container {
 
       case "compactionSummary": {
         this.#add(new Spacer(1));
-        const component = new CompactionSummaryMessageComponent(message, this.#markdownTheme);
+
+        const component = new CompactionSummaryMessageComponent(
+          message,
+          this.#markdownTheme
+        );
+
         this.#add(component, component);
         break;
       }
 
       case "branchSummary": {
         this.#add(new Spacer(1));
-        const component = new BranchSummaryMessageComponent(message, this.#markdownTheme);
+
+        const component = new BranchSummaryMessageComponent(
+          message,
+          this.#markdownTheme
+        );
+
         this.#add(component, component);
         break;
       }
 
-      default:
+      case "bashExecution":
+      case "system": {
         break;
+      }
+      // no default
     }
   }
 }

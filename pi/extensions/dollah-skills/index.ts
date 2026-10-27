@@ -8,5 +8,5 @@ export default function dollahSkillsExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     mentions.install(ctx);
   });
-  pi.on("input", (event, ctx) => mentions.expand(event, ctx));
+  pi.on("input", async (event, ctx) => await mentions.expand(event, ctx));
 }

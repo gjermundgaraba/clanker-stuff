@@ -1,18 +1,30 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
-import type { UsageControllerDependencies } from "./controller.js";
+import type {
+  createUsageController,
+  UsageControllerDependencies,
+} from "./controller.js";
 
-export const createUsageRuntime = (dependencies?: UsageControllerDependencies) => {
+/** Loads the controller module on first use, keeping it off Pi's startup path. */
+export type LoadUsageController = () => Promise<typeof createUsageController>;
+
+export const createUsageRuntime = (
+  loadController: LoadUsageController,
+  dependencies?: UsageControllerDependencies
+) => {
   let pendingStart: ExtensionContext | undefined;
   let startupLoad: ReturnType<typeof setImmediate> | undefined;
 
   const usage = createLazySingleton(
     async (signal) => {
-      const { createUsageController } = await import("./controller.js");
+      const createController = await loadController();
       signal.throwIfAborted();
 
-      return createUsageController(dependencies);
+      return createController(dependencies);
     },
     (controller) => {
       if (pendingStart !== undefined) {
@@ -20,7 +32,7 @@ export const createUsageRuntime = (dependencies?: UsageControllerDependencies) =
         pendingStart = undefined;
         controller.start(ctx);
       }
-    },
+    }
   );
 
   const loadStartup = async (ctx: ExtensionContext): Promise<void> => {
@@ -30,14 +42,17 @@ export const createUsageRuntime = (dependencies?: UsageControllerDependencies) =
       if (!usage.isStopped()) {
         ctx.ui.notify(
           `Usage failed to initialize: ${error instanceof Error ? error.message : String(error)}`,
-          "error",
+          "error"
         );
       }
     }
   };
 
   return {
-    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    runCommand: async (
+      args: string,
+      ctx: ExtensionCommandContext
+    ): Promise<void> => {
       const controller = await usage.load();
       await controller?.runCommand(args, ctx);
     },
@@ -78,7 +93,10 @@ export const createUsageRuntime = (dependencies?: UsageControllerDependencies) =
       });
     },
     refresh: (ctx: ExtensionContext): void => {
-      if (pendingStart !== undefined) pendingStart = ctx;
+      if (pendingStart !== undefined) {
+        pendingStart = ctx;
+      }
+
       usage.get()?.refresh(ctx);
     },
   };

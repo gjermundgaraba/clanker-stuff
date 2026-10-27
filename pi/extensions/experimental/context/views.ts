@@ -1,4 +1,7 @@
-import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionUIContext,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
 import type {
   Component,
   Focusable,
@@ -7,8 +10,14 @@ import type {
   TuiMouseEvent,
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
+
 import { ContextOverlay } from "./overlay.js";
-import type { ContextSnapshot, RequestSnapshot, InspectorSnapshot } from "./snapshot.js";
+import type { OverlayServices } from "./overlay.js";
+import type {
+  ContextSnapshot,
+  RequestSnapshot,
+  InspectorSnapshot,
+} from "./snapshot.js";
 import type { ToolsSnapshot } from "./tools.js";
 
 /** Independent pane/search/scroll state per view, within one Pi-owned overlay interaction. */
@@ -27,7 +36,8 @@ export class ContextViews implements Component, Focusable {
     request: RequestSnapshot,
     tools: ToolsSnapshot,
     ui: Pick<ExtensionUIContext, "notify">,
-    done: () => void,
+    services: OverlayServices,
+    done: () => void
   ) {
     this.tui = tui;
     const snapshots: readonly InspectorSnapshot[] = [state, request, tools];
@@ -35,23 +45,42 @@ export class ContextViews implements Component, Focusable {
     this.views = snapshots.map((snapshot, index) => {
       const next = (index + 1) % snapshots.length;
       // Both lookups use indexes bounded by this fixed, nonempty collection.
-      const destination = snapshots[next]!;
+      const destination = snapshots[next];
 
-      return new ContextOverlay(tui, theme, keys, snapshot, ui, done, {
-        label: destination.kind,
-        open: () => {
-          this.current.focused = false;
-          this.active = next;
-          this.current.focused = this.hasFocus;
-          this.tui.requestRender();
-        },
-      });
+      if (!destination) {
+        throw new Error(`Context view ${next} does not exist`);
+      }
+
+      return new ContextOverlay(
+        tui,
+        theme,
+        keys,
+        snapshot,
+        ui,
+        services,
+        done,
+        {
+          label: destination.kind,
+          open: () => {
+            this.current.focused = false;
+            this.active = next;
+            this.current.focused = this.hasFocus;
+            this.tui.requestRender();
+          },
+        }
+      );
     });
   }
 
   private get current(): ContextOverlay {
     // active is initialized to zero and only assigned an index from views' construction.
-    return this.views[this.active]!;
+    const view = this.views[this.active];
+
+    if (!view) {
+      throw new Error(`Context view ${this.active} does not exist`);
+    }
+
+    return view;
   }
 
   get focused(): boolean {
@@ -76,6 +105,8 @@ export class ContextViews implements Component, Focusable {
   }
 
   invalidate(): void {
-    for (const view of this.views) view.invalidate();
+    for (const view of this.views) {
+      view.invalidate();
+    }
   }
 }

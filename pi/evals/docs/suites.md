@@ -18,22 +18,11 @@ Preparation builds its own AMD64 runtime base (no pilot images required), resolv
 
 The reference needs 3, 13 and 49 underlying operations; budgets are 4, 14 and 50, respectively. Reports retain all 18 scheduled trials and summarize correctness, requests, tokens, time and estimated cost per size/arm. This is a volume-scaling diagnostic: record count, pages and total irrelevant bytes grow together. It does not isolate independent noise, latency or concurrency effects, and two seeds do not establish precise reliability estimates.
 
-The supported tool catalog is just `list_records` and `submit_report`; shell,
-filesystem, and unrelated mutation tools are absent. Scores include exact quality,
-tenant-row accuracy, total correctness, and budget compliance. Pi Code Mode gets
-parsed objects; Pi without Code Mode and native Codex get JSON strings. This is a
-fresh diagnostic, not a continuation of the older four-tool screening runs.
-Output directories must be new. Model attempts are never retried.
+The supported tool catalog is just `list_records` and `submit_report`; shell, filesystem, and unrelated mutation tools are absent. Scores include exact quality, tenant-row accuracy, total correctness, and budget compliance. Pi Code Mode gets parsed objects; Pi without Code Mode and native Codex get JSON strings. This is a fresh diagnostic, not a continuation of the older four-tool screening runs. Output directories must be new. Model attempts are never retried.
 
-Preflight retries keep numbered attempt directories without rebuilding fixtures or
-changing the frozen Codex version. A malformed native service argument is ordinary
-tool-error feedback, just as in Pi, and the free controls exercise correction afterward.
-The scaling extension registers the provider lifecycle without its shell/file tool
-controller; its extension and grader composition live with the fixture.
+Preflight retries keep numbered attempt directories without rebuilding fixtures or changing the frozen Codex version. A malformed native service argument is ordinary tool-error feedback, just as in Pi, and the free controls exercise correction afterward. The scaling extension registers the provider lifecycle without its shell/file tool controller; its extension and grader composition live with the fixture.
 
-Scaling freezes its execution dependencies, not unrelated suites, `report.py`, or
-`scaling_report.py`. Reports record current analysis-source provenance separately.
-Shared trial extraction and validity policy in `trials.py` remain execution inputs.
+Scaling freezes its execution dependencies, not unrelated suites, `report.py`, or `scaling_report.py`. Reports record current analysis-source provenance separately. Shared trial extraction and validity policy in `trials.py` remain execution inputs.
 
 ## Compaction continuity
 
@@ -77,40 +66,15 @@ uv run python suites/longmemeval/scripts/report.py \
   .harbor/jobs/longmemeval-full-64k
 ```
 
-Generation requires an empty destination and never replaces existing tasks.
-Run the other three generated paths with the profiles listed above and distinct job names. Add `--n-attempts 1` for calibration before paid repetitions.
+Generation requires an empty destination and never replaces existing tasks. Run the other three generated paths with the profiles listed above and distinct job names. Add `--n-attempts 1` for calibration before paid repetitions.
 
 The generated verifier's `quality` and `reward` are deterministic normalized exact match. The suite report leaves those raw values intact and presents semantic QA-judge quality in its second table; use QA quality for LongMemEval comparisons.
 
-The optional `--backend openai` judge uses the pinned `openai==2.54.0` SDK and
-requires `OPENAI_API_KEY`. One client is shared across workers and closed after
-they finish. Requests still use `https://api.openai.com/v1/chat/completions`,
-`temperature=0`, `max_tokens=10`, `n=1`, and a 60-second timeout (per HTTP phase,
-not an overall deadline). Only the legacy `OPENAI_ORGANIZATION` variable controls
-the organization; `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, and `OPENAI_PROJECT_ID` are
-ignored. Unset `OPENAI_CUSTOM_HEADERS`: the judge rejects it rather than allowing
-SDK environment headers to override authentication or routing. The default Codex
-backend neither imports nor initializes the SDK and is unaffected by these variables.
+The optional `--backend openai` judge uses the pinned `openai==2.54.0` SDK and requires `OPENAI_API_KEY`. One client is shared across workers and closed after they finish. Requests still use `https://api.openai.com/v1/chat/completions`, `temperature=0`, `max_tokens=10`, `n=1`, and a 60-second timeout (per HTTP phase, not an overall deadline). Only the legacy `OPENAI_ORGANIZATION` variable controls the organization; `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, and `OPENAI_PROJECT_ID` are ignored. Unset `OPENAI_CUSTOM_HEADERS`: the judge rejects it rather than allowing SDK environment headers to override authentication or routing. The default Codex backend neither imports nor initializes the SDK and is unaffected by these variables.
 
-This changes the OpenAI transport policy intentionally: five SDK retries allow
-at most six attempts, now including connection failures, timeouts, HTTP 408/409,
-429, and all 5xx responses. The old transport retried only 429/500/502/503/504.
-SDK retries use jittered exponential backoff (starting at 0.5 seconds, capped at
-8 seconds), honor `Retry-After`/`retry-after-ms` delays up to 120 seconds and
-`x-should-retry`, and stop if the requested delay exceeds 120 seconds. Failures
-now raise SDK `APIStatusError` subclasses, `APIConnectionError`, or
-`APITimeoutError`, not urllib exceptions. A retried request can incur additional
-judge cost, particularly when a response is lost after the server completes it.
+This changes the OpenAI transport policy intentionally: five SDK retries allow at most six attempts, now including connection failures, timeouts, HTTP 408/409, 429, and all 5xx responses. The old transport retried only 429/500/502/503/504. SDK retries use jittered exponential backoff (starting at 0.5 seconds, capped at 8 seconds), honor `Retry-After`/`retry-after-ms` delays up to 120 seconds and `x-should-retry`, and stop if the requested delay exceeds 120 seconds. Failures now raise SDK `APIStatusError` subclasses, `APIConnectionError`, or `APITimeoutError`, not urllib exceptions. A retried request can incur additional judge cost, particularly when a response is lost after the server completes it.
 
-Cache filenames remain `longmemeval-judge-<backend>-<model>.jsonl`, and valid
-identity-matching judgments are reused by default, including historical urllib
-judgments. Changed inputs still require fresh calls. Use `--rejudge` to explicitly
-replace all current judgments with fresh calls; this may incur judge cost. Save a
-copy first if you need to retain the previous judgments for comparison. Cache rows
-record backend/model and inputs, not transport provenance: reusing a historical row
-does not make it an SDK judgment. The dependency pin and transport policy above
-describe fresh OpenAI calls. Reports require `--judge-cache` when multiple judge
-caches exist in a job directory.
+Cache filenames remain `longmemeval-judge-<backend>-<model>.jsonl`, and valid identity-matching judgments are reused by default, including historical urllib judgments. Changed inputs still require fresh calls. Use `--rejudge` to explicitly replace all current judgments with fresh calls; this may incur judge cost. Save a copy first if you need to retain the previous judgments for comparison. Cache rows record backend/model and inputs, not transport provenance: reusing a historical row does not make it an SDK judgment. The dependency pin and transport policy above describe fresh OpenAI calls. Reports require `--judge-cache` when multiple judge caches exist in a job directory.
 
 This is a compaction-oriented derivative: official LongMemEval sends history and question in one request. Do not publish these results as unmodified LongMemEval-S scores. Compare full on versus full off for the observed compaction effect; evidence and handoff are diagnostic bounds with different evidence positions.
 
@@ -131,10 +95,7 @@ Use `--selection full` in an empty generated directory for all 323 tasks. The ve
 
 Add `suites/<name>/` with its tasks or generator, provenance pin when applicable, tests, and any suite-specific judge/report wrapper. Normal suites use the existing profiles with Harbor's `--path`; they do not change adapters or generic reporting.
 
-Compaction suites retain the strict, persisted four-key `pi_evals` manifest: `platform`, `compaction_mode`, `expected_mechanism`, and `expected_protocol`. `expected_protocol` is required; set it to `null` when no protocol applies.
-Code Mode manifests additionally require `experiment: code-mode`, `arm`, `tool_mode`, and
-`pair_id`; both arms retain the real `pi-provider` platform and `compaction_mode: off`.
-The adapter and verifier check the requested mode against per-request runtime evidence.
+Compaction suites retain the strict, persisted four-key `pi_evals` manifest: `platform`, `compaction_mode`, `expected_mechanism`, and `expected_protocol`. `expected_protocol` is required; set it to `null` when no protocol applies. Code Mode manifests additionally require `experiment: code-mode`, `arm`, `tool_mode`, and `pair_id`; both arms retain the real `pi-provider` platform and `compaction_mode: off`. The adapter and verifier check the requested mode against per-request runtime evidence.
 
 Every final verifier must emit finite `quality` and `reward` values in `[0, 1]`, binary `valid_experiment`, and `reward == quality`. Compaction graders copy `verifiers/compaction.mjs` beside the isolated grader and test that the copy is byte-identical.
 

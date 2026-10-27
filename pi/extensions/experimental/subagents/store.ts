@@ -11,7 +11,10 @@ import type { Tree } from "./protocol.js";
 /** Version 4 trees live in their own directory, so earlier formats are never read. */
 const TREE_DIRECTORY = "trees-v4";
 
-const writeAtomically = async (file: string, contents: string): Promise<void> => {
+const writeAtomically = async (
+  file: string,
+  contents: string
+): Promise<void> => {
   await mkdir(path.dirname(file), { mode: 0o700, recursive: true });
   const temporary = `${file}.${randomUUID()}.tmp`;
 
@@ -40,7 +43,9 @@ export class TreeStore {
     }
 
     const contents = `${JSON.stringify(tree)}\n`;
-    await withFileMutationQueue(file, () => writeAtomically(file, contents));
+    await withFileMutationQueue(file, async () => {
+      await writeAtomically(file, contents);
+    });
   }
 }
 
@@ -60,7 +65,7 @@ const fresh = (store: TreeStore, warning?: string): OpenedTree => ({
 export const openTree = async (
   dataDir: string,
   sessionId: string,
-  persistent: boolean,
+  persistent: boolean
 ): Promise<OpenedTree> => {
   if (!persistent) {
     return fresh(new TreeStore(undefined));
@@ -80,7 +85,7 @@ export const openTree = async (
 
     return fresh(
       store,
-      `Starting a new subagent tree; ${file} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+      `Starting a new subagent tree; ${file} is unreadable: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
@@ -94,5 +99,8 @@ export const openTree = async (
     // Malformed JSON is reported below with schema mismatches.
   }
 
-  return fresh(store, `Starting a new subagent tree; ${file} is not a valid version 4 tree.`);
+  return fresh(
+    store,
+    `Starting a new subagent tree; ${file} is not a valid version 4 tree.`
+  );
 };

@@ -10,15 +10,15 @@ A surface the user sees all session, such as the footer or the editor border, is
 
 ## Tones
 
-| Tone      | Means                                                         | Examples                                           |
-| --------- | ------------------------------------------------------------- | -------------------------------------------------- |
-| `text`    | Primary value                                                 | Branch name, percent below the warning threshold   |
-| `muted`   | Secondary content, and work that was stopped on purpose       | cwd, model, ids, durations, `■ cancelled`          |
-| `dim`     | Chrome the user reads past                                    | Separators, icons, key hints, meter tracks, clocks |
-| `accent`  | The active mode, the thing that is live, or the call's target | `INSERT`, `code`, `● running`, a tool call's path  |
-| `success` | Finished well                                                 | `✓ completed`                                      |
-| `warning` | Needs the user                                                | Meter at 70%, questionnaire waiting                |
-| `error`   | Failed                                                        | Meter at 90%, `✗ exit 1`                           |
+| Tone | Means | Examples |
+| --- | --- | --- |
+| `text` | Primary value | Branch name, percent below the warning threshold |
+| `muted` | Secondary content, and work that was stopped on purpose | cwd, model, ids, durations, `■ cancelled` |
+| `dim` | Chrome the user reads past | Separators, icons, key hints, meter tracks, clocks |
+| `accent` | The active mode, the thing that is live, or the call's target | `INSERT`, `code`, `● running`, a tool call's path |
+| `success` | Finished well | `✓ completed` |
+| `warning` | Needs the user | Meter at 70%, questionnaire waiting |
+| `error` | Failed | Meter at 90%, `✗ exit 1` |
 
 Routine states are never `warning`. A dirty working tree, a running task, an enabled mode, and a cancelled task are all normal; none of them asks the user for anything.
 

@@ -19,36 +19,43 @@ const model = testModel();
 
 let clock = 0;
 
-const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: clock++ });
+const user = (text: string): UserMessage => ({
+  role: "user",
+  content: text,
+  timestamp: (clock += 1),
+});
 
-function assistant(
+const assistant = (
   content: AssistantMessage["content"],
-  provider = model.provider,
-): AssistantMessage {
-  return {
-    role: "assistant",
-    content,
-    api: model.api,
-    provider,
-    model: model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: content.some((block) => block.type === "toolCall") ? "toolUse" : "stop",
-    timestamp: clock++,
-  };
-}
+  provider = model.provider
+): AssistantMessage => ({
+  role: "assistant",
+  content,
+  api: model.api,
+  provider,
+  model: model.id,
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: content.some((block) => block.type === "toolCall")
+    ? "toolUse"
+    : "stop",
+  timestamp: (clock += 1),
+});
 
 const say = (text: string, provider?: string): AssistantMessage =>
   assistant([{ type: "text", text }], provider);
 
 const call = (id: string, provider?: string): AssistantMessage =>
-  assistant([{ type: "toolCall", id, name: "read", arguments: { path: "a" } }], provider);
+  assistant(
+    [{ type: "toolCall", id, name: "read", arguments: { path: "a" } }],
+    provider
+  );
 
 const result = (id: string): ToolResultMessage => ({
   role: "toolResult",
@@ -56,12 +63,19 @@ const result = (id: string): ToolResultMessage => ({
   toolName: "read",
   content: [{ type: "text", text: `contents for ${id}` }],
   isError: false,
-  timestamp: clock++,
+  timestamp: (clock += 1),
 });
 
-const readTool = { name: "read", description: "Read a file", parameters: Type.Object({}) };
+const readTool = {
+  name: "read",
+  description: "Read a file",
+  parameters: Type.Object({}),
+};
 
-const context = (messages: Message[], description = readTool.description): BridgeContext => ({
+const context = (
+  messages: Message[],
+  description = readTool.description
+): BridgeContext => ({
   messages,
   tools: [{ ...readTool, description }],
 });
@@ -69,14 +83,20 @@ const context = (messages: Message[], description = readTool.description): Bridg
 const KEY = queryKey(context([]), model.id, undefined);
 
 /** A request for `messages` under the conversation's key. */
-const request = (messages: Message[], extra: { key?: string; aborted?: boolean } = {}) => ({
+const request = (
+  messages: Message[],
+  extra: { key?: string; aborted?: boolean } = {}
+) => ({
   context: context(messages),
   key: extra.key ?? KEY,
   aborted: extra.aborted ?? false,
 });
 
 /** What a conversation records once Claude Code's session cc-1 holds `messages`. */
-const holding = (held: readonly Message[], extra: Partial<SyncState> = {}): SyncState => ({
+const holding = (
+  held: readonly Message[],
+  extra: Partial<SyncState> = {}
+): SyncState => ({
   held,
   session: "cc-1",
   busy: false,
@@ -88,7 +108,7 @@ describe("ordinary turns", () => {
   it("starts a first turn clean, with nothing to rebuild from", () => {
     const u1 = user("hi");
 
-    expect(plan(holding([]), request([u1]))).toEqual({
+    expect(plan(holding([]), request([u1]))).toStrictEqual({
       kind: "rebuild",
       reason: "none",
       matched: 0,
@@ -100,7 +120,7 @@ describe("ordinary turns", () => {
   it("resumes when the history is what Claude Code holds plus a new user turn", () => {
     const [u1, a1, u2] = [user("hi"), say("hello"), user("again")];
 
-    expect(plan(holding([u1, a1]), request([u1, a1, u2]))).toEqual({
+    expect(plan(holding([u1, a1]), request([u1, a1, u2]))).toStrictEqual({
       kind: "resume",
       session: "cc-1",
       turn: [u2],
@@ -112,7 +132,7 @@ describe("ordinary turns", () => {
     const [u1, a1, u2] = [user("hi"), say("hello"), user("again")];
     const copies = structuredClone([u1, a1]);
 
-    expect(plan(holding([u1, a1]), request([...copies, u2]))).toEqual({
+    expect(plan(holding([u1, a1]), request([...copies, u2]))).toStrictEqual({
       kind: "resume",
       session: "cc-1",
       turn: [u2],
@@ -122,7 +142,9 @@ describe("ordinary turns", () => {
   it("rebuilds when Claude Code never reported its session", () => {
     const [u1, a1, u2] = [user("hi"), say("hello"), user("again")];
 
-    expect(plan(holding([u1, a1], { session: undefined }), request([u1, a1, u2]))).toEqual({
+    expect(
+      plan(holding([u1, a1], { session: undefined }), request([u1, a1, u2]))
+    ).toStrictEqual({
       kind: "rebuild",
       reason: "none",
       matched: 2,
@@ -137,7 +159,9 @@ describe("ordinary turns", () => {
     const reply = say("done");
     const next = user("thanks");
 
-    expect(plan(holding([...history, reply]), request([...history, reply, next]))).toEqual({
+    expect(
+      plan(holding([...history, reply]), request([...history, reply, next]))
+    ).toStrictEqual({
       kind: "resume",
       session: "cc-1",
       turn: [next],
@@ -145,17 +169,20 @@ describe("ordinary turns", () => {
   });
 });
 
+const parked = (messages: Message[]): SyncState =>
+  holding(messages, {
+    busy: true,
+    parked: { key: KEY, waiting: new Set(["t1"]) },
+  });
+
 describe("the tool loop", () => {
   const u1 = user("read a");
   const a1 = call("t1");
 
-  const parked = (messages: Message[]): SyncState =>
-    holding(messages, { busy: true, parked: { key: KEY, waiting: new Set(["t1"]) } });
-
   it("delivers the results the parked query waits on", () => {
     const r1 = result("t1");
 
-    expect(plan(parked([u1, a1]), request([u1, a1, r1]))).toEqual({
+    expect(plan(parked([u1, a1]), request([u1, a1, r1]))).toStrictEqual({
       kind: "deliver",
       results: [r1],
       steer: [],
@@ -165,7 +192,7 @@ describe("the tool loop", () => {
   it("delivers a steer pi queued after the results with them", () => {
     const [r1, steer] = [result("t1"), user("use b instead")];
 
-    expect(plan(parked([u1, a1]), request([u1, a1, r1, steer]))).toEqual({
+    expect(plan(parked([u1, a1]), request([u1, a1, r1, steer]))).toStrictEqual({
       kind: "deliver",
       results: [r1],
       steer: [steer],
@@ -187,16 +214,23 @@ describe("the tool loop", () => {
   // change; the results are still the conversation's, not a side call's.
   it("rebuilds when what the query is fixed to changed while it was parked", () => {
     const [r1, steer] = [result("t1"), user("use b instead")];
-    const changed = { key: queryKey(context([], "a newer description"), model.id, undefined) };
 
-    expect(plan(parked([u1, a1]), request([u1, a1, r1], changed))).toEqual({
+    const changed = {
+      key: queryKey(context([], "a newer description"), model.id, undefined),
+    };
+
+    expect(
+      plan(parked([u1, a1]), request([u1, a1, r1], changed))
+    ).toStrictEqual({
       kind: "rebuild",
       reason: "changed",
       matched: 2,
       priors: [u1, a1, r1],
       turn: [],
     });
-    expect(plan(parked([u1, a1]), request([u1, a1, r1, steer], changed))).toEqual({
+    expect(
+      plan(parked([u1, a1]), request([u1, a1, r1, steer], changed))
+    ).toStrictEqual({
       kind: "rebuild",
       reason: "changed",
       matched: 2,
@@ -208,7 +242,9 @@ describe("the tool loop", () => {
   it("ends the call when pi reports the tool's result after aborting the run", () => {
     const r1 = result("t1");
 
-    expect(plan(holding([u1, a1]), request([u1, a1, r1], { aborted: true }))).toEqual({
+    expect(
+      plan(holding([u1, a1]), request([u1, a1, r1], { aborted: true }))
+    ).toStrictEqual({
       kind: "finish",
     });
   });
@@ -220,7 +256,9 @@ describe("history Claude Code does not hold", () => {
     const faux = [call("f1", "faux"), result("f1"), say("faux done", "faux")];
     const u3 = user("back to claude");
 
-    expect(plan(holding([u1, a1]), request([u1, a1, u2, ...faux, u3]))).toEqual({
+    expect(
+      plan(holding([u1, a1]), request([u1, a1, u2, ...faux, u3]))
+    ).toStrictEqual({
       kind: "rebuild",
       reason: "tail",
       matched: 2,
@@ -234,7 +272,9 @@ describe("history Claude Code does not hold", () => {
     const summary = user("<summary>one and two</summary>");
     const u3 = user("three");
 
-    expect(plan(holding([u1, a1, u2, a2]), request([summary, u2, a2, u3]))).toMatchObject({
+    expect(
+      plan(holding([u1, a1, u2, a2]), request([summary, u2, a2, u3]))
+    ).toMatchObject({
       kind: "rebuild",
       reason: "diverged",
       priors: [summary, u2, a2],
@@ -256,7 +296,7 @@ describe("history Claude Code does not hold", () => {
   it("rebuilds a retried turn with the history before it", () => {
     const [u1, a1, u2] = [user("one"), say("1"), user("two")];
 
-    expect(plan(holding([u1, a1, u2]), request([u1, a1, u2]))).toEqual({
+    expect(plan(holding([u1, a1, u2]), request([u1, a1, u2]))).toStrictEqual({
       kind: "rebuild",
       reason: "tail",
       matched: 3,
@@ -269,7 +309,9 @@ describe("history Claude Code does not hold", () => {
     const [u1, a1, r1] = [user("read a"), call("t1"), result("t1")];
     const [steer, a2, u3] = [user("use b"), say("read it"), user("next")];
 
-    expect(plan(holding([u1, a1, r1, a2]), request([u1, a1, r1, steer, a2, u3]))).toMatchObject({
+    expect(
+      plan(holding([u1, a1, r1, a2]), request([u1, a1, r1, steer, a2, u3]))
+    ).toMatchObject({
       kind: "rebuild",
       reason: "diverged",
     });
@@ -280,7 +322,13 @@ describe("a request while a query runs", () => {
   // pi compacted while the tool ran and queued a steer: still the conversation's next
   // step. Taken for a side call, it would run without tools and leave the query parked.
   it("rebuilds the conversation's results and steer after its history was rewritten", () => {
-    const [u1, a1, r1, steer] = [user("read a"), call("t1"), result("t1"), user("use b")];
+    const [u1, a1, r1, steer] = [
+      user("read a"),
+      call("t1"),
+      result("t1"),
+      user("use b"),
+    ];
+
     const summary = user("<summary>read a</summary>");
 
     const state = holding([u1, a1], {
@@ -288,7 +336,7 @@ describe("a request while a query runs", () => {
       parked: { key: KEY, waiting: new Set(["t1"]) },
     });
 
-    expect(plan(state, request([summary, a1, r1, steer]))).toEqual({
+    expect(plan(state, request([summary, a1, r1, steer]))).toStrictEqual({
       kind: "rebuild",
       reason: "diverged",
       matched: 0,
@@ -305,7 +353,9 @@ describe("a request while a query runs", () => {
       parked: { key: KEY, waiting: new Set(["t1"]) },
     });
 
-    expect(plan(state, request([user("summarize this for a status line")]))).toEqual({
+    expect(
+      plan(state, request([user("summarize this for a status line")]))
+    ).toStrictEqual({
       kind: "side",
     });
   });
@@ -315,7 +365,9 @@ describe("a request while a query runs", () => {
     const [u1, a1, r1] = [user("read a"), call("t1"), result("t1")];
     const summary = user("<summary>read a</summary>");
 
-    expect(plan(holding([u1, a1], { busy: true }), request([summary, a1, r1]))).toMatchObject({
+    expect(
+      plan(holding([u1, a1], { busy: true }), request([summary, a1, r1]))
+    ).toMatchObject({
       kind: "rebuild",
       reason: "diverged",
       turn: [],
@@ -327,11 +379,16 @@ describe(matchedPrefix, () => {
   it("ignores timestamps and usage but not content or the call a result answers", () => {
     const original = say("same words");
 
-    expect(matchedPrefix([{ ...original, timestamp: 99, stopReason: "length" }], [original])).toBe(
-      1,
-    );
+    expect(
+      matchedPrefix(
+        [{ ...original, timestamp: 99, stopReason: "length" }],
+        [original]
+      )
+    ).toBe(1);
     expect(matchedPrefix([say("other words")], [original])).toBe(0);
-    expect(matchedPrefix([{ ...result("t1"), toolCallId: "t2" }], [result("t1")])).toBe(0);
+    expect(
+      matchedPrefix([{ ...result("t1"), toolCallId: "t2" }], [result("t1")])
+    ).toBe(0);
   });
 });
 

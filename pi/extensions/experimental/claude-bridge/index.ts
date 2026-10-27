@@ -9,15 +9,20 @@ import { PROVIDER_ID } from "./session/convert.js";
 import { Sessions } from "./sessions.js";
 
 /** The extension, with the Agent SDK's query() replaceable for tests. */
-export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) => void {
-  return (pi) => {
+export const createClaudeBridge =
+  (runQuery: QueryFunction): ((pi: ExtensionAPI) => void) =>
+  (pi) => {
     const sessions = new Sessions(runQuery);
 
     // The `claude-bridge` provider: Claude Code models served through the Agent SDK.
     const config = providerConfig({
       sessions,
       toolGuidelines: () =>
-        new Map(pi.getAllTools().map((tool) => [tool.name, tool.promptGuidelines ?? []])),
+        new Map(
+          pi
+            .getAllTools()
+            .map((tool) => [tool.name, tool.promptGuidelines ?? []])
+        ),
     });
 
     pi.registerProvider(PROVIDER_ID, config);
@@ -30,7 +35,7 @@ export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) 
       if (config.models?.length === 0) {
         sessions.notify(
           sessionId,
-          "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai",
+          "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
         );
       }
     });
@@ -39,16 +44,16 @@ export function createClaudeBridge(runQuery: QueryFunction): (pi: ExtensionAPI) 
       sessions.end(ctx.sessionManager.getSessionId());
     });
   };
-}
 
 /** CLAUDE_BRIDGE_RECORD_STREAM=<path> appends every SDK message as a JSON line, for
  *  capturing replay fixtures of what Claude Code really emits. */
-function recording(run: QueryFunction, recordPath: string): QueryFunction {
-  return (params) => {
+const recording =
+  (run: QueryFunction, recordPath: string): QueryFunction =>
+  (params) => {
     const sdkQuery = run(params);
 
     return {
-      interrupt: () => sdkQuery.interrupt(),
+      interrupt: async () => await sdkQuery.interrupt(),
       close: () => {
         sdkQuery.close();
       },
@@ -60,10 +65,11 @@ function recording(run: QueryFunction, recordPath: string): QueryFunction {
       },
     };
   };
-}
 
 const recordPath = process.env["CLAUDE_BRIDGE_RECORD_STREAM"];
 
 export default createClaudeBridge(
-  recordPath === undefined || recordPath === "" ? query : recording(query, recordPath),
+  recordPath === undefined || recordPath === ""
+    ? query
+    : recording(query, recordPath)
 );

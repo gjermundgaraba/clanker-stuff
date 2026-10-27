@@ -1,17 +1,26 @@
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 
 import { providerDisplayName } from "./providers.js";
-import type { SupportedProvider, UsageAccounting, UsageSnapshot } from "./providers.js";
+import type {
+  SupportedProvider,
+  UsageAccounting,
+  UsageSnapshot,
+} from "./providers.js";
 
 const USD_FORMAT = new Intl.NumberFormat("en-US", {
   currency: "USD",
   style: "currency",
 });
 
-const CREDIT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const CREDIT_FORMAT = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+});
 
 /** Reset times are normalized ISO strings from the adapters. */
-export const formatResetDuration = (resetsAt: string, nowMs: number): string => {
+export const formatResetDuration = (
+  resetsAt: string,
+  nowMs: number
+): string => {
   const remainingMs = Date.parse(resetsAt) - nowMs;
 
   if (remainingMs <= 0) {
@@ -37,25 +46,40 @@ export const formatResetDuration = (resetsAt: string, nowMs: number): string => 
 const formatAge = (fetchedAt: number, nowMs: number): string => {
   const ageMs = Math.max(0, nowMs - fetchedAt);
 
-  if (ageMs < 1000) return "just now";
+  if (ageMs < 1000) {
+    return "just now";
+  }
+
   const seconds = Math.floor(ageMs / 1000);
 
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
   const minutes = Math.floor(seconds / 60);
 
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
   const hours = Math.floor(minutes / 60);
 
-  if (hours < 48) return `${hours}h ago`;
+  if (hours < 48) {
+    return `${hours}h ago`;
+  }
 
   return `${Math.floor(hours / 24)}d ago`;
 };
 
 export const formatUsd = (value: number): string => USD_FORMAT.format(value);
 
-export const formatCredits = (value: number): string => CREDIT_FORMAT.format(value);
+export const formatCredits = (value: number): string =>
+  CREDIT_FORMAT.format(value);
 
-const accountingLines = (accounting: UsageAccounting, nowMs: number): string[] =>
+const accountingLines = (
+  accounting: UsageAccounting,
+  nowMs: number
+): string[] =>
   accounting.kind === "credit-balance"
     ? [`credits  ${formatCredits(accounting.available)}`]
     : [
@@ -70,10 +94,16 @@ export const formatProviderLabel = (snapshot: UsageSnapshot): string =>
     ? providerDisplayName(snapshot.provider)
     : `${providerDisplayName(snapshot.provider)} (${inlineText(snapshot.planLabel)})`;
 
-export const formatDetail = (snapshot: UsageSnapshot, nowMs: number): string => {
+export const formatDetail = (
+  snapshot: UsageSnapshot,
+  nowMs: number
+): string => {
   const lines = [formatProviderLabel(snapshot)];
 
-  const windows = [...snapshot.quotaWindows, ...(snapshot.additionalQuotaWindows ?? [])];
+  const windows = [
+    ...snapshot.quotaWindows,
+    ...(snapshot.additionalQuotaWindows ?? []),
+  ];
 
   for (const window of windows) {
     const reset =
@@ -82,7 +112,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number): string => 
         : `resets in ${formatResetDuration(window.resetsAt, nowMs)}`;
 
     lines.push(
-      `${inlineText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`,
+      `${inlineText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`
     );
   }
 
@@ -93,13 +123,15 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number): string => 
   return lines.join("\n");
 };
 
-export const formatProviderError = (provider: SupportedProvider, message: string): string =>
-  `usage: ${provider}: ${inlineText(message)}`;
+export const formatProviderError = (
+  provider: SupportedProvider,
+  message: string
+): string => `usage: ${provider}: ${inlineText(message)}`;
 
 export const formatRefreshFailed = (
   provider: SupportedProvider,
   message: string,
   fetchedAt: number,
-  nowMs: number,
+  nowMs: number
 ): string =>
   `usage: ${provider}: refresh failed (${inlineText(message)}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;

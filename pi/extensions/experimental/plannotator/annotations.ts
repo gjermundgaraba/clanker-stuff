@@ -15,7 +15,7 @@ const AnnotationOutcomeSchema = Type.Union([
 export const readAnnotationFeedback = (
   stdout: string,
   ctx: ExtensionCommandContext,
-  label: string,
+  label: string
 ): string | undefined => {
   let outcome: unknown;
 
@@ -30,7 +30,10 @@ export const readAnnotationFeedback = (
   }
 
   if (outcome.decision !== "annotated") {
-    ctx.ui.notify(`${label} ${outcome.decision === "approved" ? "approved" : "closed"}.`, "info");
+    ctx.ui.notify(
+      `${label} ${outcome.decision === "approved" ? "approved" : "closed"}.`,
+      "info"
+    );
 
     return undefined;
   }

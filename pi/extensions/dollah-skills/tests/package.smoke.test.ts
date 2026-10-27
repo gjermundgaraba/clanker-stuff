@@ -3,13 +3,18 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import {
+  DefaultResourceLoader,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 
 const NPM_ENV = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
+  Object.entries(process.env).filter(
+    ([key]) => !key.toLowerCase().startsWith("npm_config_")
+  )
 );
 
 describe("dollah-skills package", () => {
@@ -44,7 +49,9 @@ describe("dollah-skills package", () => {
     await loader.reload();
 
     expect(loader.getExtensions().errors).toStrictEqual([]);
-    expect(loader.getExtensions().extensions[0]?.handlers.has("input")).toBe(true);
+    expect(loader.getExtensions().extensions[0]?.handlers.has("input")).toBe(
+      true
+    );
     expect(loader.getSkills().skills).toStrictEqual([]);
   });
 
@@ -63,7 +70,7 @@ describe("dollah-skills package", () => {
       })
         .trim()
         .split("\n")
-        .toSorted(),
+        .toSorted()
     ).toStrictEqual(
       [
         "package/LICENSE",
@@ -72,7 +79,7 @@ describe("dollah-skills package", () => {
         "package/index.ts",
         "package/mentions.ts",
         "package/package.json",
-      ].toSorted(),
+      ].toSorted()
     );
   });
 });

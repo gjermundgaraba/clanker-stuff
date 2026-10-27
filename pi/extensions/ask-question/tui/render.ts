@@ -1,21 +1,29 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
-import type { Question } from "../request.js";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
+import type {
+  TuiMouseEvent,
+  TuiMouseEventResult,
+} from "@earendil-works/pi-tui";
+
 import type { Draft, Interaction, Submission } from "../interaction.js";
 import { answered, draftAnswer } from "../interaction.js";
+import type { Question } from "../request.js";
 import { answerRows, interactionRows, plainText } from "../summary.js";
 
-const oneLine = (text: string) => displayText(text).replace(/\s+/g, " ");
+const oneLine = (text: string) => displayText(text).replaceAll(/\s+/gu, " ");
 
-export function progressLine(
+export const progressLine = (
   item: Interaction,
   current: number,
   width: number,
-  theme: Theme,
-): string {
-  const questions = item.request.questions;
+  theme: Theme
+): string => {
+  const { questions } = item.request;
 
   const labels = [
     ...questions.map((q) => {
@@ -25,7 +33,8 @@ export function progressLine(
     }),
     {
       text: "Review",
-      complete: !!item.draft && Object.values(item.draft.answers).every(answered),
+      complete:
+        !!item.draft && Object.values(item.draft.answers).every(answered),
     },
   ];
 
@@ -36,100 +45,156 @@ export function progressLine(
 
   const all = labels.map(chip).join(" ");
 
-  if (visibleWidth(all) <= width) return all;
-  const prefix = current < questions.length ? `${current + 1}/${questions.length} · ` : "";
+  if (visibleWidth(all) <= width) {
+    return all;
+  }
+
+  const prefix =
+    current < questions.length ? `${current + 1}/${questions.length} · ` : "";
 
   const active = labels[current];
 
-  if (!active) throw new RangeError("Questionnaire progress index is out of range");
+  if (!active) {
+    throw new RangeError("Questionnaire progress index is out of range");
+  }
 
   return truncateToWidth(`${prefix}${chip(active, current)}`, width);
-}
-
-export function inboxLabel(item: Interaction, index: number): string {
-  const latest = item.submissions.at(-1);
-
-  const status = item.draft
-    ? `${Object.values(item.draft.answers).filter(answered).length}/${item.request.questions.length} answered · Draft`
-    : latest
-      ? `Revision ${latest.revision} · ${deliveryLabel(latest)}`
-      : "Cancelled";
-
-  // The request decoder requires at least one question, including during journal replay.
-  return `${index + 1}. ${oneLine(item.request.title ?? item.request.questions[0]!.header)} · ${status}`;
-}
+};
 
 export const deliveryLabel = (submission: Submission): string =>
-  submission.sent_at ? "Sent" : "Not sent";
+  submission.sent_at !== undefined && submission.sent_at !== ""
+    ? "Sent"
+    : "Not sent";
 
-export function reviewText(item: Interaction, submission?: Submission): string {
-  return plainText(interactionRows(item, submission));
-}
+export const inboxLabel = (item: Interaction, index: number): string => {
+  const latest = item.submissions.at(-1);
 
-export function diffText(item: Interaction): string {
+  let status = "Cancelled";
+
+  if (item.draft) {
+    status = `${Object.values(item.draft.answers).filter(answered).length}/${item.request.questions.length} answered · Draft`;
+  } else if (latest) {
+    status = `Revision ${latest.revision} · ${deliveryLabel(latest)}`;
+  }
+
+  // The request decoder requires at least one question, including during journal replay.
+  const title = item.request.title ?? item.request.questions[0]?.header;
+
+  if (title === undefined) {
+    throw new Error("A questionnaire request has at least one question");
+  }
+
+  return `${index + 1}. ${oneLine(title)} · ${status}`;
+};
+
+export const reviewText = (
+  item: Interaction,
+  submission?: Submission
+): string => plainText(interactionRows(item, submission));
+
+export const diffText = (item: Interaction): string => {
   const previous = item.submissions.at(-1);
 
-  if (!previous || !item.draft) return "No earlier submission";
+  if (!previous || !item.draft) {
+    return "No earlier submission";
+  }
+
   const lines: string[] = [];
 
   for (const q of item.request.questions) {
     const before = plainText(answerRows(previous.answers[q.id]));
     const after = plainText(answerRows(draftAnswer(item, q)));
 
-    if (before !== after)
+    if (before !== after) {
       lines.push(
         q.header,
         `Before · revision ${previous.revision}`,
         before,
         "After · draft",
         after,
-        "",
+        ""
       );
+    }
   }
 
-  if (previous.note !== item.draft.note)
+  if (previous.note !== item.draft.note) {
     lines.push(
       "Questionnaire note",
       `Before: ${previous.note || "(none)"}`,
-      `After: ${item.draft.note || "(none)"}`,
+      `After: ${item.draft.note || "(none)"}`
     );
+  }
 
   return lines.join("\n").trimEnd() || "No answer changes";
-}
+};
 
 /** Wrapped, unpadded lines. */
-export function textLines(text: string, width: number): string[] {
-  return wrapTextWithAnsi(displayText(text), Math.max(1, width));
-}
+export const textLines = (text: string, width: number): string[] =>
+  wrapTextWithAnsi(displayText(text), Math.max(1, width));
 
 const excerpt = (label: string, text: string, width: number): string => {
   const [first, ...rest] = displayText(text).split("\n");
 
-  return truncateToWidth(`${label}${first}${rest.length ? " …" : ""}`, width, "…");
+  return truncateToWidth(
+    `${label}${first}${rest.length ? " …" : ""}`,
+    width,
+    "…"
+  );
+};
+
+/** Full auxiliary content for the highlighted option, if it has any. */
+export const optionDetailText = (
+  q: Question,
+  highlight: number
+): string | undefined => {
+  const option = q.options?.[highlight];
+
+  if (!option) {
+    return;
+  }
+
+  const sections: string[] = [];
+
+  if (option.description !== undefined) {
+    sections.push(`## Description\n\n${option.description}`);
+  }
+
+  if (q.recommendation?.option_ids.includes(option.id) === true) {
+    sections.push(`## Recommendation\n\n★ ${q.recommendation.reason}`);
+  }
+
+  if (option.preview !== undefined) {
+    sections.push(`## Preview\n\n${option.preview}`);
+  }
+
+  return sections.join("\n\n") || undefined;
 };
 
 /** Appended to options with auxiliary details, so `p` is discoverable. */
 const DETAILS_MARK = "  ▸ details (p)";
 
-export function optionLines(
+export const optionLines = (
   q: Question,
   a: Draft["answers"][string],
   highlight: number,
   width: number,
-  theme: Theme,
-) {
+  theme: Theme
+) => {
   const lines: string[] = [];
 
   const choices = [
     ...(q.options ?? []).map((o, index) => ({
-      label: `${index + 1}. ${o.label}${q.recommendation?.option_ids.includes(o.id) ? " ★" : ""}`,
+      label: `${index + 1}. ${o.label}${q.recommendation?.option_ids.includes(o.id) === true ? " ★" : ""}`,
       text: "",
       selected: a.selected.includes(o.id),
       note: a.notes[o.id],
-      details: !!optionDetailText(q, index),
+      details: optionDetailText(q, index) !== undefined,
     })),
     {
-      label: q.options?.length ? "Write another answer" : "Write your answer",
+      label:
+        (q.options?.length ?? 0) > 0
+          ? "Write another answer"
+          : "Write your answer",
       text: a.custom,
       selected: a.custom_selected,
       note: a.custom_note,
@@ -142,42 +207,48 @@ export function optionLines(
   for (const [index, o] of choices.entries()) {
     const focused = index === highlight;
 
-    const marker = q.multi_select ? (o.selected ? "[x]" : "[ ]") : o.selected ? "(•)" : "( )";
-    const rows = textLines(`${focused ? ">" : " "} ${marker} ${o.label}`, width);
+    let marker: string;
+
+    if (q.multi_select === true) {
+      marker = o.selected ? "[x]" : "[ ]";
+    } else {
+      marker = o.selected ? "(•)" : "( )";
+    }
+
+    const rows = textLines(
+      `${focused ? ">" : " "} ${marker} ${o.label}`,
+      width
+    );
 
     for (const [i, row] of rows.entries()) {
       const suffix = o.details && i === rows.length - 1 ? DETAILS_MARK : "";
-      const styled = theme.fg(o.selected ? "success" : "text", row) + theme.fg("accent", suffix);
+
+      const styled =
+        theme.fg(o.selected ? "success" : "text", row) +
+        theme.fg("accent", suffix);
+
       const used = visibleWidth(row) + visibleWidth(suffix);
       lines.push(
-        focused ? theme.bg("selectedBg", styled + " ".repeat(Math.max(0, width - used))) : styled,
+        focused
+          ? theme.bg(
+              "selectedBg",
+              styled + " ".repeat(Math.max(0, width - used))
+            )
+          : styled
       );
     }
 
-    if (o.text) lines.push(theme.fg("muted", `    ${excerpt("", o.text, inner)}`));
+    if (o.text) {
+      lines.push(theme.fg("muted", `    ${excerpt("", o.text, inner)}`));
+    }
 
-    if (o.note) lines.push(theme.fg("muted", `    ${excerpt("Note: ", o.note, inner)}`));
+    if (o.note !== undefined && o.note !== "") {
+      lines.push(theme.fg("muted", `    ${excerpt("Note: ", o.note, inner)}`));
+    }
   }
 
   return lines;
-}
-
-/** Full auxiliary content for the highlighted option, if it has any. */
-export function optionDetailText(q: Question, highlight: number): string | undefined {
-  const option = q.options?.[highlight];
-
-  if (!option) return;
-  const sections: string[] = [];
-
-  if (option.description) sections.push(`## Description\n\n${option.description}`);
-
-  if (q.recommendation?.option_ids.includes(option.id))
-    sections.push(`## Recommendation\n\n★ ${q.recommendation.reason}`);
-
-  if (option.preview) sections.push(`## Preview\n\n${option.preview}`);
-
-  return sections.join("\n\n") || undefined;
-}
+};
 
 interface FrameOptions {
   title: string;
@@ -200,10 +271,18 @@ interface FrameResult {
 const frameChrome = (options: FrameOptions) => {
   const { width, theme } = options;
 
-  const rule = (label = "", tone: "borderAccent" | "borderMuted" = "borderAccent") => {
-    const text = label ? truncateToWidth(`─ ${oneLine(label)} `, width, "… ") : "";
+  const rule = (
+    label = "",
+    tone: "borderAccent" | "borderMuted" = "borderAccent"
+  ) => {
+    const text = label
+      ? truncateToWidth(`─ ${oneLine(label)} `, width, "… ")
+      : "";
 
-    return theme.fg(tone, text + "─".repeat(Math.max(0, width - visibleWidth(text))));
+    return theme.fg(
+      tone,
+      text + "─".repeat(Math.max(0, width - visibleWidth(text)))
+    );
   };
 
   const footer = [...options.footer.split("\n"), ""]
@@ -211,19 +290,26 @@ const frameChrome = (options: FrameOptions) => {
     .map((line) => truncateToWidth(displayText(line), width, "…"));
 
   const maxBudget = Math.max(3, options.rows - 2);
-  const normalBudget = Math.max(8, Math.min(Math.floor(options.rows * 0.6), maxBudget));
+
+  const normalBudget = Math.max(
+    8,
+    Math.min(Math.floor(options.rows * 0.6), maxBudget)
+  );
 
   return { footer, maxBudget, normalBudget, rule };
 };
 
 type FrameChrome = ReturnType<typeof frameChrome>;
 
-const tooSmall = (options: FrameOptions, { maxBudget }: FrameChrome): FrameResult => ({
+const tooSmall = (
+  options: FrameOptions,
+  { maxBudget }: FrameChrome
+): FrameResult => ({
   scroll: options.scroll,
   viewport: { top: 0, rows: 0 },
   lines: textLines(
     `Terminal too small for the questionnaire · ${options.closeKey} closes and keeps the draft`,
-    options.width,
+    options.width
   ).slice(0, maxBudget),
 });
 
@@ -233,7 +319,7 @@ const finishFrame = (
   body: string[],
   scroll: number,
   viewportRows: number,
-  hint: string,
+  hint: string
 ): FrameResult => ({
   scroll,
   viewport: { top: 3, rows: viewportRows },
@@ -244,7 +330,7 @@ const finishFrame = (
     ...body,
     options.theme.fg(
       options.hint ? "warning" : "dim",
-      truncateToWidth(displayText(hint), options.width),
+      truncateToWidth(displayText(hint), options.width)
     ),
     ...footer.map((line) => options.theme.fg("dim", line)),
     rule(),
@@ -252,30 +338,39 @@ const finishFrame = (
 });
 
 /** Render scrollable context above compact, always-visible answer controls. */
-export function renderQuestionView(
-  options: FrameOptions & { context: string[]; answers: string[] },
-): FrameResult {
+export const renderQuestionView = (
+  options: FrameOptions & { context: string[]; answers: string[] }
+): FrameResult => {
   const chrome = frameChrome(options);
   const { footer, maxBudget, normalBudget, rule } = chrome;
 
-  if (options.width < 24 || maxBudget < 8) return tooSmall(options, chrome);
+  if (options.width < 24 || maxBudget < 8) {
+    return tooSmall(options, chrome);
+  }
+
   const chromeRows = footer.length + 5;
   const dividerRows = options.context.length > 0 ? 1 : 0;
   const minimumContextRows = options.context.length > 0 ? 1 : 0;
-  const required = chromeRows + options.answers.length + dividerRows + minimumContextRows;
 
-  if (required > maxBudget) return tooSmall(options, chrome);
-  const normalContextRows = normalBudget - chromeRows - options.answers.length - dividerRows;
+  const required =
+    chromeRows + options.answers.length + dividerRows + minimumContextRows;
+
+  if (required > maxBudget) {
+    return tooSmall(options, chrome);
+  }
+
+  const normalContextRows =
+    normalBudget - chromeRows - options.answers.length - dividerRows;
 
   const contextRows = Math.min(
     options.context.length,
     Math.max(minimumContextRows, normalContextRows),
-    8,
+    8
   );
 
   const scroll = Math.max(
     0,
-    Math.min(options.scroll, Math.max(0, options.context.length - contextRows)),
+    Math.min(options.scroll, Math.max(0, options.context.length - contextRows))
   );
 
   const visibleContext = options.context.slice(scroll, scroll + contextRows);
@@ -287,14 +382,16 @@ export function renderQuestionView(
             options.context.length > contextRows
               ? `Context ${scroll + 1}–${Math.min(scroll + contextRows, options.context.length)} / ${options.context.length}`
               : "Context",
-            "borderMuted",
+            "borderMuted"
           ),
         ]
       : [];
 
   const hint =
     options.hint ||
-    (options.context.length > contextRows ? "Scroll context with PageUp/PageDown" : "");
+    (options.context.length > contextRows
+      ? "Scroll context with PageUp/PageDown"
+      : "");
 
   return finishFrame(
     options,
@@ -302,29 +399,34 @@ export function renderQuestionView(
     [...visibleContext, ...divider, ...options.answers],
     scroll,
     contextRows,
-    hint,
+    hint
   );
-}
+};
 
 /** Render Review, editors, previews and metadata as conventional scrolling pages. */
-export function renderScrollablePage(
-  options: FrameOptions & { body: string[]; focusLine?: number },
-): FrameResult {
+export const renderScrollablePage = (
+  options: FrameOptions & { body: string[]; focusLine?: number }
+): FrameResult => {
   const chrome = frameChrome(options);
 
-  if (options.width < 24) return tooSmall(options, chrome);
+  if (options.width < 24) {
+    return tooSmall(options, chrome);
+  }
+
   const capacity = chrome.normalBudget - chrome.footer.length - 5;
   const viewportRows = Math.max(1, Math.min(capacity, options.body.length));
 
   let scroll = Math.max(
     0,
-    Math.min(options.scroll, Math.max(0, options.body.length - viewportRows)),
+    Math.min(options.scroll, Math.max(0, options.body.length - viewportRows))
   );
 
   if (options.focusLine !== undefined) {
-    if (options.focusLine < scroll) scroll = options.focusLine;
-    else if (options.focusLine >= scroll + viewportRows)
+    if (options.focusLine < scroll) {
+      scroll = options.focusLine;
+    } else if (options.focusLine >= scroll + viewportRows) {
       scroll = options.focusLine - viewportRows + 1;
+    }
   }
 
   const visible = options.body.slice(scroll, scroll + viewportRows);
@@ -336,14 +438,19 @@ export function renderScrollablePage(
       : "");
 
   return finishFrame(options, chrome, visible, scroll, viewportRows, hint);
-}
+};
 
 /** Horizontal padding for full-width questionnaire screens. */
-export function padded(availableWidth: number, draw: (width: number) => string[]): string[] {
+export const padded = (
+  availableWidth: number,
+  draw: (width: number) => string[]
+): string[] => {
   const padding = availableWidth >= 28 ? 2 : 0;
 
-  return draw(availableWidth - padding * 2).map((line) => " ".repeat(padding) + line);
-}
+  return draw(availableWidth - padding * 2).map(
+    (line) => " ".repeat(padding) + line
+  );
+};
 
 /** Scroll state of the frame's viewport, driven by keys and fullscreen wheel events. */
 export class Viewport {
@@ -367,9 +474,19 @@ export class Viewport {
   wheel(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     const { top, rows } = this.area;
 
-    if (event.type !== "wheel" || !event.wheelDelta || rows === 0) return;
+    if (
+      event.type !== "wheel" ||
+      event.wheelDelta === undefined ||
+      event.wheelDelta === 0 ||
+      rows === 0
+    ) {
+      return;
+    }
 
-    if (event.y < top || event.y >= top + rows) return;
+    if (event.y < top || event.y >= top + rows) {
+      return;
+    }
+
     this.scroll += event.wheelDelta;
 
     return { handled: true };

@@ -23,7 +23,7 @@ const OpenCodeGoUsagePayloadSchema = Type.Object({
 
 const parseWindow = (
   raw: Static<typeof OpenCodeGoWindowSchema> | undefined,
-  label: string,
+  label: string
 ): UsageWindow | undefined => {
   if (raw === undefined) {
     return undefined;
@@ -34,7 +34,7 @@ const parseWindow = (
 
 export const mapOpenCodeGoUsagePayload = (
   payload: Static<typeof OpenCodeGoUsagePayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const windows = [
     parseWindow(payload.usage.rolling, "5h"),
@@ -42,13 +42,19 @@ export const mapOpenCodeGoUsagePayload = (
     parseWindow(payload.usage.monthly, "month"),
   ].filter(isDefined);
 
-  return usageResult({ fetchedAt: nowMs, provider: "opencode-go", quotaWindows: windows });
+  return usageResult({
+    fetchedAt: nowMs,
+    provider: "opencode-go",
+    quotaWindows: windows,
+  });
 };
 
-export const fetchOpenCodeGoUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchOpenCodeGoUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "opencode-go",
     { url: OPENCODE_GO_USAGE_URL, schema: OpenCodeGoUsagePayloadSchema },
-    mapOpenCodeGoUsagePayload,
+    mapOpenCodeGoUsagePayload
   );

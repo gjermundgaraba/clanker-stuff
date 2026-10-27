@@ -1,4 +1,3 @@
-import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -7,9 +6,9 @@ import {
   mapXaiUsagePayloads,
   mapXaiWeeklyPayload,
 } from "../../adapters/xai.js";
-import type { GetAuth } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 import { defaultFetchJson } from "../../http.js";
+import { okFetch, tokenAuth } from "./helpers.js";
 
 describe("xai monthly parsing", () => {
   it("computes remaining from used/monthlyLimit moneyish values", () => {
@@ -32,7 +31,7 @@ describe("xai monthly parsing", () => {
     expect(
       mapXaiMonthlyPayload({
         config: { monthlyLimit: 0, used: 5 },
-      })?.remainingPercent,
+      })?.remainingPercent
     ).toBe(0);
   });
 });
@@ -64,7 +63,7 @@ describe("xai weekly parsing", () => {
           billingPeriodEnd: "2026-07-28T00:00:00.000Z",
           currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" },
         },
-      }),
+      })
     ).toBeUndefined();
   });
 
@@ -75,7 +74,7 @@ describe("xai weekly parsing", () => {
           creditUsagePercent: 10,
           currentPeriod: { type: "USAGE_PERIOD_TYPE_MONTHLY" },
         },
-      }),
+      })
     ).toBeUndefined();
   });
 });
@@ -99,7 +98,7 @@ describe("xai combined payloads", () => {
           prepaidBalance: { val: 1084 },
         },
       },
-      1000,
+      1000
     );
 
     expect(result.ok).toBeTruthy();
@@ -108,25 +107,30 @@ describe("xai combined payloads", () => {
       return;
     }
 
-    expect(result.snapshot.accounting).toStrictEqual({ kind: "credit-balance", available: 1084 });
+    expect(result.snapshot.accounting).toStrictEqual({
+      kind: "credit-balance",
+      available: 1084,
+    });
     expect(
-      result.snapshot.quotaWindows.find((window) => window.label === "week")?.remainingPercent,
+      result.snapshot.quotaWindows.find((window) => window.label === "week")
+        ?.remainingPercent
     ).toBe(0);
   });
 });
 
 describe("xai fetch", () => {
   it("does not call billing for non-OAuth credentials", async () => {
-    const getAuth: GetAuth = async () => ({
-      auth: { apiKey: "sk-test" },
-      source: "XAI_API_KEY",
-    });
+    const client = { fetchJson: okFetch(undefined) } satisfies {
+      fetchJson: FetchJson;
+    };
 
-    const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchXaiUsage({
-      getAuth,
+      getAuth: async () => ({
+        auth: { apiKey: "sk-test" },
+        source: "XAI_API_KEY",
+      }),
       fetchJson: client.fetchJson,
       now: () => 1,
     });
@@ -142,10 +146,7 @@ describe("xai fetch", () => {
   });
 
   it("keeps monthly success when weekly request fails", async () => {
-    const getAuth: GetAuth = async () => ({
-      auth: { apiKey: "oauth-token" },
-      source: "OAuth",
-    });
+    const getAuth = tokenAuth("oauth-token");
 
     const client = {
       fetchJson: async (url, schema, headers) => {
@@ -153,7 +154,7 @@ describe("xai fetch", () => {
           return { kind: "response", message: "HTTP 500", ok: false };
         }
 
-        return okFetch({
+        return await okFetch({
           config: {
             monthlyLimit: 200,
             used: 50,
@@ -181,10 +182,7 @@ describe("xai fetch", () => {
   it("starts independent billing requests concurrently", async () => {
     const monthlyGate = Promise.withResolvers<null>();
 
-    const getAuth: GetAuth = async () => ({
-      auth: { apiKey: "oauth-token" },
-      source: "OAuth",
-    });
+    const getAuth = tokenAuth("oauth-token");
 
     const client = {
       fetchJson: async (url, schema, headers) => {
@@ -192,13 +190,22 @@ describe("xai fetch", () => {
           await monthlyGate.promise;
         }
 
-        return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, headers);
+        return await okFetch({ config: { monthlyLimit: 100, used: 0 } })(
+          url,
+          schema,
+          headers
+        );
       },
     } satisfies { fetchJson: FetchJson };
 
     const fetchJson = vi.spyOn(client, "fetchJson");
 
-    const result = fetchXaiUsage({ getAuth, fetchJson: client.fetchJson, now: () => 1 });
+    const result = fetchXaiUsage({
+      getAuth,
+      fetchJson: client.fetchJson,
+      now: () => 1,
+    });
+
     await vi.waitFor(() => {
       expect(fetchJson).toHaveBeenCalledTimes(2);
     });
@@ -210,22 +217,23 @@ describe("xai fetch", () => {
   it("returns a monthly failure without waiting for credits", async () => {
     const creditsGate = Promise.withResolvers<never>();
 
-    const getAuth: GetAuth = async () => ({
-      auth: { apiKey: "oauth-token" },
-      source: "OAuth",
-    });
+    const getAuth = tokenAuth("oauth-token");
 
     const client = {
       fetchJson: async (url) => {
         if (url.includes("format=credits")) {
-          return creditsGate.promise;
+          return await creditsGate.promise;
         }
 
         return { kind: "response", message: "HTTP 500", ok: false };
       },
     } satisfies { fetchJson: FetchJson };
 
-    const result = await fetchXaiUsage({ getAuth, fetchJson: client.fetchJson, now: () => 1 });
+    const result = await fetchXaiUsage({
+      getAuth,
+      fetchJson: client.fetchJson,
+      now: () => 1,
+    });
 
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "HTTP 500" },
@@ -237,19 +245,17 @@ describe("xai fetch", () => {
 
 describe("xai optional payload boundaries", () => {
   it("keeps a reported zero credit balance when monthly metrics are unavailable", async () => {
-    const fetchJson: FetchJson = (url, schema, headers) =>
-      okFetch(url.includes("format=credits") ? { config: { prepaidBalance: 0 } } : {})(
-        url,
-        schema,
-        headers,
-      );
-
     await expect(
       fetchXaiUsage({
         getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-        fetchJson,
+        fetchJson: async (url, schema, headers) =>
+          await okFetch(
+            url.includes("format=credits")
+              ? { config: { prepaidBalance: 0 } }
+              : {}
+          )(url, schema, headers),
         now: () => 1,
-      }),
+      })
     ).resolves.toStrictEqual({
       ok: true,
       snapshot: {
@@ -266,8 +272,10 @@ describe("xai optional payload boundaries", () => {
     async (status) => {
       vi.stubGlobal("fetch", async (url: string) =>
         url.includes("format=credits")
-          ? Response.json({ config: { creditUsagePercent: 20, prepaidBalance: { val: 10 } } })
-          : new Response(null, { status }),
+          ? Response.json({
+              config: { creditUsagePercent: 20, prepaidBalance: { val: 10 } },
+            })
+          : new Response(null, { status })
       );
 
       try {
@@ -289,34 +297,56 @@ describe("xai optional payload boundaries", () => {
       } finally {
         vi.unstubAllGlobals();
       }
-    },
+    }
   );
 
   it.each([
-    { monthly: null, weekly: { config: { creditUsagePercent: 20 } }, labels: ["week"] },
-    { monthly: { config: { monthlyLimit: 100, used: 10 } }, weekly: null, labels: ["month"] },
-    { monthly: { config: {} }, weekly: { config: { creditUsagePercent: 20 } }, labels: ["week"] },
-  ])("maps available windows for $labels", async ({ monthly, weekly, labels }) => {
-    const fetchJson: FetchJson = (url, schema, headers) =>
-      okFetch(url.includes("format=credits") ? weekly : monthly)(url, schema, headers);
+    {
+      monthly: null,
+      weekly: { config: { creditUsagePercent: 20 } },
+      labels: ["week"],
+    },
+    {
+      monthly: { config: { monthlyLimit: 100, used: 10 } },
+      weekly: null,
+      labels: ["month"],
+    },
+    {
+      monthly: { config: {} },
+      weekly: { config: { creditUsagePercent: 20 } },
+      labels: ["week"],
+    },
+  ])(
+    "maps available windows for $labels",
+    async ({ monthly, weekly, labels }) => {
+      const fetchJson: FetchJson = async (url, schema, headers) =>
+        await okFetch(url.includes("format=credits") ? weekly : monthly)(
+          url,
+          schema,
+          headers
+        );
 
-    const result = await fetchXaiUsage({
-      getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-      fetchJson,
-      now: () => 1,
-    });
+      const result = await fetchXaiUsage({
+        getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+        fetchJson,
+        now: () => 1,
+      });
 
-    expect(result.ok).toBe(true);
-
-    if (result.ok)
-      expect(result.snapshot.quotaWindows.map(({ label }) => label)).toStrictEqual(labels);
-  });
+      expect(result).toMatchObject({
+        ok: true,
+        snapshot: { quotaWindows: labels.map((label) => ({ label })) },
+      });
+    }
+  );
 
   it("observes weekly rejection even when the monthly request rejects", async () => {
     const weekly = Promise.withResolvers<never>();
 
     const fetchJson: FetchJson = async (url) => {
-      if (url.includes("format=credits")) return weekly.promise;
+      if (url.includes("format=credits")) {
+        return await weekly.promise;
+      }
+
       throw new Error("monthly failed");
     };
 
@@ -325,21 +355,25 @@ describe("xai optional payload boundaries", () => {
         getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
         fetchJson,
         now: () => 1,
-      }),
+      })
     ).rejects.toThrow("monthly failed");
     weekly.reject(new Error("weekly failed"));
   });
 
   it("keeps valid monthly windows when weekly rejects", async () => {
-    const fetchJson: FetchJson = async (url, schema, headers) => {
-      if (url.includes("format=credits")) throw new Error("weekly failed");
-
-      return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, headers);
-    };
-
     const result = await fetchXaiUsage({
       getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-      fetchJson,
+      fetchJson: async (url, schema, headers) => {
+        if (url.includes("format=credits")) {
+          throw new Error("weekly failed");
+        }
+
+        return await okFetch({ config: { monthlyLimit: 100, used: 0 } })(
+          url,
+          schema,
+          headers
+        );
+      },
       now: () => 1,
     });
 

@@ -36,14 +36,14 @@ Direct assignment to `session.agent.state.messages` no longer restores provider 
 
 ### Other breaking surfaces checked
 
-| Upstream change                                                                 | Local impact                                                                                                                              |
-| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `shouldStopAfterTurn` removed; use `finishTurn`                                 | No local callers. Error/aborted responses remain hard exits; the new callback also observes them.                                         |
-| `ExtensionRunner.emit()` excludes actionable boundaries; use `emitBoundary()`   | No production caller needing migration.                                                                                                   |
-| `ContextEditEntry` / `AgentBeforeSettleEvent` expand public unions              | Shared fixture updated; type-check and tests cover our consumers. Raw-history consumers intentionally retain raw entries.                 |
-| `loadPromptTemplates()` returns `{ templates, diagnostics }`                    | No local callers.                                                                                                                         |
-| Chord replicated `.state` / `.publish()` replaced by `.change()` / `.replace()` | No direct local consumers. Keep the transitive package pinned with Pi.                                                                    |
-| Unknown Chat Completions endpoints default to non-strict tool schemas           | Intentional upstream compatibility fix. Our Codex Responses provider is separate; retain structural schemas and runtime value validation. |
+| Upstream change | Local impact |
+| --- | --- |
+| `shouldStopAfterTurn` removed; use `finishTurn` | No local callers. Error/aborted responses remain hard exits; the new callback also observes them. |
+| `ExtensionRunner.emit()` excludes actionable boundaries; use `emitBoundary()` | No production caller needing migration. |
+| `ContextEditEntry` / `AgentBeforeSettleEvent` expand public unions | Shared fixture updated; type-check and tests cover our consumers. Raw-history consumers intentionally retain raw entries. |
+| `loadPromptTemplates()` returns `{ templates, diagnostics }` | No local callers. |
+| Chord replicated `.state` / `.publish()` replaced by `.change()` / `.replace()` | No direct local consumers. Keep the transitive package pinned with Pi. |
+| Unknown Chat Completions endpoints default to non-strict tool schemas | Intentional upstream compatibility fix. Our Codex Responses provider is separate; retain structural schemas and runtime value validation. |
 
 ## Opportunities, in priority order
 

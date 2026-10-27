@@ -27,8 +27,8 @@ export interface FooterLayout {
 /** Single-line status text as Pi's own footer shows it, with styling closed before the next widget. */
 export const cleanStatus = (text: string): string => {
   const clean = text
-    .replace(/[\r\n\t]/gu, " ")
-    .replace(/ +/gu, " ")
+    .replaceAll(/[\r\n\t]/gu, " ")
+    .replaceAll(/ +/gu, " ")
     .trim();
 
   return clean.includes("\u001B") ? `${clean}\u001B[0m` : clean;
@@ -37,35 +37,52 @@ export const cleanStatus = (text: string): string => {
 export const renderBuiltin = (
   widget: BuiltinWidget,
   family: IconFamily,
-  theme: FooterTheme,
+  theme: FooterTheme
 ): string => {
   // Session names, paths and model IDs come from saved sessions and providers; keep their controls off the screen.
-  const spans = widget.content.map(({ text, tone }) => ({ text: inlineText(text), tone }));
+  const spans = widget.content.map(({ text, tone }) => ({
+    text: inlineText(text),
+    tone,
+  }));
 
-  if (spans.every(({ text }) => text.length === 0)) return "";
+  if (spans.every(({ text }) => text.length === 0)) {
+    return "";
+  }
 
-  const icon = widget.icon === undefined ? "" : `${theme.fg("dim", widget.icon[family])} `;
+  const icon =
+    widget.icon === undefined ? "" : `${theme.fg("dim", widget.icon[family])} `;
 
   return icon + spans.map(({ text, tone }) => theme.fg(tone, text)).join("");
 };
 
 /** Statuses keyed `status:<key>`, ready to place. */
-export const statusWidgets = (statuses: ReadonlyMap<string, string>): Map<string, LiveWidget> =>
+export const statusWidgets = (
+  statuses: ReadonlyMap<string, string>
+): Map<string, LiveWidget> =>
   new Map(
-    [...statuses]
+    statuses
+      .entries()
       .map(([key, text]): [string, LiveWidget] => [
         `${STATUS_PREFIX}${key}`,
         { text: cleanStatus(text) },
       ])
-      .filter(([, widget]) => widget.text.length > 0),
+      .filter(([, widget]) => widget.text.length > 0)
   );
 
-const truncate = (text: string, width: number, direction: "start" | "end"): string => {
+const truncate = (
+  text: string,
+  width: number,
+  direction: "start" | "end"
+): string => {
   const sourceWidth = visibleWidth(text);
 
-  if (sourceWidth <= width) return text;
+  if (sourceWidth <= width) {
+    return text;
+  }
 
-  if (width <= 0) return "";
+  if (width <= 0) {
+    return "";
+  }
 
   return direction === "end"
     ? truncateToWidth(text, width, "…")
@@ -80,15 +97,17 @@ interface Placed extends LiveWidget {
 /** Capped equal allocation: narrow widgets keep their width, wide ones share the rest. */
 const allocateWidths = (
   items: readonly Placed[],
-  budget: number,
-): { item: Placed; natural: number; width: number }[] => {
+  budget: number
+): Array<{ item: Placed; natural: number; width: number }> => {
   const allocated = items.map((item) => {
     const natural = visibleWidth(item.text);
 
     return { item, natural, width: natural };
   });
 
-  if (allocated.reduce((total, { width }) => total + width, 0) <= budget) return allocated;
+  if (allocated.reduce((total, { width }) => total + width, 0) <= budget) {
+    return allocated;
+  }
 
   let low = 0;
   let high = Math.max(0, ...allocated.map(({ natural }) => natural));
@@ -96,9 +115,16 @@ const allocateWidths = (
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
 
-    if (allocated.reduce((total, { natural }) => total + Math.min(natural, middle), 0) <= budget)
+    if (
+      allocated.reduce(
+        (total, { natural }) => total + Math.min(natural, middle),
+        0
+      ) <= budget
+    ) {
       low = middle;
-    else high = middle - 1;
+    } else {
+      high = middle - 1;
+    }
   }
 
   let remaining = budget;
@@ -109,7 +135,9 @@ const allocateWidths = (
   }
 
   for (const entry of allocated) {
-    if (remaining === 0) break;
+    if (remaining === 0) {
+      break;
+    }
 
     if (entry.width < entry.natural) {
       entry.width += 1;
@@ -120,23 +148,26 @@ const allocateWidths = (
   return allocated;
 };
 
-const fitRow = (
-  items: readonly Placed[],
-  width: number,
-  separator: string,
-): { line: string; truncated: string[] } => {
+const fitRow = (items: readonly Placed[], width: number, separator: string) => {
   const left = items.filter((item) => item.side === "left").length;
   const right = items.length - left;
   const gap = left > 0 && right > 0 ? 1 : 0;
-  const fixed = (Math.max(0, left - 1) + Math.max(0, right - 1)) * visibleWidth(separator) + gap;
+
+  const fixed =
+    (Math.max(0, left - 1) + Math.max(0, right - 1)) * visibleWidth(separator) +
+    gap;
 
   const fitted = allocateWidths(items, Math.max(0, width - fixed)).map(
     ({ item, natural, width: budget }) => ({
       id: item.id,
       side: item.side,
-      text: truncate(item.text, budget, item.truncate ?? (item.side === "left" ? "end" : "start")),
+      text: truncate(
+        item.text,
+        budget,
+        item.truncate ?? (item.side === "left" ? "end" : "start")
+      ),
       truncated: budget < natural,
-    }),
+    })
   );
 
   const join = (side: Placed["side"]) =>
@@ -154,7 +185,11 @@ const fitRow = (
       : Math.max(gap, width - visibleWidth(leftText) - visibleWidth(rightText));
 
   return {
-    line: truncateToWidth(`${leftText}${" ".repeat(padding)}${rightText}`, width, ""),
+    line: truncateToWidth(
+      `${leftText}${" ".repeat(padding)}${rightText}`,
+      width,
+      ""
+    ),
     truncated: fitted.filter((item) => item.truncated).map(({ id }) => id),
   };
 };
@@ -163,13 +198,13 @@ export const layoutFooter = (
   config: FooterConfig,
   live: ReadonlyMap<string, LiveWidget>,
   width: number,
-  theme: FooterTheme,
+  theme: FooterTheme
 ): FooterLayout => {
   const safeWidth = Math.max(0, Math.floor(width));
   // Hidden statuses can appear only here, so skipping them here hides them everywhere.
   const claimed = new Set([...placedIds(config), ...config.hidden]);
 
-  const expand = (id: string): [string, LiveWidget][] => {
+  const expand = (id: string): Array<[string, LiveWidget]> => {
     if (id !== STATUSES_ID) {
       const widget = live.get(id);
 
@@ -177,7 +212,9 @@ export const layoutFooter = (
     }
 
     return [...live]
-      .filter(([member]) => member.startsWith(STATUS_PREFIX) && !claimed.has(member))
+      .filter(
+        ([member]) => member.startsWith(STATUS_PREFIX) && !claimed.has(member)
+      )
       .toSorted(([a], [b]) => a.localeCompare(b));
   };
 
@@ -190,10 +227,12 @@ export const layoutFooter = (
       row[side]
         .flatMap(expand)
         .filter(([_id, widget]) => widget.text.length > 0)
-        .map(([id, widget]): Placed => ({ ...widget, id, side })),
+        .map(([id, widget]): Placed => ({ ...widget, id, side }))
     );
 
-    if (items.length === 0 || safeWidth === 0) continue;
+    if (items.length === 0 || safeWidth === 0) {
+      continue;
+    }
 
     const fitted = fitRow(items, safeWidth, separator);
     lines.push(fitted.line);
@@ -212,13 +251,17 @@ export const renderBorder = (
   width: number,
   entries: readonly string[],
   theme: FooterTheme,
-  borderColor: (text: string) => string,
+  borderColor: (text: string) => string
 ): string => {
-  if (entries.length === 0 || width < 5 || visibleWidth(original) !== width) return original;
+  if (entries.length === 0 || width < 5 || visibleWidth(original) !== width) {
+    return original;
+  }
 
   const plain = stripTerminalSequences(original);
 
-  if (!plain.startsWith("─") || !plain.endsWith("─")) return original;
+  if (!plain.startsWith("─") || !plain.endsWith("─")) {
+    return original;
+  }
 
   // Keep two rule cells before the block and one after it, plus the spaces around it.
   const budget = (/─+$/u.exec(plain)?.[0].length ?? 0) - 5;
@@ -235,7 +278,9 @@ export const renderBorder = (
     }
   }
 
-  if (selected.length === 0) return original;
+  if (selected.length === 0) {
+    return original;
+  }
 
   return `${sliceByColumn(original, 0, width - used - 3, true)}\u001B[0m${borderColor(" ")}${selected.join(theme.fg("dim", " · "))}${borderColor(" ─")}`;
 };

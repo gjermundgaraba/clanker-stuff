@@ -14,7 +14,10 @@ import type { FooterTheme, LiveWidget } from "../layout.js";
 
 const theme: FooterTheme = { fg: (_tone, text) => text };
 
-const config = (rows: FooterConfig["rows"], extra: Partial<FooterConfig> = {}): FooterConfig => ({
+const config = (
+  rows: FooterConfig["rows"],
+  extra: Partial<FooterConfig> = {}
+): FooterConfig => ({
   ...DEFAULT_CONFIG,
   border: [],
   hidden: [],
@@ -22,15 +25,18 @@ const config = (rows: FooterConfig["rows"], extra: Partial<FooterConfig> = {}): 
   ...extra,
 });
 
-const live = (entries: Record<string, string | LiveWidget>): Map<string, LiveWidget> =>
+const live = (
+  entries: Record<string, string | LiveWidget>
+): Map<string, LiveWidget> =>
   new Map(
     Object.entries(entries).map(([id, value]) => [
       id,
       typeof value === "string" ? { text: value } : value,
-    ]),
+    ])
   );
 
-const plain = (lines: string[]) => lines.map((line) => stripTerminalSequences(line));
+const plain = (lines: string[]) =>
+  lines.map((line) => stripTerminalSequences(line));
 
 describe(layoutFooter, () => {
   it("anchors left and right groups to their edges", () => {
@@ -38,7 +44,7 @@ describe(layoutFooter, () => {
       config([{ left: ["a", "b"], right: ["c"] }]),
       live({ a: "alpha", b: "beta", c: "gamma" }),
       24,
-      theme,
+      theme
     );
 
     expect(plain(lines)).toStrictEqual(["alpha · beta       gamma"]);
@@ -52,13 +58,26 @@ describe(layoutFooter, () => {
     });
 
     expect(
-      plain(layoutFooter(config([{ left: ["left"], right: [] }]), widgets, 5, theme).lines),
+      plain(
+        layoutFooter(config([{ left: ["left"], right: [] }]), widgets, 5, theme)
+          .lines
+      )
     ).toStrictEqual(["abcd…"]);
     expect(
-      plain(layoutFooter(config([{ left: [], right: ["right"] }]), widgets, 5, theme).lines),
+      plain(
+        layoutFooter(
+          config([{ left: [], right: ["right"] }]),
+          widgets,
+          5,
+          theme
+        ).lines
+      )
     ).toStrictEqual(["…cdef"]);
     expect(
-      plain(layoutFooter(config([{ left: ["path"], right: [] }]), widgets, 5, theme).lines),
+      plain(
+        layoutFooter(config([{ left: ["path"], right: [] }]), widgets, 5, theme)
+          .lines
+      )
     ).toStrictEqual(["…/c/d"]);
   });
 
@@ -75,12 +94,12 @@ describe(layoutFooter, () => {
         config([{ left: ["a", "b"], right: ["c"] }]),
         live({ a: "ok", b: "abcdef", c: "abcdef" }),
         width,
-        theme,
+        theme
       );
 
       expect(plain(result.lines)).toStrictEqual([line]);
       expect(result.truncated).toStrictEqual(truncated);
-    },
+    }
   );
 
   it("reports which widgets were truncated", () => {
@@ -88,7 +107,7 @@ describe(layoutFooter, () => {
       config([{ left: ["short", "long"], right: [] }]),
       live({ long: "x".repeat(40), short: "ok" }),
       20,
-      theme,
+      theme
     );
 
     expect(truncated).toStrictEqual(["long"]);
@@ -106,10 +125,12 @@ describe(layoutFooter, () => {
         config([{ left: ["a", "b"], right: ["c"] }]),
         widgets,
         width,
-        theme,
+        theme
       );
 
-      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      for (const line of lines) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      }
     }
   });
 
@@ -123,7 +144,7 @@ describe(layoutFooter, () => {
         {
           border: ["status:vim"],
           hidden: ["status:noise"],
-        },
+        }
       ),
       statusWidgets(
         new Map([
@@ -133,10 +154,10 @@ describe(layoutFooter, () => {
           ["noise", "N"],
           ["alpha", "A"],
           ["empty", " \n "],
-        ]),
+        ])
       ),
       40,
-      theme,
+      theme
     );
 
     expect(plain(lines)).toStrictEqual(["P", "A · Z"]);
@@ -146,7 +167,9 @@ describe(layoutFooter, () => {
 describe(renderBuiltin, () => {
   it("keeps terminal controls in session and provider text off the screen", () => {
     const widget = {
-      content: [{ text: "name\u001B[2J\u0007\u202E\nnext", tone: "muted" as const }],
+      content: [
+        { text: "name\u001B[2J\u0007\u202E\nnext", tone: "muted" as const },
+      ],
       id: "footer.session",
     };
 
@@ -161,10 +184,10 @@ describe(cleanStatus, () => {
   });
 });
 
-describe(renderBorder, () => {
-  const rule = (width: number) => "─".repeat(width);
-  const border = (text: string) => text;
+const rule = (width: number) => "─".repeat(width);
+const border = (text: string) => text;
 
+describe(renderBorder, () => {
   it("replaces only trailing rule cells, in configured order", () => {
     const line = renderBorder(rule(30), 30, ["✉ 1", "NORMAL"], theme, border);
 
@@ -173,7 +196,13 @@ describe(renderBorder, () => {
   });
 
   it("skips an entry that does not fit and keeps a later one that does", () => {
-    const line = renderBorder(rule(16), 16, ["much too long", "ok"], theme, border);
+    const line = renderBorder(
+      rule(16),
+      16,
+      ["much too long", "ok"],
+      theme,
+      border
+    );
 
     expect(stripTerminalSequences(line)).toBe(`${rule(11)} ok ─`);
   });
@@ -183,7 +212,13 @@ describe(renderBorder, () => {
 
     expect(renderBorder(rule(4), 4, ["x"], theme, border)).toBe(rule(4));
     expect(
-      renderBorder(labelled, visibleWidth(labelled), ["a much longer status"], theme, border),
+      renderBorder(
+        labelled,
+        visibleWidth(labelled),
+        ["a much longer status"],
+        theme,
+        border
+      )
     ).toBe(labelled);
   });
 });

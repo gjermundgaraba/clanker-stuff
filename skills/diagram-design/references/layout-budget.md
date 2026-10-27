@@ -14,26 +14,26 @@ A small box-and-arrow overview often fits about 9 nodes and 12 edges with one or
 
 Useful starting points by visual grammar:
 
-| Grammar                    | Starting density                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| Architecture delta         | 8 unique components, 10 relationships, 8 change-ledger entries across both snapshots  |
-| Sequence                   | 5 lifelines, 12 messages; shallow combined fragments                                  |
-| Swimlane                   | 5 lanes                                                                               |
-| Nested, tree, org chart    | 4–6 levels, with readable labels at each tier                                         |
-| Layer stack                | 6 bands                                                                               |
-| Exploded axonometric       | 2–5 parts or levels, 3 detail tiers, 1 focal part                                     |
-| Axonometric plan           | 8 tagged rooms/buildings, up to 40 small boxes, 1 focal room/building                 |
-| Lifecycle phase map        | 4–5 primary phases, 2 wait/recovery states, 2 terminal states, about 10 transitions   |
-| Heatmap                    | 3–7 rows, 3–8 columns; enlarge the frame before labels become unreadable              |
-| Marimekko                  | 8 categories, 5 series; group a long tail only when disclosed and appropriate         |
-| Streamgraph                | 3–24 periods, 2–6 layers                                                              |
-| Radar, polar, Venn         | About 5 radar axes/series, 8 polar categories, or 3 intersecting sets                 |
-| Bar, waterfall, treemap    | About 8 primary marks                                                                 |
-| Line, scatter, Gantt       | About 5 lines, 30 points, or 12 tasks                                                 |
-| Sankey                     | 3 stages, 8 nodes, 12 flows                                                           |
-| Fishbone                   | 6 cause categories, 3 sub-causes each                                                 |
-| Kanban, story map          | About 5 columns/activities and 12 cards                                               |
-| Deployment, dependency     | About 6–9 nodes and 8–14 relationships                                                |
+| Grammar | Starting density |
+| --- | --- |
+| Architecture delta | 8 unique components, 10 relationships, 8 change-ledger entries across both snapshots |
+| Sequence | 5 lifelines, 12 messages; shallow combined fragments |
+| Swimlane | 5 lanes |
+| Nested, tree, org chart | 4–6 levels, with readable labels at each tier |
+| Layer stack | 6 bands |
+| Exploded axonometric | 2–5 parts or levels, 3 detail tiers, 1 focal part |
+| Axonometric plan | 8 tagged rooms/buildings, up to 40 small boxes, 1 focal room/building |
+| Lifecycle phase map | 4–5 primary phases, 2 wait/recovery states, 2 terminal states, about 10 transitions |
+| Heatmap | 3–7 rows, 3–8 columns; enlarge the frame before labels become unreadable |
+| Marimekko | 8 categories, 5 series; group a long tail only when disclosed and appropriate |
+| Streamgraph | 3–24 periods, 2–6 layers |
+| Radar, polar, Venn | About 5 radar axes/series, 8 polar categories, or 3 intersecting sets |
+| Bar, waterfall, treemap | About 8 primary marks |
+| Line, scatter, Gantt | About 5 lines, 30 points, or 12 tasks |
+| Sankey | 3 stages, 8 nodes, 12 flows |
+| Fishbone | 6 cause categories, 3 sub-causes each |
+| Kanban, story map | About 5 columns/activities and 12 cards |
+| Deployment, dependency | About 6–9 nodes and 8–14 relationships |
 | UML class, database schema | About 5–7 entities; expose required members and keys rather than arbitrary truncation |
 
 Density limits are not correctness checks. A dense source may remain useful as a faithful technical view even when an overview is also needed. Quantitative categories and zeros must never disappear just to satisfy a visual budget.

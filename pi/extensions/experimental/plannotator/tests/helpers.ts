@@ -16,7 +16,12 @@ export const createStarter = () => {
   const pending: PendingProcess[] = [];
 
   const starter = vi.fn<CliStarter>(async (args, options) => {
-    const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
+    const {
+      promise: completion,
+      reject,
+      resolve,
+    } = Promise.withResolvers<CliCompletion>();
+
     pending.push({ args: [...args], options: { ...options }, reject, resolve });
 
     return await completion;
@@ -25,15 +30,31 @@ export const createStarter = () => {
   return { pending, starter };
 };
 
-export const setup = (entries: SessionEntry[] = [], leafId: string | null = null) => {
+export const setup = (
+  entries: SessionEntry[] = [],
+  leafId: string | null = null
+) => {
   const { pending, starter } = createStarter();
-  const host = createExtensionHost((pi) => extension(pi, starter), { entries, leafId });
+
+  const host = createExtensionHost(
+    (pi) => {
+      extension(pi, starter);
+    },
+    {
+      entries,
+      leafId,
+    }
+  );
+
   const ctx = host.createContext({ cwd: "/work/project" });
 
   return { ctx, host, pending, starter };
 };
 
-export const exited = (stdout: string, options: { code?: number } = {}): CliCompletion => ({
+export const exited = (
+  stdout: string,
+  options: { code?: number } = {}
+): CliCompletion => ({
   code: options.code ?? 0,
   signal: null,
   stdout,
@@ -45,7 +66,10 @@ export const signaled = (signal: NodeJS.Signals): CliCompletion => ({
   stdout: "",
 });
 
-export const waitForMessages = async (host: ReturnType<typeof setup>["host"], count: number) => {
+export const waitForMessages = async (
+  host: ReturnType<typeof setup>["host"],
+  count: number
+) => {
   await vi.waitFor(() => {
     expect(host.getSentUserMessages()).toHaveLength(count);
   });
@@ -54,7 +78,7 @@ export const waitForMessages = async (host: ReturnType<typeof setup>["host"], co
 export const assistantEntry = (
   id: string,
   parentId: string | null,
-  text: string,
+  text: string
 ): SessionEntry => ({
   id,
   message: {
@@ -79,7 +103,11 @@ export const assistantEntry = (
   type: "message",
 });
 
-export const userEntry = (id: string, parentId: string, text: string): SessionEntry => ({
+export const userEntry = (
+  id: string,
+  parentId: string,
+  text: string
+): SessionEntry => ({
   id,
   message: {
     content: [{ text, type: "text" }],

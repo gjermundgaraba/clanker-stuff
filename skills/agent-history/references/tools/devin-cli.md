@@ -18,12 +18,12 @@ Last verified: local macOS, schema inspected without transcript bodies.
 
 ## Sources
 
-| Priority | Location                                          | Kind     | Authority       | Contains               | Parser State  | Collection Policy   | Sensitivity |
-| -------- | ------------------------------------------------- | -------- | --------------- | ---------------------- | ------------- | ------------------- | ----------- |
-| 1        | `$HOME/.local/share/devin/cli/sessions.db`        | SQLite   | primary         | sessions/message graph | partial       | collect             | private     |
-| 1        | `$HOME/.local/share/devin/cli/transcripts/*.json` | JSON     | primary/sidecar | exported-like steps    | partial       | collect             | private     |
-| 2        | `$HOME/.local/share/devin/cli/summaries/`         | Markdown | derived         | summaries              | schema_known  | collect_when_needed | private     |
-| 3        | credentials/logs/cache                            | mixed    | support         | secrets/logs           | metadata_only | ignore_by_default   | secret      |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$HOME/.local/share/devin/cli/sessions.db` | SQLite | primary | sessions/message graph | partial | collect | private |
+| 1 | `$HOME/.local/share/devin/cli/transcripts/*.json` | JSON | primary/sidecar | exported-like steps | partial | collect | private |
+| 2 | `$HOME/.local/share/devin/cli/summaries/` | Markdown | derived | summaries | schema_known | collect_when_needed | private |
+| 3 | credentials/logs/cache | mixed | support | secrets/logs | metadata_only | ignore_by_default | secret |
 
 ## Find
 

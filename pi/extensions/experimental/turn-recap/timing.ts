@@ -8,11 +8,19 @@ export const createTiming = () => {
   };
 };
 
-export const formatElapsed = (ms: number, precision: "seconds" | "tenths" = "tenths"): string => {
-  const seconds = precision === "seconds" ? Math.floor(ms / 1000) : Math.round(ms / 100) / 10;
+const pad = (value: number) => String(Math.floor(value)).padStart(2, "0");
 
-  if (seconds < 60) return `${precision === "seconds" ? seconds : seconds.toFixed(1)}s`;
-  const pad = (value: number) => String(Math.floor(value)).padStart(2, "0");
+export const formatElapsed = (
+  ms: number,
+  precision: "seconds" | "tenths" = "tenths"
+): string => {
+  const seconds =
+    precision === "seconds" ? Math.floor(ms / 1000) : Math.round(ms / 100) / 10;
+
+  if (seconds < 60) {
+    return `${precision === "seconds" ? seconds : seconds.toFixed(1)}s`;
+  }
+
   const minutes = Math.floor(seconds / 60);
 
   return minutes < 60

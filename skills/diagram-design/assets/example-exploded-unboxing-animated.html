@@ -263,7 +263,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -289,8 +295,9 @@
             Unboxing · What you see, in the order you see it
           </title>
           <desc id="exploded-unboxing-animated-desc">
-            Exploded view of product packaging: printed lid, the speaker and its cable, the moulded
-            insert that holds them, and the rigid box, with the speaker as the focal part.
+            Exploded view of product packaging: printed lid, the speaker and its
+            cable, the moulded insert that holds them, and the rigid box, with
+            the speaker as the focal part.
           </desc>
           <rect width="100%" height="100%" fill="#f5f5f5" />
           <g data-exploded data-origin="348 752" data-gap="180">
@@ -834,21 +841,38 @@
         </svg>
       </div>
 
-      <div data-motion-controls role="group" aria-label="Diagram playback controls">
+      <div
+        data-motion-controls
+        role="group"
+        aria-label="Diagram playback controls"
+      >
         <button type="button" data-motion-action="prev">Previous</button>
-        <button type="button" data-motion-action="play" aria-pressed="false">Play</button>
-        <button type="button" data-motion-action="pause" aria-pressed="true">Pause</button>
+        <button type="button" data-motion-action="play" aria-pressed="false">
+          Play
+        </button>
+        <button type="button" data-motion-action="pause" aria-pressed="true">
+          Pause
+        </button>
         <button type="button" data-motion-action="next">Next</button>
         <button type="button" data-motion-action="replay">Replay</button>
-        <span class="keyboard-help">←/→ step · Space play/pause · R replay · Home/End jump</span>
+        <span class="keyboard-help"
+          >←/→ step · Space play/pause · R replay · Home/End jump</span
+        >
         <span data-motion-status-visible aria-hidden="true"
           >Step <span data-motion-step-label>4</span> of 4</span
         >
       </div>
-      <p class="sr-only" data-motion-status role="status" aria-live="polite" aria-atomic="true"></p>
+      <p
+        class="sr-only"
+        data-motion-status
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></p>
       <noscript
         ><p>
-          Animation controls require JavaScript. The complete exploded diagram is shown above.
+          Animation controls require JavaScript. The complete exploded diagram
+          is shown above.
         </p></noscript
       >
     </main>
@@ -857,7 +881,8 @@
       (() => {
         const params = new URLSearchParams(location.search);
         const staticOverride =
-          params.get("motion") === "static" || document.documentElement.dataset.motion === "static";
+          params.get("motion") === "static" ||
+          document.documentElement.dataset.motion === "static";
         const requestedStep = params.get("step");
         const reduce = matchMedia("(prefers-reduced-motion: reduce)");
         document.fonts.ready.then(() => {
@@ -866,9 +891,14 @@
 
         document.querySelectorAll("[data-motion-root]").forEach((root) => {
           const count = Number(root.dataset.stepCount);
-          const hold = parseFloat(getComputedStyle(root).getPropertyValue("--motion-hold")) || 720;
+          const hold =
+            parseFloat(
+              getComputedStyle(root).getPropertyValue("--motion-hold")
+            ) || 720;
           const parsedStep =
-            requestedStep !== null && /^\d+$/.test(requestedStep) ? Number(requestedStep) : null;
+            requestedStep !== null && /^\d+$/.test(requestedStep)
+              ? Number(requestedStep)
+              : null;
           const exactStep =
             params.get("motion") === "step" &&
             Number.isSafeInteger(parsedStep) &&
@@ -884,10 +914,10 @@
                   .filter(
                     (item) =>
                       !item.hasAttribute("data-motion-decorative") &&
-                      Number(item.dataset.step) === index,
+                      Number(item.dataset.step) === index
                   )
                   .map((item) => item.getAttribute("aria-label"))
-                  .join("; "),
+                  .join("; ")
           );
           const controls = root.querySelector("[data-motion-controls]");
           const status = root.querySelector("[data-motion-status]");
@@ -898,7 +928,8 @@
           let stepBeforeReduce = 0;
           let resumeAfterReduce = root.dataset.motionMode === "reveal";
 
-          const buttons = (action) => controls.querySelector(`[data-motion-action="${action}"]`);
+          const buttons = (action) =>
+            controls.querySelector(`[data-motion-action="${action}"]`);
           const clearClock = () => {
             window.clearTimeout(timer);
             timer = 0;
@@ -918,7 +949,8 @@
           function render(next, userInitiated = false) {
             step = Math.max(0, Math.min(count, next));
             root.dataset.stepCurrent = String(step);
-            root.dataset.frame = step === count ? "end" : step === 0 ? "start" : "step";
+            root.dataset.frame =
+              step === count ? "end" : step === 0 ? "start" : "step";
             items.forEach((item) => {
               const itemStep = Number(item.dataset.step);
               item.classList.toggle("is-visible", itemStep <= step);
@@ -937,7 +969,8 @@
             root.classList.remove("is-playing");
             buttons("play").setAttribute("aria-pressed", "false");
             buttons("pause").setAttribute("aria-pressed", "true");
-            if (userInitiated) status.textContent = `Paused at step ${step} of ${count}`;
+            if (userInitiated)
+              status.textContent = `Paused at step ${step} of ${count}`;
           }
 
           function finish() {
@@ -988,8 +1021,14 @@
           });
 
           root.addEventListener("keydown", (event) => {
-            if (event.target.matches("input, textarea, select, a[href]")) return;
-            const keys = { ArrowLeft: step - 1, ArrowRight: step + 1, Home: 0, End: count };
+            if (event.target.matches("input, textarea, select, a[href]"))
+              return;
+            const keys = {
+              ArrowLeft: step - 1,
+              ArrowRight: step + 1,
+              Home: 0,
+              End: count,
+            };
             if (event.code === "Space" && !event.target.closest("button")) {
               event.preventDefault();
               playing ? pause(true) : play(false, true);
@@ -1061,7 +1100,8 @@
             render(count, false);
             root.dataset.frame = "static";
             root.dataset.motionState = "static";
-            status.textContent = "Static frame · complete diagram · playback controls unavailable";
+            status.textContent =
+              "Static frame · complete diagram · playback controls unavailable";
           } else if (reduce.matches || root.dataset.motionMode === "none") {
             pause(false);
             setControlsAvailable(false);

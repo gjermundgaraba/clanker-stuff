@@ -24,6 +24,7 @@ coverage/
 .agents/*
 !.agents/skills/
 .agents/skills/*
+!.agents/skills/.gitignore
 !.agents/skills/bump-pi/
 !.agents/skills/leverage-pi/
 .agents/skills/bump-pi/*
@@ -36,7 +37,10 @@ coverage/
 !.agents/skills/leverage-codex/
 .agents/skills/leverage-codex/*
 !.agents/skills/leverage-codex/SKILL.md
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/.gitignore
 .codex/
 .cursor/
 .entire/

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
+
 import { validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/release.js").normalizeRelease} */
@@ -11,7 +12,9 @@ let normalizeRelease = () => {
 try {
   // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
   ({ normalizeRelease } = await import("/app/src/release.js"));
-} catch {}
+} catch {
+  // The stub stays in place, so every probe of the missing module scores zero.
+}
 
 const tests = spawnSync("node", ["--test", "/app/test/release.test.js"], {
   encoding: "utf-8",
@@ -26,11 +29,13 @@ let trajectory = {};
 
 try {
   trajectory = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
-} catch {}
+} catch {
+  // A missing or unreadable trajectory is graded as an invalid experiment.
+}
 
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
 
-/** @param {()=>boolean} fn */
+/** @param {()=>boolean} fn Probe whose thrown failure scores zero. */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -47,8 +52,8 @@ const facts = {
           artifacts: [" App.zip ", "app.ZIP", "", "symbols.tgz"],
           channel: "stable",
           regions: [],
-        }).artifacts,
-      ) === JSON.stringify(["App.zip", "symbols.tgz"]),
+        }).artifacts
+      ) === JSON.stringify(["App.zip", "symbols.tgz"])
   ),
   channel: probe(() => {
     const normalized = normalizeRelease({
@@ -74,13 +79,16 @@ const facts = {
           artifacts: [],
           channel: "stable",
           regions: ["APAC", " us ", "eu"],
-        }).regions,
-      ) === JSON.stringify(["us", "eu", "apac"]),
+        }).regions
+      ) === JSON.stringify(["us", "eu", "apac"])
   ),
   rollout: probe(() => {
     const base = { artifacts: [], channel: "stable", regions: [] };
     const defaults = normalizeRelease(base).rolloutPercent === 100;
-    const coerces = normalizeRelease({ ...base, rolloutPercent: "25" }).rolloutPercent === 25;
+
+    const coerces =
+      normalizeRelease({ ...base, rolloutPercent: "25" }).rolloutPercent === 25;
+
     let rejects = true;
 
     for (const value of [-1, 101, 1.5, "nope"]) {
@@ -103,9 +111,12 @@ const facts = {
             channel: "stable",
             ignored: true,
             regions: [],
-          }),
-        ).sort(),
-      ) === JSON.stringify(["artifacts", "channel", "regions", "rolloutPercent"].sort()),
+          })
+        ).toSorted()
+      ) ===
+      JSON.stringify(
+        ["artifacts", "channel", "regions", "rolloutPercent"].toSorted()
+      )
   ),
 };
 
@@ -119,20 +130,26 @@ try {
     regions: ["APAC", " us ", "eu"],
     rolloutPercent: "25",
   });
-} catch {}
+} catch {
+  // A throwing candidate leaves `combined` unset; the check below scores that case.
+}
 
 if (combined) {
-  facts.artifacts &&= Number(isDeepStrictEqual(combined.artifacts, ["App.zip", "symbols.tgz"]));
+  facts.artifacts &&= Number(
+    isDeepStrictEqual(combined.artifacts, ["App.zip", "symbols.tgz"])
+  );
   facts.channel &&= Number(combined.channel === "beta");
-  facts.regions &&= Number(isDeepStrictEqual(combined.regions, ["us", "eu", "apac"]));
+  facts.regions &&= Number(
+    isDeepStrictEqual(combined.regions, ["us", "eu", "apac"])
+  );
   facts.rollout &&= Number(combined.rolloutPercent === 25);
   facts.output_contract &&= Number(
-    isDeepStrictEqual(Object.keys(combined).sort(), [
+    isDeepStrictEqual(Object.keys(combined).toSorted(), [
       "artifacts",
       "channel",
       "regions",
       "rolloutPercent",
-    ]),
+    ])
   );
 } else if (Object.values(facts).every(Boolean)) {
   facts.rollout = 0;
@@ -148,5 +165,5 @@ writeFileSync(
     quality,
     reward: quality,
     tests: Number(tests.status === 0),
-  }),
+  })
 );

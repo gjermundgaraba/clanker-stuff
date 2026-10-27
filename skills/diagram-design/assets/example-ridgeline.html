@@ -61,7 +61,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -75,15 +81,23 @@
         role="img"
         aria-labelledby="ridgeline-title ridgeline-desc"
       >
-        <title id="ridgeline-title">Checkout is slow in two different ways</title>
+        <title id="ridgeline-title">
+          Checkout is slow in two different ways
+        </title>
         <desc id="ridgeline-desc">
-          Ridgeline chart of request-latency distributions for five services over one week; each
-          ridge is the share of that service's requests falling in 40-millisecond bins, drawn on one
-          shared amplitude scale, and checkout-api carries a second peak past 300 milliseconds that
-          none of the other four show.
+          Ridgeline chart of request-latency distributions for five services
+          over one week; each ridge is the share of that service's requests
+          falling in 40-millisecond bins, drawn on one shared amplitude scale,
+          and checkout-api carries a second peak past 300 milliseconds that none
+          of the other four show.
         </desc>
         <defs>
-          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            id="dots"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
           </pattern>
         </defs>
@@ -404,7 +418,14 @@
           REQUEST LATENCY (MS), BIN LOWER EDGE
         </text>
 
-        <line x1="40" y1="462" x2="960" y2="462" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
+        <line
+          x1="40"
+          y1="462"
+          x2="960"
+          y2="462"
+          stroke="rgba(45,49,66,0.10)"
+          stroke-width="0.8"
+        />
         <text
           x="40"
           y="478"
@@ -424,12 +445,25 @@
           letter-spacing="0.06em"
           text-anchor="end"
         >
-          SHARE OF EACH SERVICE'S OWN REQUESTS PER 40 MS BIN · 1% = 2.4PX ON EVERY RIDGE ·
-          UNSMOOTHED · ILLUSTRATIVE FIGURES
+          SHARE OF EACH SERVICE'S OWN REQUESTS PER 40 MS BIN · 1% = 2.4PX ON
+          EVERY RIDGE · UNSMOOTHED · ILLUSTRATIVE FIGURES
         </text>
 
-        <rect x="40" y="486" width="24" height="10" fill="rgba(235,108,54,0.16)" />
-        <line x1="40" y1="486" x2="64" y2="486" stroke="#eb6c36" stroke-width="2.4" />
+        <rect
+          x="40"
+          y="486"
+          width="24"
+          height="10"
+          fill="rgba(235,108,54,0.16)"
+        />
+        <line
+          x1="40"
+          y1="486"
+          x2="64"
+          y2="486"
+          stroke="#eb6c36"
+          stroke-width="2.4"
+        />
         <text
           x="72"
           y="496"
@@ -439,8 +473,21 @@
         >
           checkout-api · focal, second peak past 300 ms
         </text>
-        <rect x="360" y="486" width="24" height="10" fill="rgba(45,49,66,0.12)" />
-        <line x1="360" y1="486" x2="384" y2="486" stroke="rgba(45,49,66,0.80)" stroke-width="1.2" />
+        <rect
+          x="360"
+          y="486"
+          width="24"
+          height="10"
+          fill="rgba(45,49,66,0.12)"
+        />
+        <line
+          x1="360"
+          y1="486"
+          x2="384"
+          y2="486"
+          stroke="rgba(45,49,66,0.80)"
+          stroke-width="1.2"
+        />
         <text
           x="392"
           y="496"

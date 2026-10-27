@@ -3,7 +3,10 @@ import { existsSync } from "node:fs";
 import { rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ExtensionContext, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  SessionShutdownEvent,
+} from "@earendil-works/pi-coding-agent";
 
 export const INBOX_ENV = "PI_SHELL_RESUME_HISTORY_DIR";
 
@@ -17,7 +20,7 @@ const quoteShellArgument = (value: string): string => {
 
 /** Pi opens a session file in the session's own working directory, from any shell directory. */
 export const formatResumeCommand = (
-  sessionManager: ExtensionContext["sessionManager"],
+  sessionManager: ExtensionContext["sessionManager"]
 ): string | undefined => {
   const sessionFile = sessionManager.getSessionFile();
 
@@ -29,7 +32,10 @@ export const formatResumeCommand = (
   return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
 };
 
-export const enqueueResumeCommand = async (inbox: string, command: string): Promise<void> => {
+export const enqueueResumeCommand = async (
+  inbox: string,
+  command: string
+): Promise<void> => {
   const name = `${Date.now()}-${randomUUID()}.command`;
   const finalPath = path.join(inbox, name);
   const temporaryPath = path.join(inbox, `.${name}.tmp`);
@@ -44,11 +50,16 @@ export const enqueueResumeCommand = async (inbox: string, command: string): Prom
 
 export const recordResumeCommand = async (
   reason: SessionShutdownEvent["reason"],
-  ctx: ExtensionContext,
+  ctx: ExtensionContext
 ): Promise<void> => {
   const inbox = process.env[INBOX_ENV];
 
-  if (reason !== "quit" || ctx.mode !== "tui" || inbox === undefined || inbox.length === 0) {
+  if (
+    reason !== "quit" ||
+    ctx.mode !== "tui" ||
+    inbox === undefined ||
+    inbox.length === 0
+  ) {
     return;
   }
 

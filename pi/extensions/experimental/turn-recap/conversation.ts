@@ -1,23 +1,26 @@
+import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { contentText } from "@earendil-works/pi-ai";
 import type { ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
-
-import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 
 import type { Snapshot } from "./entry.js";
 
 export const RECAP_MAX_CHARS = 320;
 
 export const sanitizeRecapText = (value: string): string =>
-  safeText(value).replace(/\s+/gu, " ").trim();
+  safeText(value).replaceAll(/\s+/gu, " ").trim();
 
 /** Bounds by code points, so a clipped surrogate pair never leaves half a character. */
-const clip = (text: string, max: number): string => Array.from(text).slice(0, max).join("");
+const clip = (text: string, max: number): string =>
+  Array.from(text).slice(0, max).join("");
 
 const ERROR_MAX_CHARS = 1000;
 
 /** Sanitized and bounded, since recap failures are persisted and shown in cards. */
 export const errorText = (error: unknown): string =>
-  clip(sanitizeRecapText(error instanceof Error ? error.message : String(error)), ERROR_MAX_CHARS);
+  clip(
+    sanitizeRecapText(error instanceof Error ? error.message : String(error)),
+    ERROR_MAX_CHARS
+  );
 
 export const RECAP_PROMPT_MAX_CHARS = 12_000;
 
@@ -34,44 +37,66 @@ export const RECAP_PROMPT_PREFIX =
 /** A bounded excerpt, not a complete history or an exact token-fit guarantee. */
 export const buildRecapPrompt = (
   entries: readonly ProjectedSessionEntry[],
-  outcome: Snapshot["outcome"],
+  outcome: Snapshot["outcome"]
 ): string | undefined => {
   const suffix = `\n\nLatest run outcome: ${outcome}. Do not describe an interrupted or failed run as successfully completed.`;
   const excerpts: string[] = [];
   const marker = " [message excerpt; remainder omitted]";
-  let remaining = RECAP_PROMPT_MAX_CHARS - RECAP_PROMPT_PREFIX.length - suffix.length;
 
-  selection: for (const { sourceEntry, messages } of entries.toReversed()) {
-    // Ignore synthetic compaction/branch summaries.
-    if (sourceEntry.type !== "message") continue;
+  let remaining =
+    RECAP_PROMPT_MAX_CHARS - RECAP_PROMPT_PREFIX.length - suffix.length;
 
-    for (const message of messages.toReversed()) {
-      if (message.role !== "user" && message.role !== "assistant") continue;
+  // Ignore synthetic compaction/branch summaries.
+  const messages = entries
+    .toReversed()
+    .flatMap(({ sourceEntry, messages: projected }) =>
+      sourceEntry.type === "message" ? projected.toReversed() : []
+    );
 
-      if (
-        message.role === "assistant" &&
-        (message.stopReason === "error" || message.stopReason === "aborted")
-      )
-        continue;
-      const text = contentText(message.content).trim();
+  for (const message of messages) {
+    if (message.role !== "user" && message.role !== "assistant") {
+      continue;
+    }
 
-      if (text.length === 0) continue;
-      const label = message.role === "user" ? "User: " : "Assistant: ";
-      const room = remaining - label.length - (excerpts.length > 0 ? 2 : 0);
+    if (
+      message.role === "assistant" &&
+      (message.stopReason === "error" || message.stopReason === "aborted")
+    ) {
+      continue;
+    }
 
-      if (room <= marker.length) break selection;
-      const clipped = text.length > room;
-      const excerpt = clipped ? text.slice(0, room - marker.length).toWellFormed() + marker : text;
-      excerpts.push(label + excerpt);
-      remaining = room - excerpt.length;
+    const text = contentText(message.content).trim();
 
-      if (clipped) break selection;
+    if (text.length === 0) {
+      continue;
+    }
+
+    const label = message.role === "user" ? "User: " : "Assistant: ";
+    const room = remaining - label.length - (excerpts.length > 0 ? 2 : 0);
+
+    if (room <= marker.length) {
+      break;
+    }
+
+    const clipped = text.length > room;
+
+    const excerpt = clipped
+      ? text.slice(0, room - marker.length).toWellFormed() + marker
+      : text;
+
+    excerpts.push(label + excerpt);
+    remaining = room - excerpt.length;
+
+    if (clipped) {
+      break;
     }
   }
 
-  if (excerpts.length === 0) return undefined;
+  if (excerpts.length === 0) {
+    return undefined;
+  }
 
-  return RECAP_PROMPT_PREFIX + excerpts.reverse().join("\n\n") + suffix;
+  return RECAP_PROMPT_PREFIX + excerpts.toReversed().join("\n\n") + suffix;
 };
 
 export const normalizeRecap = (value: string): string | undefined => {

@@ -6,7 +6,15 @@
 // A tool call ends the turn with `toolUse` so pi can run the tool, and the next provider
 // call opens a new turn.
 
-import { parseStreamingJson, parseToolCallArguments } from "@earendil-works/pi-ai";
+import type {
+  SDKAssistantMessage,
+  SDKPartialAssistantMessage,
+  SDKResultSuccess,
+} from "@anthropic-ai/claude-agent-sdk";
+import {
+  parseStreamingJson,
+  parseToolCallArguments,
+} from "@earendil-works/pi-ai";
 import type {
   Api,
   AssistantMessage,
@@ -15,11 +23,6 @@ import type {
   Model,
   ToolCall,
 } from "@earendil-works/pi-ai";
-import type {
-  SDKAssistantMessage,
-  SDKPartialAssistantMessage,
-  SDKResultSuccess,
-} from "@anthropic-ai/claude-agent-sdk";
 
 import { toJsonObject } from "./json.js";
 import { debug } from "./log.js";
@@ -35,44 +38,69 @@ interface OpenBlock {
   partialJson: string;
 }
 
-export function newAssistantOutput(
+export const newAssistantOutput = (
   model: Model<Api>,
   stopReason: AssistantMessage["stopReason"],
-  text = "",
-): AssistantMessage {
-  return {
-    role: "assistant",
-    content: text === "" ? [] : [{ type: "text", text }],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason,
-    timestamp: Date.now(),
-  };
-}
+  text = ""
+): AssistantMessage => ({
+  role: "assistant",
+  content: text === "" ? [] : [{ type: "text", text }],
+  api: model.api,
+  provider: model.provider,
+  model: model.id,
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason,
+  timestamp: Date.now(),
+});
 
-export function mapStopReason(reason: string | null | undefined): "stop" | "length" | "toolUse" {
+export const mapStopReason = (
+  reason: SDKAssistantMessage["message"]["stop_reason"]
+): "stop" | "length" | "toolUse" => {
   switch (reason) {
-    case "tool_use":
+    case "tool_use": {
       return "toolUse";
+    }
+
+    // Both cut the response off; pi must know a response was truncated.
     case "max_tokens":
+    case "model_context_window_exceeded": {
       return "length";
-    default:
+    }
+
+    case "end_turn":
+    case "stop_sequence":
+    case "pause_turn":
+    case "compaction":
+    case "refusal":
+    case null: {
       return "stop";
+    }
+
+    // Claude Code relays the API's stop reason as it arrives, so a reason newer than
+    // these SDK types can still reach here at runtime.
+    default: {
+      return "stop";
+    }
   }
-}
+};
 
 /** A tool call's arguments from the JSON streamed so far, partial objects included. */
 const streamedArguments = (json: string, fallback: JsonObject): JsonObject =>
   json === "" ? fallback : (toJsonObject(parseStreamingJson(json)) ?? fallback);
+
+/** The event that opens each kind of block. */
+const START_EVENT = {
+  text: "text_start",
+  thinking: "thinking_start",
+  toolCall: "toolcall_start",
+} as const;
 
 const describeBlock = (block: TurnBlock): string =>
   block.type === "toolCall" ? `toolCall[${block.id}]` : block.type;
@@ -105,7 +133,7 @@ export class Turn {
     model: Model<Api>,
     stream: AssistantMessageEventStream,
     served: ReadonlySet<string>,
-    options: { requireText?: boolean } = {},
+    options: { requireText?: boolean } = {}
   ) {
     this.model = model;
     this.stream = stream;
@@ -120,23 +148,33 @@ export class Turn {
 
   /** The turn has a completed tool call; an open one may still be cut off and dropped. */
   private get hasToolCall(): boolean {
-    return this.blocks.some((block) => block.type === "toolCall" && !this.openBlocks.has(block));
+    return this.blocks.some(
+      (block) => block.type === "toolCall" && !this.openBlocks.has(block)
+    );
   }
 
   /** Ids of the tool calls this turn handed to pi. */
   get toolCallIds(): string[] {
-    return this.blocks.flatMap((block) => (block.type === "toolCall" ? [block.id] : []));
+    return this.blocks.flatMap((block) =>
+      block.type === "toolCall" ? [block.id] : []
+    );
   }
 
   private start(): void {
-    if (this.started || this.ended) return;
+    if (this.started || this.ended) {
+      return;
+    }
 
     this.stream.push({ type: "start", partial: this.output });
     this.started = true;
   }
 
-  private push(event: Parameters<AssistantMessageEventStream["push"]>[0]): void {
-    if (!this.ended) this.stream.push(event);
+  private push(
+    event: Parameters<AssistantMessageEventStream["push"]>[0]
+  ): void {
+    if (!this.ended) {
+      this.stream.push(event);
+    }
   }
 
   /** What a turn that did not fail ended on. Tool calls end it so pi can run them, and
@@ -144,25 +182,37 @@ export class Turn {
    *  the next provider call; but not when Claude was cut off at its output limit, since
    *  pi runs no tool call from a truncated response. */
   private outcome(): "stop" | "length" | "toolUse" | "error" {
-    if (this.output.stopReason === "length") return "length";
+    if (this.output.stopReason === "length") {
+      return "length";
+    }
 
-    if (this.hasToolCall) return "toolUse";
+    if (this.hasToolCall) {
+      return "toolUse";
+    }
 
-    const hasText = this.blocks.some((block) => block.type === "text" && block.text.trim() !== "");
+    const hasText = this.blocks.some(
+      (block) => block.type === "text" && block.text.trim() !== ""
+    );
 
     return this.options.requireText === true && !hasText ? "error" : "stop";
   }
 
   /** End the stream with the turn's outcome: the failure recorded by `fail`, or done. */
   finish(): void {
-    if (this.ended) return;
+    if (this.ended) {
+      return;
+    }
 
     const { output } = this;
 
     this.start();
 
     if (output.stopReason === "error" || output.stopReason === "aborted") {
-      this.stream.push({ type: "error", reason: output.stopReason, error: output });
+      this.stream.push({
+        type: "error",
+        reason: output.stopReason,
+        error: output,
+      });
     } else {
       const outcome = this.outcome();
 
@@ -176,7 +226,9 @@ export class Turn {
       }
     }
 
-    debug(`turn: finish stopReason=${output.stopReason} error=${output.errorMessage ?? "none"}`);
+    debug(
+      `turn: finish stopReason=${output.stopReason} error=${output.errorMessage ?? "none"}`
+    );
     this.stream.end();
     this.ended = true;
   }
@@ -188,7 +240,9 @@ export class Turn {
   }
 
   private openBlockAt(index: number): number {
-    return this.blocks.findIndex((block) => this.openBlocks.get(block)?.index === index);
+    return this.blocks.findIndex(
+      (block) => this.openBlocks.get(block)?.index === index
+    );
   }
 
   /** Remove the blocks of the message that just stopped which never got their own
@@ -199,17 +253,25 @@ export class Turn {
   private dropUnfinished(why: string): void {
     const dropped: string[] = [];
 
-    for (let index = this.blocks.length - 1; index >= this.streamBlockStart; index--) {
+    for (
+      let index = this.blocks.length - 1;
+      index >= this.streamBlockStart;
+      index -= 1
+    ) {
       const block = this.blocks[index];
 
-      if (block === undefined || !this.openBlocks.has(block)) continue;
+      if (block === undefined || !this.openBlocks.has(block)) {
+        continue;
+      }
 
       dropped.unshift(describeBlock(block));
       this.openBlocks.delete(block);
       this.blocks.splice(index, 1);
     }
 
-    if (dropped.length > 0) debug(`turn: ${why}; dropped unfinished ${dropped.join(",")}`);
+    if (dropped.length > 0) {
+      debug(`turn: ${why}; dropped unfinished ${dropped.join(",")}`);
+    }
   }
 
   /** Remove the blocks of a stream Claude Code abandoned mid-message: a thinking block
@@ -218,17 +280,21 @@ export class Turn {
   private dropAbandoned(why: string): void {
     const dropped = this.blocks.splice(this.streamBlockStart);
 
-    for (const block of dropped) this.openBlocks.delete(block);
+    for (const block of dropped) {
+      this.openBlocks.delete(block);
+    }
 
     debug(
-      `turn: ${why}; dropped ${dropped.length} blocks from ${this.streamMessageId} types=${dropped.map((block) => block.type).join(",")}`,
+      `turn: ${why}; dropped ${dropped.length} blocks from ${this.streamMessageId} types=${dropped.map((block) => block.type).join(",")}`
     );
     this.streamOpen = false;
   }
 
   /** One Anthropic stream event. On message_stop after a tool call, ends the turn. */
   streamEvent(message: SDKPartialAssistantMessage): void {
-    if (this.ended) return;
+    if (this.ended) {
+      return;
+    }
 
     this.sawStreamEvent = true;
 
@@ -239,7 +305,9 @@ export class Turn {
       case "message_start": {
         // Still open from an earlier message_start: Claude Code gave up on that stream and
         // is retrying it, and its blocks never completed.
-        if (this.streamOpen) this.dropAbandoned(`restreamed as ${event.message.id}`);
+        if (this.streamOpen) {
+          this.dropAbandoned(`restreamed as ${event.message.id}`);
+        }
 
         this.streamMessageId = event.message.id;
         this.streamOpen = true;
@@ -263,7 +331,9 @@ export class Turn {
           const name = piToolName(block.name, this.served);
 
           if (name === undefined) {
-            debug(`turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`);
+            debug(
+              `turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`
+            );
 
             return;
           }
@@ -285,14 +355,11 @@ export class Turn {
 
         const contentIndex = this.blocks.length - 1;
 
-        const type =
-          opened.type === "text"
-            ? "text_start"
-            : opened.type === "thinking"
-              ? "thinking_start"
-              : "toolcall_start";
-
-        this.push({ type, contentIndex, partial: output });
+        this.push({
+          type: START_EVENT[opened.type],
+          contentIndex,
+          partial: output,
+        });
 
         return;
       }
@@ -300,16 +367,28 @@ export class Turn {
       case "content_block_delta": {
         const contentIndex = this.openBlockAt(event.index);
         const block = this.blocks[contentIndex];
-        const open = block === undefined ? undefined : this.openBlocks.get(block);
 
-        if (block === undefined || open === undefined) return;
+        const open =
+          block === undefined ? undefined : this.openBlocks.get(block);
+
+        if (block === undefined || open === undefined) {
+          return;
+        }
 
         const { delta } = event;
 
         if (delta.type === "text_delta" && block.type === "text") {
           block.text += delta.text;
-          this.push({ type: "text_delta", contentIndex, delta: delta.text, partial: output });
-        } else if (delta.type === "thinking_delta" && block.type === "thinking") {
+          this.push({
+            type: "text_delta",
+            contentIndex,
+            delta: delta.text,
+            partial: output,
+          });
+        } else if (
+          delta.type === "thinking_delta" &&
+          block.type === "thinking"
+        ) {
           block.thinking += delta.thinking;
           this.push({
             type: "thinking_delta",
@@ -317,17 +396,27 @@ export class Turn {
             delta: delta.thinking,
             partial: output,
           });
-        } else if (delta.type === "input_json_delta" && block.type === "toolCall") {
+        } else if (
+          delta.type === "input_json_delta" &&
+          block.type === "toolCall"
+        ) {
           open.partialJson += delta.partial_json;
-          block.arguments = streamedArguments(open.partialJson, block.arguments);
+          block.arguments = streamedArguments(
+            open.partialJson,
+            block.arguments
+          );
           this.push({
             type: "toolcall_delta",
             contentIndex,
             delta: delta.partial_json,
             partial: output,
           });
-        } else if (delta.type === "signature_delta" && block.type === "thinking") {
-          block.thinkingSignature = (block.thinkingSignature ?? "") + delta.signature;
+        } else if (
+          delta.type === "signature_delta" &&
+          block.type === "thinking"
+        ) {
+          block.thinkingSignature =
+            (block.thinkingSignature ?? "") + delta.signature;
         } else {
           debug("turn: unhandled content_block_delta type", delta.type);
         }
@@ -338,14 +427,23 @@ export class Turn {
       case "content_block_stop": {
         const contentIndex = this.openBlockAt(event.index);
         const block = this.blocks[contentIndex];
-        const open = block === undefined ? undefined : this.openBlocks.get(block);
 
-        if (block === undefined || open === undefined) return;
+        const open =
+          block === undefined ? undefined : this.openBlocks.get(block);
+
+        if (block === undefined || open === undefined) {
+          return;
+        }
 
         this.openBlocks.delete(block);
 
         if (block.type === "text") {
-          this.push({ type: "text_end", contentIndex, content: block.text, partial: output });
+          this.push({
+            type: "text_end",
+            contentIndex,
+            content: block.text,
+            partial: output,
+          });
         } else if (block.type === "thinking") {
           this.push({
             type: "thinking_end",
@@ -358,7 +456,12 @@ export class Turn {
             Object.assign(block, parseToolCallArguments(open.partialJson));
           }
 
-          this.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: output });
+          this.push({
+            type: "toolcall_end",
+            contentIndex,
+            toolCall: block,
+            partial: output,
+          });
         }
 
         return;
@@ -375,10 +478,11 @@ export class Turn {
         this.dropUnfinished(`message_stop for ${this.streamMessageId}`);
         this.streamOpen = false;
 
-        if (this.hasToolCall) this.finish();
-
-        return;
+        if (this.hasToolCall) {
+          this.finish();
+        }
       }
+      // no default
     }
   }
 
@@ -386,7 +490,9 @@ export class Turn {
    *  content path when the next response arrives before any stream event, and when a
    *  stalled stream was retried without streaming (a new message id, no events). */
   assistantMessage(message: SDKAssistantMessage): void {
-    if (this.ended) return;
+    if (this.ended) {
+      return;
+    }
 
     const assistant = message.message;
     const { output } = this;
@@ -397,7 +503,9 @@ export class Turn {
     // (the error event carries it) without events.
     if (assistant.model === "<synthetic>") {
       // It can follow a stalled stream whose non-streaming retry also failed.
-      if (this.sawStreamEvent && this.streamOpen) this.dropAbandoned("synthetic failure report");
+      if (this.sawStreamEvent && this.streamOpen) {
+        this.dropAbandoned("synthetic failure report");
+      }
 
       for (const block of assistant.content) {
         if (block.type === "text" && block.text !== "") {
@@ -412,14 +520,23 @@ export class Turn {
 
     if (this.sawStreamEvent) {
       // The same id was already delivered; a new id is the non-streaming fallback.
-      if (this.streamMessageId === undefined || assistant.id === this.streamMessageId) return;
+      if (
+        this.streamMessageId === undefined ||
+        assistant.id === this.streamMessageId
+      ) {
+        return;
+      }
 
-      if (this.streamOpen) this.dropAbandoned(`non-streaming fallback ${assistant.id}`);
+      if (this.streamOpen) {
+        this.dropAbandoned(`non-streaming fallback ${assistant.id}`);
+      }
     }
 
     for (const block of assistant.content) {
       if (block.type === "text") {
-        if (block.text !== "") this.completeText(block.text);
+        if (block.text !== "") {
+          this.completeText(block.text);
+        }
       } else if (block.type === "thinking") {
         this.start();
         this.blocks.push({
@@ -441,12 +558,19 @@ export class Turn {
           });
         }
 
-        this.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: output });
+        this.push({
+          type: "thinking_end",
+          contentIndex,
+          content: block.thinking,
+          partial: output,
+        });
       } else if (block.type === "tool_use") {
         const name = piToolName(block.name, this.served);
 
         if (name === undefined) {
-          debug(`turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`);
+          debug(
+            `turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`
+          );
           continue;
         }
 
@@ -464,7 +588,12 @@ export class Turn {
         const contentIndex = this.blocks.length - 1;
 
         this.push({ type: "toolcall_start", contentIndex, partial: output });
-        this.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
+        this.push({
+          type: "toolcall_end",
+          contentIndex,
+          toolCall,
+          partial: output,
+        });
       } else {
         debug("turn: unhandled assistant block type", block.type);
       }
@@ -474,23 +603,40 @@ export class Turn {
 
     // Claude Code writes a stop reason only on a message's last block; a cut-off one says
     // so here, with no message_delta to carry it.
-    if (mapStopReason(assistant.stop_reason) === "length") output.stopReason = "length";
+    if (mapStopReason(assistant.stop_reason) === "length") {
+      output.stopReason = "length";
+    }
 
-    if (this.hasToolCall) this.finish();
+    if (this.hasToolCall) {
+      this.finish();
+    }
   }
 
   /** A successful result. Its text is the answer only when the turn produced none:
    *  Claude Code repeats the final text there after delivering it as a message. */
   result(message: SDKResultSuccess): void {
-    if (this.ended) return;
+    if (this.ended) {
+      return;
+    }
 
     // A response that arrived whole (the non-streaming fallback) had no message_delta
-    // to carry its stop reason; a token limit shows here.
-    if (mapStopReason(message.stop_reason) === "length") this.output.stopReason = "length";
+    // to carry its stop reason; a token or context-window limit shows here.
+    if (
+      message.stop_reason === "max_tokens" ||
+      message.stop_reason === "model_context_window_exceeded"
+    ) {
+      this.output.stopReason = "length";
+    }
 
-    if (message.result === "") return;
+    if (message.result === "") {
+      return;
+    }
 
-    if (this.blocks.some((block) => block.type === "text" && block.text !== "")) return;
+    if (
+      this.blocks.some((block) => block.type === "text" && block.text !== "")
+    ) {
+      return;
+    }
 
     this.completeText(message.result);
   }
@@ -502,7 +648,17 @@ export class Turn {
     const contentIndex = this.blocks.length - 1;
 
     this.push({ type: "text_start", contentIndex, partial: this.output });
-    this.push({ type: "text_delta", contentIndex, delta: text, partial: this.output });
-    this.push({ type: "text_end", contentIndex, content: text, partial: this.output });
+    this.push({
+      type: "text_delta",
+      contentIndex,
+      delta: text,
+      partial: this.output,
+    });
+    this.push({
+      type: "text_end",
+      contentIndex,
+      content: text,
+      partial: this.output,
+    });
   }
 }

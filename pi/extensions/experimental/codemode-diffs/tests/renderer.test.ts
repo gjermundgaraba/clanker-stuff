@@ -4,12 +4,15 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { TUnsafe } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveRenderer } from "../renderer.js";
-import { toolRenderContext, renderedRows } from "../../../../tests/harness/tool-rendering.js";
+import {
+  toolRenderContext,
+  renderedRows,
+} from "../../../../tests/harness/tool-rendering.js";
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
+import { resolveRenderer } from "../renderer.js";
 
 type ResultRenderer = NonNullable<
-  ToolDefinition<TUnsafe<unknown>, unknown, unknown>["renderResult"]
+  ToolDefinition<TUnsafe, unknown, unknown>["renderResult"]
 >;
 
 const details = {
@@ -17,7 +20,10 @@ const details = {
     {
       toolCallId: "script/1",
       path: "file.txt",
-      diff: Array.from({ length: 20 }, (_, i) => `+${i + 1} new line ${i + 1}`).join("\n"),
+      diff: Array.from(
+        { length: 20 },
+        (_, i) => `+${i + 1} new line ${i + 1}`
+      ).join("\n"),
     },
   ],
 };
@@ -31,16 +37,25 @@ const setup = () => {
     return context.lastComponent ?? new Text("Original script output", 0, 0);
   };
 
-  const renderer = resolveRenderer("codemode", () => ({ renderResult: original }))?.renderResult;
+  const renderer = resolveRenderer("codemode", () => ({
+    renderResult: original,
+  }))?.renderResult;
 
-  if (!renderer) throw new Error("Missing wrapped renderer");
+  if (!renderer) {
+    throw new Error("Missing wrapped renderer");
+  }
 
-  const render = (data: unknown, expanded = false, lastComponent?: Component, isPartial = false) =>
+  const render = (
+    data: unknown,
+    expanded = false,
+    lastComponent?: Component,
+    isPartial = false
+  ) =>
     renderer(
       { content: [], details: data },
       { expanded, isPartial },
       createIdentityTheme(),
-      toolRenderContext({ expanded, lastComponent }),
+      toolRenderContext({ expanded, lastComponent })
     );
 
   return { render, previous };
@@ -66,25 +81,37 @@ describe("Code Mode diff renderer", () => {
     expect(previous[1]).not.toBe(collapsed);
 
     const narrow = render({
-      codemodeDiffs: [{ toolCallId: "x/1", path: "界".repeat(20), diff: "+1 " + "界".repeat(30) }],
+      codemodeDiffs: [
+        {
+          toolCallId: "x/1",
+          path: "界".repeat(20),
+          diff: `+1 ${"界".repeat(30)}`,
+        },
+      ],
     });
 
-    expect(narrow.render(10).every((line) => visibleWidth(line) <= 10)).toBe(true);
+    expect(narrow.render(10).every((line) => visibleWidth(line) <= 10)).toBe(
+      true
+    );
   });
 
-  it.each([undefined, {}, { codemodeDiffs: [{ path: 12, diff: "bad" }] }, { codemodeDiffs: [] }])(
-    "leaves old, malformed, or empty results unchanged: %j",
-    (data) => {
-      const { render } = setup();
-      expect(renderedRows(render(data)).join("\n")).toBe("Original script output");
-    },
-  );
+  it.each([
+    undefined,
+    {},
+    { codemodeDiffs: [{ path: 12, diff: "bad" }] },
+    { codemodeDiffs: [] },
+  ])("leaves old, malformed, or empty results unchanged: %j", (data) => {
+    const { render } = setup();
+    expect(renderedRows(render(data)).join("\n")).toBe(
+      "Original script output"
+    );
+  });
 
   it("does not display final diffs during partial updates", () => {
     const { render } = setup();
-    expect(renderedRows(render(details, false, undefined, true)).join("\n")).toBe(
-      "Original script output",
-    );
+    expect(
+      renderedRows(render(details, false, undefined, true)).join("\n")
+    ).toBe("Original script output");
   });
 
   it("sanitizes persisted paths and diffs at render time and survives invalidation", () => {
@@ -95,20 +122,20 @@ describe("Code Mode diff renderer", () => {
         codemodeDiffs: [
           {
             toolCallId: "x/1",
-            path: "evil\u001b[2J\u202efile\nname",
-            diff: "+1 new\u001b[2J\u202e\ttext",
+            path: "evil\u001B[2J\u202Efile\nname",
+            diff: "+1 new\u001B[2J\u202E\ttext",
           },
         ],
       },
-      true,
+      true
     );
 
     const text = renderedRows(component).join("\n");
     expect(text).toContain("evilfile name");
     expect(text).toContain("+1 new   text");
-    expect(text).not.toContain("\u202e");
+    expect(text).not.toContain("\u202E");
     // Inspect the unstripped output too: stripping terminal controls would hide an unsafe renderer.
-    expect(component.render(80).join("\n")).not.toContain("\u001b[2J");
+    expect(component.render(80).join("\n")).not.toContain("\u001B[2J");
     component.invalidate();
     expect(renderedRows(component).join("\n")).toBe(text);
   });
@@ -117,6 +144,6 @@ describe("Code Mode diff renderer", () => {
     const base = { renderShell: "self" as const };
     expect(resolveRenderer("edit", () => base)).toBe(base);
     expect(resolveRenderer("codemode", () => base)).toBe(base);
-    expect(resolveRenderer("codemode", () => undefined)).toBeUndefined();
+    expect(resolveRenderer("codemode", () => {})).toBeUndefined();
   });
 });

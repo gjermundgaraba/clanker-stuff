@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 
-import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import {
+  DefaultResourceLoader,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
@@ -64,10 +67,8 @@ describe("subagents package", () => {
       errors: [],
       extensions: [{ resolvedPath: path.join(packageRoot, "index.ts") }],
     });
-    expect(loader.getExtensions().extensions[0]?.commands.keys().toArray().toSorted()).toEqual([
-      "agents",
-      "proactive",
-      "ultra",
-    ]);
+    expect(
+      loader.getExtensions().extensions[0]?.commands.keys().toArray().toSorted()
+    ).toStrictEqual(["agents", "proactive", "ultra"]);
   });
 });

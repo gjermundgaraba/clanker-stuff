@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -22,54 +28,69 @@ const fixture = () => {
     OPENCODE_DB: "",
   };
 
-  const run = (args: string[], helper = path.join(skill, "scripts/find-transcripts.mjs")) =>
-    spawnSync(helper, args, { cwd: home, env, encoding: "utf8" });
+  const run = (
+    args: string[],
+    helper = path.join(skill, "scripts/find-transcripts.mjs")
+  ) => spawnSync(helper, args, { cwd: home, env, encoding: "utf-8" });
 
   return { home, run };
 };
 
-const directory = (location: string) => mkdirSync(location, { recursive: true });
+const directory = (location: string) =>
+  mkdirSync(location, { recursive: true });
 
 const file = (location: string) => {
   directory(path.dirname(location));
   writeFileSync(location, "fixture");
 };
 
-afterEach(() => {
-  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
-});
-
 describe("transcript discovery CLI", () => {
-  it.each([false, true])("executes directly with a folder symlink: %s", (linked) => {
-    const { home, run } = fixture();
-    const sessions = path.join(home, ".codex/sessions");
-    directory(sessions);
-    const installed = path.join(home, ".agents/skills/agent-history");
-    directory(path.dirname(installed));
-    symlinkSync(skill, installed, "dir");
-
-    const result = run(
-      ["--tool", "Codex"],
-      path.join(linked ? installed : skill, "scripts/find-transcripts.mjs"),
-    );
-
-    const output: unknown = JSON.parse(result.stdout);
-
-    expect(result.status, result.stderr).toBe(0);
-    expect(output).toEqual([{ tool: "Codex", locations: [sessions] }]);
+  afterEach(() => {
+    for (const home of homes.splice(0)) {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
+
+  it.each([false, true])(
+    "executes directly with a folder symlink: %s",
+    (linked) => {
+      const { home, run } = fixture();
+      const sessions = path.join(home, ".codex/sessions");
+      directory(sessions);
+      const installed = path.join(home, ".agents/skills/agent-history");
+      directory(path.dirname(installed));
+      symlinkSync(skill, installed, "dir");
+
+      const result = run(
+        ["--tool", "Codex"],
+        path.join(linked ? installed : skill, "scripts/find-transcripts.mjs")
+      );
+
+      const output: unknown = JSON.parse(result.stdout);
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(output).toStrictEqual([{ tool: "Codex", locations: [sessions] }]);
+    }
+  );
 
   it("derives selection and help from all thirteen tool records", () => {
     const { run } = fixture();
     const help = run(["--help"]);
-    const line = help.stdout.split("\n").find((text) => text.startsWith("Tools:"));
+
+    const line = help.stdout
+      .split("\n")
+      .find((text) => text.startsWith("Tools:"));
 
     expect(help.status).toBe(0);
     expect(line?.split(",")).toHaveLength(13);
     expect(line).toContain("Warp CLI");
     expect(line).toContain("Claude Code");
     expect(run([])).toMatchObject({ status: 0, stdout: "[]\n", stderr: "" });
-    expect(run(["--tool", "claude-code"])).toMatchObject({ status: 0, stdout: "[]\n", stderr: "" });
+    expect(run(["--tool", "claude-code"])).toMatchObject({
+      status: 0,
+      stdout: "[]\n",
+      stderr: "",
+    });
   });
 
   it.each([
@@ -98,7 +119,7 @@ describe("transcript discovery CLI", () => {
     const result = run([]);
     const output: unknown = JSON.parse(result.stdout);
 
-    expect(output).toEqual([
+    expect(output).toStrictEqual([
       { tool: "Claude Code", locations: [claude] },
       { tool: "Codex", locations: [codex] },
     ]);
@@ -106,7 +127,12 @@ describe("transcript discovery CLI", () => {
 
   it("keeps recursive discovery bounded and does not traverse symlinks", () => {
     const { home, run } = fixture();
-    const storage = path.join(home, "Library/Application Support/Cursor/User/workspaceStorage");
+
+    const storage = path.join(
+      home,
+      "Library/Application Support/Cursor/User/workspaceStorage"
+    );
+
     const database = path.join(storage, "workspace/state.vscdb");
     file(database);
     file(path.join(storage, "one/two/three/state.vscdb"));
@@ -116,6 +142,6 @@ describe("transcript discovery CLI", () => {
     const result = run(["--tool", "Cursor"]);
     const output: unknown = JSON.parse(result.stdout);
 
-    expect(output).toEqual([{ tool: "Cursor", locations: [database] }]);
+    expect(output).toStrictEqual([{ tool: "Cursor", locations: [database] }]);
   });
 });

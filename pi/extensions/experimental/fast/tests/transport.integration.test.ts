@@ -19,25 +19,30 @@ import { createFastMode } from "../mode.js";
 
 const BodySchema = Type.Object(
   { model: Type.String(), service_tier: Type.Optional(Type.String()) },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 describe("native OpenAI Responses Fast hook", () => {
   it("sends priority only when on through the real native provider without replacing inference", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "fast-native-"));
     const credentials = new InMemoryCredentialStore();
-    await credentials.modify("openai", () =>
-      Promise.resolve({
-        type: "oauth",
-        access: "test-subscription",
-        refresh: "unused",
-        expires: Date.now() + 3_600_000,
-      }),
-    );
-    const runtime = await ModelRuntime.create({ credentials, modelsPath: null });
+    await credentials.modify("openai", async () => ({
+      type: "oauth",
+      access: "test-subscription",
+      refresh: "unused",
+      expires: Date.now() + 3_600_000,
+    }));
+
+    const runtime = await ModelRuntime.create({
+      credentials,
+      modelsPath: null,
+    });
+
     const native = runtime.getProvider("openai");
 
-    if (native === undefined) throw new Error("Missing native OpenAI provider");
+    if (native === undefined) {
+      throw new Error("Missing native OpenAI provider");
+    }
 
     const model: Model<"openai-responses"> = {
       api: "openai-responses",
@@ -52,33 +57,51 @@ describe("native OpenAI Responses Fast hook", () => {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     };
 
-    const tiers: (string | undefined)[] = [];
+    const tiers: Array<string | undefined> = [];
     const endpoints: string[] = [];
-    const authorization: (string | null)[] = [];
+    const authorization: Array<string | null> = [];
 
     const fetchResponse: typeof fetch = async (url, init) => {
-      endpoints.push(url instanceof Request ? url.url : url instanceof URL ? url.href : url);
+      if (url instanceof Request) {
+        endpoints.push(url.url);
+      } else if (url instanceof URL) {
+        endpoints.push(url.href);
+      } else {
+        endpoints.push(url);
+      }
+
       authorization.push(new Headers(init?.headers).get("authorization"));
 
-      if (typeof init?.body !== "string") throw new Error("Expected native SDK JSON request body");
+      if (typeof init?.body !== "string") {
+        throw new TypeError("Expected native SDK JSON request body");
+      }
+
       const raw: unknown = JSON.parse(init.body);
       const body = Value.Parse(BodySchema, raw);
       tiers.push(body.service_tier);
       expect(body.model).toBe(model.id);
 
-      if (tiers.length === 3)
-        return new Response(
-          JSON.stringify({
-            error: { message: "Priority unavailable", type: "invalid_request_error" },
-          }),
-          { status: 400, headers: { "content-type": "application/json" } },
+      if (tiers.length === 3) {
+        return Response.json(
+          {
+            error: {
+              message: "Priority unavailable",
+              type: "invalid_request_error",
+            },
+          },
+          { status: 400 }
         );
+      }
 
       return new Response(
         `data: ${JSON.stringify({
           type: "response.created",
           sequence_number: 0,
-          response: { id: "fixture", status: "in_progress", service_tier: "priority" },
+          response: {
+            id: "fixture",
+            status: "in_progress",
+            service_tier: "priority",
+          },
         })}\n\ndata: ${JSON.stringify({
           type: "response.completed",
           sequence_number: 0,
@@ -89,7 +112,7 @@ describe("native OpenAI Responses Fast hook", () => {
             usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 },
           },
         })}\n\n`,
-        { headers: { "content-type": "text/event-stream" } },
+        { headers: { "content-type": "text/event-stream" } }
       );
     };
 
@@ -98,7 +121,10 @@ describe("native OpenAI Responses Fast hook", () => {
       getModels: () => [model],
       getAllModels: () => [model],
       streamSimple: (selected, context, options) =>
-        native.streamSimple(selected, context, { ...options, fetch: fetchResponse }),
+        native.streamSimple(selected, context, {
+          ...options,
+          fetch: fetchResponse,
+        }),
     });
     await runtime.refresh({ allowNetwork: false });
 
@@ -120,11 +146,19 @@ describe("native OpenAI Responses Fast hook", () => {
 
           pi.registerCommand("fast", {
             description: "Toggle fixture",
-            handler: async (args, ctx) => mode.toggle(args, ctx),
+            handler: async (args, ctx) => {
+              mode.toggle(args, ctx);
+            },
           });
-          pi.on("session_start", (event, ctx) => mode.start(event, ctx));
-          pi.on("before_provider_request", (event, ctx) => mode.payload(event, ctx));
-          pi.on("session_shutdown", (_event, ctx) => mode.stop(ctx));
+          pi.on("session_start", async (event, ctx) => {
+            await mode.start(event, ctx);
+          });
+          pi.on("before_provider_request", (event, ctx) =>
+            mode.payload(event, ctx)
+          );
+          pi.on("session_shutdown", (_event, ctx) => {
+            mode.stop(ctx);
+          });
         },
       ],
     });
@@ -152,11 +186,14 @@ describe("native OpenAI Responses Fast hook", () => {
         "https://api.openai.com/v1/responses",
         "https://api.openai.com/v1/responses",
       ]);
-      expect(authorization).toStrictEqual(["Bearer test-subscription", "Bearer test-subscription"]);
+      expect(authorization).toStrictEqual([
+        "Bearer test-subscription",
+        "Bearer test-subscription",
+      ]);
       expect(
         session.messages
           .filter((message) => message.role === "assistant")
-          .map((message) => message.stopReason),
+          .map((message) => message.stopReason)
       ).toStrictEqual(["stop", "stop"]);
 
       await session.prompt("/fast");
@@ -166,7 +203,10 @@ describe("native OpenAI Responses Fast hook", () => {
 
       expect(rejected?.role).toBe("assistant");
 
-      if (rejected?.role !== "assistant") throw new Error("Missing backend rejection");
+      if (rejected?.role !== "assistant") {
+        throw new Error("Missing backend rejection");
+      }
+
       expect(rejected.stopReason).toBe("error");
       expect(rejected.errorMessage).toContain("Priority unavailable");
     } finally {

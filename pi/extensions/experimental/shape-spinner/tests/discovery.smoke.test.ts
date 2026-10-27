@@ -13,8 +13,9 @@ describe("shape spinner discovery", () => {
     try {
       expect(harness.extensionsResult.errors).toStrictEqual([]);
 
-      const extension = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
-        resolvedPath.endsWith(path.join("shape-spinner", "index.ts")),
+      const extension = harness.extensionsResult.extensions.find(
+        ({ resolvedPath }) =>
+          resolvedPath.endsWith(path.join("shape-spinner", "index.ts"))
       );
 
       expect(extension?.commands.has("shape-spinner")).toBeTruthy();

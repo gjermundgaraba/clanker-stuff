@@ -1,7 +1,13 @@
 /** Standalone preview of the real widget; synthetic metrics, no session or persistence. */
 import { parseArgs } from "node:util";
 
-import { Key, matchesKey, ProcessTerminal, Text, TuiAltScreen } from "@earendil-works/pi-tui";
+import {
+  Key,
+  matchesKey,
+  ProcessTerminal,
+  Text,
+  TuiAltScreen,
+} from "@earendil-works/pi-tui";
 
 import type { LiveState } from "../card.js";
 import { getRollingFontPath, loadRollingFont } from "../font.js";
@@ -9,26 +15,37 @@ import { collectMetrics } from "../metrics.js";
 import { createLiveWidget } from "../widget.js";
 
 const { values } = parseArgs({
-  options: { seconds: { type: "string", default: "30" }, help: { type: "boolean" } },
+  options: {
+    seconds: { type: "string", default: "30" },
+    help: { type: "boolean" },
+  },
 });
 
 const main = async (): Promise<void> => {
-  if (values.help) {
-    console.log("Preview the installed rolling font: [--seconds 30]. q, Escape or Ctrl-C exits.");
+  if (values.help === true) {
+    console.log(
+      "Preview the installed rolling font: [--seconds 30]. q, Escape or Ctrl-C exits."
+    );
 
     return;
   }
 
   const seconds = Number(values.seconds);
 
-  if (!Number.isFinite(seconds) || seconds <= 0)
+  if (!Number.isFinite(seconds) || seconds <= 0) {
     throw new Error("--seconds must be positive and finite");
+  }
 
-  if (!process.stdin.isTTY || !process.stdout.isTTY)
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("Run directly in an interactive terminal");
+  }
+
   const font = await loadRollingFont();
 
-  if (!font) throw new Error(`No rolling-font manifest at ${getRollingFontPath()}`);
+  if (!font) {
+    throw new Error(`No rolling-font manifest at ${getRollingFontPath()}`);
+  }
+
   const tui = new TuiAltScreen(new ProcessTerminal());
   const started = performance.now();
   const initialElapsedMs = 118_000;
@@ -46,31 +63,43 @@ const main = async (): Promise<void> => {
       metrics.contextGrowth = 90 - (tick % 90);
       metrics.context = {
         tokens: 990 - (tick % 90),
-        contextWindow: 10000,
+        contextWindow: 10_000,
         percent: 9.9 - (tick % 90) / 100,
       };
 
       return { elapsedMs: initialElapsedMs + elapsed, metrics };
     },
-    font,
+    font
   );
 
-  const stationary = Array.from({ length: 10 }, (_, digit) => font.stationary(String(digit)));
+  const stationary = Array.from({ length: 10 }, (_, digit) =>
+    font.stationary(String(digit))
+  );
 
   tui.addChild(
     new Text(
-      "Rolling numbers · q / Esc exits\nNative:    |0|1|2|3|4|5|6|7|8|9|\nCompanion: |" +
-        stationary.join("|") +
-        "|",
+      `Rolling numbers · q / Esc exits\nNative:    |0|1|2|3|4|5|6|7|8|9|\nCompanion: |${stationary.join(
+        "|"
+      )}|`,
       0,
-      1,
-    ),
+      1
+    )
   );
   tui.addChild(widget);
-  const finished = Promise.withResolvers<void>();
-  const stop = () => finished.resolve();
+  const finished = Promise.withResolvers<undefined>();
+
+  const stop = () => {
+    finished.resolve(undefined);
+  };
+
   tui.addInputListener((input) => {
-    if (input === "q" || matchesKey(input, Key.escape) || matchesKey(input, Key.ctrl("c"))) stop();
+    if (
+      input === "q" ||
+      matchesKey(input, Key.escape) ||
+      matchesKey(input, Key.ctrl("c"))
+    ) {
+      stop();
+    }
 
     return { consume: true };
   });

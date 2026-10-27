@@ -18,12 +18,12 @@ Last verified: local macOS/editor profile, sessions structurally inspected.
 
 ## Sources
 
-| Priority | Location                                   | Kind       | Authority         | Contains          | Parser State  | Collection Policy | Sensitivity |
-| -------- | ------------------------------------------ | ---------- | ----------------- | ----------------- | ------------- | ----------------- | ----------- |
-| 1        | VS Code `chatSessions/*.json`              | JSON       | primary candidate | chat sessions     | partial       | collect           | private     |
-| 1        | VS Code `chatEditingSessions/*/state.json` | JSON       | primary candidate | edit sessions     | partial       | collect           | private     |
-| 2        | VS Code `state.vscdb`                      | SQLite     | state/index       | chat/editor state | partial       | collect           | private     |
-| 3        | `$HOME/.copilot`                           | files/logs | support           | metadata/logs     | metadata_only | ignore_by_default | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | VS Code `chatSessions/*.json` | JSON | primary candidate | chat sessions | partial | collect | private |
+| 1 | VS Code `chatEditingSessions/*/state.json` | JSON | primary candidate | edit sessions | partial | collect | private |
+| 2 | VS Code `state.vscdb` | SQLite | state/index | chat/editor state | partial | collect | private |
+| 3 | `$HOME/.copilot` | files/logs | support | metadata/logs | metadata_only | ignore_by_default | private |
 
 ## Find
 

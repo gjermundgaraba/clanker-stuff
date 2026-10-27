@@ -1,6 +1,8 @@
+import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setImmediate as tick } from "node:timers/promises";
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
@@ -29,7 +31,7 @@ const usage = (totalTokens: number) => ({
 });
 
 const runtimeRequest = (harness: AgentSessionHarness): ChildRuntimeRequest => ({
-  bridge: () => Promise.resolve(),
+  bridge: async () => {},
   cwd: path.dirname(harness.agentDir),
   dataDir: path.join(harness.agentDir, "data", "subagents"),
   history: [],
@@ -52,15 +54,19 @@ const branchOf = (sessionFile: string, harness: AgentSessionHarness) =>
   SessionManager.open(
     sessionFile,
     path.dirname(sessionFile),
-    path.dirname(harness.agentDir),
+    path.dirname(harness.agentDir)
   ).getBranch();
 
-const hasUserTask = (sessionFile: string, harness: AgentSessionHarness, text: string) =>
+const hasUserTask = (
+  sessionFile: string,
+  harness: AgentSessionHarness,
+  text: string
+) =>
   branchOf(sessionFile, harness).some(
     (entry) =>
       entry.type === "message" &&
       entry.message.role === "user" &&
-      JSON.stringify(entry.message.content).includes(text),
+      JSON.stringify(entry.message.content).includes(text)
   );
 
 describe("child runtime", () => {
@@ -74,9 +80,20 @@ describe("child runtime", () => {
     }
   });
 
-  it.each([false, true])(
-    "inherits native code-only execution and read permissions (blocked=%s)",
-    async (blocked) => {
+  it.each([
+    {
+      blocked: false,
+      omits: "child read denied",
+      shows: "child-code-mode-marker",
+    },
+    {
+      blocked: true,
+      omits: "child-code-mode-marker",
+      shows: "child read denied",
+    },
+  ])(
+    "inherits native code-only execution and read permissions (blocked=$blocked)",
+    async ({ blocked, omits, shows }) => {
       const harness = await createAgentSessionHarness();
       process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
       const probe = path.join(harness.agentDir, "code-mode-probe.txt");
@@ -87,18 +104,20 @@ describe("child runtime", () => {
           codemode: { mode: "only" },
           compaction: { enabled: false },
           retry: { enabled: false },
-        }),
+        })
       );
       const declared: string[][] = [];
       harness.setResponses([
         (context) => {
-          declared.push(getCurrentTools(context.messages).map((tool) => tool.name));
+          declared.push(
+            getCurrentTools(context.messages).map((tool) => tool.name)
+          );
 
           return fauxAssistantMessage(
             fauxToolCall("codemode", {
               code: `text(await tools.read({ path: ${JSON.stringify(probe)} }));`,
             }),
-            { stopReason: "toolUse" },
+            { stopReason: "toolUse" }
           );
         },
         fauxAssistantMessage("done"),
@@ -108,51 +127,65 @@ describe("child runtime", () => {
         ...runtimeRequest(harness),
         tools: ["bash", "edit", "read", "write", "codemode"],
         bridge: (pi) => {
-          pi.on("tool_call", (event) => {
-            if (blocked && event.toolName === "read")
-              return { block: true, reason: "child read denied" };
-
-            return undefined;
-          });
+          pi.on("tool_call", (event) =>
+            blocked && event.toolName === "read"
+              ? { block: true, reason: "child read denied" }
+              : undefined
+          );
         },
       });
 
       try {
-        await expect(runtime.startTurn("Read the probe using Code Mode")).resolves.toMatchObject({
+        await expect(
+          runtime.startTurn("Read the probe using Code Mode")
+        ).resolves.toMatchObject({
           status: "completed",
         });
         expect(declared.length).toBeGreaterThan(0);
-        expect(declared.every((names) => names.length === 1 && names[0] === "codemode")).toBe(true);
+        expect(
+          declared.every(
+            (names) => names.length === 1 && names[0] === "codemode"
+          )
+        ).toBe(true);
         const branch = SessionManager.open(runtime.sessionFile).getBranch();
 
         const result = branch.findLast(
           (entry) =>
             entry.type === "message" &&
             entry.message.role === "toolResult" &&
-            entry.message.toolName === "codemode",
+            entry.message.toolName === "codemode"
         );
 
         expect(result).toBeDefined();
         const text = JSON.stringify(result);
-        expect(text).toContain(blocked ? "child read denied" : "child-code-mode-marker");
-
-        if (blocked) expect(text).not.toContain("child-code-mode-marker");
+        expect(text).toContain(shows);
+        expect(text).not.toContain(omits);
       } finally {
         await runtime.dispose();
         harness.cleanup();
       }
-    },
+    }
   );
 
-  it.each(["direct", "deferred", "codemode"] as const)(
-    "inherits native discovery, permissions, and MCP cleanup (%s)",
-    async (exposure) => {
+  it.each([
+    { exposure: "direct", searches: [] },
+    {
+      exposure: "deferred",
+      searches: [expect.stringContaining("mcp__probe__ping")],
+    },
+    { exposure: "codemode", searches: [] },
+  ] as const)(
+    "inherits native discovery, permissions, and MCP cleanup ($exposure)",
+    async ({ exposure, searches: expectedSearches }) => {
       const { createCodemodeExtension, createToolSearchExtension } =
         await import("@earendil-works/pi-coding-agent");
 
       const harness = await createAgentSessionHarness({
         settings: { defaultTools: ["+codemode", "+tool_search"] },
-        extensionFactories: [createCodemodeExtension(), createToolSearchExtension()],
+        extensionFactories: [
+          createCodemodeExtension(),
+          createToolSearchExtension(),
+        ],
       });
 
       process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
@@ -176,30 +209,39 @@ describe("child runtime", () => {
         path.join(harness.agentDir, "mcp.json"),
         JSON.stringify({
           mcpServers: {
-            probe: { command: process.execPath, args: ["-e", server, pidFile], exposure },
+            probe: {
+              command: process.execPath,
+              args: ["-e", server, pidFile],
+              exposure,
+            },
           },
-        }),
+        })
       );
       const results: string[] = [];
       const searches: string[] = [];
       harness.setResponses([
         ...(exposure === "deferred"
           ? [
-              fauxAssistantMessage(fauxToolCall("tool_search", { query: "offline probe ping" }), {
-                stopReason: "toolUse",
-              }),
+              fauxAssistantMessage(
+                fauxToolCall("tool_search", { query: "offline probe ping" }),
+                {
+                  stopReason: "toolUse",
+                }
+              ),
             ]
           : []),
         fauxAssistantMessage(
           fauxToolCall("codemode", {
             code: 'const found = await searchTools("offline probe ping"); if (!found.some(t => t.name === "mcp__probe__ping")) throw Error("discovery lost"); text(await tools.mcp__probe__ping({}));',
           }),
-          { stopReason: "toolUse" },
+          { stopReason: "toolUse" }
         ),
         fauxAssistantMessage("first complete"),
         fauxAssistantMessage(
-          fauxToolCall("codemode", { code: "text(await tools.mcp__probe__ping({}));" }),
-          { stopReason: "toolUse" },
+          fauxToolCall("codemode", {
+            code: "text(await tools.mcp__probe__ping({}));",
+          }),
+          { stopReason: "toolUse" }
         ),
         fauxAssistantMessage("blocked complete"),
       ]);
@@ -213,16 +255,19 @@ describe("child runtime", () => {
           pi.on("session_start", () => {
             active = pi.getActiveTools();
           });
-          pi.on("tool_call", (event) => {
-            if (blocked && event.toolName === "mcp__probe__ping")
-              return { block: true, reason: "MCP child denied" };
-
-            return undefined;
-          });
+          pi.on("tool_call", (event) =>
+            blocked && event.toolName === "mcp__probe__ping"
+              ? { block: true, reason: "MCP child denied" }
+              : undefined
+          );
           pi.on("tool_execution_end", (event) => {
-            if (event.toolName === "codemode") results.push(JSON.stringify(event.result));
+            if (event.toolName === "codemode") {
+              results.push(JSON.stringify(event.result));
+            }
 
-            if (event.toolName === "tool_search") searches.push(JSON.stringify(event.result));
+            if (event.toolName === "tool_search") {
+              searches.push(JSON.stringify(event.result));
+            }
           });
         },
       });
@@ -233,9 +278,9 @@ describe("child runtime", () => {
         expect(active).toContain("tool_search");
         await runtime.startTurn("Discover and call MCP");
         expect(results[0]).toContain("native-mcp-marker");
+        expect(searches).toStrictEqual(expectedSearches);
 
-        if (exposure === "deferred") expect(searches[0]).toContain("mcp__probe__ping");
-        pid = Number(await readFile(pidFile, "utf8"));
+        pid = Number(await readFile(pidFile, "utf-8"));
         blocked = true;
         await runtime.startTurn("Check permission denial");
         expect(results[1]).toContain("MCP child denied");
@@ -247,9 +292,9 @@ describe("child runtime", () => {
 
       expect(pid).toBeDefined();
       await vi.waitFor(() => {
-        expect(() => process.kill(pid!, 0)).toThrow();
+        expect(() => process.kill(pid, 0)).toThrow("ESRCH");
       });
-    },
+    }
   );
 
   it.each([false, true])(
@@ -264,7 +309,7 @@ describe("child runtime", () => {
       await mkdir(path.join(cwd, ".pi", "extensions"), { recursive: true });
       await writeFile(
         path.join(cwd, ".pi", "extensions", "project.ts"),
-        `import {writeFileSync} from "node:fs"; export default () => writeFileSync(${JSON.stringify(projectMarker)}, "loaded");`,
+        `import {writeFileSync} from "node:fs"; export default () => writeFileSync(${JSON.stringify(projectMarker)}, "loaded");`
       );
       await writeFile(
         path.join(harness.agentDir, "personal-policy.ts"),
@@ -273,7 +318,7 @@ describe("child runtime", () => {
             if (event.toolName === "read") return {block:true,reason:"personal-read-denied"};
             if (event.toolName === "mcp__policy__ping") return {block:true,reason:"personal-mcp-denied"};
           });
-        };`,
+        };`
       );
       await writeFile(
         path.join(harness.agentDir, "settings.json"),
@@ -281,7 +326,7 @@ describe("child runtime", () => {
           extensions: ["./personal-policy.ts"],
           compaction: { enabled: false },
           retry: { enabled: false },
-        }),
+        })
       );
 
       const server = `
@@ -300,9 +345,13 @@ describe("child runtime", () => {
         path.join(harness.agentDir, "mcp.json"),
         JSON.stringify({
           mcpServers: {
-            policy: { command: process.execPath, args: ["-e", server], exposure: "codemode" },
+            policy: {
+              command: process.execPath,
+              args: ["-e", server],
+              exposure: "codemode",
+            },
           },
-        }),
+        })
       );
       harness.setResponses([
         fauxAssistantMessage(
@@ -311,7 +360,7 @@ describe("child runtime", () => {
             try {text(await tools.read({path:${JSON.stringify(protectedPath)}}));} catch(e) {text(String(e));}
             try {text(await tools.mcp__policy__ping({}));} catch(e) {text(String(e));}`,
           }),
-          { stopReason: "toolUse" },
+          { stopReason: "toolUse" }
         ),
         fauxAssistantMessage("done"),
       ]);
@@ -327,7 +376,10 @@ describe("child runtime", () => {
 
         const results = SessionManager.open(runtime.sessionFile)
           .getBranch()
-          .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
+          .filter(
+            (entry) =>
+              entry.type === "message" && entry.message.role === "toolResult"
+          );
 
         const text = JSON.stringify(results);
         expect(text).toContain("personal-read-denied");
@@ -339,12 +391,18 @@ describe("child runtime", () => {
         await runtime.dispose();
         harness.cleanup();
       }
-    },
+    }
   );
 
   it("runs a fresh child on another registered provider with native credentials", async () => {
-    const parent = await createAgentSessionHarness({ provider: "parent-provider" });
-    const other = await createAgentSessionHarness({ provider: "worker-provider" });
+    const parent = await createAgentSessionHarness({
+      provider: "parent-provider",
+    });
+
+    const other = await createAgentSessionHarness({
+      provider: "worker-provider",
+    });
+
     process.env["PI_CODING_AGENT_DIR"] = parent.agentDir;
     const model = other.faux.getModel();
 
@@ -352,11 +410,21 @@ describe("child runtime", () => {
       .getModelRegistry()
       .getRegisteredNativeProvider(model.provider);
 
-    if (provider === undefined) throw new Error("missing faux provider");
+    if (provider === undefined) {
+      throw new Error("missing faux provider");
+    }
+
     parent.session.modelRuntime.registerNativeProvider(provider);
-    await parent.session.modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
+    await parent.session.modelRuntime.setRuntimeApiKey(
+      model.provider,
+      "faux-key"
+    );
     other.setResponses([fauxAssistantMessage("foreign child answer")]);
-    const runtime = await createChildRuntime({ ...runtimeRequest(parent), model });
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(parent),
+      model,
+    });
 
     try {
       expect(runtime.model).toBe(`${model.provider}/${model.id}`);
@@ -432,7 +500,9 @@ describe("child runtime", () => {
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
-      onError: (cause) => errors.push(cause),
+      onError: (cause) => {
+        errors.push(cause);
+      },
       onEvent: () => {
         throw new Error("viewer broke");
       },
@@ -445,7 +515,9 @@ describe("child runtime", () => {
       });
       expect(errors.length).toBeGreaterThan(0);
       expect(
-        errors.every((cause) => cause instanceof Error && cause.message === "viewer broke"),
+        errors.every(
+          (cause) => cause instanceof Error && cause.message === "viewer broke"
+        )
       ).toBe(true);
     } finally {
       await runtime.dispose();
@@ -489,10 +561,14 @@ describe("child runtime", () => {
     const model = { ...harness.faux.getModel(), id: "unregistered" };
 
     try {
-      await expect(createChildRuntime({ ...runtimeRequest(harness), model })).rejects.toThrow(
-        `Model ${model.provider}/unregistered is not available to child sessions`,
+      await expect(
+        createChildRuntime({ ...runtimeRequest(harness), model })
+      ).rejects.toThrow(
+        `Model ${model.provider}/unregistered is not available to child sessions`
       );
-      expect(existsSync(path.join(harness.agentDir, "data", "subagents", "sessions"))).toBeFalsy();
+      expect(
+        existsSync(path.join(harness.agentDir, "data", "subagents", "sessions"))
+      ).toBeFalsy();
     } finally {
       harness.cleanup();
     }
@@ -501,28 +577,34 @@ describe("child runtime", () => {
   it.each([
     [[], true],
     [["-builtin:mcp"], false],
-  ] as const)("follows the user's built-in extension settings %j", async (extensions, loaded) => {
-    const harness = await createAgentSessionHarness();
-    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
-    await writeFile(path.join(harness.agentDir, "settings.json"), JSON.stringify({ extensions }));
-    let commands: string[] = [];
+  ] as const)(
+    "follows the user's built-in extension settings %j",
+    async (extensions, loaded) => {
+      const harness = await createAgentSessionHarness();
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+      await writeFile(
+        path.join(harness.agentDir, "settings.json"),
+        JSON.stringify({ extensions })
+      );
+      let commands: string[] = [];
 
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: (pi) => {
-        pi.on("session_start", () => {
-          commands = pi.getCommands().map((command) => command.name);
-        });
-      },
-    });
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        bridge: (pi) => {
+          pi.on("session_start", () => {
+            commands = pi.getCommands().map((command) => command.name);
+          });
+        },
+      });
 
-    try {
-      expect(commands.includes("mcp")).toBe(loaded);
-    } finally {
-      await runtime.dispose();
-      harness.cleanup();
+      try {
+        expect(commands.includes("mcp")).toBe(loaded);
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
     }
-  });
+  );
 
   it("lets a user extension replace a built-in tool", async () => {
     const harness = await createAgentSessionHarness();
@@ -530,7 +612,7 @@ describe("child runtime", () => {
     await mkdir(path.join(harness.agentDir, "extensions"));
     await writeFile(
       path.join(harness.agentDir, "extensions", "my-codemode.ts"),
-      `export default (pi) => pi.registerTool({ name: "codemode", label: "mine", description: "third-party codemode", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: undefined }) });`,
+      `export default (pi) => pi.registerTool({ name: "codemode", label: "mine", description: "third-party codemode", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [], details: undefined }) });`
     );
     let descriptions: string[] = [];
 
@@ -555,6 +637,32 @@ describe("child runtime", () => {
   });
 });
 
+/** A child tool that blocks until released, so the turn is streaming while mail arrives. */
+const blockingTool = () => {
+  const started = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+
+  const bridge: ChildRuntimeRequest["bridge"] = (pi) => {
+    pi.registerTool({
+      description: "Blocks",
+      execute: async () => {
+        started.resolve(undefined);
+        await release.promise;
+
+        return {
+          content: [{ text: "unblocked", type: "text" }],
+          details: {},
+        };
+      },
+      label: "Block",
+      name: "block",
+      parameters: Type.Object({}),
+    });
+  };
+
+  return { bridge, release, started };
+};
+
 describe("child mail", () => {
   const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
 
@@ -574,29 +682,6 @@ describe("child mail", () => {
     to: "/root/child",
   };
 
-  /** A child tool that blocks until released, so the turn is streaming while mail arrives. */
-  const blockingTool = () => {
-    const started = Promise.withResolvers<undefined>();
-    const release = Promise.withResolvers<undefined>();
-
-    const bridge: ChildRuntimeRequest["bridge"] = (pi) => {
-      pi.registerTool({
-        description: "Blocks",
-        execute: async () => {
-          started.resolve(undefined);
-          await release.promise;
-
-          return { content: [{ text: "unblocked", type: "text" }], details: {} };
-        },
-        label: "Block",
-        name: "block",
-        parameters: Type.Object({}),
-      });
-    };
-
-    return { bridge, release, started };
-  };
-
   it("acknowledges mail an idle child transcribes at once", async () => {
     const harness = await createAgentSessionHarness();
     process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
@@ -605,7 +690,9 @@ describe("child mail", () => {
 
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
-      onDelivered: (id) => delivered.push(id),
+      onDelivered: (id) => {
+        delivered.push(id);
+      },
     });
 
     try {
@@ -617,8 +704,8 @@ describe("child mail", () => {
         branchOf(runtime.sessionFile, harness).some(
           (entry) =>
             entry.type === "custom_message" &&
-            JSON.stringify(entry.content).includes("parent context"),
-        ),
+            JSON.stringify(entry.content).includes("parent context")
+        )
       ).toBeTruthy();
     } finally {
       await runtime.dispose();
@@ -634,7 +721,9 @@ describe("child mail", () => {
     let nextRequest = "";
 
     harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("block", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("block", {}), {
+        stopReason: "toolUse",
+      }),
       (context) => {
         nextRequest = JSON.stringify(context.messages);
 
@@ -645,7 +734,9 @@ describe("child mail", () => {
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: block.bridge,
-      onDelivered: (id) => delivered.push(id),
+      onDelivered: (id) => {
+        delivered.push(id);
+      },
       tools: ["block"],
     });
 
@@ -659,7 +750,7 @@ describe("child mail", () => {
       await expect(turn).resolves.toMatchObject({ text: "done" });
       expect(delivered).toStrictEqual(["mail-1"]);
       expect(nextRequest).toContain(
-        "Message Type: MESSAGE\\nTask name: /root/child\\nSender: /root",
+        "Message Type: MESSAGE\\nTask name: /root/child\\nSender: /root"
       );
     } finally {
       block.release.resolve(undefined);
@@ -675,7 +766,9 @@ describe("child mail", () => {
     let nextRequest = "";
 
     harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("block", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("block", {}), {
+        stopReason: "toolUse",
+      }),
       (context) => {
         nextRequest = JSON.stringify(context.messages);
 
@@ -756,11 +849,13 @@ describe("child mail", () => {
       await expect(read).resolves.toBe(true);
       const [request = ""] = requests;
       expect(requests).toHaveLength(1);
-      expect(request.indexOf("also this")).toBeGreaterThan(request.indexOf("initial task"));
+      expect(request.indexOf("also this")).toBeGreaterThan(
+        request.indexOf("initial task")
+      );
       expect(request.indexOf("initial task")).toBeGreaterThan(-1);
 
       // Once the turn has settled, there is nothing to queue a task for.
-      await new Promise((resolve) => setImmediate(resolve));
+      await tick();
       expect(runtime.steer(task)).toBeUndefined();
     } finally {
       releasePreflight.resolve(undefined);
@@ -785,7 +880,9 @@ describe("child mail", () => {
     });
 
     try {
-      await expect(runtime.startTurn("work")).resolves.toMatchObject({ status: "errored" });
+      await expect(runtime.startTurn("work")).resolves.toMatchObject({
+        status: "errored",
+      });
     } finally {
       await runtime.dispose();
       harness.cleanup();
@@ -797,9 +894,12 @@ describe("child mail", () => {
     process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
 
     harness.setResponses([
-      fauxAssistantMessage([fauxText("About to do the work"), fauxToolCall("stop", {})], {
-        stopReason: "toolUse",
-      }),
+      fauxAssistantMessage(
+        [fauxText("About to do the work"), fauxToolCall("stop", {})],
+        {
+          stopReason: "toolUse",
+        }
+      ),
     ]);
 
     const runtime = await createChildRuntime({
@@ -811,7 +911,11 @@ describe("child mail", () => {
             ctx.abort();
 
             // Ending the run here leaves the tool-use response as the last assistant message.
-            return { content: [{ text: "stopped", type: "text" }], details: {}, terminate: true };
+            return {
+              content: [{ text: "stopped", type: "text" }],
+              details: {},
+              terminate: true,
+            };
           },
           label: "Stop",
           name: "stop",
@@ -851,7 +955,11 @@ describe("child mail", () => {
           execute: async (_id, _params, _signal, _update, ctx) => {
             ctx.abort();
 
-            return { content: [{ text: "stopped", type: "text" }], details: {}, terminate: true };
+            return {
+              content: [{ text: "stopped", type: "text" }],
+              details: {},
+              terminate: true,
+            };
           },
           label: "Stop",
           name: "stop",
@@ -860,16 +968,23 @@ describe("child mail", () => {
 
         // An aborted run skips the settle hook; its settled handlers still run inside the turn.
         pi.on("agent_settled", () => {
-          read = steer?.({ content: "late", from: "/root", kind: "NEW_TASK", to: "/root/child" });
+          read = steer?.({
+            content: "late",
+            from: "/root",
+            kind: "NEW_TASK",
+            to: "/root/child",
+          });
         });
       },
       tools: ["stop"],
     });
 
-    steer = runtime.steer;
+    ({ steer } = runtime);
 
     try {
-      await expect(runtime.startTurn("work")).resolves.toMatchObject({ status: "errored" });
+      await expect(runtime.startTurn("work")).resolves.toMatchObject({
+        status: "errored",
+      });
       expect(read).toBeDefined();
       await expect(read).resolves.toBe(false);
     } finally {
@@ -911,7 +1026,7 @@ describe("child mail", () => {
       bridge: (pi) => {
         pi.on("agent_before_settle", (event) => {
           if (continued) {
-            return undefined;
+            return;
           }
 
           continued = true;
@@ -933,10 +1048,12 @@ describe("child mail", () => {
       trusted: true,
     });
 
-    steer = runtime.steer;
+    ({ steer } = runtime);
 
     try {
-      await expect(runtime.startTurn("work")).resolves.toMatchObject({ text: "both done" });
+      await expect(runtime.startTurn("work")).resolves.toMatchObject({
+        text: "both done",
+      });
       await expect(read).resolves.toBe(true);
       expect(requests).toHaveLength(2);
       expect(requests[1]).toContain("also this");
@@ -946,6 +1063,93 @@ describe("child mail", () => {
     }
   });
 });
+
+const compactingHarness = async (
+  compaction: Record<string, number | boolean>,
+  contextWindow = 100
+) => {
+  const harness = await createAgentSessionHarness({
+    models: [{ contextWindow, id: "faux-1", maxTokens: 100 }],
+  });
+
+  process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+  await writeFile(
+    path.join(harness.agentDir, "settings.json"),
+    JSON.stringify({ compaction })
+  );
+
+  return harness;
+};
+
+/** History whose last response overflowed, so the next prompt compacts first. */
+const overflowedHistory = (
+  harness: AgentSessionHarness
+): ChildRuntimeRequest["history"] => {
+  const model = harness.faux.getModel();
+  const now = Date.now();
+
+  const previousAssistant: AssistantMessage = {
+    ...fauxAssistantMessage("previous response", {
+      stopReason: "length",
+      timestamp: now - 500,
+    }),
+    api: model.api,
+    model: model.id,
+    provider: model.provider,
+    usage: usage(100),
+  };
+
+  return [
+    {
+      content: [{ text: "previous prompt", type: "text" }],
+      role: "user",
+      timestamp: now - 1000,
+    },
+    previousAssistant,
+  ];
+};
+
+const compactionResult =
+  (summary: string) =>
+  (event: {
+    preparation: { firstKeptEntryId: string; tokensBefore: number };
+  }) => ({
+    compaction: {
+      details: {},
+      firstKeptEntryId: event.preparation.firstKeptEntryId,
+      summary,
+      tokensBefore: event.preparation.tokensBefore,
+    },
+  });
+
+const suspendPreflight = async (
+  preflightEvent: "before_agent_start" | "input"
+) => {
+  const harness = await createAgentSessionHarness();
+  process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+  const preflightStarted = Promise.withResolvers<undefined>();
+  const releasePreflight = Promise.withResolvers<undefined>();
+  harness.setResponses([fauxAssistantMessage("detached answer")]);
+
+  const suspend = async () => {
+    preflightStarted.resolve(undefined);
+    await releasePreflight.promise;
+  };
+
+  const runtime = await createChildRuntime({
+    ...runtimeRequest(harness),
+    bridge: (pi) => {
+      if (preflightEvent === "input") {
+        pi.on("input", suspend);
+      } else {
+        pi.on("before_agent_start", suspend);
+      }
+    },
+    trusted: true,
+  });
+
+  return { harness, preflightStarted, releasePreflight, runtime };
+};
 
 describe("child cancellation", () => {
   const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
@@ -958,116 +1162,69 @@ describe("child cancellation", () => {
     }
   });
 
-  const tick = () =>
-    new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
+  it.each(["input", "before_agent_start"] as const)(
+    "abort cancels a turn suspended in %s preflight",
+    async (preflightEvent) => {
+      const { harness, preflightStarted, releasePreflight, runtime } =
+        await suspendPreflight(preflightEvent);
 
-  const compactingHarness = async (
-    compaction: Record<string, number | boolean>,
-    contextWindow = 100,
-  ) => {
-    const harness = await createAgentSessionHarness({
-      models: [{ contextWindow, id: "faux-1", maxTokens: 100 }],
-    });
+      try {
+        const turn = runtime.startTurn("initial task");
+        await preflightStarted.promise;
 
-    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
-    await writeFile(path.join(harness.agentDir, "settings.json"), JSON.stringify({ compaction }));
-
-    return harness;
-  };
-
-  /** History whose last response overflowed, so the next prompt compacts first. */
-  const overflowedHistory = (harness: AgentSessionHarness): ChildRuntimeRequest["history"] => {
-    const model = harness.faux.getModel();
-    const now = Date.now();
-
-    const previousAssistant: AssistantMessage = {
-      ...fauxAssistantMessage("previous response", { stopReason: "length", timestamp: now - 500 }),
-      api: model.api,
-      model: model.id,
-      provider: model.provider,
-      usage: usage(100),
-    };
-
-    return [
-      { content: [{ text: "previous prompt", type: "text" }], role: "user", timestamp: now - 1000 },
-      previousAssistant,
-    ];
-  };
-
-  const compactionResult =
-    (summary: string) =>
-    (event: { preparation: { firstKeptEntryId: string; tokensBefore: number } }) => ({
-      compaction: {
-        details: {},
-        firstKeptEntryId: event.preparation.firstKeptEntryId,
-        summary,
-        tokensBefore: event.preparation.tokensBefore,
-      },
-    });
-
-  it.each([
-    ["abort", "input"],
-    ["abort", "before_agent_start"],
-    ["dispose", "input"],
-    ["dispose", "before_agent_start"],
-  ] as const)("%s cancels a turn suspended in %s preflight", async (operation, preflightEvent) => {
-    const harness = await createAgentSessionHarness();
-    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
-    const preflightStarted = Promise.withResolvers<undefined>();
-    const releasePreflight = Promise.withResolvers<undefined>();
-    harness.setResponses([fauxAssistantMessage("detached answer")]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: (pi) => {
-        const suspend = async () => {
-          preflightStarted.resolve(undefined);
-          await releasePreflight.promise;
-        };
-
-        if (preflightEvent === "input") {
-          pi.on("input", suspend);
-        } else {
-          pi.on("before_agent_start", suspend);
-        }
-      },
-      trusted: true,
-    });
-
-    try {
-      const turn = runtime.startTurn("initial task");
-      await preflightStarted.promise;
-
-      if (operation === "abort") {
         runtime.abort();
         // The turn settles without waiting for the suspended handler.
         await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
         releasePreflight.resolve(undefined);
-      } else {
+
+        await runtime.dispose();
+        expect(harness.getPendingResponseCount()).toBe(1);
+        expect(
+          hasUserTask(runtime.sessionFile, harness, "initial task")
+        ).toBeFalsy();
+      } finally {
+        releasePreflight.resolve(undefined);
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    }
+  );
+
+  it.each(["input", "before_agent_start"] as const)(
+    "dispose cancels a turn suspended in %s preflight",
+    async (preflightEvent) => {
+      const { harness, preflightStarted, releasePreflight, runtime } =
+        await suspendPreflight(preflightEvent);
+
+      try {
+        const turn = runtime.startTurn("initial task");
+        await preflightStarted.promise;
+
         let disposed = false;
 
-        const disposal = runtime.dispose().then(() => {
+        const disposal = (async () => {
+          await runtime.dispose();
           disposed = true;
-        });
+        })();
 
         await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
         await tick();
         expect(disposed).toBeFalsy();
         releasePreflight.resolve(undefined);
         await disposal;
-      }
 
-      await runtime.dispose();
-      expect(harness.getPendingResponseCount()).toBe(1);
-      expect(hasUserTask(runtime.sessionFile, harness, "initial task")).toBeFalsy();
-    } finally {
-      releasePreflight.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
+        await runtime.dispose();
+        expect(harness.getPendingResponseCount()).toBe(1);
+        expect(
+          hasUserTask(runtime.sessionFile, harness, "initial task")
+        ).toBeFalsy();
+      } finally {
+        releasePreflight.resolve(undefined);
+        await runtime.dispose();
+        harness.cleanup();
+      }
     }
-  });
+  );
 
   it.each(["input", "before_agent_start"] as const)(
     "dispose emits shutdown once while fencing a turn suspended in %s",
@@ -1080,16 +1237,16 @@ describe("child cancellation", () => {
       let preflightFinished = false;
       let shutdownCount = 0;
 
+      const suspend = async () => {
+        preflightStarted.resolve(undefined);
+        await shutdownStarted.promise;
+        await releasePreflight.promise;
+        preflightFinished = true;
+      };
+
       const runtime = await createChildRuntime({
         ...runtimeRequest(harness),
         bridge: (pi) => {
-          const suspend = async () => {
-            preflightStarted.resolve(undefined);
-            await shutdownStarted.promise;
-            await releasePreflight.promise;
-            preflightFinished = true;
-          };
-
           if (preflightEvent === "input") {
             pi.on("input", suspend);
           } else {
@@ -1109,9 +1266,10 @@ describe("child cancellation", () => {
         await preflightStarted.promise;
         let disposed = false;
 
-        const disposals = Promise.all([runtime.dispose(), runtime.dispose()]).then(() => {
+        const disposals = (async () => {
+          await Promise.all([runtime.dispose(), runtime.dispose()]);
           disposed = true;
-        });
+        })();
 
         // Shutdown reaches handlers while the suspended preflight still runs.
         await shutdownStarted.promise;
@@ -1132,7 +1290,7 @@ describe("child cancellation", () => {
         await runtime.dispose();
         harness.cleanup();
       }
-    },
+    }
   );
 
   it("keeps a turn cancelled during input preflight from compacting", async () => {
@@ -1175,9 +1333,13 @@ describe("child cancellation", () => {
 
       expect(compactionStarted).toBeFalsy();
       expect(
-        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+        branchOf(runtime.sessionFile, harness).filter(
+          (entry) => entry.type === "compaction"
+        )
       ).toHaveLength(0);
-      expect(hasUserTask(runtime.sessionFile, harness, "cancelled task")).toBeFalsy();
+      expect(
+        hasUserTask(runtime.sessionFile, harness, "cancelled task")
+      ).toBeFalsy();
       expect(harness.getPendingResponseCount()).toBe(0);
     } finally {
       releaseInput.resolve(undefined);
@@ -1209,13 +1371,18 @@ describe("child cancellation", () => {
     let blockAuth = false;
 
     // Pi checks configured auth during preflight, before pre-prompt compaction.
-    const authSpy = vi.spyOn(apiKeyAuth, "check").mockImplementation(async (input) => {
-      if (!blockAuth) return undefined;
-      authStarted.resolve(undefined);
-      await releaseAuth.promise;
+    const authSpy = vi
+      .spyOn(apiKeyAuth, "check")
+      .mockImplementation(async (input) => {
+        if (!blockAuth) {
+          return;
+        }
 
-      return checkAuth(input);
-    });
+        authStarted.resolve(undefined);
+        await releaseAuth.promise;
+
+        return await checkAuth(input);
+      });
 
     let compactionStarted = false;
 
@@ -1244,9 +1411,13 @@ describe("child cancellation", () => {
 
       expect(compactionStarted).toBeFalsy();
       expect(
-        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+        branchOf(runtime.sessionFile, harness).filter(
+          (entry) => entry.type === "compaction"
+        )
       ).toHaveLength(0);
-      expect(hasUserTask(runtime.sessionFile, harness, "cancelled task")).toBeFalsy();
+      expect(
+        hasUserTask(runtime.sessionFile, harness, "cancelled task")
+      ).toBeFalsy();
     } finally {
       authSpy.mockRestore();
       releaseAuth.resolve(undefined);
@@ -1271,9 +1442,7 @@ describe("child cancellation", () => {
           compactionStarted.resolve(undefined);
 
           if (!event.signal.aborted) {
-            await new Promise<void>((resolve) => {
-              event.signal.addEventListener("abort", () => resolve(), { once: true });
-            });
+            await once(event.signal, "abort");
           }
 
           return { cancel: true };
@@ -1291,9 +1460,13 @@ describe("child cancellation", () => {
       await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
 
       expect(
-        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+        branchOf(runtime.sessionFile, harness).filter(
+          (entry) => entry.type === "compaction"
+        )
       ).toHaveLength(0);
-      expect(hasUserTask(runtime.sessionFile, harness, "cancelled task")).toBeFalsy();
+      expect(
+        hasUserTask(runtime.sessionFile, harness, "cancelled task")
+      ).toBeFalsy();
       expect(harness.getPendingResponseCount()).toBe(0);
     } finally {
       await runtime.dispose();
@@ -1323,14 +1496,16 @@ describe("child cancellation", () => {
     const resolveAuth = apiKeyAuth.resolve.bind(apiKeyAuth);
     let blockAuth = false;
 
-    const authSpy = vi.spyOn(apiKeyAuth, "resolve").mockImplementation(async (input) => {
-      if (blockAuth) {
-        authStarted.resolve(undefined);
-        await releaseAuth.promise;
-      }
+    const authSpy = vi
+      .spyOn(apiKeyAuth, "resolve")
+      .mockImplementation(async (input) => {
+        if (blockAuth) {
+          authStarted.resolve(undefined);
+          await releaseAuth.promise;
+        }
 
-      return resolveAuth(input);
-    });
+        return await resolveAuth(input);
+      });
 
     harness.setResponses([
       async () => {
@@ -1347,7 +1522,10 @@ describe("child cancellation", () => {
       fauxAssistantMessage("unexpected summary"),
     ]);
 
-    const runtime = await createChildRuntime({ ...runtimeRequest(harness), trusted: true });
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      trusted: true,
+    });
 
     try {
       const turn = runtime.startTurn("initial task");
@@ -1355,9 +1533,14 @@ describe("child cancellation", () => {
       runtime.abort();
       releaseAuth.resolve(undefined);
 
-      await expect(turn).resolves.toStrictEqual({ status: "completed", text: "child answer" });
+      await expect(turn).resolves.toStrictEqual({
+        status: "completed",
+        text: "child answer",
+      });
       expect(
-        branchOf(runtime.sessionFile, harness).filter((entry) => entry.type === "compaction"),
+        branchOf(runtime.sessionFile, harness).filter(
+          (entry) => entry.type === "compaction"
+        )
       ).toHaveLength(0);
       expect(harness.getPendingResponseCount()).toBe(1);
     } finally {
@@ -1371,7 +1554,7 @@ describe("child cancellation", () => {
   it("does not retry after an overflow compaction once cancelled", async () => {
     const harness = await compactingHarness(
       { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      1000,
+      1000
     );
 
     const compacted = Promise.withResolvers<undefined>();
@@ -1393,9 +1576,12 @@ describe("child cancellation", () => {
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
-        pi.on("session_before_compact", compactionResult("overflow compaction"));
+        pi.on(
+          "session_before_compact",
+          compactionResult("overflow compaction")
+        );
         pi.on("session_compact", async (event) => {
-          willRetry = event.willRetry;
+          ({ willRetry } = event);
           compacted.resolve(undefined);
           await releaseCompaction.promise;
         });
@@ -1422,7 +1608,7 @@ describe("child cancellation", () => {
   it("does not send an overflow retry cancelled during context conversion", async () => {
     const harness = await compactingHarness(
       { enabled: true, keepRecentTokens: 1, reserveTokens: 0 },
-      1000,
+      1000
     );
 
     const streamSpy = vi.spyOn(ModelRuntime.prototype, "streamSimple");
@@ -1453,7 +1639,10 @@ describe("child cancellation", () => {
 
           return { messages: event.messages };
         });
-        pi.on("session_before_compact", compactionResult("overflow compaction"));
+        pi.on(
+          "session_before_compact",
+          compactionResult("overflow compaction")
+        );
         pi.on("session_compact", () => {
           blockRetryContext = true;
         });
@@ -1464,7 +1653,7 @@ describe("child cancellation", () => {
     try {
       const turn = runtime.startTurn("x".repeat(5000));
       await retryContextStarted.promise;
-      expect(streamSpy).toHaveBeenCalledTimes(1);
+      expect(streamSpy).toHaveBeenCalledOnce();
       runtime.abort();
       await tick();
       releaseRetryContext.resolve(undefined);
@@ -1472,7 +1661,9 @@ describe("child cancellation", () => {
       await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
       // The retry reaches the provider only with an aborted signal, so no request is built.
       expect(
-        harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
+        harness.providerPayloads(
+          Type.Object({}, { additionalProperties: true })
+        )
       ).toHaveLength(1);
       expect(harness.getPendingResponseCount()).toBe(1);
     } finally {

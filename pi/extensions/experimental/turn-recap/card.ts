@@ -29,19 +29,33 @@ const number = (value: number): string =>
   value < 1000 ? String(value) : compact.format(value).replace("K", "k");
 
 const clock = (timestamp: number): string =>
-  new Date(timestamp).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
 // Values carry the contrast so labels and separators can recede.
-const stat = (theme: Foreground, value: string, label: string, tone: Tone = "text") =>
-  theme.fg(tone, value) + theme.fg("muted", ` ${label}`);
+const stat = (
+  theme: Foreground,
+  value: string,
+  label: string,
+  tone: Tone = "text"
+) => theme.fg(tone, value) + theme.fg("muted", ` ${label}`);
 
-const row = (theme: Foreground, parts: string[]) => parts.join(theme.fg("dim", " · "));
+const OUTCOME_LABELS: Record<Snapshot["outcome"], string> = {
+  completed: "Completed in",
+  aborted: "Aborted after",
+  error: "Failed after",
+};
+
+const row = (theme: Foreground, parts: string[]) =>
+  parts.join(theme.fg("dim", " · "));
 
 const statistics = (
   metrics: Metrics,
   theme: Foreground,
   expanded: boolean,
-  numeric: NumericText,
+  numeric: NumericText
 ): string[] => {
   const { context, contextGrowth } = metrics;
   const percent = context?.percent;
@@ -54,19 +68,27 @@ const statistics = (
     context &&
     (context.tokens === null
       ? `${number(context.contextWindow)} window`
-      : `≈${number(context.tokens)}/${number(context.contextWindow)}${percent == null ? "" : `, ${percent.toFixed(1)}%`}`);
+      : `≈${number(context.tokens)}/${number(context.contextWindow)}${percent === null || percent === undefined ? "" : `, ${percent.toFixed(1)}%`}`);
 
-  const contextValue = expanded && windowDetail ? `${added} (${windowDetail})` : added;
+  const contextValue =
+    expanded && windowDetail !== undefined
+      ? `${added} (${windowDetail})`
+      : added;
 
-  const contextTone = percent == null ? "text" : percentTone(percent);
+  const contextTone =
+    percent === null || percent === undefined ? "text" : percentTone(percent);
 
   return [
     stat(
       theme,
       numeric("tools", String(metrics.toolCalls)),
-      metrics.toolCalls === 1 ? "tool" : "tools",
+      metrics.toolCalls === 1 ? "tool" : "tools"
     ),
-    stat(theme, numeric("processed", number(totalTokens(metrics.usage))), "processed"),
+    stat(
+      theme,
+      numeric("processed", number(totalTokens(metrics.usage))),
+      "processed"
+    ),
     expanded && context
       ? theme.fg("muted", "Context ") + theme.fg(contextTone, contextValue)
       : stat(theme, contextValue, "context", contextTone),
@@ -76,7 +98,7 @@ const statistics = (
           stat(
             theme,
             numeric("compactions", String(metrics.compactions)),
-            metrics.compactions === 1 ? "compaction" : "compactions",
+            metrics.compactions === 1 ? "compaction" : "compactions"
           ),
         ]),
   ];
@@ -95,12 +117,18 @@ export const renderLive = (
   state: LiveState,
   width: number,
   theme: Foreground,
-  numeric: NumericText = plain,
+  numeric: NumericText = plain
 ): string[] => {
-  if (width <= 0) return [];
+  if (width <= 0) {
+    return [];
+  }
 
   const text = row(theme, [
-    stat(theme, numeric("elapsed", formatElapsed(state.elapsedMs, "seconds")), "elapsed"),
+    stat(
+      theme,
+      numeric("elapsed", formatElapsed(state.elapsedMs, "seconds")),
+      "elapsed"
+    ),
     ...statistics(state.metrics, theme, false, numeric),
   ]);
 
@@ -113,19 +141,17 @@ export const renderCard = (
   recap: RecapView | undefined,
   width: number,
   theme: Foreground,
-  expanded: boolean,
+  expanded: boolean
 ): string[] => {
-  if (width <= 0) return [];
+  if (width <= 0) {
+    return [];
+  }
+
   const { metrics } = snapshot;
-  const usage = metrics.usage;
+  const { usage } = metrics;
   const indent = width > 2 ? "  " : "";
 
-  const outcome =
-    snapshot.outcome === "error"
-      ? "Failed after"
-      : snapshot.outcome === "aborted"
-        ? "Aborted after"
-        : "Completed in";
+  const outcome = OUTCOME_LABELS[snapshot.outcome];
 
   const outcomeTone = snapshot.outcome === "error" ? "error" : "muted";
 
@@ -134,69 +160,104 @@ export const renderCard = (
       theme.fg("borderMuted", "─ Turn recap · ") +
         theme.fg(
           outcomeTone,
-          `${outcome} ${formatElapsed(snapshot.wallMs)} at ${clock(snapshot.finishedAt)} `,
+          `${outcome} ${formatElapsed(snapshot.wallMs)} at ${clock(snapshot.finishedAt)} `
         ) +
         theme.fg("borderMuted", "─".repeat(width)),
       width,
-      "",
+      ""
     ),
   ];
 
   const add = (text: string) => {
-    for (const line of wrapTextWithAnsi(text, Math.max(1, width - indent.length)))
+    for (const line of wrapTextWithAnsi(
+      text,
+      Math.max(1, width - indent.length)
+    )) {
       lines.push(truncateToWidth(`${indent}${line}`, width, ""));
+    }
   };
 
-  if (recap?.status === "ready") add(theme.fg("text", sanitizeRecapText(recap.text)));
-
-  if (recap?.status === "failed") {
-    const failure = theme.fg("muted", `Recap unavailable: ${sanitizeRecapText(recap.error)}`);
-
-    if (expanded) add(failure);
-    else lines.push(truncateToWidth(`${indent}${failure}`, width, "…"));
+  if (recap?.status === "ready") {
+    add(theme.fg("text", sanitizeRecapText(recap.text)));
   }
 
-  if (recap?.status === "generating") add(theme.fg("dim", "Generating recap…"));
+  if (recap?.status === "failed") {
+    const failure = theme.fg(
+      "muted",
+      `Recap unavailable: ${sanitizeRecapText(recap.error)}`
+    );
+
+    if (expanded) {
+      add(failure);
+    } else {
+      lines.push(truncateToWidth(`${indent}${failure}`, width, "…"));
+    }
+  }
+
+  if (recap?.status === "generating") {
+    add(theme.fg("dim", "Generating recap…"));
+  }
 
   // Recap prose and statistics read as separate blocks.
-  if (recap) lines.push("");
+  if (recap) {
+    lines.push("");
+  }
+
   add(row(theme, statistics(metrics, theme, expanded, plain)));
 
-  if (!expanded) return lines;
+  if (!expanded) {
+    return lines;
+  }
 
   const reasoning =
     usage.reasoningReports === 0
       ? "not reported"
       : `${number(usage.reasoning)}${usage.reasoningReports < usage.reports ? " (partially reported)" : ""} (included in output)`;
 
-  add(theme.fg("muted", `Reported cost $${usage.cost.toFixed(4)} · Reasoning ${reasoning}`));
+  add(
+    theme.fg(
+      "muted",
+      `Reported cost $${usage.cost.toFixed(4)} · Reasoning ${reasoning}`
+    )
+  );
 
   if (recap?.status !== "generating" && recap?.usage) {
     add(
       theme.fg(
         "dim",
-        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} reported (excluded above)`,
-      ),
+        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} reported (excluded above)`
+      )
     );
   }
 
   add(
     theme.fg(
       "muted",
-      `Input ${number(usage.input)} · Output ${number(usage.output)} · Cache read ${number(usage.cacheRead)} · Cache write ${number(usage.cacheWrite)}`,
-    ),
+      `Input ${number(usage.input)} · Output ${number(usage.output)} · Cache read ${number(usage.cacheRead)} · Cache write ${number(usage.cacheWrite)}`
+    )
   );
-  add(theme.fg("muted", `${metrics.responses} responses · ${metrics.toolErrors} tool errors`));
   add(
     theme.fg(
       "muted",
-      `Model ${formatElapsed(metrics.modelMs)} · Tools ${formatElapsed(metrics.toolMs)}`,
-    ),
+      `${metrics.responses} responses · ${metrics.toolErrors} tool errors`
+    )
+  );
+  add(
+    theme.fg(
+      "muted",
+      `Model ${formatElapsed(metrics.modelMs)} · Tools ${formatElapsed(metrics.toolMs)}`
+    )
   );
   add(theme.fg("muted", `Started ${clock(snapshot.startedAt)}`));
 
-  if (metrics.models.length > 0)
-    add(theme.fg("muted", `Models: ${metrics.models.map(sanitizeRecapText).join(", ")}`));
+  if (metrics.models.length > 0) {
+    add(
+      theme.fg(
+        "muted",
+        `Models: ${metrics.models.map(sanitizeRecapText).join(", ")}`
+      )
+    );
+  }
 
   return lines;
 };
@@ -211,19 +272,25 @@ export const createCardRenderer =
   (entry, { expanded }, theme) => {
     const snapshot = entry.data;
 
-    if (!Value.Check(SnapshotSchema, snapshot)) return undefined;
-    let cached: { width: number; recap: RecapView | undefined; lines: string[] } | undefined;
+    if (!Value.Check(SnapshotSchema, snapshot)) {
+      return;
+    }
+
+    let cached:
+      | { width: number; recap: RecapView | undefined; lines: string[] }
+      | undefined;
 
     return {
       render(width) {
         const current = recap(snapshot.runId);
 
-        if (cached?.width !== width || cached.recap !== current)
+        if (cached?.width !== width || cached.recap !== current) {
           cached = {
             width,
             recap: current,
             lines: renderCard(snapshot, current, width, theme, expanded),
           };
+        }
 
         return cached.lines;
       },

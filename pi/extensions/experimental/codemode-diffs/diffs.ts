@@ -17,7 +17,7 @@ const EditDiffSchema = Type.Object(
     // Syntax is optional display metadata; malformed/newer metadata must not hide the diff.
     syntax: Type.Optional(Type.Unknown()),
   },
-  { additionalProperties: false },
+  { additionalProperties: false }
 );
 
 // Decode only the extension-owned part; Pi and other renderers own the remaining details.
@@ -25,7 +25,7 @@ export const DiffDetailsSchema = Type.Object(
   {
     codemodeDiffs: Type.Array(EditDiffSchema),
   },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 type EditDiff = Static<typeof EditDiffSchema>;
@@ -35,22 +35,29 @@ const EditDetailsSchema = Type.Object(
   {
     diff: Type.String(),
   },
-  { additionalProperties: true },
+  { additionalProperties: true }
 );
 
 export class EditDiffs {
   private readonly calls = new Map<string, EditDiff[]>();
-  private readonly pending = new Map<string, { diff: string; rows: DiffSyntax } | undefined>();
+  private readonly pending = new Map<
+    string,
+    { diff: string; rows: DiffSyntax } | undefined
+  >();
 
   onCall(event: ToolCallEvent): void {
-    if (event.toolName === "codemode") this.calls.set(event.toolCallId, []);
+    if (event.toolName === "codemode") {
+      this.calls.set(event.toolCallId, []);
+    }
 
     if (
       event.toolName === "edit" &&
-      event.parentToolCallId &&
+      event.parentToolCallId !== undefined &&
+      event.parentToolCallId !== "" &&
       this.calls.has(event.parentToolCallId)
-    )
+    ) {
       this.pending.set(event.toolCallId, undefined);
+    }
   }
 
   onResult(event: ToolResultEvent): ToolResultEventResult | undefined {
@@ -58,7 +65,9 @@ export class EditDiffs {
       const edits = this.calls.get(event.toolCallId);
       this.calls.delete(event.toolCallId);
 
-      if (!edits?.length) return;
+      if (edits === undefined || edits.length === 0) {
+        return;
+      }
 
       const details: unknown = event.details;
 
@@ -70,16 +79,33 @@ export class EditDiffs {
       };
     }
 
-    if (event.toolName !== "edit") return;
+    if (event.toolName !== "edit") {
+      return;
+    }
+
     const syntax = this.pending.get(event.toolCallId);
     this.pending.delete(event.toolCallId);
 
-    if (event.isError || !event.parentToolCallId) return;
+    if (
+      event.isError ||
+      event.parentToolCallId === undefined ||
+      event.parentToolCallId === ""
+    ) {
+      return;
+    }
+
     const edits = this.calls.get(event.parentToolCallId);
     const details: unknown = event.details;
-    const path = event.input["path"];
+    const { path } = event.input;
 
-    if (!edits || typeof path !== "string" || !Value.Check(EditDetailsSchema, details)) return;
+    if (
+      !edits ||
+      typeof path !== "string" ||
+      !Value.Check(EditDetailsSchema, details)
+    ) {
+      return;
+    }
+
     edits.push({
       toolCallId: event.toolCallId,
       path,
@@ -95,7 +121,9 @@ export class EditDiffs {
   }
 
   setSyntax(id: string, diff: string, rows: DiffSyntax): void {
-    if (this.pending.has(id)) this.pending.set(id, { diff, rows });
+    if (this.pending.has(id)) {
+      this.pending.set(id, { diff, rows });
+    }
   }
 
   clear(): void {

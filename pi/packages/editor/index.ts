@@ -5,9 +5,13 @@ import type {
   KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
-import { connect, type DocumentView, type DocumentAdapter } from "./adapter.js";
-import { decorateRows, type Decoration } from "./render.js";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
+
+import { connect } from "./adapter.js";
+import type { DocumentView, DocumentAdapter } from "./adapter.js";
+import { decorateRows } from "./render.js";
+import type { Decoration } from "./render.js";
 
 /** Changes made outside the modal engine. Its own edits and restores are not reported. */
 export type Change = "input" | "insert" | "replace";
@@ -26,9 +30,9 @@ export interface Border {
 }
 
 interface Contributions {
-  editing?: Editing;
-  foreground?: (text: string) => Decoration[];
-  border?: Border;
+  editing?: Editing | undefined;
+  foreground?: ((text: string) => Decoration[]) | undefined;
+  border?: Border | undefined;
 }
 
 class SharedEditor extends CustomEditor {
@@ -48,7 +52,7 @@ class SharedEditor extends CustomEditor {
     theme: EditorTheme,
     keys: KeybindingsManager,
     contributions: Contributions,
-    uiTheme: () => Theme,
+    uiTheme: () => Theme
   ) {
     super(tui, theme, keys, { embedWorkingStatus: true });
     this.keys = keys;
@@ -68,9 +72,14 @@ class SharedEditor extends CustomEditor {
     Object.defineProperty(this, "onChange", {
       configurable: true,
       get: () => (text: string) => {
-        if (this.kind !== "internal") this.editing?.changed(this.kind, this.before);
+        if (this.kind !== "internal") {
+          this.editing?.changed(this.kind, this.before);
+        }
 
-        if (this.before) this.before = this.document?.view();
+        if (this.before) {
+          this.before = this.document?.view();
+        }
+
         change?.(text);
       },
       set: (next: typeof this.onChange) => {
@@ -94,9 +103,12 @@ class SharedEditor extends CustomEditor {
   }
   private withChange(kind: Kind, action: () => void) {
     const previous = this.kind;
-    const before = this.before;
+    const { before } = this;
 
-    if (kind === "insert" && this.editing) this.before = this.document?.view();
+    if (kind === "insert" && this.editing) {
+      this.before = this.document?.view();
+    }
+
     this.kind = kind;
 
     try {
@@ -115,23 +127,38 @@ class SharedEditor extends CustomEditor {
   }
   override handleInput(data: string) {
     // ProcessTerminal delivers complete packets, already framed by StdinBuffer.
-    if (data.startsWith("\x1b[200~")) this.withChange("insert", () => super.handleInput(data));
-    else if (data && !this.editing?.input(data)) this.nativeInput(data);
+    if (data.startsWith("\u001B[200~")) {
+      this.withChange("insert", () => {
+        super.handleInput(data);
+      });
+    } else if (data && this.editing?.input(data) !== true) {
+      this.nativeInput(data);
+    }
   }
   override setText(text: string) {
     // Pi round-trips getText() through setText(), e.g. when a custom view closes. Keep the
     // cursor, folded payloads, native undo and modal state when nothing is being replaced.
-    if (text === this.getExpandedText()) return;
-    this.withChange("replace", () => super.setText(text));
+    if (text === this.getExpandedText()) {
+      return;
+    }
+
+    this.withChange("replace", () => {
+      super.setText(text);
+    });
   }
   override insertTextAtCursor(text: string) {
-    this.withChange("insert", () => super.insertTextAtCursor(text));
+    this.withChange("insert", () => {
+      super.insertTextAtCursor(text);
+    });
   }
   // The modal engine is the only caller and is inactive without a document.
   private internalEdit(action: (document: DocumentAdapter) => void) {
-    const document = this.document;
+    const { document } = this;
 
-    if (!document) return;
+    if (!document) {
+      return;
+    }
+
     this.withChange("internal", () => {
       action(document);
       this.onChange?.(this.getText());
@@ -139,22 +166,31 @@ class SharedEditor extends CustomEditor {
     this.tui.requestRender();
   }
   restoreView(view: DocumentView) {
-    this.internalEdit((document) => document.restoreView(view));
+    this.internalEdit((document) => {
+      document.restoreView(view);
+    });
   }
   edit(start: number, end: number, insertion: string, cursor: number) {
-    this.internalEdit((document) => document.replace(start, end, insertion, cursor));
+    this.internalEdit((document) => {
+      document.replace(start, end, insertion, cursor);
+    });
   }
   refresh() {
     this.tui.requestRender();
   }
-  protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+  protected override renderTopBorder(
+    width: number,
+    hiddenLineCount: number
+  ): string {
     const line = super.renderTopBorder(width, hiddenLineCount);
 
-    return this.contributions.border?.render(line, width, this.borderColor) ?? line;
+    return (
+      this.contributions.border?.render(line, width, this.borderColor) ?? line
+    );
   }
   override render(width: number) {
     let rows = super.render(width);
-    const document = this.document;
+    const { document } = this;
 
     if (document) {
       const text = document.text();
@@ -165,8 +201,19 @@ class SharedEditor extends CustomEditor {
       ];
 
       if (spans.length) {
-        const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
-        rows = decorateRows(rows, text, padding, document.layout(), spans, this.uiTheme());
+        const padding = Math.min(
+          this.getPaddingX(),
+          Math.max(0, Math.floor((width - 1) / 2))
+        );
+
+        rows = decorateRows(
+          rows,
+          text,
+          padding,
+          document.layout(),
+          spans,
+          this.uiTheme()
+        );
       }
     }
 
@@ -185,32 +232,53 @@ export class EditorHost {
     this.theme = theme;
   }
   create(tui: TUI, theme: EditorTheme, keys: KeybindingsManager) {
-    if (this.editor) return this.editor;
+    if (this.editor) {
+      return this.editor;
+    }
 
-    const editor = new SharedEditor(tui, theme, keys, this.contributions, this.theme);
+    const editor = new SharedEditor(
+      tui,
+      theme,
+      keys,
+      this.contributions,
+      this.theme
+    );
+
     this.editor = editor;
 
-    for (const entry of this.history) editor.addToHistory(entry);
+    for (const entry of this.history) {
+      editor.addToHistory(entry);
+    }
 
-    for (const mounted of this.mounts) mounted(editor);
+    for (const mounted of this.mounts) {
+      mounted(editor);
+    }
 
     return editor;
   }
   /** One owner per slot; the release leaves a later owner's contribution in place. */
-  contribute<K extends keyof Contributions>(slot: K, value: NonNullable<Contributions[K]>) {
+  contribute<K extends keyof Contributions>(
+    slot: K,
+    value: NonNullable<Contributions[K]>
+  ) {
     this.contributions[slot] = value;
     this.editor?.refresh();
 
     return () => {
-      if (this.contributions[slot] !== value) return;
-      delete this.contributions[slot];
+      if (this.contributions[slot] !== value) {
+        return;
+      }
+
+      this.contributions[slot] = undefined;
       this.editor?.refresh();
     };
   }
   onMount(mounted: (editor: SharedEditor) => void) {
     this.mounts.add(mounted);
 
-    if (this.editor) mounted(this.editor);
+    if (this.editor) {
+      mounted(this.editor);
+    }
 
     return () => {
       this.mounts.delete(mounted);
@@ -219,7 +287,9 @@ export class EditorHost {
   seedHistory(entries: string[]) {
     this.history = entries;
 
-    for (const entry of entries) this.editor?.addToHistory(entry);
+    for (const entry of entries) {
+      this.editor?.addToHistory(entry);
+    }
   }
 }
 
@@ -227,31 +297,45 @@ export class EditorHost {
 // The key versions the host's shape; a copy built for another shape sees a foreign editor.
 const owner = Symbol.for("clanker-stuff.editor/3");
 
-type OwnedFactory = NonNullable<ReturnType<ExtensionUIContext["getEditorComponent"]>> & {
+type OwnedFactory = NonNullable<
+  ReturnType<ExtensionUIContext["getEditorComponent"]>
+> & {
   [owner]?: EditorHost;
 };
 
 /** The shared editor while it is Pi's current editor; another extension can replace it later. */
-export function currentEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost | undefined {
-  // SAFETY: The optional symbol property is set only on factories created by acquireEditorHost.
-  return (ctx.ui.getEditorComponent() as OwnedFactory | undefined)?.[owner];
-}
+export const currentEditorHost = (
+  ctx: Pick<ExtensionContext, "ui">
+): EditorHost | undefined => {
+  // The optional symbol property is set only on factories created by acquireEditorHost.
+  const factory: OwnedFactory | undefined = ctx.ui.getEditorComponent();
+
+  return factory?.[owner];
+};
 
 /** Install or join the shared editor. Undefined means another editor owns the session. */
-export function acquireEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost | undefined {
-  const ui = ctx.ui;
+export const acquireEditorHost = (
+  ctx: Pick<ExtensionContext, "ui">
+): EditorHost | undefined => {
+  const { ui } = ctx;
   let host = currentEditorHost(ctx);
 
   if (!host) {
     if (ui.getEditorComponent()) {
-      ui.setStatus("shared-editor", "Custom editor: shared editing features unavailable");
+      ui.setStatus(
+        "shared-editor",
+        "Custom editor: shared editing features unavailable"
+      );
 
       return undefined;
     }
 
     const installed = new EditorHost(() => ui.theme);
     host = installed;
-    const next: OwnedFactory = (tui, theme, keys) => installed.create(tui, theme, keys);
+
+    const next: OwnedFactory = (tui, theme, keys) =>
+      installed.create(tui, theme, keys);
+
     next[owner] = installed;
     const draft = ui.getEditorText();
     ui.setEditorComponent(next);
@@ -263,7 +347,7 @@ export function acquireEditorHost(ctx: Pick<ExtensionContext, "ui">): EditorHost
   ui.setStatus("shared-editor", host.editor?.unsupported);
 
   return host;
-}
+};
 
 export type { DocumentAdapter, DocumentView } from "./adapter.js";
 

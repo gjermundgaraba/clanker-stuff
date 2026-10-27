@@ -9,24 +9,38 @@ const MAX_ROLL_MS = 900;
 
 /** Format changes snap; only differing decimal digits may become font frames. */
 export const canRoll = (before: string, text: string): boolean =>
-  before !== text && before.replace(/\d/gu, "#") === text.replace(/\d/gu, "#");
+  before !== text &&
+  before.replaceAll(/\d/gu, "#") === text.replaceAll(/\d/gu, "#");
 
 /** Each wheel travels at one cell per step, accelerated only by the duration cap. */
-export const digitTransition = (before: string, text: string, index: number, elapsed: number) => {
+export const digitTransition = (
+  before: string,
+  text: string,
+  index: number,
+  elapsed: number
+) => {
   const from = before[index];
   const to = text[index];
 
-  if (from === to || from === undefined || to === undefined) return undefined;
+  if (from === to || from === undefined || to === undefined) {
+    return;
+  }
+
   const direction = text > before ? 1 : -1;
   // Tens-of-seconds and tens-of-minutes wheels wrap at six, not ten (1:59:59 → 2:00:00).
   const radix = text[index - 1] === ":" ? 6 : 10;
   const distance = ((Number(to) - Number(from)) * direction + radix) % radix;
   const duration = Math.min(distance * STEP_MS, MAX_ROLL_MS);
 
-  if (elapsed >= duration) return undefined;
+  if (elapsed >= duration) {
+    return;
+  }
+
   const travel = (Math.max(0, elapsed) / duration) * distance;
   const steps = Math.floor(travel);
-  const digit = (step: number) => String((Number(from) + direction * step + radix) % radix);
+
+  const digit = (step: number) =>
+    String((Number(from) + direction * step + radix) % radix);
 
   return {
     before: digit(steps),
@@ -48,8 +62,8 @@ export class RollingNumbers {
   frame(
     now: number,
     font: RollingFont,
-    render: (numeric: NumericText) => string[],
-  ): { lines: string[]; animated: boolean } {
+    render: (numeric: NumericText) => string[]
+  ) {
     const requested = new Set<string>();
     let animated = false;
 
@@ -65,20 +79,31 @@ export class RollingNumbers {
       this.#counters.set(id, state);
       const elapsed = now - state.startedAt;
 
-      if (!canRoll(state.before, text)) return text;
+      if (!canRoll(state.before, text)) {
+        return text;
+      }
 
       return Array.from(text, (digit, index) => {
         const transition = digitTransition(state.before, text, index, elapsed);
 
-        if (!transition) return digit;
+        if (!transition) {
+          return digit;
+        }
+
         animated = true;
 
-        return font.glyph(transition.before, transition.after, transition.progress);
+        return font.glyph(
+          transition.before,
+          transition.after,
+          transition.progress
+        );
       }).join("");
     });
 
     for (const id of this.#counters.keys()) {
-      if (!requested.has(id)) this.#counters.delete(id);
+      if (!requested.has(id)) {
+        this.#counters.delete(id);
+      }
     }
 
     return { lines, animated };

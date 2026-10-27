@@ -4,7 +4,10 @@ import path from "node:path";
 import { patchEnv } from "../helpers/env.js";
 import { createTempDir, linkDirectory } from "../helpers/fs.js";
 import { createAgentSessionHarness } from "./agent-session.js";
-import type { ExtensionUIContext, FauxModelDefinition } from "./agent-session.js";
+import type {
+  ExtensionUIContext,
+  FauxModelDefinition,
+} from "./agent-session.js";
 
 export interface ExtensionSmokeHarnessOptions {
   extensions?: string[];
@@ -19,11 +22,17 @@ const noopRestore = () => {
   /* noop */
 };
 
-export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarnessOptions) => {
+export const createExtensionSmokeHarness = async (
+  options: ExtensionSmokeHarnessOptions
+) => {
   let projectDir: string | undefined;
   let homeDir: string | undefined;
   let restoreEnv = noopRestore;
-  let harness: Awaited<ReturnType<typeof createAgentSessionHarness>> | undefined;
+
+  let harness:
+    | Awaited<ReturnType<typeof createAgentSessionHarness>>
+    | undefined;
+
   let cleanedUp = false;
 
   const cleanup = () => {
@@ -41,11 +50,11 @@ export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarness
       try {
         restoreEnv();
       } finally {
-        if (projectDir && existsSync(projectDir)) {
+        if (projectDir !== undefined && existsSync(projectDir)) {
           rmSync(projectDir, { force: true, recursive: true });
         }
 
-        if (homeDir && existsSync(homeDir)) {
+        if (homeDir !== undefined && existsSync(homeDir)) {
           rmSync(homeDir, { force: true, recursive: true });
         }
       }
@@ -62,16 +71,25 @@ export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarness
 
     await Promise.all(
       (options.extensions ?? []).map(async (extensionPath) => {
-        await linkDirectory(extensionPath, path.join(extensionsDir, path.basename(extensionPath)));
-      }),
+        await linkDirectory(
+          extensionPath,
+          path.join(extensionsDir, path.basename(extensionPath))
+        );
+      })
     );
 
     harness = await createAgentSessionHarness({
       cwd: projectDir,
       ...(options.models === undefined ? {} : { models: options.models }),
-      ...(options.packages === undefined ? {} : { settings: { packages: options.packages } }),
-      ...(options.skillPaths === undefined ? {} : { skillPaths: options.skillPaths }),
-      ...(options.uiContext === undefined ? {} : { uiContext: options.uiContext }),
+      ...(options.packages === undefined
+        ? {}
+        : { settings: { packages: options.packages } }),
+      ...(options.skillPaths === undefined
+        ? {}
+        : { skillPaths: options.skillPaths }),
+      ...(options.uiContext === undefined
+        ? {}
+        : { uiContext: options.uiContext }),
       ...(options.withConfiguredAuth === undefined
         ? {}
         : { withConfiguredAuth: options.withConfiguredAuth }),
@@ -89,4 +107,6 @@ export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarness
   }
 };
 
-export type ExtensionSmokeHarness = Awaited<ReturnType<typeof createExtensionSmokeHarness>>;
+export type ExtensionSmokeHarness = Awaited<
+  ReturnType<typeof createExtensionSmokeHarness>
+>;

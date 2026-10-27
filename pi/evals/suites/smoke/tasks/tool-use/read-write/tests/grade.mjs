@@ -5,10 +5,13 @@ const answerPath = "/app/answer.txt";
 
 const trajectoryPath = "/logs/agent/trajectory.json";
 
-const answer = existsSync(answerPath) && readFileSync(answerPath, "utf-8") === "CITRINE-47-EMBER\n";
+const answer =
+  existsSync(answerPath) &&
+  readFileSync(answerPath, "utf-8") === "CITRINE-47-EMBER\n";
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @type {unknown[]} */
 let steps = [];
@@ -16,13 +19,18 @@ let steps = [];
 try {
   /** @type {unknown} */
   const value = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
-  steps = isRecord(value) && Array.isArray(value["steps"]) ? value["steps"] : [];
-} catch {}
+  steps =
+    isRecord(value) && Array.isArray(value["steps"]) ? value["steps"] : [];
+} catch {
+  // A missing or unreadable trajectory leaves no tool-call evidence.
+}
 
 /** @type {unknown[]} */
 const evidence = steps.flatMap(
-  /** @returns {unknown[]} */ (step) =>
-    isRecord(step) && Array.isArray(step["tool_calls"]) ? step["tool_calls"] : [],
+  /** @returns {unknown[]} The step's tool calls, if any. */ (step) =>
+    isRecord(step) && Array.isArray(step["tool_calls"])
+      ? step["tool_calls"]
+      : []
 );
 
 const calls = evidence.filter(isRecord);
@@ -46,7 +54,7 @@ const usedWrite = calls.some((call) => targets(call, "write", "answer.txt"));
 const usedForbiddenBash = calls.some(
   (call) =>
     call["function_name"] === "bash" &&
-    /(?:clue|answer)\.txt/u.test(JSON.stringify(call["arguments"]) ?? ""),
+    /(?:clue|answer)\.txt/u.test(JSON.stringify(call["arguments"]) ?? "")
 );
 
 const toolContract = usedRead && usedWrite && !usedForbiddenBash;
@@ -61,5 +69,5 @@ writeFileSync(
     valid_experiment: 1,
     reward: quality,
     tool_contract: Number(toolContract),
-  }),
+  })
 );

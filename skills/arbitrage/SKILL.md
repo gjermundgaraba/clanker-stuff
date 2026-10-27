@@ -18,15 +18,15 @@ Use the current agent for judgment-heavy work and an available external coding w
 
 ## Routing
 
-| Work                                                   | Default owner          | Why                                                                             |
-| ------------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------- |
-| Planning, specifications, and architecture decisions   | Current agent          | These tasks depend on conversation context and judgment.                        |
-| Bounded implementation with clear acceptance criteria  | External coding worker | A clear task brief makes the work easy to delegate and independently verify.    |
-| Visual validation of UI work                           | Current agent          | The current agent retains the design intent and can compare the result with it. |
-| Investigation and root-cause analysis                  | Current agent          | Diagnose first, then delegate the concrete fix when useful.                     |
-| Diff review and final verification                     | Current agent          | The worker's report is a claim; the repository and test output are evidence.    |
-| Trivial edits discovered during review                 | Current agent          | Dispatch overhead can exceed the work.                                          |
-| Work the external worker has demonstrably failed twice | Current agent          | Take over after a corrected retry still misses the acceptance criteria.         |
+| Work | Default owner | Why |
+| --- | --- | --- |
+| Planning, specifications, and architecture decisions | Current agent | These tasks depend on conversation context and judgment. |
+| Bounded implementation with clear acceptance criteria | External coding worker | A clear task brief makes the work easy to delegate and independently verify. |
+| Visual validation of UI work | Current agent | The current agent retains the design intent and can compare the result with it. |
+| Investigation and root-cause analysis | Current agent | Diagnose first, then delegate the concrete fix when useful. |
+| Diff review and final verification | Current agent | The worker's report is a claim; the repository and test output are evidence. |
+| Trivial edits discovered during review | Current agent | Dispatch overhead can exceed the work. |
+| Work the external worker has demonstrably failed twice | Current agent | Take over after a corrected retry still misses the acceptance criteria. |
 
 ## Dispatch protocol
 

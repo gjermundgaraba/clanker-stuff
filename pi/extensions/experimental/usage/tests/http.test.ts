@@ -5,15 +5,22 @@ import { defaultFetchJson } from "../http.js";
 
 describe(defaultFetchJson, () => {
   it("classifies an AbortSignal timeout as a request timeout", async () => {
-    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(AbortSignal.abort());
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(AbortSignal.abort());
+
     vi.stubGlobal("fetch", async () => {
       throw new Error("aborted");
     });
 
     try {
       await expect(
-        defaultFetchJson("https://example.test", Type.Object({}), {}),
-      ).resolves.toStrictEqual({ kind: "response", message: "request timed out", ok: false });
+        defaultFetchJson("https://example.test", Type.Object({}), {})
+      ).resolves.toStrictEqual({
+        kind: "response",
+        message: "request timed out",
+        ok: false,
+      });
     } finally {
       timeout.mockRestore();
       vi.unstubAllGlobals();
@@ -65,17 +72,20 @@ describe("usage HTTP boundaries", () => {
       status: 200,
       result: { ok: true, json: { remaining: 5, extra: true } },
     },
-  ])("classifies status $status with body $body", async ({ body, status, result }) => {
-    vi.stubGlobal("fetch", async () => new Response(body, { status }));
+  ])(
+    "classifies status $status with body $body",
+    async ({ body, status, result }) => {
+      vi.stubGlobal("fetch", async () => new Response(body, { status }));
 
-    try {
-      await expect(defaultFetchJson("https://example.test", schema, {})).resolves.toStrictEqual(
-        result,
-      );
-    } finally {
-      vi.unstubAllGlobals();
+      try {
+        await expect(
+          defaultFetchJson("https://example.test", schema, {})
+        ).resolves.toStrictEqual(result);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     }
-  });
+  );
 
   it("preserves acquisition failure diagnostics", async () => {
     vi.stubGlobal("fetch", async () => {
@@ -83,7 +93,9 @@ describe("usage HTTP boundaries", () => {
     });
 
     try {
-      await expect(defaultFetchJson("https://example.test", schema, {})).resolves.toStrictEqual({
+      await expect(
+        defaultFetchJson("https://example.test", schema, {})
+      ).resolves.toStrictEqual({
         ok: false,
         kind: "response",
         message: "connection reset",

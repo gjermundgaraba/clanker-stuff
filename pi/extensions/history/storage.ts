@@ -17,7 +17,10 @@ const UPSERT_HISTORY_SQL = `
     last_used_at = max(history.last_used_at, excluded.last_used_at)
 `;
 
-const HistoryRowSchema = Type.Object({ last_used_at: Type.Number(), text: Type.String() });
+const HistoryRowSchema = Type.Object({
+  last_used_at: Type.Number(),
+  text: Type.String(),
+});
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS history (
@@ -59,11 +62,17 @@ export const openMemoryDatabase = (): DatabaseSync => {
   return database;
 };
 
-export const saveHistoryItem = (database: DatabaseSync, item: HistoryItem): void => {
+export const saveHistoryItem = (
+  database: DatabaseSync,
+  item: HistoryItem
+): void => {
   database.prepare(UPSERT_HISTORY_SQL).run(item.text, item.timestamp);
 };
 
-export const saveHistoryBatch = (database: DatabaseSync, items: HistoryItem[]): void => {
+export const saveHistoryBatch = (
+  database: DatabaseSync,
+  items: HistoryItem[]
+): void => {
   if (items.length === 0) {
     return;
   }
@@ -83,7 +92,10 @@ export const saveHistoryBatch = (database: DatabaseSync, items: HistoryItem[]): 
   }
 };
 
-export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =>
+export const loadHistory = (
+  database: DatabaseSync,
+  limit = -1
+): HistoryItem[] =>
   database
     .prepare(
       `
@@ -91,7 +103,7 @@ export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =
         FROM history
         ORDER BY last_used_at DESC, id DESC
         LIMIT ?
-      `,
+      `
     )
     .all(limit)
     .map((row) => {
@@ -106,7 +118,9 @@ export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =
     });
 
 export const getDataVersion = (database: DatabaseSync): number => {
-  const version: unknown = database.prepare("PRAGMA data_version").get()?.["data_version"];
+  const version: unknown = database.prepare("PRAGMA data_version").get()?.[
+    "data_version"
+  ];
 
   if (typeof version !== "number" || !Number.isFinite(version)) {
     throw new TypeError("SQLite did not return a data version");

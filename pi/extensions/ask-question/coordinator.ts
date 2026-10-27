@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { recordRequest, recordState, replay } from "./journal.js";
+
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+
+import { answerEnvelope, answerMessage, jsonResult } from "./delivery.js";
 import { awaitingUser, createInteraction, transition } from "./interaction.js";
 import type { Action, Interaction, Mode } from "./interaction.js";
-import { answerEnvelope, answerMessage, jsonResult } from "./delivery.js";
+import { recordRequest, recordState, replay } from "./journal.js";
 import { createPromptQueue } from "./prompts.js";
 import type { Revision } from "./request.js";
-import { showQuestionnaire } from "./tui/controller.js";
 import { showInboxCount } from "./status.js";
+import { showQuestionnaire } from "./tui/controller.js";
 import { showInbox } from "./tui/inbox.js";
 
 export class Coordinator {
@@ -32,19 +37,24 @@ export class Coordinator {
     this.items = replay(ctx.sessionManager.getBranch());
     this.update();
   }
-  private owner(lifetime: AbortSignal): void {
-    if (lifetime.aborted) throw new Error("Questionnaire belongs to an inactive session branch");
+  private static owner(lifetime: AbortSignal): void {
+    if (lifetime.aborted) {
+      throw new Error("Questionnaire belongs to an inactive session branch");
+    }
   }
   list(): Interaction[] {
-    return [...this.items.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return [...this.items.values()].toSorted((a, b) =>
+      b.updated_at.localeCompare(a.updated_at)
+    );
   }
   get(id: string): Interaction {
     const item = this.items.get(id);
 
-    if (!item)
+    if (!item) {
       throw new Error(
-        `Unknown interaction_id ${id}: it must name a questionnaire already asked in this session`,
+        `Unknown interaction_id ${id}: it must name a questionnaire already asked in this session`
       );
+    }
 
     return item;
   }
@@ -55,12 +65,21 @@ export class Coordinator {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
 
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
   private update(): void {
-    if (this.ctx) showInboxCount(this.ctx, [...this.items.values()].filter(awaitingUser).length);
+    if (this.ctx) {
+      showInboxCount(
+        this.ctx,
+        [...this.items.values()].filter(awaitingUser).length
+      );
+    }
 
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
   private save(item: Interaction): Interaction {
     recordState(this.pi, item);
@@ -69,8 +88,12 @@ export class Coordinator {
 
     return item;
   }
-  mutate(id: string, action: Action, lifetime = this.lifetime.signal): Interaction {
-    this.owner(lifetime);
+  mutate(
+    id: string,
+    action: Action,
+    lifetime = this.lifetime.signal
+  ): Interaction {
+    Coordinator.owner(lifetime);
 
     return this.save(transition(this.get(id), action));
   }
@@ -79,23 +102,33 @@ export class Coordinator {
     request: unknown,
     signal: AbortSignal | undefined,
     ctx: ExtensionContext,
-    mode: Mode,
+    mode: Mode
   ) {
     signal?.throwIfAborted();
-    const created = createInteraction(`q_${randomUUID()}`, request, toolCallId, mode);
+
+    const created = createInteraction(
+      `q_${randomUUID()}`,
+      request,
+      toolCallId,
+      mode
+    );
+
     const linked = created.request.linked_interaction_id;
 
-    if (linked) this.get(linked);
+    if (linked !== undefined) {
+      this.get(linked);
+    }
+
     recordRequest(this.pi, created);
     const item = this.save(created);
 
-    return this.deliver(item, mode, "New questionnaire", signal, ctx);
+    return await this.deliver(item, mode, "New questionnaire", signal, ctx);
   }
   async revise(
     toolCallId: string,
     revision: Revision,
     signal: AbortSignal | undefined,
-    ctx: ExtensionContext,
+    ctx: ExtensionContext
   ) {
     signal?.throwIfAborted();
 
@@ -108,19 +141,36 @@ export class Coordinator {
       reason: revision.reason,
     });
 
-    return this.deliver(item, item.draft!.mode, "Revision requested", signal, ctx);
+    if (!item.draft) {
+      throw new Error("Reopening a questionnaire creates an editable draft");
+    }
+
+    return await this.deliver(
+      item,
+      item.draft.mode,
+      "Revision requested",
+      signal,
+      ctx
+    );
   }
   private async deliver(
     item: Interaction,
     mode: Mode,
     notice: string,
     signal: AbortSignal | undefined,
-    ctx: ExtensionContext,
+    ctx: ExtensionContext
   ) {
     if (mode === "async") {
-      ctx.ui.notify(`${notice} · ${item.request.title ?? item.id} · /answers to review`, "info");
+      ctx.ui.notify(
+        `${notice} · ${item.request.title ?? item.id} · /answers to review`,
+        "info"
+      );
 
-      return jsonResult({ accepted: true, status: "pending", interaction_id: item.id });
+      return jsonResult({
+        accepted: true,
+        status: "pending",
+        interaction_id: item.id,
+      });
     }
 
     const lifetime = this.lifetime.signal;
@@ -128,17 +178,30 @@ export class Coordinator {
 
     try {
       const result = await this.open(item.id, ctx, signal);
-      this.owner(lifetime);
+      Coordinator.owner(lifetime);
 
-      if (result === "submitted" && !signal?.aborted) {
-        const revision = this.get(item.id).submissions.at(-1)!.revision;
+      if (result === "submitted" && signal?.aborted !== true) {
+        const latest = this.get(item.id).submissions.at(-1);
+
+        if (!latest) {
+          throw new Error("A submitted questionnaire has a submission");
+        }
+
+        const { revision } = latest;
         // Recorded before returning: the tool result is the answer's only delivery.
         const sent = this.mutate(item.id, { type: "sent", revision }, lifetime);
+        const submission = sent.submissions.at(-1);
 
-        return jsonResult(answerEnvelope(sent, sent.submissions.at(-1)!));
+        if (!submission) {
+          throw new Error("A sent questionnaire has a submission");
+        }
+
+        return jsonResult(answerEnvelope(sent, submission));
       }
 
-      if (result === "cancelled" || result === "closed") ctx.abort();
+      if (result === "cancelled" || result === "closed") {
+        ctx.abort();
+      }
 
       return {
         ...jsonResult({
@@ -154,25 +217,34 @@ export class Coordinator {
   }
   async open(id: string, ctx: ExtensionContext, runSignal?: AbortSignal) {
     const lifetime = this.lifetime.signal;
-    const signal = runSignal ? AbortSignal.any([runSignal, lifetime]) : lifetime;
+
+    const signal = runSignal
+      ? AbortSignal.any([runSignal, lifetime])
+      : lifetime;
 
     const blocking = this.blocking.has(id);
 
-    return this.prompt(signal, async (active) => {
-      this.owner(lifetime);
+    return await this.prompt(signal, async (active) => {
+      Coordinator.owner(lifetime);
 
       try {
         return await showQuestionnaire(ctx, this.get(id), active, {
           mutate: (action) => this.mutate(id, action, lifetime),
           current: () => this.get(id),
           subscribe: (listener) => this.subscribe(listener),
-          send: (revision) => this.send(id, revision, ctx, lifetime),
+          send: (revision) => {
+            this.send(id, revision, ctx, lifetime);
+          },
           blocking,
           setFlush: (flush) => {
             this.flushView = flush;
           },
-          notify: (text) => ctx.ui.notify(text, "info"),
-          report: (error) => this.report(error, ctx),
+          notify: (text) => {
+            ctx.ui.notify(text, "info");
+          },
+          report: (error) => {
+            Coordinator.report(error, ctx);
+          },
         });
       } finally {
         this.flushView = undefined;
@@ -180,19 +252,35 @@ export class Coordinator {
     });
   }
   /** Explicitly hands a submission to Pi as a user message; Pi owns it from then on. */
-  send(id: string, revision: number, ctx: ExtensionContext, lifetime = this.lifetime.signal): void {
+  send(
+    id: string,
+    revision: number,
+    ctx: ExtensionContext,
+    lifetime = this.lifetime.signal
+  ): void {
     const sent = this.mutate(id, { type: "sent", revision }, lifetime);
-    const submission = sent.submissions.find((s) => s.revision === revision)!;
+    const submission = sent.submissions.find((s) => s.revision === revision);
+
+    if (!submission) {
+      throw new Error(`Unknown submission revision ${revision}`);
+    }
+
     this.pi.sendUserMessage(answerMessage(answerEnvelope(sent, submission)), {
       deliverAs: "steer",
     });
     ctx.ui.notify("Answers sent", "info");
   }
   async answer(ctx: ExtensionContext): Promise<void> {
-    if (ctx.mode !== "tui" || !ctx.hasUI)
-      throw new Error("Questionnaires require an interactive TUI; this channel is unavailable");
+    if (ctx.mode !== "tui" || !ctx.hasUI) {
+      throw new Error(
+        "Questionnaires require an interactive TUI; this channel is unavailable"
+      );
+    }
 
-    if (this.inboxOpen) return;
+    if (this.inboxOpen) {
+      return;
+    }
+
     this.inboxOpen = true;
 
     try {
@@ -206,7 +294,9 @@ export class Coordinator {
     try {
       this.flushView?.();
     } catch (error) {
-      if (this.ctx) this.report(error, this.ctx);
+      if (this.ctx) {
+        Coordinator.report(error, this.ctx);
+      }
     }
   }
   shutdown(): void {
@@ -214,10 +304,16 @@ export class Coordinator {
     this.lifetime.abort();
     this.listeners.clear();
 
-    if (this.ctx) showInboxCount(this.ctx, 0);
+    if (this.ctx) {
+      showInboxCount(this.ctx, 0);
+    }
+
     this.ctx = undefined;
   }
-  report(cause: unknown, ctx: ExtensionContext): void {
-    ctx.ui.notify(cause instanceof Error ? cause.message : String(cause), "error");
+  static report(cause: unknown, ctx: ExtensionContext): void {
+    ctx.ui.notify(
+      cause instanceof Error ? cause.message : String(cause),
+      "error"
+    );
   }
 }

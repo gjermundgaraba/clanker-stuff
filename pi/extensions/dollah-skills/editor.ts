@@ -4,10 +4,16 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 /** A `$name` mention. Names may contain `:` but never end with it, so prose like `$review:` names `review`. */
 export const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
 
-export function installSkillMentionEditor(ctx: ExtensionContext, getSkillNames: () => string[]) {
+export const installSkillMentionEditor = (
+  ctx: ExtensionContext,
+  getSkillNames: () => string[]
+) => {
   const host = acquireEditorHost(ctx);
 
-  if (!host) return;
+  if (!host) {
+    return;
+  }
+
   host.contribute("foreground", (text) => {
     const names = new Set(getSkillNames());
 
@@ -21,4 +27,4 @@ export function installSkillMentionEditor(ctx: ExtensionContext, getSkillNames: 
       }))
       .toArray();
   });
-}
+};

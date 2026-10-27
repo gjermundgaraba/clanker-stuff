@@ -110,7 +110,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -124,13 +130,22 @@
         role="img"
         aria-labelledby="medallion-title medallion-desc"
       >
-        <title id="medallion-title">Five-tier e-commerce analytics medallion</title>
+        <title id="medallion-title">
+          Five-tier e-commerce analytics medallion
+        </title>
         <desc id="medallion-desc">
-          Clickstream events and order records move from raw storage through anonymized, staging,
-          and aggregated tiers before lifecycle archiving.
+          Clickstream events and order records move from raw storage through
+          anonymized, staging, and aggregated tiers before lifecycle archiving.
         </desc>
         <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0, 8 3, 0 6" fill="#4f5d75" />
           </marker>
           <marker
@@ -143,10 +158,19 @@
           >
             <polygon points="0 0, 8 3, 0 6" fill="#eb6c36" />
           </marker>
-          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <marker
+            id="arrow-link"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
             <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8" />
           </marker>
-          <clipPath id="clip-raw"><rect x="16" y="80" width="172" height="380" rx="6" /></clipPath>
+          <clipPath id="clip-raw">
+            <rect x="16" y="80" width="172" height="380" rx="6" />
+          </clipPath>
           <clipPath id="clip-anon">
             <rect x="204" y="80" width="172" height="380" rx="6" />
           </clipPath>
@@ -192,7 +216,9 @@
           marker-end="url(#arrow)"
         />
         <text x="196" y="50" class="arc-label" fill="#4f5d75">MASK IDS</text>
-        <text x="384" y="50" class="arc-label" fill="#4f5d75">CLEAN + JOIN</text>
+        <text x="384" y="50" class="arc-label" fill="#4f5d75">
+          CLEAN + JOIN
+        </text>
         <text x="572" y="50" class="arc-label" fill="#eb6c36">AGGREGATE</text>
         <text x="760" y="50" class="arc-label" fill="#4f5d75">LIFECYCLE</text>
 
@@ -205,24 +231,44 @@
           fill="rgba(79,93,117,0.10)"
           clip-path="url(#clip-raw)"
         />
-        <rect x="16" y="80" width="172" height="380" rx="6" fill="none" stroke="#4f5d75" />
+        <rect
+          x="16"
+          y="80"
+          width="172"
+          height="380"
+          rx="6"
+          fill="none"
+          stroke="#4f5d75"
+        />
         <text x="102" y="106" class="tier-title">Raw</text>
         <text x="102" y="144" class="bucket">raw-commerce</text>
         <text x="32" y="180" class="field-label">Tool</text>
         <foreignObject x="32" y="186" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             NiFi ingest
           </div></foreignObject
         >
         <text x="32" y="220" class="field-label">Format</text>
         <foreignObject x="32" y="226" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             JSON · Parquet
           </div></foreignObject
         >
         <text x="32" y="260" class="field-label">Writer</text>
         <foreignObject x="32" y="266" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Data Engineer
           </div></foreignObject
         >
@@ -239,24 +285,44 @@
           fill="rgba(45,49,66,0.06)"
           clip-path="url(#clip-anon)"
         />
-        <rect x="204" y="80" width="172" height="380" rx="6" fill="none" stroke="#2d3142" />
+        <rect
+          x="204"
+          y="80"
+          width="172"
+          height="380"
+          rx="6"
+          fill="none"
+          stroke="#2d3142"
+        />
         <text x="290" y="106" class="tier-title">Anonymized</text>
         <text x="290" y="144" class="bucket">anon-commerce</text>
         <text x="220" y="180" class="field-label">Tool</text>
         <foreignObject x="220" y="186" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Trino SQL
           </div></foreignObject
         >
         <text x="220" y="220" class="field-label">Format</text>
         <foreignObject x="220" y="226" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Iceberg · partitioned
           </div></foreignObject
         >
         <text x="220" y="260" class="field-label">Writer</text>
         <foreignObject x="220" y="266" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Data Engineer
           </div></foreignObject
         >
@@ -273,24 +339,44 @@
           fill="rgba(45,49,66,0.06)"
           clip-path="url(#clip-stage)"
         />
-        <rect x="392" y="80" width="172" height="380" rx="6" fill="none" stroke="#2d3142" />
+        <rect
+          x="392"
+          y="80"
+          width="172"
+          height="380"
+          rx="6"
+          fill="none"
+          stroke="#2d3142"
+        />
         <text x="478" y="106" class="tier-title">Staging</text>
         <text x="478" y="144" class="bucket">staging-commerce</text>
         <text x="408" y="180" class="field-label">Tool</text>
         <foreignObject x="408" y="186" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Trino · notebooks
           </div></foreignObject
         >
         <text x="408" y="220" class="field-label">Format</text>
         <foreignObject x="408" y="226" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Iceberg · cleaned
           </div></foreignObject
         >
         <text x="408" y="260" class="field-label">Writer</text>
         <foreignObject x="408" y="266" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Data Scientist
           </div></foreignObject
         >
@@ -298,7 +384,14 @@
         <text x="408" y="374" class="example-value">joined order facts</text>
         <text x="408" y="388" class="example-value">validated event rows</text>
 
-        <rect x="580" y="80" width="172" height="380" rx="6" fill="rgba(235,108,54,0.07)" />
+        <rect
+          x="580"
+          y="80"
+          width="172"
+          height="380"
+          rx="6"
+          fill="rgba(235,108,54,0.07)"
+        />
         <rect
           x="580"
           y="80"
@@ -321,25 +414,41 @@
         <text x="666" y="144" class="bucket focal-text">analytics-marts</text>
         <text x="596" y="180" class="field-label">Tool</text>
         <foreignObject x="596" y="186" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Trino INSERT
           </div></foreignObject
         >
         <text x="596" y="220" class="field-label">Format</text>
         <foreignObject x="596" y="226" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Iceberg · metrics
           </div></foreignObject
         >
         <text x="596" y="260" class="field-label">Writer</text>
         <foreignObject x="596" y="266" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Data Scientist
           </div></foreignObject
         >
         <text x="596" y="360" class="example-label">E-COMMERCE EXAMPLE</text>
-        <text x="596" y="374" class="example-value focal-text">daily conversion rate</text>
-        <text x="596" y="388" class="example-value focal-text">revenue by channel</text>
+        <text x="596" y="374" class="example-value focal-text">
+          daily conversion rate
+        </text>
+        <text x="596" y="388" class="example-value focal-text">
+          revenue by channel
+        </text>
 
         <rect x="768" y="80" width="172" height="380" rx="6" fill="#ececec" />
         <rect
@@ -364,25 +473,39 @@
         <text x="854" y="144" class="bucket">archive-commerce</text>
         <text x="784" y="180" class="field-label">Tool</text>
         <foreignObject x="784" y="186" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Object storage lifecycle
           </div></foreignObject
         >
         <text x="784" y="220" class="field-label">Format</text>
         <foreignObject x="784" y="226" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Cold tier · immutable
           </div></foreignObject
         >
         <text x="784" y="260" class="field-label">Writer</text>
         <foreignObject x="784" y="266" width="140" height="24"
-          ><div xmlns="http://www.w3.org/1999/xhtml" class="field-value" style="line-height: 1.25">
+          ><div
+            xmlns="http://www.w3.org/1999/xhtml"
+            class="field-value"
+            style="line-height: 1.25"
+          >
             Data Engineer
           </div></foreignObject
         >
         <text x="784" y="360" class="example-label">E-COMMERCE EXAMPLE</text>
         <text x="784" y="374" class="example-value">retained clickstream</text>
-        <text x="784" y="388" class="example-value">closed order snapshots</text>
+        <text x="784" y="388" class="example-value">
+          closed order snapshots
+        </text>
 
         <rect
           x="16"
@@ -403,10 +526,19 @@
           stroke="rgba(45,49,66,0.30)"
           stroke-width="0.8"
         />
-        <text x="56" y="491" class="path-tag" fill="#2d3142" font-size="7" text-anchor="middle">
+        <text
+          x="56"
+          y="491"
+          class="path-tag"
+          fill="#2d3142"
+          font-size="7"
+          text-anchor="middle"
+        >
           SQL PATH
         </text>
-        <text x="96" y="506" class="path-title">Trino INSERT INTO … SELECT</text>
+        <text x="96" y="506" class="path-title">
+          Trino INSERT INTO … SELECT
+        </text>
         <text x="96" y="522" class="path-sub">
           filter · join · aggregate — repeatable transforms
         </text>
@@ -429,10 +561,19 @@
           stroke="rgba(45,49,66,0.30)"
           stroke-width="0.8"
         />
-        <text x="548" y="491" class="path-tag" fill="#2d3142" font-size="7" text-anchor="middle">
+        <text
+          x="548"
+          y="491"
+          class="path-tag"
+          fill="#2d3142"
+          font-size="7"
+          text-anchor="middle"
+        >
           NOTEBOOK PATH
         </text>
-        <text x="604" y="506" class="path-title">Python notebooks on object storage</text>
+        <text x="604" y="506" class="path-title">
+          Python notebooks on object storage
+        </text>
         <text x="604" y="522" class="path-sub">
           explore · validate · model — interactive analysis
         </text>

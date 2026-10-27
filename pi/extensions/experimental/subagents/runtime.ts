@@ -27,7 +27,12 @@ import type {
 import { Value } from "typebox/value";
 
 import type { AgentThinkingLevel } from "./config.js";
-import { envelopeText, mailMessage, MailDetailsSchema, SUBAGENT_MESSAGE_TYPE } from "./protocol.js";
+import {
+  envelopeText,
+  mailMessage,
+  MailDetailsSchema,
+  SUBAGENT_MESSAGE_TYPE,
+} from "./protocol.js";
 import type { Envelope, Mail } from "./protocol.js";
 
 type HistoryMessage = Parameters<SessionManager["appendMessage"]>[0];
@@ -54,7 +59,9 @@ const canonicalExtensionPath = (candidate: string): string => {
   }
 };
 
-const SUBAGENT_HOST_PATH = canonicalExtensionPath(path.resolve(import.meta.dirname, "index.ts"));
+const SUBAGENT_HOST_PATH = canonicalExtensionPath(
+  path.resolve(import.meta.dirname, "index.ts")
+);
 
 export const isSubagentHostExtensionPath = (candidate: string): boolean =>
   canonicalExtensionPath(candidate) === SUBAGENT_HOST_PATH;
@@ -104,7 +111,9 @@ export interface ChildRuntimeRequest {
   trusted: boolean;
 }
 
-export type ChildRuntimeFactory = (request: ChildRuntimeRequest) => Promise<ChildRuntime>;
+export type ChildRuntimeFactory = (
+  request: ChildRuntimeRequest
+) => Promise<ChildRuntime>;
 
 type RuntimeModelSource = Pick<
   ModelRegistry,
@@ -118,9 +127,11 @@ type RuntimeModelSource = Pick<
 
 export const finalFromMessages = (
   messages: readonly AgentMessage[],
-  cancelled: boolean,
+  cancelled: boolean
 ): ChildTurnOutcome => {
-  const candidate = messages.findLast((message) => message.role === "assistant");
+  const candidate = messages.findLast(
+    (message) => message.role === "assistant"
+  );
 
   if (candidate === undefined) {
     // Compaction can summarize away a truncated response before a cancelled run ends.
@@ -129,11 +140,16 @@ export const finalFromMessages = (
 
   // A request failing after cancellation reports the abort, not an agent error. An abort nobody
   // requested, such as a child extension's, is a failure the parent must hear about.
-  if (!cancelled && (candidate.stopReason === "error" || candidate.stopReason === "aborted")) {
+  if (
+    !cancelled &&
+    (candidate.stopReason === "error" || candidate.stopReason === "aborted")
+  ) {
     return {
       error:
         candidate.errorMessage ??
-        (candidate.stopReason === "aborted" ? "Turn was aborted" : "Agent failed"),
+        (candidate.stopReason === "aborted"
+          ? "Turn was aborted"
+          : "Agent failed"),
       status: "errored",
     };
   }
@@ -154,12 +170,14 @@ export const finalFromMessages = (
     .flatMap((item) => (item.type === "text" ? [item.text] : []))
     .join("");
 
-  return text.trim() === "" ? { status: "completed" } : { status: "completed", text };
+  return text.trim() === ""
+    ? { status: "completed" }
+    : { status: "completed", text };
 };
 
 export const cloneModelRuntime = async (
   source: RuntimeModelSource,
-  requiredProvider: string,
+  requiredProvider: string
 ): Promise<ModelRuntime> => {
   const agentDir = getAgentDir();
 
@@ -202,7 +220,7 @@ export const cloneModelRuntime = async (
           throw error;
         }
       }
-    }),
+    })
   );
 
   return runtime;
@@ -219,12 +237,17 @@ interface Turn {
 
 export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   const agentDir = getAgentDir();
-  const modelRuntime = await cloneModelRuntime(request.modelRegistry, request.model.provider);
+
+  const modelRuntime = await cloneModelRuntime(
+    request.modelRegistry,
+    request.model.provider
+  );
+
   const model = modelRuntime.getModel(request.model.provider, request.model.id);
 
   if (model === undefined) {
     throw new Error(
-      `Model ${request.model.provider}/${request.model.id} is not available to child sessions`,
+      `Model ${request.model.provider}/${request.model.id} is not available to child sessions`
     );
   }
 
@@ -256,26 +279,39 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
   const resourceLoader = new DefaultResourceLoader({
     agentDir,
-    agentsFilesOverride: () => ({ agentsFiles: promptOptions?.contextFiles ?? [] }),
-    appendSystemPrompt: [promptOptions?.appendSystemPrompt, request.prompt].filter(
-      (value): value is string => value !== undefined && value !== "",
-    ),
+    agentsFilesOverride: () => ({
+      agentsFiles: promptOptions?.contextFiles ?? [],
+    }),
+    appendSystemPrompt: [
+      promptOptions?.appendSystemPrompt,
+      request.prompt,
+    ].filter((value): value is string => value !== undefined && value !== ""),
     cwd: request.cwd,
     // Built-in entries follow the user's `-builtin:<name>` settings and yield to replacements.
     extensionFactories: [
-      { builtin: true, factory: createCodemodeExtension(), name: "codemode", replaceable: true },
+      {
+        builtin: true,
+        factory: createCodemodeExtension(),
+        name: "codemode",
+        replaceable: true,
+      },
       {
         builtin: true,
         factory: createToolSearchExtension(),
         name: "tool-search",
         replaceable: true,
       },
-      { builtin: true, factory: createMcpExtension(), name: "mcp", replaceable: true },
+      {
+        builtin: true,
+        factory: createMcpExtension(),
+        name: "mcp",
+        replaceable: true,
+      },
       {
         factory: async (pi) => {
           // abort() cannot stop a pre-prompt compaction that only starts after preflight cancellation.
           pi.on("session_before_compact", () =>
-            turn?.cancelled === true ? { cancel: true } : undefined,
+            turn?.cancelled === true ? { cancel: true } : undefined
           );
           await request.bridge(pi);
         },
@@ -287,7 +323,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     extensionsOverride: (base) => ({
       ...base,
       extensions: base.extensions.filter(
-        (extension) => !isSubagentHostExtensionPath(extension.resolvedPath),
+        (extension) => !isSubagentHostExtensionPath(extension.resolvedPath)
       ),
     }),
     noContextFiles: true,
@@ -295,7 +331,10 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     noSkills: true,
     noThemes: true,
     settingsManager,
-    skillsOverride: () => ({ diagnostics: [], skills: promptOptions?.skills ?? [] }),
+    skillsOverride: () => ({
+      diagnostics: [],
+      skills: promptOptions?.skills ?? [],
+    }),
     ...(promptOptions?.customPrompt === undefined
       ? {}
       : { systemPrompt: promptOptions.customPrompt }),
@@ -306,9 +345,18 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   settingsManager.applyOverrides({ defaultTools: [...request.tools] });
   const extensions = resourceLoader.getExtensions();
 
-  if (!extensions.extensions.some((extension) => extension.path === CHILD_BRIDGE_PATH)) {
-    const reason = extensions.errors.find((error) => error.path === CHILD_BRIDGE_PATH)?.error;
-    throw new Error(`Unable to load the child collaboration bridge: ${reason ?? "not loaded"}`);
+  if (
+    !extensions.extensions.some(
+      (extension) => extension.path === CHILD_BRIDGE_PATH
+    )
+  ) {
+    const reason = extensions.errors.find(
+      (error) => error.path === CHILD_BRIDGE_PATH
+    )?.error;
+
+    throw new Error(
+      `Unable to load the child collaboration bridge: ${reason ?? "not loaded"}`
+    );
   }
 
   const { session } = await createAgentSession({
@@ -319,7 +367,9 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     resourceLoader,
     sessionManager,
     settingsManager,
-    ...(request.thinkingLevel === undefined ? {} : { thinkingLevel: request.thinkingLevel }),
+    ...(request.thinkingLevel === undefined
+      ? {}
+      : { thinkingLevel: request.thinkingLevel }),
   });
 
   let running: Promise<void> = Promise.resolve();
@@ -418,7 +468,10 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     } catch (error) {
       return current.cancelled
         ? { status: "interrupted" }
-        : { error: error instanceof Error ? error.message : String(error), status: "errored" };
+        : {
+            error: error instanceof Error ? error.message : String(error),
+            status: "errored",
+          };
     }
 
     if (current.cancelled && current.preflight) {
@@ -427,10 +480,16 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
     const { messages } = session.state;
     const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
-    const outcome = finalFromMessages(messages.slice(index + 1), current.cancelled);
+
+    const outcome = finalFromMessages(
+      messages.slice(index + 1),
+      current.cancelled
+    );
 
     // A tool aborting the run, for example, leaves its preliminary response as the last message.
-    return outcome.status === "completed" && !current.cancelled && current.run?.aborted === true
+    return outcome.status === "completed" &&
+      !current.cancelled &&
+      current.run?.aborted === true
       ? { error: "Turn was aborted", status: "errored" }
       : outcome;
   };
@@ -451,16 +510,21 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   return {
     abort,
     deliver(mail) {
-      session.sendCustomMessage(mailMessage(mail), { triggerTurn: false }).catch(request.onError);
+      session
+        .sendCustomMessage(mailMessage(mail), { triggerTurn: false })
+        .catch(request.onError);
     },
-    dispose() {
+    async dispose() {
       disposal ??= (async () => {
         abort();
 
         try {
           // Shutdown runs alongside the stopping run so handlers blocking preflight can release it.
           const [shutdown] = await Promise.allSettled([
-            session.extensionRunner.emit({ reason: "quit", type: "session_shutdown" }),
+            session.extensionRunner.emit({
+              reason: "quit",
+              type: "session_shutdown",
+            }),
             running,
           ]);
 
@@ -473,7 +537,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         }
       })();
 
-      return disposal;
+      await disposal;
     },
     get model() {
       // Selection stays readable after disposal for the controller's retirement snapshot.
@@ -489,11 +553,11 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       streaming: session.state.streamingMessage,
     }),
     startTurn,
-    steer(task) {
+    steer(task): Promise<boolean> | undefined {
       // Pi delivers queued steering after the prompt when the run starts, or at the next turn
       // boundary while it runs; the transcript, not Pi's state, shows whether it did.
       if (turn === undefined) {
-        return undefined;
+        return;
       }
 
       const id = randomUUID();
@@ -516,6 +580,8 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       return session.thinkingLevel;
     },
     toolRenderers: (name) =>
-      session.extensionRunner.resolveToolRenderers(name, () => session.getToolDefinition(name)),
+      session.extensionRunner.resolveToolRenderers(name, () =>
+        session.getToolDefinition(name)
+      ),
   };
 };

@@ -29,7 +29,10 @@ Both question tools accept this closed, extension-owned contract:
         },
         { "id": "local", "label": "Local only" }
       ],
-      "recommendation": { "option_ids": ["managed"], "reason": "Less maintenance" }
+      "recommendation": {
+        "option_ids": ["managed"],
+        "reason": "Less maintenance"
+      }
     }
   ]
 }
@@ -60,25 +63,25 @@ Pi fullscreen mode routes mouse-wheel events over the context or auxiliary viewp
 
 Inbox rows lead with titles and answer progress or delivery status, not identifiers. Review shows chosen answers and notes, omitting repeated prompts, recommendations and empty sections. Async Review distinguishes **Send answers** (starts or steers a turn) from **Save without sending**. Every key is listed in the footer; `i` opens request metadata, also available in read-only submitted views.
 
-| Action                                   | Default key                                 |
-| ---------------------------------------- | ------------------------------------------- |
-| Highlight without selecting              | Up/Down or j/k                              |
-| Single-select and advance                | 1–5 or selection-confirm (Enter)            |
-| Write or edit a written answer           | Selection-confirm on the written-answer row |
-| Multi-select toggle                      | 1–5 or Space                                |
-| Multi-select advance                     | Selection-confirm, after choosing an answer |
-| Previous/next question                   | Left/h/Shift+Tab; Right/l/Tab               |
-| Highlighted option details               | p                                           |
-| Highlighted option or custom-answer note | n                                           |
-| Questionnaire-wide note                  | g                                           |
-| Review / revision comparison             | r / d                                       |
-| Edit a question from Review              | 1–5                                         |
-| Submit from Review                       | Selection-confirm                           |
-| Submit but keep in inbox (async)         | k                                           |
-| Close, retaining draft                   | Selection-cancel (Escape/Ctrl+C)            |
-| Cancel request, discarding draft         | x, pressed twice                            |
-| Request metadata                         | i                                           |
-| Scroll                                   | Configured select PageUp/PageDown           |
+| Action | Default key |
+| --- | --- |
+| Highlight without selecting | Up/Down or j/k |
+| Single-select and advance | 1–5 or selection-confirm (Enter) |
+| Write or edit a written answer | Selection-confirm on the written-answer row |
+| Multi-select toggle | 1–5 or Space |
+| Multi-select advance | Selection-confirm, after choosing an answer |
+| Previous/next question | Left/h/Shift+Tab; Right/l/Tab |
+| Highlighted option details | p |
+| Highlighted option or custom-answer note | n |
+| Questionnaire-wide note | g |
+| Review / revision comparison | r / d |
+| Edit a question from Review | 1–5 |
+| Submit from Review | Selection-confirm |
+| Submit but keep in inbox (async) | k |
+| Close, retaining draft | Selection-cancel (Escape/Ctrl+C) |
+| Cancel request, discarding draft | x, pressed twice |
+| Request metadata | i |
+| Scroll | Configured select PageUp/PageDown |
 
 Completing the last question opens Review, never automatic submission. `j`/`k` highlight options or scroll detail/read-only views without selecting; on Review, `k` still submits and keeps the answer in the inbox. Editor digits and pasted content are text, not shortcuts. Editors use Pi's configured `tui.input.newLine` (normally Shift+Enter/Ctrl+J) and `tui.input.submit` (normally Enter). Completing an editor saves the field, **never the questionnaire**; saving a nonblank written answer also completes its question and advances, while a blank one deselects itself. Selection-cancel inside an editor discards its unsaved edits and returns to the questionnaire, so over-limit text never traps you. Hints reflect injected bindings; configured selection actions take precedence over the additional letter shortcuts. Closing a blocking questionnaire stops its run and keeps the draft; there is no separate stop key.
 

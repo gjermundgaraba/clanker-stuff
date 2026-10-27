@@ -12,10 +12,14 @@ export default function history(pi: ExtensionAPI): void {
 
   pi.registerCommand("history-import", {
     description: "Import prompt history from existing sessions",
-    handler: (_args, ctx) => runtime.importHistory(ctx),
+    handler: async (_args, ctx) => {
+      await runtime.importHistory(ctx);
+    },
   });
 
-  pi.on("session_start", (_event, ctx) => runtime.start(ctx));
+  pi.on("session_start", (_event, ctx) => {
+    runtime.start(ctx);
+  });
   pi.on("input", runtime.recordInput);
   pi.on("user_bash", runtime.recordBash);
   pi.on("session_shutdown", runtime.dispose);

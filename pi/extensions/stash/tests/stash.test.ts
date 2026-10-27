@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
-
 import extension from "../index.js";
 
 const getStorePath = (agentDir: string, cwd: string) =>
@@ -17,59 +16,61 @@ const getStorePath = (agentDir: string, cwd: string) =>
     agentDir,
     "data",
     "stash",
-    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`,
+    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
   );
 
 const StashStoreSchema = Type.Object({ entries: Type.Array(Type.String()) });
 
-describe("stash", () => {
-  const envRestorers: (() => void)[] = [];
-  let agentDir: string;
+const readStore = async (directory: string, cwd: string) =>
+  Value.Parse(
+    StashStoreSchema,
+    JSON.parse(await readFile(getStorePath(directory, cwd), "utf-8"))
+  );
 
-  const readStore = async (directory: string, cwd: string) =>
-    Value.Parse(
-      StashStoreSchema,
-      JSON.parse(await readFile(getStorePath(directory, cwd), "utf-8")),
-    );
+const createHarness = async (
+  options: { cwd?: string; mode?: "json" | "rpc" | "tui" } = {}
+) => {
+  const host = createExtensionHost(extension);
 
-  const createHarness = async (options: { cwd?: string; mode?: "json" | "rpc" | "tui" } = {}) => {
-    const host = createExtensionHost(extension);
+  const ctx = host.createContext({
+    cwd: options.cwd ?? process.cwd(),
+    mode: options.mode ?? "tui",
+  });
 
-    const ctx = host.createContext({
-      cwd: options.cwd ?? process.cwd(),
-      mode: options.mode ?? "tui",
-    });
+  await host.emitSessionStart(ctx);
 
-    await host.emitSessionStart(ctx);
-
-    return {
-      ctx,
-      editorText() {
-        return ctx.ui.getEditorText();
-      },
-      host,
-      async input(text: string, source: "interactive" | "extension") {
-        return await host.emitInput(
-          {
-            source,
-            text,
-            type: "input",
-          },
-          ctx,
-        );
-      },
-      notifications() {
-        return host.getNotifications();
-      },
-      async popStash() {
-        await host.runCommand("pop-stash", "", ctx);
-      },
-      async stash(text: string) {
-        ctx.ui.setEditorText(text);
-        await host.runShortcut("ctrl+s", ctx);
-      },
-    };
+  return {
+    ctx,
+    editorText() {
+      return ctx.ui.getEditorText();
+    },
+    host,
+    async input(text: string, source: "interactive" | "extension") {
+      return await host.emitInput(
+        {
+          source,
+          text,
+          type: "input",
+        },
+        ctx
+      );
+    },
+    notifications() {
+      return host.getNotifications();
+    },
+    async popStash() {
+      await host.runCommand("pop-stash", "", ctx);
+    },
+    async stash(text: string) {
+      ctx.ui.setEditorText(text);
+      await host.runShortcut("ctrl+s", ctx);
+    },
   };
+};
+
+describe("stash", () => {
+  const envRestorers: Array<() => void> = [];
+  let agentDir: string;
 
   beforeEach(async () => {
     agentDir = await createTempDir("stash-agent-");
@@ -88,7 +89,9 @@ describe("stash", () => {
     await harness.stash("draft message");
 
     expect(harness.editorText()).toBe("");
-    expect(harness.notifications()).toEqual([{ message: "Stashed (1).", type: "info" }]);
+    expect(harness.notifications()).toStrictEqual([
+      { message: "Stashed (1).", type: "info" },
+    ]);
   });
 
   it("restores the newest stash after an interactive prompt exactly once", async () => {
@@ -99,7 +102,8 @@ describe("stash", () => {
     await harness.stash("second");
     await harness.input("send message", "interactive");
     expect(harness.editorText()).toBe("second");
-    expect((await readStore(agentDir, cwd)).entries).toStrictEqual(["first"]);
+    const store = await readStore(agentDir, cwd);
+    expect(store.entries).toStrictEqual(["first"]);
 
     harness.ctx.ui.setEditorText("");
     await harness.input("next message", "interactive");
@@ -123,7 +127,7 @@ describe("stash", () => {
     });
     const store = await readStore(agentDir, cwd);
     expect(store.entries).toStrictEqual(
-      Array.from({ length: 10 }, (_, index) => `draft ${index + 3}`),
+      Array.from({ length: 10 }, (_, index) => `draft ${index + 3}`)
     );
 
     const restored = await createHarness({ cwd });
@@ -133,7 +137,9 @@ describe("stash", () => {
       expect(restored.editorText()).toBe(`draft ${index}`);
     }
 
-    expect(await readStore(agentDir, cwd)).toStrictEqual({ entries: [] });
+    await expect(readStore(agentDir, cwd)).resolves.toStrictEqual({
+      entries: [],
+    });
     await restored.popStash();
     expect(restored.notifications()).toContainEqual({
       message: "Nothing stashed.",
@@ -157,7 +163,11 @@ describe("stash", () => {
   });
 
   it("keeps in-memory stash behavior when persistence fails", async () => {
-    const invalidAgentDir = path.join(await createTempDir("stash-agent-parent-"), "file");
+    const invalidAgentDir = path.join(
+      await createTempDir("stash-agent-parent-"),
+      "file"
+    );
+
     await writeFile(invalidAgentDir, "not a directory", "utf-8");
     envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: invalidAgentDir }));
 
@@ -275,7 +285,7 @@ describe("stash", () => {
     const ctx = harness.host.createContext({ hasUI: false });
 
     await expect(harness.host.runCommand("pop-stash", "", ctx)).rejects.toThrow(
-      "pop-stash requires interactive UI",
+      "pop-stash requires interactive UI"
     );
   });
 });

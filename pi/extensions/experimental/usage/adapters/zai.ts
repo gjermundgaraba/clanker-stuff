@@ -23,7 +23,7 @@ const ZaiQuotaPayloadSchema = Type.Object({
     Type.Object({
       level: Type.Optional(Type.String()),
       limits: Type.Optional(Type.Array(ZaiLimitSchema)),
-    }),
+    })
   ),
   msg: Type.Optional(Type.String()),
 });
@@ -77,7 +77,11 @@ const parseLimitEntry = (limit: ZaiLimit): UsageWindow | undefined => {
     return undefined;
   }
 
-  return makeUsageWindow(label, remainingPercent, isoFromEpochMs(limit.nextResetTime));
+  return makeUsageWindow(
+    label,
+    remainingPercent,
+    isoFromEpochMs(limit.nextResetTime)
+  );
 };
 
 const planLabelFromLevel = (level: string | undefined): string | undefined =>
@@ -87,13 +91,15 @@ const planLabelFromLevel = (level: string | undefined): string | undefined =>
 
 export const mapZaiQuotaPayload = (
   payload: Static<typeof ZaiQuotaPayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const { code } = payload;
 
   if (code !== undefined && code !== 200) {
     const message =
-      payload.msg !== undefined && payload.msg.length > 0 ? payload.msg : `API ${code}`;
+      payload.msg !== undefined && payload.msg.length > 0
+        ? payload.msg
+        : `API ${code}`;
 
     return usageFailure(message);
   }
@@ -104,9 +110,13 @@ export const mapZaiQuotaPayload = (
   for (const limit of payload.data?.limits ?? []) {
     const window = parseLimitEntry(limit);
 
-    if (window === undefined) continue;
+    if (window === undefined) {
+      continue;
+    }
 
-    (limit.type === "TIME_LIMIT" ? additionalQuotaWindows : quotaWindows).push(window);
+    (limit.type === "TIME_LIMIT" ? additionalQuotaWindows : quotaWindows).push(
+      window
+    );
   }
 
   const planLabel = planLabelFromLevel(payload.data?.level);
@@ -120,10 +130,12 @@ export const mapZaiQuotaPayload = (
   });
 };
 
-export const fetchZaiUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchZaiUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "zai",
     { url: ZAI_QUOTA_URL, schema: ZaiQuotaPayloadSchema },
-    mapZaiQuotaPayload,
+    mapZaiQuotaPayload
   );

@@ -4,7 +4,7 @@ import { percentTone } from "../index.js";
 
 describe("tones", () => {
   it("keeps usage meters neutral until they need attention", () => {
-    expect([0, 69.9, 70, 89.9, 90, 100].map(percentTone)).toEqual([
+    expect([0, 69.9, 70, 89.9, 90, 100].map(percentTone)).toStrictEqual([
       "text",
       "text",
       "warning",

@@ -1,16 +1,25 @@
-import type { ExtensionAPI, ExtensionContext, ToolExposure } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  ToolExposure,
+} from "@earendil-works/pi-coding-agent";
+
 import type { Coordinator } from "./coordinator.js";
-import { QuestionnaireParameters, RevisionParameters, validateRevision } from "./request.js";
+import {
+  QuestionnaireParameters,
+  RevisionParameters,
+  validateRevision,
+} from "./request.js";
 import { renderCall, renderResult, renderReviseCall } from "./transcript.js";
 
 const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
 
 /** Questionnaires ask the user, so the tools are declared to the model but never script-callable. */
-export function registerQuestionTools(
+export const registerQuestionTools = (
   pi: ExtensionAPI,
   coordinator: Coordinator,
-  exposure: ToolExposure = "model-only",
-): void {
+  exposure: ToolExposure = "model-only"
+): void => {
   pi.registerTool({
     name: "request_user_input",
     exposure,
@@ -25,8 +34,9 @@ export function registerQuestionTools(
       "Use request_user_input for concrete clarification instead of prose-only questionnaires. Supply unique IDs, concise labels/descriptions and recommendation metadata, never an Other option or preselected answer.",
     ],
     execute: async (id, params, signal, _update, ctx) =>
-      coordinator.ask(id, params, signal, ctx, "blocking"),
-    renderCall: (args, theme, context) => renderCall(args, theme, context, "blocking"),
+      await coordinator.ask(id, params, signal, ctx, "blocking"),
+    renderCall: (args, theme, context) =>
+      renderCall(args, theme, context, "blocking"),
     renderResult,
   });
   pi.registerTool({
@@ -38,13 +48,15 @@ export function registerQuestionTools(
     parameters: QuestionnaireParameters,
     constrainedSampling: STRICT_PREFERRED,
     executionMode: "sequential",
-    promptSnippet: "Request a durable questionnaire while continuing independent work",
+    promptSnippet:
+      "Request a durable questionnaire while continuing independent work",
     promptGuidelines: [
       "Use request_user_input_async only when independent work can continue. Pending acceptance is not answered or approved; stop work dependent on the missing answers until a submission arrives.",
     ],
     execute: async (id, params, signal, _update, ctx) =>
-      coordinator.ask(id, params, signal, ctx, "async"),
-    renderCall: (args, theme, context) => renderCall(args, theme, context, "async"),
+      await coordinator.ask(id, params, signal, ctx, "async"),
+    renderCall: (args, theme, context) =>
+      renderCall(args, theme, context, "async"),
     renderResult,
   });
   pi.registerTool({
@@ -61,18 +73,25 @@ export function registerQuestionTools(
       "revise_user_input reopens the same authored questions. For different questions author a new request with linked_interaction_id. Reconsider affected work after an answer revision; it does not undo prior actions.",
     ],
     execute: async (id, params, signal, _update, ctx) =>
-      coordinator.revise(id, validateRevision(params), signal, ctx),
+      await coordinator.revise(id, validateRevision(params), signal, ctx),
     renderCall: (args, theme, context) =>
-      renderReviseCall(args, theme, context, (id) => coordinator.peek(id)?.request.title),
+      renderReviseCall(
+        args,
+        theme,
+        context,
+        (id) => coordinator.peek(id)?.request.title
+      ),
     renderResult,
   });
-}
+};
 
 /** Without a terminal there is no one to ask: withdraw the tools so nothing can activate them. */
-export function withdrawOutsideTui(
+export const withdrawOutsideTui = (
   pi: ExtensionAPI,
   coordinator: Coordinator,
-  ctx: ExtensionContext,
-): void {
-  if (ctx.mode !== "tui" || !ctx.hasUI) registerQuestionTools(pi, coordinator, "hidden");
-}
+  ctx: ExtensionContext
+): void => {
+  if (ctx.mode !== "tui" || !ctx.hasUI) {
+    registerQuestionTools(pi, coordinator, "hidden");
+  }
+};

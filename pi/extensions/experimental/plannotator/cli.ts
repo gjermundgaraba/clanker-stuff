@@ -17,7 +17,10 @@ export interface CliStartOptions {
   stdin?: string | undefined;
 }
 
-export type CliStarter = (args: string[], options: CliStartOptions) => Promise<CliCompletion>;
+export type CliStarter = (
+  args: string[],
+  options: CliStartOptions
+) => Promise<CliCompletion>;
 
 /**
  * Async because `spawn` throws synchronously for some arguments, such as one with a null byte; this
@@ -40,11 +43,21 @@ export const startPlannotatorCli: CliStarter = async (args, options) => {
   child.stdout.on("data", (chunk: string) => {
     stdout += chunk;
   });
-  createInterface({ crlfDelay: Infinity, input: child.stderr }).on("line", options.onStderrLine);
+  createInterface({ crlfDelay: Infinity, input: child.stderr }).on(
+    "line",
+    options.onStderrLine
+  );
 
-  const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
+  const {
+    promise: completion,
+    reject,
+    resolve,
+  } = Promise.withResolvers<CliCompletion>();
+
   child.once("error", (error) => {
-    if (error.name !== "AbortError") reject(error);
+    if (error.name !== "AbortError") {
+      reject(error);
+    }
   });
   child.stdin.once("error", reject);
   child.once("spawn", () => {

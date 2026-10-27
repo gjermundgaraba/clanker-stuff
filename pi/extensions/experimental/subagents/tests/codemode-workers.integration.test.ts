@@ -4,7 +4,14 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { FauxResponseStep } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import { DEFAULT_CONFIG } from "../config.js";
@@ -14,11 +21,25 @@ import { openTree } from "../store.js";
 
 const WORKERS = "PI_CODEMODE_MAX_WORKERS";
 
+// Each child's script holds its worker until every child's script is running.
+const respond: FauxResponseStep = (context) =>
+  context.messages.at(-1)?.role === "toolResult"
+    ? fauxAssistantMessage("done")
+    : fauxAssistantMessage(
+        fauxToolCall("codemode", { code: "text(await tools.hold({}));" }),
+        {
+          stopReason: "toolUse",
+        }
+      );
+
 describe("codemode workers", () => {
-  const previous = { agentDir: process.env["PI_CODING_AGENT_DIR"], workers: process.env[WORKERS] };
+  const previous = {
+    agentDir: process.env["PI_CODING_AGENT_DIR"],
+    workers: process.env[WORKERS],
+  };
 
   beforeEach(() => {
-    delete process.env[WORKERS];
+    Reflect.deleteProperty(process.env, WORKERS);
   });
 
   afterEach(() => {
@@ -26,8 +47,11 @@ describe("codemode workers", () => {
       ["PI_CODING_AGENT_DIR", previous.agentDir],
       [WORKERS, previous.workers],
     ] as const) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, name);
+      } else {
+        process.env[name] = value;
+      }
     }
   });
 
@@ -46,17 +70,12 @@ describe("codemode workers", () => {
 
     process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
 
-    if (rootCtx === undefined) throw new Error("Missing fixture");
+    if (rootCtx === undefined) {
+      throw new Error("Missing fixture");
+    }
+
     const ctx = rootCtx;
     const children = DEFAULT_CONFIG.maxConcurrent;
-
-    // Each child's script holds its worker until every child's script is running.
-    const respond: FauxResponseStep = (context) =>
-      context.messages.at(-1)?.role === "toolResult"
-        ? fauxAssistantMessage("done")
-        : fauxAssistantMessage(fauxToolCall("codemode", { code: "text(await tools.hold({}));" }), {
-            stopReason: "toolUse",
-          });
 
     harness.setResponses(Array.from({ length: children * 2 }, () => respond));
 
@@ -69,7 +88,9 @@ describe("codemode workers", () => {
       dataDir: path.join(harness.agentDir, "subagents"),
       deliverRoot: () => {},
       rootRunning: () => false,
-      onBackgroundError: (cause) => errors.push(cause),
+      onBackgroundError: (cause) => {
+        errors.push(cause);
+      },
       createRuntime: async (request) =>
         await createChildRuntime({
           ...request,
@@ -85,7 +106,10 @@ describe("codemode workers", () => {
                 holding += 1;
                 await released.promise;
 
-                return { content: [{ type: "text", text: "held" }], details: undefined };
+                return {
+                  content: [{ type: "text", text: "held" }],
+                  details: undefined,
+                };
               },
             });
           },
@@ -96,12 +120,12 @@ describe("codemode workers", () => {
       const opened = await openTree(
         path.join(harness.agentDir, "subagents"),
         ctx.sessionManager.getSessionId(),
-        true,
+        true
       );
 
       await controller.open(opened.store, opened.tree);
 
-      for (let index = 0; index < children; index++) {
+      for (let index = 0; index < children; index += 1) {
         await controller.spawn(
           "/root",
           {
@@ -113,21 +137,33 @@ describe("codemode workers", () => {
             thinking: undefined,
             tools: ["codemode"],
           },
-          ctx,
+          ctx
         );
       }
 
       // At Pi's default of two workers, the third script waits 60 s for one instead.
-      await vi.waitFor(() => expect(holding).toBe(children), { timeout: 5_000 });
+      await vi.waitFor(
+        () => {
+          expect(holding).toBe(children);
+        },
+        {
+          timeout: 5000,
+        }
+      );
       released.resolve(undefined);
       await vi.waitFor(
-        () =>
+        () => {
           expect(
-            controller.list("/root", undefined).filter(({ agent_name }) => agent_name !== "/root"),
+            controller
+              .list("/root", undefined)
+              .filter(({ agent_name }) => agent_name !== "/root")
           ).toMatchObject(
-            Array.from({ length: children }, () => ({ agent_status: { completed: "done" } })),
-          ),
-        { timeout: 3_000 },
+            Array.from({ length: children }, () => ({
+              agent_status: { completed: "done" },
+            }))
+          );
+        },
+        { timeout: 3000 }
       );
       expect(errors).toStrictEqual([]);
     } finally {

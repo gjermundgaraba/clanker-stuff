@@ -24,9 +24,13 @@ const CopilotUsagePayloadSchema = Type.Object({
 const parseQuotaWindow = (
   quota: Static<typeof CopilotQuotaSchema> | undefined,
   label: string,
-  resetsAt: string | undefined,
+  resetsAt: string | undefined
 ): UsageWindow | undefined => {
-  if (quota === undefined || quota.unlimited === true || quota.percent_remaining === undefined) {
+  if (
+    quota === undefined ||
+    quota.unlimited === true ||
+    quota.percent_remaining === undefined
+  ) {
     return undefined;
   }
 
@@ -35,7 +39,7 @@ const parseQuotaWindow = (
 
 export const mapCopilotUsagePayload = (
   payload: Static<typeof CopilotUsagePayloadSchema>,
-  nowMs: number,
+  nowMs: number
 ): UsageFetchResult => {
   const resetsAt = parseIso(payload.quota_reset_date_utc);
 
@@ -46,14 +50,24 @@ export const mapCopilotUsagePayload = (
     parseQuotaWindow(chat, "Chat", resetsAt),
   ].filter(isDefined);
 
-  if (windows.length === 0 && (chat?.unlimited === true || premium?.unlimited === true))
+  if (
+    windows.length === 0 &&
+    (chat?.unlimited === true || premium?.unlimited === true)
+  ) {
     return usageFailure("no metered Copilot quota", "unavailable");
+  }
 
-  return usageResult({ fetchedAt: nowMs, provider: "github-copilot", quotaWindows: windows });
+  return usageResult({
+    fetchedAt: nowMs,
+    provider: "github-copilot",
+    quotaWindows: windows,
+  });
 };
 
-export const fetchCopilotUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
-  fetchUsage(
+export const fetchCopilotUsage = async (
+  deps: AdapterDeps
+): Promise<UsageFetchResult> =>
+  await fetchUsage(
     deps,
     "github-copilot",
     {
@@ -66,5 +80,5 @@ export const fetchCopilotUsage = (deps: AdapterDeps): Promise<UsageFetchResult> 
         "X-Github-Api-Version": "2025-04-01",
       }),
     },
-    mapCopilotUsagePayload,
+    mapCopilotUsagePayload
   );

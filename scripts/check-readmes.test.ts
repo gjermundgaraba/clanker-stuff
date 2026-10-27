@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -20,7 +26,11 @@ const EXPERIMENTAL_NOTICE =
 
 const tempDirs: string[] = [];
 
-const createFixture = (usage: string, finalNewline = true, experimental = false) => {
+const createFixture = (
+  usage: string,
+  finalNewline = true,
+  experimental = false
+) => {
   const root = mkdtempSync(path.join(tmpdir(), "check-readmes-test-"));
   tempDirs.push(root);
   const packageDir = path.join(root, "sample");
@@ -30,7 +40,7 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
 
   writeFileSync(
     path.join(root, "pnpm-workspace.yaml"),
-    'packages:\n  - "."\n  - "sample"\n  - "pi/extensions/experimental/*"\n',
+    'packages:\n  - "."\n  - "sample"\n  - "pi/extensions/experimental/*"\n'
   );
   writeFileSync(
     path.join(root, "package.json"),
@@ -38,7 +48,7 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
       name: "clanker-stuff",
       devEngines: { packageManager: { name: "pnpm", version: "12.3.4" } },
       private: true,
-    }),
+    })
   );
   writeFileSync(
     path.join(packageDir, "package.json"),
@@ -47,11 +57,15 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
       name: PACKAGE_NAME,
       pi: { extensions: ["./index.ts"] },
       private: false,
-    }),
+    })
   );
 
   if (experimental) {
-    const experimentalDir = path.join(root, "pi/extensions/experimental/preview");
+    const experimentalDir = path.join(
+      root,
+      "pi/extensions/experimental/preview"
+    );
+
     mkdirSync(experimentalDir, { recursive: true });
     writeFileSync(
       path.join(experimentalDir, "package.json"),
@@ -60,11 +74,11 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
         name: EXPERIMENTAL_PACKAGE_NAME,
         pi: { extensions: ["./index.ts"] },
         private: true,
-      }),
+      })
     );
     writeFileSync(
       path.join(experimentalDir, "README.md"),
-      "# preview\n\nLoad ./index.ts as a local extension.\n",
+      "# preview\n\nLoad ./index.ts as a local extension.\n"
     );
   }
 
@@ -74,13 +88,13 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
 
   writeFileSync(
     path.join(root, "README.md"),
-    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |${experimentalSection}\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Skills\n\nReusable skills live in the catalog.\n\n## Development\n\nRequires Vite+ and Node.js 26 or newer. Run \`vp run ready\`.\n\n## License\n\n[MIT](LICENSE)\n`,
+    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |${experimentalSection}\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Skills\n\nReusable skills live in the catalog.\n\n## Development\n\nRequires Vite+ and Node.js 26 or newer. Run \`vp run ready\`.\n\n## License\n\n[MIT](LICENSE)\n`
   );
 
   const packageReadme = `# sample\n\n${DESCRIPTION}\n\n## Install\n\n\`\`\`bash\npi install npm:${PACKAGE_NAME}\n\`\`\`\n\n## Usage\n\n${usage}`;
   writeFileSync(
     path.join(packageDir, "README.md"),
-    finalNewline ? `${packageReadme}\n` : packageReadme,
+    finalNewline ? `${packageReadme}\n` : packageReadme
   );
 
   return root;
@@ -101,7 +115,11 @@ describe("README validation", () => {
 
   it.each([
     ["one prose line", "Run `/sample` to use the extension.", true],
-    ["up to three bullets", "- Run `/sample`.\n- Choose an option.\n- Confirm the result.", true],
+    [
+      "up to three bullets",
+      "- Run `/sample`.\n- Choose an option.\n- Confirm the result.",
+      true,
+    ],
     ["prose without a final newline", "Run `/sample` to use it.", false],
   ])("accepts %s", (_label, usage, finalNewline) => {
     const result = validateFixture(createFixture(usage, finalNewline));
@@ -118,7 +136,9 @@ describe("README validation", () => {
     const result = validateFixture(createFixture(usage));
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("Usage must be one prose line or up to three short bullets.");
+    expect(result.stderr).toContain(
+      "Usage must be one prose line or up to three short bullets."
+    );
   });
 
   it("accepts experimental catalogs and local README layouts without the public template", () => {
@@ -135,15 +155,15 @@ describe("README validation", () => {
 
       writeFileSync(
         path.join(root, "pi/extensions/experimental/preview/README.md"),
-        `# preview\n\n\`\`\`bash\npi install npm:${source}\n\`\`\`\n`,
+        `# preview\n\n\`\`\`bash\npi install npm:${source}\n\`\`\`\n`
       );
       const result = validateFixture(root);
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain(
-        "pi/extensions/experimental/preview/README.md: experimental packages are not published to npm",
+        "pi/extensions/experimental/preview/README.md: experimental packages are not published to npm"
       );
-    },
+    }
   );
 
   it("allows an experimental README to document installing another published package", () => {
@@ -151,7 +171,7 @@ describe("README validation", () => {
 
     writeFileSync(
       path.join(root, "pi/extensions/experimental/preview/README.md"),
-      `# preview\n\nLoad ./index.ts locally. Install its companion with \`pi install npm:${EXPERIMENTAL_PACKAGE_NAME}-tools\`.\n`,
+      `# preview\n\nLoad ./index.ts locally. Install its companion with \`pi install npm:${EXPERIMENTAL_PACKAGE_NAME}-tools\`.\n`
     );
     expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
   });
@@ -167,8 +187,8 @@ describe("README validation", () => {
 | [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |`,
         `| Extension                            | Description              |
 | ------------------------------------ | ------------------------ |
-| [\`${PACKAGE_NAME}\`](sample)       | ${DESCRIPTION}            |`,
-      ),
+| [\`${PACKAGE_NAME}\`](sample)       | ${DESCRIPTION}            |`
+      )
     );
 
     expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
@@ -181,15 +201,15 @@ describe("README validation", () => {
       readmePath,
       readFileSync(readmePath, "utf-8").replace(
         /\n\n## Experimental pi extensions[\s\S]*?\n\n## Claude Code plugins/u,
-        "\n\n## Claude Code plugins",
-      ),
+        "\n\n## Claude Code plugins"
+      )
     );
 
     const result = validateFixture(root);
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
-      "Experimental pi extensions sections must list every extension",
+      "Experimental pi extensions sections must list every extension"
     );
   });
 });

@@ -23,7 +23,7 @@ const colors = {
 
 type Range = [start: number, end: number];
 
-function wordChanges(before: string, after: string): [Range[], Range[]] {
+const wordChanges = (before: string, after: string): [Range[], Range[]] => {
   const removed: Range[] = [];
   const added: Range[] = [];
   let oldOffset = 0;
@@ -43,14 +43,14 @@ function wordChanges(before: string, after: string): [Range[], Range[]] {
   }
 
   return [removed, added];
-}
+};
 
-function renderCode(
+const renderCode = (
   text: string,
   spans: NonNullable<DiffSyntax[number]>,
   changed: Range[],
-  theme: Theme,
-): string {
+  theme: Theme
+): string => {
   let start = 0;
   const output: string[] = [];
 
@@ -58,22 +58,31 @@ function renderCode(
     const boundaries = [start, end];
 
     for (const [from, to] of changed) {
-      if (from > start && from < end) boundaries.push(from);
+      if (from > start && from < end) {
+        boundaries.push(from);
+      }
 
-      if (to > start && to < end) boundaries.push(to);
+      if (to > start && to < end) {
+        boundaries.push(to);
+      }
     }
 
     boundaries.sort((a, b) => a - b);
 
-    for (let i = 1; i < boundaries.length; i++) {
+    for (let i = 1; i < boundaries.length; i += 1) {
       const from = boundaries[i - 1];
       const to = boundaries[i];
 
-      if (from === undefined || to === undefined) continue;
+      if (from === undefined || to === undefined) {
+        continue;
+      }
+
       let content = displayText(text.slice(from, to));
 
-      if (changed.some(([left, right]) => left <= from && to <= right))
+      if (changed.some(([left, right]) => left <= from && to <= right)) {
         content = theme.inverse(content);
+      }
+
       output.push(theme.fg(colors[role], content));
     }
 
@@ -81,39 +90,60 @@ function renderCode(
   }
 
   return output.join("");
-}
+};
 
-function validSpans(text: string, spans: NonNullable<DiffSyntax[number]>): boolean {
+const validSpans = (
+  text: string,
+  spans: NonNullable<DiffSyntax[number]>
+): boolean => {
   let start = 0;
 
   for (const [end] of spans) {
-    if (end <= start || end > text.length) return false;
+    if (end <= start || end > text.length) {
+      return false;
+    }
+
     start = end;
   }
 
   return start === text.length;
-}
+};
 
-export function renderHighlightedDiff(diff: string, syntax: unknown, theme: Theme): string {
-  if (!Value.Check(SyntaxSchema, syntax)) return renderDiff(displayText(diff));
+export const renderHighlightedDiff = (
+  diff: string,
+  syntax: unknown,
+  theme: Theme
+): string => {
+  if (!Value.Check(SyntaxSchema, syntax)) {
+    return renderDiff(displayText(diff));
+  }
+
   const rows = diff.split("\n");
 
-  if (syntax.length !== rows.length) return renderDiff(displayText(diff));
+  if (syntax.length !== rows.length) {
+    return renderDiff(displayText(diff));
+  }
+
   const lines = rows.map(parseDiffLine);
 
   if (
     lines.some((line, index) => {
       const spans = syntax[index];
 
-      return spans && (!line || !validSpans(line.text, spans));
+      return (
+        spans !== undefined &&
+        spans !== null &&
+        (!line || !validSpans(line.text, spans))
+      );
     })
-  )
+  ) {
     return renderDiff(displayText(diff));
+  }
 
   const changes = new Map<number, Range[]>();
 
   // Like Pi's native renderer, emphasize words only for one removed/one added line.
-  for (let i = 0; i < rows.length - 1; i++) {
+  for (let i = 0; i < rows.length - 1; i += 1) {
     const old = lines[i];
     const next = lines[i + 1];
     const previous = lines[i - 1];
@@ -136,11 +166,14 @@ export function renderHighlightedDiff(diff: string, syntax: unknown, theme: Them
       const line = lines[index];
       const spans = syntax[index];
 
-      if (!line || !spans) return renderDiff(displayText(raw));
+      if (!line || !spans) {
+        return renderDiff(displayText(raw));
+      }
 
       return (
-        renderDiff(line.prefix) + renderCode(line.text, spans, changes.get(index) ?? [], theme)
+        renderDiff(line.prefix) +
+        renderCode(line.text, spans, changes.get(index) ?? [], theme)
       );
     })
     .join("\n");
-}
+};

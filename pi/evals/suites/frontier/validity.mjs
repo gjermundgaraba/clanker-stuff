@@ -1,5 +1,6 @@
-import { readComparison } from "./comparison.mjs";
 import { readFileSync } from "node:fs";
+
+import { readComparison } from "./comparison.mjs";
 import { validateNativeCodex } from "./native-codex.mjs";
 import { validateToolMode } from "./tool-mode-core.mjs";
 
@@ -8,7 +9,10 @@ let trajectory;
 
 try {
   trajectory = JSON.parse(
-    readFileSync(process.env["EVAL_TRAJECTORY"] ?? "/logs/agent/trajectory.json", "utf8"),
+    readFileSync(
+      process.env["EVAL_TRAJECTORY"] ?? "/logs/agent/trajectory.json",
+      "utf-8"
+    )
   );
 } catch {
   // Oracle and baseline checks have no runtime evidence.
@@ -21,5 +25,9 @@ const comparison = readComparison();
 const native = validateNativeCodex(trajectory, comparison);
 
 process.stdout.write(
-  JSON.stringify(native.valid_experiment === 1 ? native : validateToolMode(trajectory, comparison)),
+  JSON.stringify(
+    native.valid_experiment === 1
+      ? native
+      : validateToolMode(trajectory, comparison)
+  )
 );

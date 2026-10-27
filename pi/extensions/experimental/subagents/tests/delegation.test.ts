@@ -3,10 +3,16 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { createDelegation, inheritDelegation, readDelegation } from "../delegation.js";
+import {
+  createDelegation,
+  inheritDelegation,
+  readDelegation,
+} from "../delegation.js";
 import type { DelegationPolicy } from "../delegation.js";
 
-const model = fauxProvider({ models: [{ id: "reasoner", reasoning: true }] }).getModel();
+const model = fauxProvider({
+  models: [{ id: "reasoner", reasoning: true }],
+}).getModel();
 
 const entry = (customType: string, data: unknown): SessionEntry => ({
   id: "saved",
@@ -28,12 +34,15 @@ const setup = async (fallback: DelegationPolicy = "explicit", flag = false) => {
       pi.on("session_tree", (_event, ctx) => delegation?.refresh(ctx));
       pi.on("session_shutdown", (_event, ctx) => delegation?.stop(ctx));
     },
-    { model, flags: { ultra: flag } },
+    { model, flags: { ultra: flag } }
   );
 
   await host.ready;
 
-  if (delegation === undefined) throw new Error("Missing delegation");
+  if (delegation === undefined) {
+    throw new Error("Missing delegation");
+  }
+
   host.setThinkingLevel("low");
   const ctx = host.createContext();
   await host.emitSessionStart(ctx);
@@ -44,23 +53,35 @@ const setup = async (fallback: DelegationPolicy = "explicit", flag = false) => {
 describe("branch delegation", () => {
   it("ignores retired Ultra metadata and fails closed for malformed owned policy", () => {
     expect(
-      readDelegation({ getBranch: () => [entry("ultra", { enabled: true })] }, "explicit"),
+      readDelegation(
+        { getBranch: () => [entry("ultra", { enabled: true })] },
+        "explicit"
+      )
     ).toBe("explicit");
     expect(
-      readDelegation({ getBranch: () => [entry("ultra", { enabled: false })] }, "proactive"),
+      readDelegation(
+        { getBranch: () => [entry("ultra", { enabled: false })] },
+        "proactive"
+      )
     ).toBe("proactive");
     expect(
-      readDelegation({ getBranch: () => [entry("subagents-delegation", "other")] }, "proactive"),
+      readDelegation(
+        { getBranch: () => [entry("subagents-delegation", "other")] },
+        "proactive"
+      )
     ).toBe("explicit");
     expect(
       readDelegation(
         {
           getBranch: () => [
-            entry("subagents-delegation", { policy: "proactive", previousThinking: "max" }),
+            entry("subagents-delegation", {
+              policy: "proactive",
+              previousThinking: "max",
+            }),
           ],
         },
-        "proactive",
-      ),
+        "proactive"
+      )
     ).toBe("explicit");
   });
 
@@ -97,7 +118,9 @@ describe("branch delegation", () => {
         getBranch: () => {
           reads += 1;
 
-          if (reads > 1) throw new Error("Unexpected post-append verification");
+          if (reads > 1) {
+            throw new Error("Unexpected post-append verification");
+          }
 
           return [];
         },
@@ -125,7 +148,9 @@ describe("branch delegation", () => {
   it("runs Ultra on startup only and enables rather than toggling permission", async () => {
     const { host, ctx, delegation } = await setup("explicit", true);
     expect(host.getThinkingLevel()).toBe("max");
-    expect(host.getNotifications().at(-1)?.message).toContain("native thinking is max");
+    expect(host.getNotifications().at(-1)?.message).toContain(
+      "native thinking is max"
+    );
     expect(readDelegation(ctx.sessionManager, "explicit")).toBe("proactive");
     const saved = host.getAppendedEntries();
     host.setThinkingLevel("medium");
@@ -143,45 +168,68 @@ describe("branch delegation", () => {
       host
         .getNotifications()
         .slice(-2)
-        .map((notice) => notice.message),
+        .map((notice) => notice.message)
     ).toStrictEqual(["Usage: /proactive", "Usage: /ultra"]);
   });
 
   it.each(["explicit", "proactive"] as const)(
     "seeds fresh %s snapshots but never overwrites owned entries",
     async (policy) => {
-      const fresh = createExtensionHost((pi) => inheritDelegation(pi, policy), { model });
+      const fresh = createExtensionHost(
+        (pi) => {
+          inheritDelegation(pi, policy);
+        },
+        {
+          model,
+        }
+      );
+
       await fresh.ready;
       const ctx = fresh.createContext();
       await fresh.emitSessionStart(ctx);
       expect(
-        readDelegation(ctx.sessionManager, policy === "explicit" ? "proactive" : "explicit"),
+        readDelegation(
+          ctx.sessionManager,
+          policy === "explicit" ? "proactive" : "explicit"
+        )
       ).toBe(policy);
       expect(fresh.getThinkingLevel()).toBe("off");
 
-      const cold = createExtensionHost((pi) => inheritDelegation(pi, undefined), {
-        model,
-        entries: ctx.sessionManager.getBranch(),
-        leafId: fresh.getLeafId(),
-      });
+      const cold = createExtensionHost(
+        (pi) => {
+          inheritDelegation(pi, undefined);
+        },
+        {
+          model,
+          entries: ctx.sessionManager.getBranch(),
+          leafId: fresh.getLeafId(),
+        }
+      );
 
       await cold.ready;
       await cold.emitSessionStart(cold.createContext(), "reload");
-      expect(readDelegation(cold.createContext().sessionManager, "explicit")).toBe(policy);
+      expect(
+        readDelegation(cold.createContext().sessionManager, "explicit")
+      ).toBe(policy);
       expect(cold.getAppendedEntries()).toStrictEqual([]);
 
-      const malformed = createExtensionHost((pi) => inheritDelegation(pi, policy), {
-        entries: [entry("subagents-delegation", null)],
-        leafId: "saved",
-      });
+      const malformed = createExtensionHost(
+        (pi) => {
+          inheritDelegation(pi, policy);
+        },
+        {
+          entries: [entry("subagents-delegation", null)],
+          leafId: "saved",
+        }
+      );
 
       await malformed.ready;
       await malformed.emitSessionStart(malformed.createContext());
       expect(malformed.getAppendedEntries()).toStrictEqual([]);
-      expect(readDelegation(malformed.createContext().sessionManager, "proactive")).toBe(
-        "explicit",
-      );
-    },
+      expect(
+        readDelegation(malformed.createContext().sessionManager, "proactive")
+      ).toBe("explicit");
+    }
   );
 
   it("enables permission without changing thinking when no model is selected", async () => {
@@ -191,7 +239,9 @@ describe("branch delegation", () => {
     delegation.ultra("", ctx);
     expect(readDelegation(ctx.sessionManager, "explicit")).toBe("proactive");
     expect(host.getThinkingLevel()).toBe("low");
-    expect(host.getNotifications().at(-1)?.message).toContain("no model selected");
+    expect(host.getNotifications().at(-1)?.message).toContain(
+      "no model selected"
+    );
   });
 
   it("leaves cold sessions without owned state unseeded and skips headless UI", async () => {
@@ -199,14 +249,20 @@ describe("branch delegation", () => {
       (pi) => {
         inheritDelegation(pi, undefined);
         const delegation = createDelegation(pi, "explicit");
-        pi.on("session_start", (event, ctx) => delegation.start(event, ctx));
-        pi.on("session_shutdown", (_event, ctx) => delegation.stop(ctx));
+        pi.on("session_start", (event, ctx) => {
+          delegation.start(event, ctx);
+        });
+        pi.on("session_shutdown", (_event, ctx) => {
+          delegation.stop(ctx);
+        });
         pi.registerCommand("proactive", {
           description: "Test",
-          handler: async (args, ctx) => delegation.toggle(args, ctx),
+          handler: async (args, ctx) => {
+            delegation.toggle(args, ctx);
+          },
         });
       },
-      { model, hasUI: false },
+      { model, hasUI: false }
     );
 
     await host.ready;

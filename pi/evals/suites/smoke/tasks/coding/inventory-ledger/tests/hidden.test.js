@@ -5,10 +5,15 @@ import { applyEvents, parseEvents } from "/app/src/ledger.js";
 
 void test("handles empty input, adjustment, and physical error lines", () => {
   assert.deepEqual(parseEvents("  \n # none\n"), []);
-  assert.equal(applyEvents(parseEvents('{"type":"adjust","sku":"x","quantity":0}')).get("X"), 0);
+  assert.equal(
+    applyEvents(parseEvents('{"type":"adjust","sku":"x","quantity":0}')).get(
+      "X"
+    ),
+    0
+  );
   assert.throws(() => parseEvents('# x\n\n{"type":'), {
     name: "SyntaxError",
-    message: /^line 3:/,
+    message: /^line 3:/u,
   });
 });
 
@@ -19,11 +24,14 @@ void test("rejects invalid events and negative stock", () => {
     '{"type":"wat","sku":"x","quantity":1}',
     '{"type":"adjust","sku":" ","quantity":1}',
   ]) {
-    assert.throws(() => parseEvents(source), { message: /^line 1:/ });
+    assert.throws(() => parseEvents(source), { message: /^line 1:/u });
   }
 
-  assert.throws(() => applyEvents([{ type: "ship", sku: "X", quantity: 1, line: 9 }]), {
-    name: "RangeError",
-    message: /X.*9|9.*X/,
-  });
+  assert.throws(
+    () => applyEvents([{ type: "ship", sku: "X", quantity: 1, line: 9 }]),
+    {
+      name: "RangeError",
+      message: /X.*9|9.*X/u,
+    }
+  );
 });

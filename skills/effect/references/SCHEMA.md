@@ -60,7 +60,7 @@ export const CreateUserInput = Schema.Struct({
 export const StoredUser = User.pipe(
   Schema.fieldsAssign({
     createdAt: Schema.DateTimeUtcFromString,
-  }),
+  })
 );
 ```
 
@@ -138,7 +138,7 @@ export class PersistenceError extends Schema.TaggedError<PersistenceError>()(
   {
     operation: Schema.String,
     cause: Schema.Defect(),
-  },
+  }
 ) {}
 ```
 

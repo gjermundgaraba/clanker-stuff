@@ -5,7 +5,9 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { usageFailure } from "./providers.js";
 import type { SupportedProvider, UsageFetchFailure } from "./providers.js";
 
-export type GetAuth = (provider: SupportedProvider) => Promise<AuthResult | undefined>;
+export type GetAuth = (
+  provider: SupportedProvider
+) => Promise<AuthResult | undefined>;
 
 /**
  * Pi's request auth for each provider. Copilot's resolves to the Copilot session token, which the
@@ -13,15 +15,18 @@ export type GetAuth = (provider: SupportedProvider) => Promise<AuthResult | unde
  */
 export const contextAuth =
   (
-    ctx: { modelRegistry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth"> },
-    readCredential: typeof readStoredCredential = readStoredCredential,
+    ctx: {
+      modelRegistry: Pick<ExtensionContext["modelRegistry"], "getProviderAuth">;
+    },
+    readCredential: typeof readStoredCredential = readStoredCredential
   ): GetAuth =>
   async (provider) => {
     if (provider === "github-copilot") {
       const credential = readCredential(provider);
 
-      if (credential?.type === "oauth" && credential.refresh.length > 0)
+      if (credential?.type === "oauth" && credential.refresh.length > 0) {
         return { auth: { apiKey: credential.refresh }, source: "OAuth" };
+      }
     }
 
     return await ctx.modelRegistry.getProviderAuth(provider);
@@ -34,7 +39,7 @@ export const contextAuth =
 export const accessToken = async (
   getAuth: GetAuth,
   provider: SupportedProvider,
-  { oauth = false }: { oauth?: boolean } = {},
+  { oauth = false }: { oauth?: boolean } = {}
 ): Promise<{ ok: true; token: string } | UsageFetchFailure> => {
   let auth: AuthResult | undefined;
 
@@ -47,11 +52,16 @@ export const accessToken = async (
 
   const token = auth?.auth.apiKey;
 
-  if (token === undefined || token.length === 0)
+  if (token === undefined || token.length === 0) {
     return usageFailure("not logged in", "unavailable");
+  }
 
-  if (oauth && auth?.source !== "OAuth")
-    return usageFailure("subscription usage requires OAuth login (not API key)", "unavailable");
+  if (oauth && auth?.source !== "OAuth") {
+    return usageFailure(
+      "subscription usage requires OAuth login (not API key)",
+      "unavailable"
+    );
+  }
 
   return { ok: true, token };
 };

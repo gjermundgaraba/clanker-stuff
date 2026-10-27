@@ -13,11 +13,14 @@ const { values } = parseArgs({
     host: { default: "127.0.0.1", type: "string" },
     http: { type: "string" },
     "no-skills": { type: "boolean" },
-    skills: { default: fileURLToPath(new URL("skills/", import.meta.url)), type: "string" },
+    skills: {
+      default: fileURLToPath(new URL("skills/", import.meta.url)),
+      type: "string",
+    },
   },
 });
 
-if (values.help) {
+if (values.help === true) {
   process.stdout
     .write(`Usage: node cli.ts [--http <port>] [--host <host>] [--skills <dir> | --no-skills]
 
@@ -29,11 +32,17 @@ Serves MCP over stdio, or over streamable HTTP at /mcp with --http.
   process.exit(0);
 }
 
-const factory = createTestServer(values["no-skills"] ? {} : { skillsDir: values.skills });
+const factory = createTestServer(
+  values["no-skills"] === true ? {} : { skillsDir: values.skills }
+);
 
 if (values.http === undefined) {
   serveStdio(factory);
 } else {
-  const { url } = await serveHttp(factory, { host: values.host, port: Number(values.http) });
+  const { url } = await serveHttp(factory, {
+    host: values.host,
+    port: Number(values.http),
+  });
+
   process.stderr.write(`mcp-test-server listening on ${url}\n`);
 }

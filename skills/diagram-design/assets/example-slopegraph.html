@@ -61,7 +61,13 @@
   </head>
   <body>
     <aside
-      style="position: absolute; top: 0.5rem; left: 1rem; font: 12px system-ui; color: #4f5d75"
+      style="
+        position: absolute;
+        top: 0.5rem;
+        left: 1rem;
+        font: 12px system-ui;
+        color: #4f5d75;
+      "
     >
       Geometry reference · illustrative data · upstream palette
     </aside>
@@ -77,12 +83,17 @@
       >
         <title id="slopegraph-title">One service went the other way</title>
         <desc id="slopegraph-desc">
-          Slopegraph of p95 response time by service before and after a caching layer, on one shared
-          100-to-550-millisecond scale; four services got faster and the recommender got slower,
-          crossing three of them.
+          Slopegraph of p95 response time by service before and after a caching
+          layer, on one shared 100-to-550-millisecond scale; four services got
+          faster and the recommender got slower, crossing three of them.
         </desc>
         <defs>
-          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            id="dots"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" fill="rgba(45,49,66,0.10)" />
           </pattern>
         </defs>
@@ -103,7 +114,14 @@
           P95 RESPONSE TIME, MS
         </text>
 
-        <line x1="320" y1="40" x2="320" y2="420" stroke="rgba(45,49,66,0.25)" stroke-width="1" />
+        <line
+          x1="320"
+          y1="40"
+          x2="320"
+          y2="420"
+          stroke="rgba(45,49,66,0.25)"
+          stroke-width="1"
+        />
         <text
           data-axis="from"
           data-state="BEFORE"
@@ -117,7 +135,14 @@
         >
           BEFORE
         </text>
-        <line x1="680" y1="40" x2="680" y2="420" stroke="rgba(45,49,66,0.25)" stroke-width="1" />
+        <line
+          x1="680"
+          y1="40"
+          x2="680"
+          y2="420"
+          stroke="rgba(45,49,66,0.25)"
+          stroke-width="1"
+        />
         <text
           data-axis="to"
           data-state="AFTER"
@@ -452,7 +477,14 @@
           Recommender
         </text>
 
-        <line x1="40" y1="462" x2="960" y2="462" stroke="rgba(45,49,66,0.10)" stroke-width="0.8" />
+        <line
+          x1="40"
+          y1="462"
+          x2="960"
+          y2="462"
+          stroke="rgba(45,49,66,0.10)"
+          stroke-width="0.8"
+        />
         <text
           x="40"
           y="478"
@@ -472,11 +504,18 @@
           letter-spacing="0.06em"
           text-anchor="end"
         >
-          P95 RESPONSE TIME IN MS, LOWER IS BETTER · SAME 100-550 SCALE ON BOTH AXES · ILLUSTRATIVE
-          FIGURES, NOT A MEASURED RELEASE
+          P95 RESPONSE TIME IN MS, LOWER IS BETTER · SAME 100-550 SCALE ON BOTH
+          AXES · ILLUSTRATIVE FIGURES, NOT A MEASURED RELEASE
         </text>
 
-        <line x1="40" y1="492" x2="64" y2="492" stroke="#eb6c36" stroke-width="2.4" />
+        <line
+          x1="40"
+          y1="492"
+          x2="64"
+          y2="492"
+          stroke="#eb6c36"
+          stroke-width="2.4"
+        />
         <circle cx="52" cy="492" r="4" fill="#eb6c36" />
         <text
           x="72"
@@ -487,7 +526,14 @@
         >
           Recommender · focal, the only regression
         </text>
-        <line x1="320" y1="492" x2="344" y2="492" stroke="rgba(45,49,66,0.80)" stroke-width="1.2" />
+        <line
+          x1="320"
+          y1="492"
+          x2="344"
+          y2="492"
+          stroke="rgba(45,49,66,0.80)"
+          stroke-width="1.2"
+        />
         <circle cx="332" cy="492" r="3" fill="rgba(45,49,66,0.80)" />
         <text
           x="352"

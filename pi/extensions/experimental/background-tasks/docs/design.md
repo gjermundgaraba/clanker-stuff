@@ -1,7 +1,6 @@
 # Background tasks design
 
-Implemented by the experimental [background-tasks extension](../). Pi API baseline: v1.0.0.
-[Usage](usage.md) is authoritative for tools, commands, protocol, and limits; [validation](validation.md) records tested behavior.
+Implemented by the experimental [background-tasks extension](../). Pi API baseline: v1.0.0. [Usage](usage.md) is authoritative for tools, commands, protocol, and limits; [validation](validation.md) records tested behavior.
 
 ## Scope
 

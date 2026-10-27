@@ -18,28 +18,40 @@ const open = (texts: string[]) => {
   const search = createSearch(
     texts.map((text, index) => ({ text, timestamp: texts.length - index })),
     createIdentityTheme(),
-    done,
+    done
   );
 
   search.focused = true;
 
   const type = (...keys: string[]) => {
-    for (const key of keys) search.handleInput?.(key);
+    for (const key of keys) {
+      search.handleInput?.(key);
+    }
   };
 
   const screen = (width = 80) =>
     search
       .render(width)
-      .map((line) => stripVTControlCharacters(line.replaceAll(CURSOR_MARKER, "")));
+      .map((line) =>
+        stripVTControlCharacters(line.replaceAll(CURSOR_MARKER, ""))
+      );
 
   return { done, render: (width = 80) => search.render(width), screen, type };
 };
 
 describe("history search", () => {
   it("previews matches newest-first and moves within their bounds", () => {
-    const { done, screen, type } = open(["Check deploy status", "Deploy production", "other"]);
+    const { done, screen, type } = open([
+      "Check deploy status",
+      "Deploy production",
+      "other",
+    ]);
+
     type("deploy");
-    expect(screen()).toEqual([expect.stringContaining("1/2"), "Check deploy status"]);
+    expect(screen()).toStrictEqual([
+      expect.stringContaining("1/2"),
+      "Check deploy status",
+    ]);
 
     type("\u0012", "\u0012");
     expect(screen()[1]).toBe("Deploy production");
@@ -54,10 +66,17 @@ describe("history search", () => {
       new KeybindingsManager(TUI_KEYBINDINGS, {
         "tui.select.down": "ctrl+n",
         "tui.select.up": "ctrl+p",
-      }),
+      })
     );
-    onTestFinished(() => setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS)));
-    const { done, screen, type } = open(["Check deploy status", "Deploy production"]);
+    onTestFinished(() => {
+      setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS));
+    });
+
+    const { done, screen, type } = open([
+      "Check deploy status",
+      "Deploy production",
+    ]);
+
     type("deploy", "\u0010");
     expect(screen()[1]).toBe("Deploy production");
     type("\u000E", "\r");
@@ -73,7 +92,7 @@ describe("history search", () => {
   it("stays open without a match and cancels with Escape or Ctrl+C", () => {
     const first = open(["known prompt"]);
     first.type("missing", "\r");
-    expect(first.screen()).toEqual([expect.stringContaining("no match")]);
+    expect(first.screen()).toStrictEqual([expect.stringContaining("no match")]);
     expect(first.done).not.toHaveBeenCalled();
     first.type("\u001B");
     expect(first.done).toHaveBeenCalledExactlyOnceWith(undefined);
@@ -98,7 +117,11 @@ describe("history search", () => {
   });
 
   it("limits long previews to the width and a few lines", () => {
-    const long = Array.from({ length: 12 }, (_, index) => `line ${index} ${"x".repeat(100)}`);
+    const long = Array.from(
+      { length: 12 },
+      (_, index) => `line ${index} ${"x".repeat(100)}`
+    );
+
     const { screen, type } = open([long.join("\n")]);
     type("line");
     const lines = screen(40);

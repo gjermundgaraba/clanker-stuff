@@ -1,11 +1,14 @@
 import { Value } from "typebox/value";
+
 import type { GetAuth } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 
 export const NOW = Date.parse("2026-07-21T12:00:00.000Z");
 
 export const CODEX_TOKEN = `e30.${Buffer.from(
-  JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "codex-account" } }),
+  JSON.stringify({
+    "https://api.openai.com/auth": { chatgpt_account_id: "codex-account" },
+  })
 ).toString("base64url")}.signature`;
 
 export const tokenAuth =

@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from "vite-plus/test";
 import { resolveJsonSchemaStrictSampling } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { initTheme } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it, vi } from "vite-plus/test";
+
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { createCustomUiDriver, createKeybindings } from "../../../tests/harness/tui.js";
-import extension from "../index.js";
+import {
+  createCustomUiDriver,
+  createKeybindings,
+} from "../../../tests/harness/tui.js";
 import { Coordinator } from "../coordinator.js";
+import extension from "../index.js";
 import {
   QuestionnaireParameters,
   RevisionParameters,
@@ -20,14 +24,19 @@ describe("questionnaire contract", () => {
       await host.ready;
       const question = { id: "q", header: "Question", question: "Proceed?" };
 
-      await expect(host.runTool(name, { questions: [question, question] })).rejects.toThrow(
-        "Duplicate question ID",
+      await expect(
+        host.runTool(name, { questions: [question, question] })
+      ).rejects.toThrow("Duplicate question ID");
+      await expect(host.runTool(name, { questions: [] })).rejects.toThrow(
+        "Invalid questionnaire arguments"
       );
-      await expect(host.runTool(name, { questions: [] })).rejects.toThrow();
-    },
+    }
   );
+
   it("opens the same inbox from Alt+I and /answers", async () => {
-    const answer = vi.spyOn(Coordinator.prototype, "answer").mockResolvedValue(undefined);
+    const answer = vi
+      .spyOn(Coordinator.prototype, "answer")
+      .mockResolvedValue(undefined);
 
     try {
       const host = createExtensionHost(extension);
@@ -40,6 +49,7 @@ describe("questionnaire contract", () => {
       answer.mockRestore();
     }
   });
+
   it("fails a blocking questionnaire whose branch changed while it was open", async () => {
     initTheme("dark");
     const driver = createCustomUiDriver({ keybindings: createKeybindings({}) });
@@ -47,25 +57,37 @@ describe("questionnaire contract", () => {
     const ctx = host.createToolContext({ ui: { custom: driver.custom } });
     await host.emitSessionStart(ctx);
     const question = { id: "q1", header: "Tests", question: "Which test?" };
-    const asking = host.runTool("request_user_input", { questions: [question] }, { ctx });
+
+    const asking = host.runTool(
+      "request_user_input",
+      { questions: [question] },
+      { ctx }
+    );
 
     await expect.poll(() => driver.component).toBeDefined();
     await host.emitSessionTree(ctx);
 
     // Its answer would belong to the branch it was asked on, not the one now active.
-    await expect(asking).rejects.toThrow("Questionnaire belongs to an inactive session branch");
+    await expect(asking).rejects.toThrow(
+      "Questionnaire belongs to an inactive session branch"
+    );
   });
+
   it("registers the question tools with schemas strict sampling can represent", async () => {
     const host = createExtensionHost(extension);
     await host.ready;
 
-    const tools = [...host.getRegisteredTools()].map(([name, { definition }]) => ({
-      executionMode: definition.executionMode,
-      name,
-      parameters: definition.parameters,
-      renders: definition.renderCall !== undefined && definition.renderResult !== undefined,
-      strict: resolveJsonSchemaStrictSampling(definition, true),
-    }));
+    const tools = [...host.getRegisteredTools()].map(
+      ([name, { definition }]) => ({
+        executionMode: definition.executionMode,
+        name,
+        parameters: definition.parameters,
+        renders:
+          definition.renderCall !== undefined &&
+          definition.renderResult !== undefined,
+        strict: resolveJsonSchemaStrictSampling(definition, true),
+      })
+    );
 
     expect(tools).toStrictEqual([
       {
@@ -91,6 +113,7 @@ describe("questionnaire contract", () => {
       },
     ]);
   });
+
   it("owns the limits the structural schemas no longer carry", () => {
     const question = { id: "q1", header: "Tests", question: "Which test?" };
 
@@ -98,20 +121,35 @@ describe("questionnaire contract", () => {
       questions: [question],
     });
     expect(
-      validateRevision({ interaction_id: "i1", base_revision: 1, reason: "Update" }),
-    ).toStrictEqual({ interaction_id: "i1", base_revision: 1, reason: "Update" });
+      validateRevision({
+        interaction_id: "i1",
+        base_revision: 1,
+        reason: "Update",
+      })
+    ).toStrictEqual({
+      interaction_id: "i1",
+      base_revision: 1,
+      reason: "Update",
+    });
 
     for (const invalid of [
       {},
       { questions: [] },
-      { questions: Array.from({ length: 6 }, (_, i) => ({ ...question, id: `q${i}` })) },
+      {
+        questions: Array.from({ length: 6 }, (_, i) => ({
+          ...question,
+          id: `q${i}`,
+        })),
+      },
       { questions: [{ ...question, id: "1-leading-digit" }] },
       { questions: [{ ...question, header: "x".repeat(65) }] },
       { questions: [{ ...question, options: [] }] },
       { questions: [question], unknown: true },
       { questions: [{ title: "Retired shape" }] },
     ]) {
-      expect(() => validateQuestionnaire(invalid)).toThrow();
+      expect(() => validateQuestionnaire(invalid)).toThrow(
+        "Invalid questionnaire arguments"
+      );
     }
 
     expect(() =>
@@ -123,16 +161,23 @@ describe("questionnaire contract", () => {
             recommendation: { option_ids: ["missing"], reason: "why" },
           },
         ],
-      }),
+      })
     ).toThrow(/Invalid recommendation/u);
 
     for (const invalid of [
       {},
       { interaction_id: "i1", base_revision: 0, reason: "Update" },
       { interaction_id: "i1", base_revision: 1, reason: " " },
-      { interaction_id: "i1", base_revision: 1, reason: "Update", questions: [question] },
+      {
+        interaction_id: "i1",
+        base_revision: 1,
+        reason: "Update",
+        questions: [question],
+      },
     ]) {
-      expect(() => validateRevision(invalid)).toThrow();
+      expect(() => validateRevision(invalid)).toThrow(
+        /^(?:Invalid revision arguments|Revision reason must not be blank)/u
+      );
     }
   });
 });

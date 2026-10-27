@@ -1,5 +1,6 @@
 // Model-free integration probe, executed in the frozen runtime with network disabled.
 import assert from "node:assert/strict";
+
 import {
   createAssistantMessageEventStream,
   InMemoryCredentialStore,
@@ -16,9 +17,12 @@ import {
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-const settingsJson = process.argv[2];
+const [settingsJson] = process.argv.slice(2);
 
-assert.ok(settingsJson, "recovery probe requires its frozen settings JSON");
+assert.ok(
+  settingsJson !== undefined && settingsJson !== "",
+  "recovery probe requires its frozen settings JSON"
+);
 
 const settings = Value.Parse(
   Type.Object({
@@ -30,7 +34,7 @@ const settings = Value.Parse(
       provider: Type.Object({ maxRetries: Type.Integer({ minimum: 0 }) }),
     }),
   }),
-  JSON.parse(settingsJson),
+  JSON.parse(settingsJson)
 );
 
 const modelRuntime = await ModelRuntime.create({
@@ -56,6 +60,12 @@ const resourceLoader = new DefaultResourceLoader({
 
 await resourceLoader.reload();
 
+const failure = () =>
+  fauxAssistantMessage("", {
+    stopReason: "error",
+    errorMessage: "WebSocket error: stream failed",
+  });
+
 for (const recover of [true, false]) {
   let toolRuns = 0;
 
@@ -74,7 +84,7 @@ for (const recover of [true, false]) {
         description: "Increment an in-memory counter",
         parameters: Type.Object({}),
         execute: async () => {
-          toolRuns++;
+          toolRuns += 1;
 
           return { content: [{ type: "text", text: "done" }], details: {} };
         },
@@ -82,24 +92,25 @@ for (const recover of [true, false]) {
     ],
   });
 
-  const failure = () =>
-    fauxAssistantMessage("", {
-      stopReason: "error",
-      errorMessage: "WebSocket error: stream failed",
-    });
-
   const responses = [
-    fauxAssistantMessage([fauxToolCall("probe", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("probe", {})], {
+      stopReason: "toolUse",
+    }),
     failure(),
-    ...(recover ? [fauxAssistantMessage("recovered")] : [failure(), failure(), failure()]),
+    ...(recover
+      ? [fauxAssistantMessage("recovered")]
+      : [failure(), failure(), failure()]),
   ];
 
   /** @type {import("@earendil-works/pi-coding-agent").AgentSessionEvent[]} */
   const events = [];
-  session.subscribe((event) => events.push(event));
+  session.subscribe((event) => {
+    events.push(event);
+  });
   let calls = 0;
   session.agent.streamFunction = () => {
-    const response = responses[calls++];
+    const response = responses[calls];
+    calls += 1;
     assert.ok(response, "unexpected extra request");
     const stream = createAssistantMessageEventStream();
     stream.push({ type: "start", partial: response });
@@ -107,8 +118,14 @@ for (const recover of [true, false]) {
     if (response.stopReason === "error") {
       stream.push({ type: "error", reason: "error", error: response });
     } else {
-      assert.ok(response.stopReason === "stop" || response.stopReason === "toolUse");
-      stream.push({ type: "done", reason: response.stopReason, message: response });
+      assert.ok(
+        response.stopReason === "stop" || response.stopReason === "toolUse"
+      );
+      stream.push({
+        type: "done",
+        reason: response.stopReason,
+        message: response,
+      });
     }
 
     stream.end();
@@ -119,8 +136,14 @@ for (const recover of [true, false]) {
   await session.prompt("Run the probe, then answer.");
   assert.equal(toolRuns, 1, "completed tools must not be replayed");
   assert.equal(calls, recover ? 3 : 5);
-  assert.equal(events.filter((e) => e.type === "auto_retry_start").length, recover ? 1 : 3);
-  assert.equal(events.find((e) => e.type === "auto_retry_end")?.success, recover);
+  assert.equal(
+    events.filter((e) => e.type === "auto_retry_start").length,
+    recover ? 1 : 3
+  );
+  assert.equal(
+    events.find((e) => e.type === "auto_retry_end")?.success,
+    recover
+  );
   assert.equal(events.at(-1)?.type, "agent_settled");
   const last = session.messages.at(-1);
   assert.ok(last?.role === "assistant");
@@ -128,4 +151,6 @@ for (const recover of [true, false]) {
   session.dispose();
 }
 
-console.log("Pi retry recovery, no tool replay, and retry exhaustion passed (no model calls).");
+console.log(
+  "Pi retry recovery, no tool replay, and retry exhaustion passed (no model calls)."
+);

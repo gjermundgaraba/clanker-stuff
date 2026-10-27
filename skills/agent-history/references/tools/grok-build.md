@@ -18,13 +18,13 @@ Last verified: local macOS, structural inspection and installed docs.
 
 ## Sources
 
-| Priority | Location                                                            | Kind   | Authority        | Contains                  | Parser State | Collection Policy | Sensitivity |
-| -------- | ------------------------------------------------------------------- | ------ | ---------------- | ------------------------- | ------------ | ----------------- | ----------- |
-| 1        | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/updates.jsonl`      | JSONL  | primary          | authoritative restore log | partial      | collect           | secret      |
-| 1        | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/chat_history.jsonl` | JSONL  | model stream     | raw model chat stream     | partial      | collect           | private     |
-| 2        | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/events.jsonl`       | JSONL  | event log        | tool/phase events         | partial      | collect           | private     |
-| 2        | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/*.json`             | JSON   | metadata/context | summaries/context/signals | schema_known | collect           | private     |
-| 3        | `$GROK_HOME/sessions/session_search.sqlite`                         | SQLite | index            | searchable session docs   | schema_known | ignore_by_default | private     |
+| Priority | Location | Kind | Authority | Contains | Parser State | Collection Policy | Sensitivity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/updates.jsonl` | JSONL | primary | authoritative restore log | partial | collect | secret |
+| 1 | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/chat_history.jsonl` | JSONL | model stream | raw model chat stream | partial | collect | private |
+| 2 | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/events.jsonl` | JSONL | event log | tool/phase events | partial | collect | private |
+| 2 | `$GROK_HOME/sessions/<encoded-cwd>/<session-id>/*.json` | JSON | metadata/context | summaries/context/signals | schema_known | collect | private |
+| 3 | `$GROK_HOME/sessions/session_search.sqlite` | SQLite | index | searchable session docs | schema_known | ignore_by_default | private |
 
 ## Find
 

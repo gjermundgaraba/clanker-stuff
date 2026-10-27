@@ -1,5 +1,7 @@
-import { fauxAssistantMessage, type Usage } from "@earendil-works/pi-ai";
-import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { Usage } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -21,14 +23,14 @@ const usage = (amount: number): Usage => ({
   totalTokens: amount * 2,
 });
 
+const base = (id: string) => ({
+  id,
+  parentId: null,
+  timestamp: "2025-01-01T00:00:00.000Z",
+});
+
 describe(collectSessionTotals, () => {
   it("sums usage from messages, summaries and standalone usage of any kind across all entries", () => {
-    const base = (id: string) => ({
-      id,
-      parentId: null,
-      timestamp: "2025-01-01T00:00:00.000Z",
-    });
-
     const entries: SessionEntry[] = [
       {
         ...base("assistant"),
@@ -112,6 +114,12 @@ describe(collectSessionTotals, () => {
   });
 });
 
+const text = (widgets: ReturnType<typeof buildBuiltinWidgets>, id: string) =>
+  widgets
+    .get(id)
+    ?.content.map((span) => span.text)
+    .join("");
+
 describe(buildBuiltinWidgets, () => {
   const options = {
     branch: "main",
@@ -121,7 +129,9 @@ describe(buildBuiltinWidgets, () => {
   };
 
   const build = (
-    overrides: Parameters<ReturnType<typeof createExtensionHost>["createContext"]>[0],
+    overrides: Parameters<
+      ReturnType<typeof createExtensionHost>["createContext"]
+    >[0]
   ) =>
     buildBuiltinWidgets(
       createExtensionHost(() => {}).createContext({
@@ -129,18 +139,18 @@ describe(buildBuiltinWidgets, () => {
         sessionManager: sessionReads(SessionManager.inMemory()),
         ...overrides,
       }),
-      options,
+      options
     );
-
-  const text = (widgets: ReturnType<typeof buildBuiltinWidgets>, id: string) =>
-    widgets
-      .get(id)
-      ?.content.map((span) => span.text)
-      .join("");
 
   it("labels selected versus last executed model/effort and does not leak abandoned responses", () => {
     const session = SessionManager.inMemory();
-    const original = session.appendMessage({ role: "user", content: "start", timestamp: 0 });
+
+    const original = session.appendMessage({
+      role: "user",
+      content: "start",
+      timestamp: 0,
+    });
+
     session.appendMessage({
       ...fauxAssistantMessage("done"),
       provider: "anthropic",
@@ -176,10 +186,12 @@ describe(buildBuiltinWidgets, () => {
           details: undefined,
           thinkingLevel: "low",
         }),
-        id,
+        id
       );
 
-    expect(content("footer.model")).toBe("selected: Auto · last: anthropic/physical");
+    expect(content("footer.model")).toBe(
+      "selected: Auto · last: anthropic/physical"
+    );
     expect(content("footer.thinking")).toBe("selected: low · last: high");
     session.branch(original);
     expect(content("footer.model")).toBe("Auto");
@@ -187,26 +199,48 @@ describe(buildBuiltinWidgets, () => {
   });
 
   it.each([
-    ["after compaction", { contextWindow: 200_000, percent: null, tokens: null }, " ?/200k"],
+    [
+      "after compaction",
+      { contextWindow: 200_000, percent: null, tokens: null },
+      " ?/200k",
+    ],
     ["without a context window", undefined, " ?"],
-  ])("marks unknown context usage %s instead of reporting 0%%", (_name, usage, suffix) => {
-    const widgets = build({ getContextUsage: () => usage });
+  ])(
+    "marks unknown context usage %s instead of reporting 0%%",
+    (_name, contextUsage, suffix) => {
+      const widgets = build({ getContextUsage: () => contextUsage });
 
-    expect(text(widgets, "footer.context")).toBe(`${"─".repeat(12)}${suffix}`);
-  });
+      expect(text(widgets, "footer.context")).toBe(
+        `${"─".repeat(12)}${suffix}`
+      );
+    }
+  );
 
   const tones = (percent: number, id: string) =>
     new Set(
-      build({ getContextUsage: () => ({ contextWindow: 100, percent, tokens: percent }) })
+      build({
+        getContextUsage: () => ({
+          contextWindow: 100,
+          percent,
+          tokens: percent,
+        }),
+      })
         .get(id)
-        ?.content.map((span) => span.tone),
+        ?.content.map((span) => span.tone)
     );
 
   const LOUD = ["accent", "success", "warning", "error"] as const;
 
   it("spends no hue at rest, including on a dirty working tree", () => {
-    for (const id of ["footer.cwd", "footer.git", "footer.git.details", "footer.context"]) {
-      for (const tone of LOUD) expect(tones(10, id)).not.toContain(tone);
+    for (const id of [
+      "footer.cwd",
+      "footer.git",
+      "footer.git.details",
+      "footer.context",
+    ]) {
+      for (const tone of LOUD) {
+        expect(tones(10, id)).not.toContain(tone);
+      }
     }
   });
 

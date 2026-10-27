@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
+
 import { validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/deployment.js").planDeployment} */
@@ -11,7 +12,9 @@ let planDeployment = () => {
 try {
   // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
   ({ planDeployment } = await import("/app/src/deployment.js"));
-} catch {}
+} catch {
+  // The stub stays in place, so every probe of the missing module scores zero.
+}
 
 const tests = spawnSync("node", ["--test", "/app/test/deployment.test.js"], {
   encoding: "utf-8",
@@ -24,11 +27,13 @@ let trajectory = {};
 
 try {
   trajectory = JSON.parse(readFileSync("/logs/agent/trajectory.json", "utf-8"));
-} catch {}
+} catch {
+  // A missing or unreadable trajectory is graded as an invalid experiment.
+}
 
 const validation = validateCompaction(trajectory, { expectedSegments: [4, 9] });
 
-/** @param {()=>boolean} fn */
+/** @param {()=>boolean} fn Probe whose thrown failure scores zero. */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -42,7 +47,10 @@ const base = { regions: [], service: "api", target: "prod" };
 const facts = {
   attempts_current: probe(() => {
     const defaults = planDeployment(base).attempts === 4;
-    const acceptsCurrentLimit = planDeployment({ ...base, attempts: 5 }).attempts === 5;
+
+    const acceptsCurrentLimit =
+      planDeployment({ ...base, attempts: 5 }).attempts === 5;
+
     let rejects = true;
 
     for (const attempts of [-1, 6, 1.5, "2"]) {
@@ -62,8 +70,8 @@ const facts = {
         planDeployment({
           ...base,
           regions: ["APAC", " us ", "apac", "eu"],
-        }).regions,
-      ) === JSON.stringify(["us", "eu", "apac"]),
+        }).regions
+      ) === JSON.stringify(["us", "eu", "apac"])
   ),
   service_early: probe(() => {
     const normalized = planDeployment({ ...base, service: " API " }).service;
@@ -85,9 +93,10 @@ const facts = {
           planDeployment({
             ...base,
             ignored: true,
-          }),
-        ).sort(),
-      ) === JSON.stringify(["attempts", "regions", "service", "target"].sort()),
+          })
+        ).toSorted()
+      ) ===
+      JSON.stringify(["attempts", "regions", "service", "target"].toSorted())
   ),
   target_current: probe(() => {
     const result = planDeployment({ ...base, target: " PROD " });
@@ -112,15 +121,26 @@ try {
     service: " Worker ",
     target: " Staging ",
   });
-} catch {}
+} catch {
+  // A throwing candidate leaves `combined` unset; the check below scores that case.
+}
 
 if (combined) {
   facts.attempts_current &&= Number(combined.attempts === 5);
-  facts.regions_early &&= Number(isDeepStrictEqual(combined.regions, ["us", "eu", "apac"]));
+  facts.regions_early &&= Number(
+    isDeepStrictEqual(combined.regions, ["us", "eu", "apac"])
+  );
   facts.service_early &&= Number(combined.service === "worker");
-  facts.target_current &&= Number(combined.target === "staging" && !("destination" in combined));
+  facts.target_current &&= Number(
+    combined.target === "staging" && !("destination" in combined)
+  );
   facts.output_contract &&= Number(
-    isDeepStrictEqual(Object.keys(combined).sort(), ["attempts", "regions", "service", "target"]),
+    isDeepStrictEqual(Object.keys(combined).toSorted(), [
+      "attempts",
+      "regions",
+      "service",
+      "target",
+    ])
   );
 } else if (Object.values(facts).every(Boolean)) {
   facts.regions_early = 0;
@@ -136,5 +156,5 @@ writeFileSync(
     quality,
     reward: quality,
     tests: Number(tests.status === 0),
-  }),
+  })
 );

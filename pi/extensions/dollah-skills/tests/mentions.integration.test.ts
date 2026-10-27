@@ -20,8 +20,13 @@ const BODIES = {
 } as const;
 
 const setup = async (options: AgentSessionHarnessOptions = {}) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "dollah-skills-session-"));
-  onTestFinished(() => rm(directory, { force: true, recursive: true }));
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "dollah-skills-session-")
+  );
+
+  onTestFinished(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
 
   const skill = (name: keyof typeof BODIES): LoadedSkill => ({
     content: `References are relative to ${path.join(directory, name)}.\n\n${BODIES[name]}`,
@@ -35,11 +40,11 @@ const setup = async (options: AgentSessionHarnessOptions = {}) => {
       await mkdir(path.dirname(location));
       await writeFile(
         location,
-        `---\nname: ${name}\ndescription: ${name} skill\n---\n${BODIES[name]}\n`,
+        `---\nname: ${name}\ndescription: ${name} skill\n---\n${BODIES[name]}\n`
       );
 
       return location;
-    }),
+    })
   );
 
   const harness = await createAgentSessionHarness({
@@ -54,12 +59,16 @@ const setup = async (options: AgentSessionHarnessOptions = {}) => {
   });
 
   /** Conversation messages after the system prompt. */
-  const conversation = () => harness.messages().filter((message) => message.role !== "system");
+  const conversation = () =>
+    harness.messages().filter((message) => message.role !== "system");
 
   return { ...harness, conversation, skill };
 };
 
-const userMessage = (text: string) => ({ content: [{ text, type: "text" }], role: "user" });
+const userMessage = (text: string) => ({
+  content: [{ text, type: "text" }],
+  role: "user",
+});
 
 describe("skill mentions in a session", () => {
   it("records the skill block ahead of the typed text as the user message Pi sends", async () => {
@@ -68,10 +77,15 @@ describe("skill mentions in a session", () => {
     await harness.prompt("Use $beta:");
 
     expect(harness.conversation()).toStrictEqual([
-      expect.objectContaining(userMessage(`${skillBlock([harness.skill("beta")])}\n\nUse $beta:`)),
+      expect.objectContaining(
+        userMessage(`${skillBlock([harness.skill("beta")])}\n\nUse $beta:`)
+      ),
       expect.objectContaining({ role: "assistant" }),
     ]);
-    const sent = JSON.stringify(harness.lastProviderPayload(PayloadSchema).messages);
+
+    const sent = JSON.stringify(
+      harness.lastProviderPayload(PayloadSchema).messages
+    );
 
     expect(sent).toContain("Beta instructions.");
     expect(sent).toContain("Use $beta:");
@@ -81,10 +95,13 @@ describe("skill mentions in a session", () => {
     const harness = await setup();
     harness.setResponses([fauxAssistantMessage("done")]);
     await harness.prompt("/skill:alpha use $beta");
-    const sent = JSON.stringify(harness.lastProviderPayload(PayloadSchema).messages);
+
+    const sent = JSON.stringify(
+      harness.lastProviderPayload(PayloadSchema).messages
+    );
 
     expect(harness.conversation()[0]).toMatchObject(
-      userMessage(`${skillBlock([harness.skill("alpha")])}\n\nuse $beta`),
+      userMessage(`${skillBlock([harness.skill("alpha")])}\n\nuse $beta`)
     );
     expect(sent).toContain("see $beta");
     expect(sent).not.toContain("Beta instructions.");
@@ -94,11 +111,11 @@ describe("skill mentions in a session", () => {
     "carries an expanded %s message through Pi's native queue",
     async (streamingBehavior) => {
       const harness = await setup();
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
       harness.setResponses([
         async () => {
-          entered.resolve();
+          entered.resolve(undefined);
           await release.promise;
 
           return fauxAssistantMessage("first");
@@ -110,48 +127,59 @@ describe("skill mentions in a session", () => {
         const running = harness.prompt("Start");
         await entered.promise;
         await harness.prompt("Use $beta and $gamma", { streamingBehavior });
-        release.resolve();
+        release.resolve(undefined);
         await running;
         const payloads = harness.providerPayloads(PayloadSchema);
 
         expect(payloads).toHaveLength(2);
         expect(JSON.stringify(payloads[0])).not.toContain("Beta instructions.");
         expect(JSON.stringify(payloads[1])).toContain("Beta instructions.");
-        expect(harness.conversation().findLast((message) => message.role === "user")).toMatchObject(
-          userMessage(`${skillBlock([harness.skill("beta")])}\n\nUse $beta and $gamma`),
+        expect(
+          harness.conversation().findLast((message) => message.role === "user")
+        ).toMatchObject(
+          userMessage(
+            `${skillBlock([harness.skill("beta")])}\n\nUse $beta and $gamma`
+          )
         );
       } finally {
-        release.resolve();
+        release.resolve(undefined);
       }
-    },
+    }
   );
 
   it("keeps an in-flight submission's expansion through an unrelated custom wake", async () => {
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
 
     const harness = await setup({
       extensionFactories: [
         (pi) => {
           pi.on("input", async () => {
-            entered.resolve();
+            entered.resolve(undefined);
             await release.promise;
           });
         },
       ],
     });
 
-    harness.setResponses([fauxAssistantMessage("wake"), fauxAssistantMessage("user")]);
+    harness.setResponses([
+      fauxAssistantMessage("wake"),
+      fauxAssistantMessage("user"),
+    ]);
 
     try {
       const submitted = harness.prompt("Use $alpha");
       await entered.promise;
       expect(harness.session.isIdle).toBe(true);
       await harness.session.sendCustomMessage(
-        { content: "An unrelated wake", customType: "test.wake", display: false },
-        { triggerTurn: true },
+        {
+          content: "An unrelated wake",
+          customType: "test.wake",
+          display: false,
+        },
+        { triggerTurn: true }
       );
-      release.resolve();
+      release.resolve(undefined);
       await submitted;
       const payloads = harness.providerPayloads(PayloadSchema);
 
@@ -159,18 +187,22 @@ describe("skill mentions in a session", () => {
       expect(JSON.stringify(payloads[0])).not.toContain("Alpha instructions;");
       expect(JSON.stringify(payloads[1])).toContain("Alpha instructions;");
       expect(JSON.stringify(payloads[1])).not.toContain("Beta instructions.");
-      expect(harness.conversation().findLast((message) => message.role === "user")).toMatchObject(
-        userMessage(`${skillBlock([harness.skill("alpha")])}\n\nUse $alpha`),
+      expect(
+        harness.conversation().findLast((message) => message.role === "user")
+      ).toMatchObject(
+        userMessage(`${skillBlock([harness.skill("alpha")])}\n\nUse $alpha`)
       );
     } finally {
-      release.resolve();
+      release.resolve(undefined);
     }
   });
 
   it("leaves nothing in the session when Pi rejects the prompt", async () => {
     const harness = await setup({ withConfiguredAuth: false });
 
-    await expect(harness.prompt("Use $beta")).rejects.toThrow();
+    await expect(harness.prompt("Use $beta")).rejects.toThrow(
+      "No API key found for faux."
+    );
     expect(harness.messages()).toStrictEqual([]);
   });
 });

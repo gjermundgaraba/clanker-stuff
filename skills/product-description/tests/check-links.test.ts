@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -18,18 +24,30 @@ const fixture = (markdown: string) => {
 };
 
 const check = (root: string, folder = skill) =>
-  spawnSync(process.execPath, [path.join(folder, "scripts/check-links.mjs"), root], {
-    encoding: "utf8",
-  });
-
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-});
+  spawnSync(
+    process.execPath,
+    [path.join(folder, "scripts/check-links.mjs"), root],
+    {
+      encoding: "utf-8",
+    }
+  );
 
 describe("GitHub Markdown link checker", () => {
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
-    ["inline code with underscore", "# `config_file`\n[Config](#config_file)\n"],
-    ["formatting and punctuation", "# **Hello**, _world_!\n[Heading](#hello-world)\n"],
+    [
+      "inline code with underscore",
+      "# `config_file`\n[Config](#config_file)\n",
+    ],
+    [
+      "formatting and punctuation",
+      "# **Hello**, _world_!\n[Heading](#hello-world)\n",
+    ],
     [
       "Unicode and encoded fragments",
       "# Café 日本語\n[Heading](#caf%C3%A9-%E6%97%A5%E6%9C%AC%E8%AA%9E)\n",
@@ -67,11 +85,14 @@ describe("GitHub Markdown link checker", () => {
 
   it("resolves relative files, encoded paths, root-relative files and reference links", () => {
     const root = fixture(
-      "[relative](nested/other%20file.md#other_anchor)\n[root](/nested/other%20file.md#other_anchor)\n[reference][target]\n\n[target]: nested/other%20file.md#other_anchor\n",
+      "[relative](nested/other%20file.md#other_anchor)\n[root](/nested/other%20file.md#other_anchor)\n[reference][target]\n\n[target]: nested/other%20file.md#other_anchor\n"
     );
 
     mkdirSync(path.join(root, "nested"));
-    writeFileSync(path.join(root, "nested/other file.md"), "# `other_anchor`\n");
+    writeFileSync(
+      path.join(root, "nested/other file.md"),
+      "# `other_anchor`\n"
+    );
 
     expect(check(root)).toMatchObject({
       status: 0,
@@ -81,25 +102,34 @@ describe("GitHub Markdown link checker", () => {
 
   it("reports missing anchors, missing files and invalid encodings with source lines", () => {
     const result = check(
-      fixture("# Real\n[anchor](#missing)\n[file](missing.md)\n[encoding](%ZZ.md)\n"),
+      fixture(
+        "# Real\n[anchor](#missing)\n[file](missing.md)\n[encoding](%ZZ.md)\n"
+      )
     );
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("README.md:2: missing anchor: #missing");
     expect(result.stdout).toContain("README.md:3: missing file: missing.md");
-    expect(result.stdout).toContain("README.md:4: invalid URL encoding: %ZZ.md");
+    expect(result.stdout).toContain(
+      "README.md:4: invalid URL encoding: %ZZ.md"
+    );
     expect(result.stdout).toContain("3 broken");
   });
 
   it("does not treat headings in a fenced code block as anchors", () => {
-    const result = check(fixture("```md\n# Fake\n```\n[not an anchor](#fake)\n"));
+    const result = check(
+      fixture("```md\n# Fake\n```\n[not an anchor](#fake)\n")
+    );
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("missing anchor: #fake");
   });
 
   it("checks inline and referenced image paths", () => {
-    const root = fixture("![present](image.png) ![missing][image]\n\n[image]: missing.png\n");
+    const root = fixture(
+      "![present](image.png) ![missing][image]\n\n[image]: missing.png\n"
+    );
+
     writeFileSync(path.join(root, "image.png"), "fixture");
     const result = check(root);
 
@@ -111,11 +141,14 @@ describe("GitHub Markdown link checker", () => {
   it("does not fetch remote targets", () => {
     const result = check(
       fixture(
-        "[web](https://invalid.example/) [mail](mailto:test@example.invalid) [protocol-relative](//invalid.example/README.md)\n",
-      ),
+        "[web](https://invalid.example/) [mail](mailto:test@example.invalid) [protocol-relative](//invalid.example/README.md)\n"
+      )
     );
 
-    expect(result).toMatchObject({ status: 0, stdout: "1 files, 0 relative links, 0 broken\n" });
+    expect(result).toMatchObject({
+      status: 0,
+      stdout: "1 files, 0 relative links, 0 broken\n",
+    });
   });
 
   it("executes from a whole-folder skill symlink", () => {
@@ -133,7 +166,7 @@ describe("GitHub Markdown link checker", () => {
     const result = spawnSync(
       process.execPath,
       [path.join(skill, "scripts/check-links.mjs"), ".", "extra"],
-      { encoding: "utf8" },
+      { encoding: "utf-8" }
     );
 
     expect(result.status).toBe(2);

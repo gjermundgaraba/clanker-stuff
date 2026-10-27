@@ -3,28 +3,40 @@ import { rm } from "node:fs/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
+import { Value } from "typebox/value";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
-import extension from "../index.js";
-import { Value } from "typebox/value";
-
-import { ENTRY_TYPE, RECAP_ENTRY_TYPE, SnapshotSchema } from "../entry.js";
-import { appendTurn, createRecapConfigFile, queuedStream, snapshot } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../tests/harness/tui.js";
+import { ENTRY_TYPE, RECAP_ENTRY_TYPE, SnapshotSchema } from "../entry.js";
+import extension from "../index.js";
+import {
+  appendTurn,
+  createRecapConfigFile,
+  queuedStream,
+  snapshot,
+} from "./fixtures.js";
 
 /** Builds a saved entry's component through the renderer the extension registered. */
 const cardComponent = (
   host: ReturnType<typeof createExtensionHost>,
   entry: SessionEntry | undefined,
-  expanded = false,
+  expanded = false
 ) => {
   const renderer = host.getEntryRenderer(ENTRY_TYPE);
 
-  if (!renderer || entry?.type !== "custom") throw new Error("Missing card or renderer");
+  if (!renderer || entry?.type !== "custom") {
+    throw new Error("Missing card or renderer");
+  }
 
   return renderer(entry, { expanded }, createIdentityTheme());
 };
@@ -33,7 +45,7 @@ const cardComponent = (
 const renderEntry = (
   host: ReturnType<typeof createExtensionHost>,
   entry: SessionEntry | undefined,
-  expanded = false,
+  expanded = false
 ) => cardComponent(host, entry, expanded)?.render(100).join("\n");
 
 describe("turn-recap registrations", () => {
@@ -45,25 +57,31 @@ describe("turn-recap registrations", () => {
       vi.unstubAllEnvs();
     });
 
-    const host = createExtensionHost((pi) =>
+    const host = createExtensionHost((pi) => {
       extension({
         ...pi,
         appendEntry() {
           throw new Error("Snapshot write failed");
         },
-      }),
-    );
+      });
+    });
 
     const ctx = host.createContext();
-    onTestFinished(() => host.emitSessionShutdown(ctx));
+    onTestFinished(async () => {
+      await host.emitSessionShutdown(ctx);
+    });
     await host.emitSessionStart(ctx);
     await host.emit("agent_start", { type: "agent_start" }, ctx);
-    await host.emit("agent_settled", { type: "agent_settled", aborted: false }, ctx);
-    await vi.waitFor(() =>
-      expect(host.getNotifications()).toEqual([
-        { message: "Turn recap failed: Snapshot write failed", type: "error" },
-      ]),
+    await host.emit(
+      "agent_settled",
+      { type: "agent_settled", aborted: false },
+      ctx
     );
+    await vi.waitFor(() => {
+      expect(host.getNotifications()).toStrictEqual([
+        { message: "Turn recap failed: Snapshot write failed", type: "error" },
+      ]);
+    });
   });
 
   it("refreshes on model-issued tool calls but not on calls a tool makes itself", async () => {
@@ -74,9 +92,11 @@ describe("turn-recap registrations", () => {
       vi.unstubAllEnvs();
     });
     const host = createExtensionHost(extension);
-    const getContextUsage = vi.fn(() => undefined);
+    const getContextUsage = vi.fn<ExtensionContext["getContextUsage"]>();
     const ctx = host.createContext({ getContextUsage });
-    onTestFinished(() => host.emitSessionShutdown(ctx));
+    onTestFinished(async () => {
+      await host.emitSessionShutdown(ctx);
+    });
     await host.emitSessionStart(ctx);
     await host.emit("agent_start", { type: "agent_start" }, ctx);
     getContextUsage.mockClear();
@@ -90,8 +110,13 @@ describe("turn-recap registrations", () => {
 
     await host.emit(
       "tool_execution_start",
-      { ...start, toolCallId: "call/1", toolName: "read", parentToolCallId: "call" },
-      ctx,
+      {
+        ...start,
+        toolCallId: "call/1",
+        toolName: "read",
+        parentToolCallId: "call",
+      },
+      ctx
     );
     expect(getContextUsage).not.toHaveBeenCalled();
     await host.emit("tool_execution_start", start, ctx);
@@ -106,23 +131,39 @@ describe("turn-recap registrations", () => {
     });
     const response = Promise.withResolvers<AssistantMessage>();
     const session = SessionManager.inMemory();
-    const model = fauxProvider({ models: [{ id: "small" }], provider: "cheap" }).getModel();
+
+    const model = fauxProvider({
+      models: [{ id: "small" }],
+      provider: "cheap",
+    }).getModel();
+
     const host = createExtensionHost(extension);
 
     const ctx = host.createContext({
       sessionManager: session,
-      modelRegistry: { find: () => model, streamSimple: queuedStream(() => response.promise) },
+      modelRegistry: {
+        find: () => model,
+        streamSimple: queuedStream(async () => await response.promise),
+      },
     });
 
-    onTestFinished(() => host.emitSessionShutdown(ctx));
+    onTestFinished(async () => {
+      await host.emitSessionShutdown(ctx);
+    });
     await host.emitSessionStart(ctx);
     await host.emit("agent_start", { type: "agent_start" }, ctx);
     appendTurn(session, 1);
-    await host.emit("agent_settled", { type: "agent_settled", aborted: false }, ctx);
+    await host.emit(
+      "agent_settled",
+      { type: "agent_settled", aborted: false },
+      ctx
+    );
     const [card] = host.getAppendedEntries();
 
     const runId =
-      card?.type === "custom" && Value.Check(SnapshotSchema, card.data) ? card.data.runId : "none";
+      card?.type === "custom" && Value.Check(SnapshotSchema, card.data)
+        ? card.data.runId
+        : "none";
 
     // The transcript keeps one component per card and redraws it.
     const component = cardComponent(host, card);
@@ -130,7 +171,9 @@ describe("turn-recap registrations", () => {
     expect(host.getAppendedEntries()).toHaveLength(1);
     expect(draw()).toContain("Generating recap…");
     response.resolve(fauxAssistantMessage("Ready"));
-    await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(2));
+    await vi.waitFor(() => {
+      expect(host.getAppendedEntries()).toHaveLength(2);
+    });
     expect(host.getAppendedEntries()[1]).toMatchObject({
       customType: RECAP_ENTRY_TYPE,
       data: {
@@ -140,7 +183,9 @@ describe("turn-recap registrations", () => {
     });
     expect(draw()).toContain("Ready");
     expect(draw()).not.toContain("Generating");
-    expect(component?.render(40).every((line) => visibleWidth(line) <= 40)).toBe(true);
+    expect(
+      component?.render(40).every((line) => visibleWidth(line) <= 40)
+    ).toBe(true);
   });
 
   it("renders finished cards in the transcript and ignores retired or malformed entries", async () => {
@@ -158,18 +203,25 @@ describe("turn-recap registrations", () => {
           parentId: null,
           timestamp: new Date(0).toISOString(),
         },
-        expanded,
+        expanded
       );
 
     expect(render(snapshot())).toContain("Completed in 1.5s");
     expect(render(snapshot())).not.toContain("Reported cost");
     expect(render(snapshot(), true)).toContain("Reported cost");
     // Cards from before active time was dropped still render, with their wall time.
-    expect(render({ ...snapshot(), activeMs: 900 })).toContain("Completed in 1.5s");
+    expect(render({ ...snapshot(), activeMs: 900 })).toContain(
+      "Completed in 1.5s"
+    );
 
     const { runId: _runId, ...withoutRunId } = snapshot();
+
     // Cards from before Pi timed responses and tools.
-    const { modelMs: _modelMs, toolMs: _toolMs, ...untimed } = snapshot().metrics;
+    const {
+      modelMs: _modelMs,
+      toolMs: _toolMs,
+      ...untimed
+    } = snapshot().metrics;
 
     for (const retired of [
       withoutRunId,
@@ -192,15 +244,23 @@ describe("turn-recap registrations", () => {
       vi.unstubAllEnvs();
       vi.useRealTimers();
     });
-    let component: (Component & { dispose?(): void }) | undefined;
+    let component: (Component & { dispose?: () => void }) | undefined;
     const session = SessionManager.inMemory();
-    const model = fauxProvider({ models: [{ id: "small" }], provider: "cheap" }).getModel();
+
+    const model = fauxProvider({
+      models: [{ id: "small" }],
+      provider: "cheap",
+    }).getModel();
+
     const host = createExtensionHost(extension);
 
     const ctx = host.createContext({
       signal: undefined,
       sessionManager: session,
-      modelRegistry: { find: () => model, streamSimple: queuedStream(() => response.promise) },
+      modelRegistry: {
+        find: () => model,
+        streamSimple: queuedStream(async () => await response.promise),
+      },
       ui: {
         // Like Pi, replacing or clearing a widget disposes the previous one.
         setWidget: (_key, content) => {
@@ -220,7 +280,11 @@ describe("turn-recap registrations", () => {
     vi.advanceTimersByTime(2000);
     expect(render()).toContain("2s elapsed");
     appendTurn(session, 1);
-    await host.emit("agent_settled", { type: "agent_settled", aborted: false }, ctx);
+    await host.emit(
+      "agent_settled",
+      { type: "agent_settled", aborted: false },
+      ctx
+    );
     const [card] = host.getAppendedEntries();
     expect(component).toBeUndefined();
     expect(card).toMatchObject({ data: { wallMs: 2000 } });

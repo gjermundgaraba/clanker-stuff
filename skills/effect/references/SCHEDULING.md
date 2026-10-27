@@ -38,7 +38,7 @@ Prefer typed pass failures over cause recovery.
 ```ts
 const pass = runPass().pipe(
   Effect.tapError((error) => Effect.logError("Worker.pass_failed", error)),
-  Effect.ignore,
+  Effect.ignore
 );
 
 const run = pass.pipe(Effect.repeat(Schedule.spaced("1 second")));
@@ -52,7 +52,7 @@ Use cause-level recovery only at supervision boundaries where the policy is trul
 const logNonInterruptCauseAndContinue = (message: string) =>
   Effect.catchCauseIf(
     (cause) => !Cause.hasInterrupts(cause),
-    (cause) => Effect.logError(message, cause),
+    (cause) => Effect.logError(message, cause)
   );
 ```
 
@@ -70,12 +70,12 @@ yield *
       processItem(item).pipe(
         Effect.tapError((error) =>
           Effect.logError("Worker.item_failed", error).pipe(
-            Effect.annotateLogs({ itemId: item.id }),
-          ),
+            Effect.annotateLogs({ itemId: item.id })
+          )
         ),
-        Effect.ignore,
+        Effect.ignore
       ),
-    { discard: true, concurrency: 5 },
+    { discard: true, concurrency: 5 }
   );
 ```
 
@@ -86,9 +86,11 @@ Only do this when retrying the item later is truthful or skipping the item is th
 This example uses Effect 4 scheduling APIs.
 
 ```ts
-const projectionRetrySchedule: Schedule.Schedule<unknown, ProjectionError> = Schedule.exponential(
-  "100 millis",
-).pipe(Schedule.jittered, Schedule.upTo({ times: 5 }));
+const projectionRetrySchedule: Schedule.Schedule<unknown, ProjectionError> =
+  Schedule.exponential("100 millis").pipe(
+    Schedule.jittered,
+    Schedule.upTo({ times: 5 })
+  );
 
 const reconcileWithRetry = (target: Target) =>
   reconcile(target).pipe(
@@ -96,12 +98,14 @@ const reconcileWithRetry = (target: Target) =>
       projectionRetrySchedule.pipe(
         Schedule.tap(({ input: error }) =>
           Effect.logWarning("Agent.Projection.reconcile.retrying").pipe(
-            Effect.annotateLogs({ operation: error.operation }),
-          ),
-        ),
-      ),
+            Effect.annotateLogs({ operation: error.operation })
+          )
+        )
+      )
     ),
-    Effect.tapError((error) => Effect.logError("Agent.Projection.reconcile.stopped", error)),
+    Effect.tapError((error) =>
+      Effect.logError("Agent.Projection.reconcile.stopped", error)
+    )
   );
 ```
 
@@ -116,21 +120,20 @@ type RateLimited = {
   readonly retryAfterMs?: number | undefined;
 };
 
-const providerRetrySchedule: Schedule.Schedule<RateLimited, RateLimited> = Schedule.exponential(
-  "200 millis",
-).pipe(
-  Schedule.jittered,
-  Schedule.upTo({ times: 5 }),
-  Schedule.setInputType<RateLimited>(),
-  Schedule.passthrough,
-  Schedule.modifyDelay(({ input, duration }) =>
-    Effect.succeed(
-      input.retryAfterMs === undefined
-        ? duration
-        : Duration.max(duration, Duration.millis(input.retryAfterMs)),
-    ),
-  ),
-);
+const providerRetrySchedule: Schedule.Schedule<RateLimited, RateLimited> =
+  Schedule.exponential("200 millis").pipe(
+    Schedule.jittered,
+    Schedule.upTo({ times: 5 }),
+    Schedule.setInputType<RateLimited>(),
+    Schedule.passthrough,
+    Schedule.modifyDelay(({ input, duration }) =>
+      Effect.succeed(
+        input.retryAfterMs === undefined
+          ? duration
+          : Duration.max(duration, Duration.millis(input.retryAfterMs))
+      )
+    )
+  );
 ```
 
 Use this for operation-level retries over typed provider errors. For Effect HttpClient-level 429 handling and proactive pacing, read `HTTP_CLIENTS.md`.

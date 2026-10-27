@@ -2,9 +2,9 @@
 // Claude Code emits; hand-built ones cover what cannot be recorded on demand: a stall, a
 // cut inside a tool call, a hallucinated tool name, a failure report.
 
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { JsonObject } from "@earendil-works/pi-ai";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -37,7 +37,11 @@ const model = testModel();
 
 const served = (...names: string[]): ReadonlySet<string> =>
   resolveServedTools(
-    names.map((name) => ({ name, description: name, parameters: Type.Object({}) })),
+    names.map((name) => ({
+      name,
+      description: name,
+      parameters: Type.Object({}),
+    }))
   ).names;
 
 const BASH = "mcp__custom-tools__bash";
@@ -48,7 +52,7 @@ const READ = "mcp__custom-tools__read";
 
 /** What the conversation machine does with each message for the turn it owns. A failed
  *  result fails the turn; a successful one delivers its text and finishes it. */
-function feed(turn: Turn, messages: readonly SDKMessage[]): void {
+const feed = (turn: Turn, messages: readonly SDKMessage[]): void => {
   for (const message of messages) {
     if (message.type === "stream_event") {
       turn.streamEvent(message);
@@ -65,85 +69,95 @@ function feed(turn: Turn, messages: readonly SDKMessage[]): void {
       }
     }
   }
-}
+};
 
-function open(toPi: ReadonlySet<string> = served("read")): {
-  turn: Turn;
-  pi: RecordingStream;
-} {
+const open = (toPi: ReadonlySet<string> = served("read")) => {
   const pi = recordingStream();
 
   return { turn: new Turn(model, pi.stream, toPi), pi };
-}
+};
 
-function run(
+const run = (
   messages: readonly SDKMessage[],
-  toPi?: ReadonlySet<string>,
-): { turn: Turn; pi: RecordingStream } {
+  toPi?: ReadonlySet<string>
+): { turn: Turn; pi: RecordingStream } => {
   const opened = open(toPi);
 
   feed(opened.turn, messages);
 
   return opened;
-}
+};
 
-const describeBlock = (block: TurnBlock): (string | JsonObject)[] =>
-  block.type === "toolCall" ? [block.type, block.id, block.arguments] : [block.type];
+const describeBlock = (block: TurnBlock): Array<string | JsonObject> =>
+  block.type === "toolCall"
+    ? [block.type, block.id, block.arguments]
+    : [block.type];
 
 const terminalTypes = (pi: RecordingStream): string[] =>
   pi.events.flatMap((event) =>
-    event.type === "done" || event.type === "error" ? [event.type] : [],
+    event.type === "done" || event.type === "error" ? [event.type] : []
   );
 
 const text = (turn: Turn): string =>
-  turn.output.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+  turn.output.content
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("");
 
-const toolCalls = (turn: Turn) => turn.output.content.filter((block) => block.type === "toolCall");
+const toolCalls = (turn: Turn) =>
+  turn.output.content.filter((block) => block.type === "toolCall");
+
+// Got as far as a thinking block and the start of a tool call, then stalled: no
+// content_block_stop, no message_stop.
+const stalledStream = (id: string): SDKMessage[] => [
+  messageStart(id),
+  thinkingStart(0),
+  thinkingDelta(0, "Let me look"),
+  toolUseStart(1, BASH, "toolu_dead"),
+  inputJsonDelta(1, '{"comm'),
+];
+
+// Claude Code repeats the request without streaming; the answer arrives as one
+// assistant message under a new id, with no stream events of its own.
+const fallback = (id: string): SDKMessage =>
+  assistantMessage(id, [
+    { type: "thinking", thinking: "Let me look at both.", signature: "sig" },
+    textBlock("Reading the log."),
+    { type: "tool_use", name: BASH, id: "toolu_a", input: { command: "ls" } },
+    {
+      type: "tool_use",
+      name: BASH,
+      id: "toolu_b",
+      input: { command: "pwd" },
+    },
+  ]);
 
 describe("a non-streaming fallback after a stalled stream", () => {
-  // Got as far as a thinking block and the start of a tool call, then stalled: no
-  // content_block_stop, no message_stop.
-  const stalledStream = (id: string): SDKMessage[] => [
-    messageStart(id),
-    thinkingStart(0),
-    thinkingDelta(0, "Let me look"),
-    toolUseStart(1, BASH, "toolu_dead"),
-    inputJsonDelta(1, '{"comm'),
-  ];
-
-  // Claude Code repeats the request without streaming; the answer arrives as one
-  // assistant message under a new id, with no stream events of its own.
-  const fallback = (id: string): SDKMessage =>
-    assistantMessage(id, [
-      { type: "thinking", thinking: "Let me look at both.", signature: "sig" },
-      textBlock("Reading the log."),
-      { type: "tool_use", name: BASH, id: "toolu_a", input: { command: "ls" } },
-      { type: "tool_use", name: BASH, id: "toolu_b", input: { command: "pwd" } },
-    ]);
-
   it("delivers the fallback's tool calls and ends the pi turn on them", () => {
     const { turn, pi } = run(
       [...stalledStream("msg_dead"), fallback("msg_fallback")],
-      served("bash"),
+      served("bash")
     );
 
-    expect(turn.toolCallIds).toEqual(["toolu_a", "toolu_b"]);
+    expect(turn.toolCallIds).toStrictEqual(["toolu_a", "toolu_b"]);
     expect(turn.output.stopReason).toBe("toolUse");
     expect(turn.ended).toBe(true);
-    expect(terminalTypes(pi)).toEqual(["done"]);
+    expect(terminalTypes(pi)).toStrictEqual(["done"]);
     expect(pi.ended).toBe(true);
   });
 
   it("drops the dead stream's partial blocks instead of replaying them", () => {
-    const { turn } = run([...stalledStream("msg_dead"), fallback("msg_fallback")], served("bash"));
+    const { turn } = run(
+      [...stalledStream("msg_dead"), fallback("msg_fallback")],
+      served("bash")
+    );
 
-    expect(turn.output.content.map((block) => block.type)).toEqual([
+    expect(turn.output.content.map((block) => block.type)).toStrictEqual([
       "thinking",
       "text",
       "toolCall",
       "toolCall",
     ]);
-    expect(turn.output.content[0]).toEqual({
+    expect(turn.output.content[0]).toStrictEqual({
       type: "thinking",
       thinking: "Let me look at both.",
       thinkingSignature: "sig",
@@ -160,10 +174,10 @@ describe("a non-streaming fallback after a stalled stream", () => {
         blockStop(0),
         messageStop(),
       ],
-      served("bash"),
+      served("bash")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["toolCall", "toolu_retry", { command: "ls" }],
     ]);
     expect(turn.output.stopReason).toBe("toolUse");
@@ -179,9 +193,18 @@ describe("a non-streaming fallback after a stalled stream", () => {
       messageStop(),
     ]);
 
-    expect(turn.output.content).toEqual([{ type: "text", text: "hi" }]);
+    expect(turn.output.content).toStrictEqual([{ type: "text", text: "hi" }]);
   });
 });
+
+const cutInsideToolInput = (id: string): SDKMessage[] => [
+  messageStart(id),
+  textStart(0),
+  textDelta(0, "Reporting both fixes now."),
+  blockStop(0),
+  toolUseStart(1, NOTIFY, "toolu_cut"),
+  messageStop(),
+];
 
 // A stream cut off inside a tool call's input: the block started, so its name and id are
 // known, and then nothing. Claude Code drops the block from its own conversation and
@@ -189,25 +212,19 @@ describe("a non-streaming fallback after a stalled stream", () => {
 // sent pi `{}` under an id no MCP handler would ever claim, while Claude Code's resumed
 // call waited on a handler pi never answered.
 describe("a tool call whose content_block_stop never arrived", () => {
-  const cutInsideToolInput = (id: string): SDKMessage[] => [
-    messageStart(id),
-    textStart(0),
-    textDelta(0, "Reporting both fixes now."),
-    blockStop(0),
-    toolUseStart(1, NOTIFY, "toolu_cut"),
-    messageStop(),
-  ];
-
   it("is not dispatched to pi, and does not end pi's turn", () => {
-    const { turn, pi } = run(cutInsideToolInput("msg_cut"), served("notify_parent"));
+    const { turn, pi } = run(
+      cutInsideToolInput("msg_cut"),
+      served("notify_parent")
+    );
 
     // Only the unfinished block goes; the text closed, and Claude Code keeps it too.
-    expect(turn.output.content.map(describeBlock)).toEqual([["text"]]);
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([["text"]]);
     expect(turn.output.stopReason).not.toBe("toolUse");
-    expect(turn.toolCallIds).toEqual([]);
+    expect(turn.toolCallIds).toStrictEqual([]);
     // Left open on purpose: Claude Code's resume is more of this same pi turn.
     expect(turn.ended).toBe(false);
-    expect(terminalTypes(pi)).toEqual([]);
+    expect(terminalTypes(pi)).toStrictEqual([]);
     expect(pi.ended).toBe(false);
   });
 
@@ -221,16 +238,16 @@ describe("a tool call whose content_block_stop never arrived", () => {
         blockStop(0),
         messageStop(),
       ],
-      served("notify_parent"),
+      served("notify_parent")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["text"],
       ["toolCall", "toolu_resumed", { summary: "Both fixes done." }],
     ]);
-    expect(turn.toolCallIds).toEqual(["toolu_resumed"]);
+    expect(turn.toolCallIds).toStrictEqual(["toolu_resumed"]);
     expect(turn.output.stopReason).toBe("toolUse");
-    expect(terminalTypes(pi)).toEqual(["done"]);
+    expect(terminalTypes(pi)).toStrictEqual(["done"]);
     expect(pi.ended).toBe(true);
   });
 
@@ -247,10 +264,10 @@ describe("a tool call whose content_block_stop never arrived", () => {
           },
         ]),
       ],
-      served("notify_parent"),
+      served("notify_parent")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["text"],
       ["toolCall", "toolu_resumed", { summary: "Both fixes done." }],
     ]);
@@ -271,13 +288,13 @@ describe("a tool call whose content_block_stop never arrived", () => {
         inputJsonDelta(1, '{"summ'),
         messageStop(),
       ],
-      served("notify_parent"),
+      served("notify_parent")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["toolCall", "toolu_first", { summary: "First." }],
     ]);
-    expect(turn.toolCallIds).toEqual(["toolu_first"]);
+    expect(turn.toolCallIds).toStrictEqual(["toolu_first"]);
     expect(turn.output.stopReason).toBe("toolUse");
     expect(turn.ended).toBe(true);
   });
@@ -290,10 +307,10 @@ describe("a tool call whose content_block_stop never arrived", () => {
         toolUseStart(0, NOTIFY, "toolu_1"),
         inputJsonDelta(0, '{"summary":"Bo'),
       ],
-      served("notify_parent"),
+      served("notify_parent")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["toolCall", "toolu_1", { summary: "Bo" }],
     ]);
   });
@@ -312,14 +329,14 @@ describe("a tool call whose content_block_stop never arrived", () => {
         blockStop(1),
         messageStop(),
       ],
-      served("notify_parent"),
+      served("notify_parent")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["text"],
       ["toolCall", "toolu_whole", { summary: "Both fixes done." }],
     ]);
-    expect(turn.toolCallIds).toEqual(["toolu_whole"]);
+    expect(turn.toolCallIds).toStrictEqual(["toolu_whole"]);
     expect(turn.output.stopReason).toBe("toolUse");
     expect(pi.events.at(-1)?.type).toBe("done");
   });
@@ -358,13 +375,15 @@ describe("completed tool-call arguments", () => {
       const { turn } = run(messages, resolveServedTools([tool]).names);
       const [call] = toolCalls(turn);
 
-      if (call === undefined) throw new Error("Missing completed tool call");
+      if (call === undefined) {
+        throw new Error("Missing completed tool call");
+      }
 
-      expect(call.arguments).toEqual(input);
+      expect(call.arguments).toStrictEqual(input);
       expect(() => {
         validateToolArguments(tool, call);
       }).not.toThrow();
-    },
+    }
   );
 
   it.each(['{"summary":"kept","other":', "[]", "null"])(
@@ -378,26 +397,34 @@ describe("completed tool-call arguments", () => {
           blockStop(0),
           messageStop(),
         ],
-        served("notify_parent"),
+        served("notify_parent")
       );
 
       const [call] = toolCalls(turn);
 
-      if (call === undefined) throw new Error("Missing completed tool call");
+      if (call === undefined) {
+        throw new Error("Missing completed tool call");
+      }
 
-      expect(call.arguments).toEqual({});
+      expect(call.arguments).toStrictEqual({});
       expect(call.argumentsError).toContain(`Received arguments:\n${json}`);
-      expect(pi.events.find((event) => event.type === "toolcall_end")).toMatchObject({
+      expect(
+        pi.events.find((event) => event.type === "toolcall_end")
+      ).toMatchObject({
         toolCall: call,
       });
       // Even a schema accepting {} must reject the malformed call before execution.
       expect(() => {
         validateToolArguments(
-          { name: "notify_parent", description: "", parameters: Type.Object({}) },
-          call,
+          {
+            name: "notify_parent",
+            description: "",
+            parameters: Type.Object({}),
+          },
+          call
         );
       }).toThrow(`Received arguments:\n${json}`);
-    },
+    }
   );
 
   it("repairs invalid escapes in complete arguments", () => {
@@ -411,7 +438,10 @@ describe("completed tool-call arguments", () => {
 
     const [call] = toolCalls(turn);
 
-    expect(call?.arguments).toEqual({ path: String.raw`\usepackage`, limit: 7 });
+    expect(call?.arguments).toStrictEqual({
+      path: String.raw`\usepackage`,
+      limit: 7,
+    });
     expect(call?.argumentsError).toBeUndefined();
   });
 
@@ -429,9 +459,16 @@ describe("completed tool-call arguments", () => {
       },
     };
 
-    const { turn } = run([messageStart("msg_initial"), start, blockStop(0), messageStop()]);
+    const { turn } = run([
+      messageStart("msg_initial"),
+      start,
+      blockStop(0),
+      messageStop(),
+    ]);
 
-    expect(toolCalls(turn)[0]?.arguments).toEqual({ path: "initial.txt" });
+    expect(toolCalls(turn)[0]?.arguments).toStrictEqual({
+      path: "initial.txt",
+    });
   });
 });
 
@@ -448,7 +485,7 @@ describe("a tool call cut off at the output limit", () => {
         messageDelta("max_tokens"),
         messageStop(),
       ],
-      served("notify_parent"),
+      served("notify_parent")
     );
 
     expect(turn.output.stopReason).toBe("length");
@@ -457,28 +494,38 @@ describe("a tool call cut off at the output limit", () => {
 
   it("ends the turn as truncated when the response arrived whole", () => {
     const whole = assistantMessage("msg_1", [
-      { type: "tool_use", id: "toolu_1", name: NOTIFY, input: { summary: "only the first" } },
+      {
+        type: "tool_use",
+        id: "toolu_1",
+        name: NOTIFY,
+        input: { summary: "only the first" },
+      },
     ]);
 
     const { pi } = run(
-      [{ ...whole, message: { ...whole.message, stop_reason: "max_tokens" as const } }],
-      served("notify_parent"),
+      [
+        {
+          ...whole,
+          message: { ...whole.message, stop_reason: "max_tokens" as const },
+        },
+      ],
+      served("notify_parent")
     );
 
     expect(pi.events.at(-1)).toMatchObject({ type: "done", reason: "length" });
   });
 });
 
+const textOnly = (messages: readonly SDKMessage[]) => {
+  const pi = recordingStream();
+  const turn = new Turn(model, pi.stream, served(), { requireText: true });
+
+  feed(turn, messages);
+
+  return pi;
+};
+
 describe("a turn that must answer in text", () => {
-  const textOnly = (messages: readonly SDKMessage[]) => {
-    const pi = recordingStream();
-    const turn = new Turn(model, pi.stream, served(), { requireText: true });
-
-    feed(turn, messages);
-
-    return pi;
-  };
-
   // An empty summary would let compaction drop context with nothing in its place.
   it("fails without text", () => {
     expect(textOnly([successResult("  ")]).events.at(-1)).toMatchObject({
@@ -488,12 +535,21 @@ describe("a turn that must answer in text", () => {
   });
 
   it("answers with text", () => {
-    expect(textOnly([successResult("the summary")]).events.at(-1)).toMatchObject({
+    expect(
+      textOnly([successResult("the summary")]).events.at(-1)
+    ).toMatchObject({
       type: "done",
       reason: "stop",
     });
   });
 });
+
+const toolUseTurn = (name: string, id: string): SDKMessage[] => [
+  toolUseStart(0, name, id),
+  inputJsonDelta(0, '{"command":"ls"}'),
+  blockStop(0),
+  messageStop(),
+];
 
 // Claude sometimes calls a Claude Code builtin by its bare name. The query runs with
 // `tools: []`, so Claude Code rejects such a call itself and retries under a fresh
@@ -501,31 +557,30 @@ describe("a turn that must answer in text", () => {
 // Code never asked for, and pi's result, keyed to the dead id, never released the
 // retry's handler.
 describe("tool_use for a tool we do not serve", () => {
-  const toolUseTurn = (name: string, id: string): SDKMessage[] => [
-    toolUseStart(0, name, id),
-    inputJsonDelta(0, '{"command":"ls"}'),
-    blockStop(0),
-    messageStop(),
-  ];
-
   it("is skipped, and only the retry under the served name reaches pi", () => {
     const { turn } = run(
-      [...toolUseTurn("bash", "toolu_phantom"), ...toolUseTurn(BASH, "toolu_retry")],
-      served("bash"),
+      [
+        ...toolUseTurn("bash", "toolu_phantom"),
+        ...toolUseTurn(BASH, "toolu_retry"),
+      ],
+      served("bash")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["toolCall", "toolu_retry", { command: "ls" }],
     ]);
-    expect(turn.toolCallIds).toEqual(["toolu_retry"]);
+    expect(turn.toolCallIds).toStrictEqual(["toolu_retry"]);
   });
 
   it("does not end the pi stream, so the turn continues into the retry", () => {
-    const { turn, pi } = run(toolUseTurn("Bash", "toolu_phantom"), served("bash"));
+    const { turn, pi } = run(
+      toolUseTurn("Bash", "toolu_phantom"),
+      served("bash")
+    );
 
-    expect(turn.output.content).toEqual([]);
+    expect(turn.output.content).toStrictEqual([]);
     expect(turn.ended).toBe(false);
-    expect(terminalTypes(pi)).toEqual([]);
+    expect(terminalTypes(pi)).toStrictEqual([]);
     expect(pi.ended).toBe(false);
   });
 
@@ -535,14 +590,24 @@ describe("tool_use for a tool we do not serve", () => {
     const { turn } = run(
       [
         assistantMessage("msg_1", [
-          { type: "tool_use", name: "bash", id: "toolu_phantom", input: { command: "ls" } },
-          { type: "tool_use", name: BASH, id: "toolu_retry", input: { command: "ls" } },
+          {
+            type: "tool_use",
+            name: "bash",
+            id: "toolu_phantom",
+            input: { command: "ls" },
+          },
+          {
+            type: "tool_use",
+            name: BASH,
+            id: "toolu_retry",
+            input: { command: "ls" },
+          },
         ]),
       ],
-      served("bash"),
+      served("bash")
     );
 
-    expect(turn.output.content.map(describeBlock)).toEqual([
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
       ["toolCall", "toolu_retry", { command: "ls" }],
     ]);
   });
@@ -563,7 +628,9 @@ describe("a failed turn", () => {
     const terminal = pi.events.at(-1);
 
     expect(terminal?.type).toBe("error");
-    expect(terminal?.type === "error" ? terminal.error.errorMessage : undefined).toBe(RATE_LIMITED);
+    expect(
+      terminal?.type === "error" ? terminal.error.errorMessage : undefined
+    ).toBe(RATE_LIMITED);
     expect(pi.ended).toBe(true);
   });
 
@@ -581,12 +648,17 @@ describe("a failed turn", () => {
 
     const terminal = pi.events.at(-1);
 
-    expect(terminal?.type === "error" ? terminal.reason : undefined).toBe("aborted");
+    expect(terminal?.type === "error" ? terminal.reason : undefined).toBe(
+      "aborted"
+    );
     expect(turn.output.stopReason).toBe("aborted");
   });
 
   it("does not re-emit text the synthetic assistant message already carried", () => {
-    const { turn } = run([syntheticReport(RATE_LIMITED), successResult(RATE_LIMITED, true)]);
+    const { turn } = run([
+      syntheticReport(RATE_LIMITED),
+      successResult(RATE_LIMITED, true),
+    ]);
 
     expect(text(turn)).toBe(RATE_LIMITED);
   });
@@ -595,16 +667,23 @@ describe("a failed turn", () => {
   // pi-model-fallback-alias, commits on anything but a start or thinking event. If
   // Claude Code's own failure report counted as output, it could never fail over.
   it("keeps a synthetic report off the stream, so failover is still possible", () => {
-    const { turn, pi } = run([syntheticReport(RATE_LIMITED), successResult(RATE_LIMITED, true)]);
+    const { turn, pi } = run([
+      syntheticReport(RATE_LIMITED),
+      successResult(RATE_LIMITED, true),
+    ]);
 
     const beforeTerminal = pi.events.slice(0, -1).map((event) => event.type);
 
     expect(
-      beforeTerminal.filter((type) => type !== "start" && !type.startsWith("thinking_")),
-    ).toEqual([]);
+      beforeTerminal.filter(
+        (type) => type !== "start" && !type.startsWith("thinking_")
+      )
+    ).toStrictEqual([]);
     expect(pi.events.at(-1)?.type).toBe("error");
     // The wording still reaches pi's transcript as the failed turn's content.
-    expect(turn.output.content).toEqual([{ type: "text", text: RATE_LIMITED }]);
+    expect(turn.output.content).toStrictEqual([
+      { type: "text", text: RATE_LIMITED },
+    ]);
   });
 
   // A stalled stream whose non-streaming retry also failed: the report arrives while the
@@ -621,8 +700,10 @@ describe("a failed turn", () => {
       successResult(RATE_LIMITED, true),
     ]);
 
-    expect(turn.output.content).toEqual([{ type: "text", text: RATE_LIMITED }]);
-    expect(turn.toolCallIds).toEqual([]);
+    expect(turn.output.content).toStrictEqual([
+      { type: "text", text: RATE_LIMITED },
+    ]);
+    expect(turn.toolCallIds).toStrictEqual([]);
     expect(turn.output.stopReason).toBe("error");
   });
 });
@@ -633,7 +714,7 @@ describe("a result's text", () => {
 
     expect(turn.output.stopReason).toBe("stop");
     expect(turn.output.errorMessage).toBeUndefined();
-    expect(turn.output.content).toEqual([{ type: "text", text: "done" }]);
+    expect(turn.output.content).toStrictEqual([{ type: "text", text: "done" }]);
     expect(pi.events.at(-1)?.type).toBe("done");
   });
 
@@ -645,10 +726,14 @@ describe("a result's text", () => {
       successResult("Hello"),
     ]);
 
-    expect(turn.output.content).toEqual([{ type: "text", text: "Hello" }]);
+    expect(turn.output.content).toStrictEqual([
+      { type: "text", text: "Hello" },
+    ]);
     expect(
-      pi.events.filter((event) => event.type.startsWith("text_")).map((event) => event.type),
-    ).toEqual(["text_start", "text_delta", "text_end"]);
+      pi.events
+        .filter((event) => event.type.startsWith("text_"))
+        .map((event) => event.type)
+    ).toStrictEqual(["text_start", "text_delta", "text_end"]);
   });
 
   it("is delivered after a turn that streamed only thinking", () => {
@@ -661,48 +746,85 @@ describe("a result's text", () => {
       successResult("the answer"),
     ]);
 
-    expect(turn.output.content.map(describeBlock)).toEqual([["thinking"], ["text"]]);
+    expect(turn.output.content.map(describeBlock)).toStrictEqual([
+      ["thinking"],
+      ["text"],
+    ]);
     expect(text(turn)).toBe("the answer");
   });
 
   it("adds nothing when it is empty", () => {
     const { turn } = run([successResult("")]);
 
-    expect(turn.output.content).toEqual([]);
+    expect(turn.output.content).toStrictEqual([]);
   });
 
   // A response that arrived whole had no message_delta to say it was cut off; pi refuses
   // to keep a truncated summary only if it learns so.
-  it("reports a token limit it carries for a response that arrived whole", () => {
-    const { pi } = run([
-      assistantMessage("msg_1", [textBlock("half an ans")]),
-      { ...successResult("half an ans"), stop_reason: "max_tokens" },
-    ]);
+  it.each(["max_tokens", "model_context_window_exceeded"])(
+    "reports a %s cut-off it carries for a response that arrived whole",
+    (stopReason) => {
+      const { pi } = run([
+        assistantMessage("msg_1", [textBlock("half an ans")]),
+        { ...successResult("half an ans"), stop_reason: stopReason },
+      ]);
 
-    expect(pi.events.at(-1)).toMatchObject({ type: "done", reason: "length" });
+      expect(pi.events.at(-1)).toMatchObject({
+        type: "done",
+        reason: "length",
+      });
+    }
+  );
+});
+
+describe("mapStopReason", () => {
+  it("maps Claude Code's stop reasons onto pi's", () => {
+    expect(mapStopReason("tool_use")).toBe("toolUse");
+    expect(mapStopReason("max_tokens")).toBe("length");
+    expect(mapStopReason("model_context_window_exceeded")).toBe("length");
+    expect(mapStopReason("end_turn")).toBe("stop");
+    expect(mapStopReason(null)).toBe("stop");
   });
 });
 
-it("maps Claude Code's stop reasons onto pi's", () => {
-  expect(mapStopReason("tool_use")).toBe("toolUse");
-  expect(mapStopReason("max_tokens")).toBe("length");
-  expect(mapStopReason("end_turn")).toBe("stop");
-  expect(mapStopReason(null)).toBe("stop");
-});
+const replay = (
+  name: RecordedStream,
+  toPi: ReadonlySet<string> = served("read")
+) => run(recordedStream(name), toPi);
+
+/** Every thinking-token count in the stream's usage frames, in stream order. */
+const thinkingTokenCounts = (messages: readonly SDKMessage[]): number[] =>
+  messages.flatMap((message) => {
+    let count: number | null | undefined;
+
+    if (message.type === "assistant") {
+      count = message.message.usage.output_tokens_details?.thinking_tokens;
+    } else if (
+      message.type === "stream_event" &&
+      message.event.type === "message_start"
+    ) {
+      count =
+        message.event.message.usage.output_tokens_details?.thinking_tokens;
+    } else if (
+      message.type === "stream_event" &&
+      message.event.type === "message_delta"
+    ) {
+      count = message.event.usage.output_tokens_details?.thinking_tokens;
+    }
+
+    return count === null || count === undefined ? [] : [count];
+  });
 
 // The fixtures are verbatim message sequences from live Claude Code turns, so they cover
 // shapes nobody would hand-write, like `system/status` frames and the rate_limit_event
 // every turn carries. Re-record on an SDK bump and the diff is the contract change.
 describe("a recorded stream", () => {
-  const replay = (name: RecordedStream, toPi: ReadonlySet<string> = served("read")) =>
-    run(recordedStream(name), toPi);
-
   it("of a text-only turn produces its text and a clean stop", () => {
     const { turn, pi } = replay("text");
 
     expect(text(turn).trim()).toBe("ALPHA");
     expect(turn.output.stopReason).toBe("stop");
-    expect(turn.toolCallIds).toEqual([]);
+    expect(turn.toolCallIds).toStrictEqual([]);
     expect(pi.events.some((event) => event.type === "text_delta")).toBe(true);
     expect(pi.events.at(-1)?.type).toBe("done");
   });
@@ -713,23 +835,6 @@ describe("a recorded stream", () => {
     expect(usage.output).toBeGreaterThan(0);
     expect(usage.input + usage.cacheRead + usage.cacheWrite).toBeGreaterThan(0);
   });
-
-  /** Every thinking-token count in the stream's usage frames, in stream order. */
-  function thinkingTokenCounts(messages: readonly SDKMessage[]): number[] {
-    return messages.flatMap((message) => {
-      let count: number | null | undefined;
-
-      if (message.type === "assistant") {
-        count = message.message.usage.output_tokens_details?.thinking_tokens;
-      } else if (message.type === "stream_event" && message.event.type === "message_start") {
-        count = message.event.message.usage.output_tokens_details?.thinking_tokens;
-      } else if (message.type === "stream_event" && message.event.type === "message_delta") {
-        count = message.event.usage.output_tokens_details?.thinking_tokens;
-      }
-
-      return count === null || count === undefined ? [] : [count];
-    });
-  }
 
   // The count this pi turn ends on is the first in the stream: a recording that ends on
   // a tool call spans several cycles, and every cycle after the first tool-call boundary
@@ -744,7 +849,7 @@ describe("a recorded stream", () => {
       expect(turn.output.usage.reasoning).toBe(expected);
       // The SDK documents thinking_tokens as a subset of output_tokens.
       expect(expected).toBeLessThanOrEqual(turn.output.usage.output);
-    },
+    }
   );
 
   it("ignores counts from cycles that belong to the next pi turn", () => {
@@ -761,10 +866,10 @@ describe("a recorded stream", () => {
     const { turn, pi } = replay("single-tool");
     const calls = toolCalls(turn);
 
-    expect(calls.map((call) => call.name)).toEqual(["read"]);
+    expect(calls.map((call) => call.name)).toStrictEqual(["read"]);
     expect(calls[0]?.id).toMatch(/^toolu_/u);
-    expect(turn.toolCallIds).toEqual(calls.map((call) => call.id));
-    expect(terminalTypes(pi)).toEqual(["done"]);
+    expect(turn.toolCallIds).toStrictEqual(calls.map((call) => call.id));
+    expect(terminalTypes(pi)).toStrictEqual(["done"]);
   });
 
   it("of a parallel-tool turn keeps every call, in emission order", () => {
@@ -772,15 +877,17 @@ describe("a recorded stream", () => {
     const calls = toolCalls(turn);
 
     expect(calls.length).toBeGreaterThanOrEqual(2);
-    expect(turn.toolCallIds).toEqual(calls.map((call) => call.id));
+    expect(turn.toolCallIds).toStrictEqual(calls.map((call) => call.id));
     expect(new Set(turn.toolCallIds).size).toBe(calls.length);
-    expect(new Set(calls.map((call) => call.name))).toEqual(new Set(["read"]));
+    expect(new Set(calls.map((call) => call.name))).toStrictEqual(
+      new Set(["read"])
+    );
   });
 
   // The names Claude Code really sends must be the ones the served map is keyed on.
   it("leaves nothing for pi when the served tool list is empty", () => {
     const { turn } = replay("parallel-tools", served());
 
-    expect(toolCalls(turn)).toEqual([]);
+    expect(toolCalls(turn)).toStrictEqual([]);
   });
 });

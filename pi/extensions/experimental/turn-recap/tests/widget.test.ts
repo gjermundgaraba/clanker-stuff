@@ -1,27 +1,38 @@
-import { stripTerminalSequences, TuiMainScreen, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  stripTerminalSequences,
+  TuiMainScreen,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import type { Terminal } from "@earendil-works/pi-tui";
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vite-plus/test";
 
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../tests/harness/tui.js";
 import type { LiveState } from "../card.js";
 import { parseRollingFont } from "../font.js";
 import type { RollingFont } from "../font.js";
 import { ROLL_FRAME_MS } from "../rolling.js";
 import { createLiveWidget } from "../widget.js";
 import { fontManifest, snapshot } from "./fixtures.js";
-import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
 
 const font = parseRollingFont(fontManifest());
 
-const hasFrames = (text: string) => /[\u{f0000}-\u{ffffd}]/u.test(text);
+const hasFrames = (text: string) => /[\u{F0000}-\u{FFFFD}]/u.test(text);
 
 const plain = (lines: string[]) => lines.map(stripTerminalSequences).join("\n");
 
-beforeEach(() => vi.useFakeTimers());
-
-afterEach(() => vi.useRealTimers());
-
 const setup = (configured: RollingFont | undefined) => {
-  const metrics = snapshot().metrics;
+  const { metrics } = snapshot();
 
   const running: LiveState = { elapsedMs: 1000, metrics };
 
@@ -30,7 +41,9 @@ const setup = (configured: RollingFont | undefined) => {
   const tui = createMockTui();
   const request = vi.spyOn(tui, "requestRender");
   const widget = createLiveWidget(tui, theme, () => state, configured);
-  onTestFinished(() => widget.dispose());
+  onTestFinished(() => {
+    widget.dispose();
+  });
 
   return {
     metrics,
@@ -46,6 +59,10 @@ const setup = (configured: RollingFont | undefined) => {
 };
 
 describe("live widget", () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => vi.useRealTimers());
+
   it("wakes once per displayed second when nothing rolls", () => {
     const env = setup(undefined);
     expect(plain(env.widget.render(80))).toContain("1s elapsed");
@@ -60,7 +77,8 @@ describe("live widget", () => {
     const env = setup(font);
     expect(plain(env.widget.render(80))).toContain("1s elapsed");
     env.running.elapsedMs = 2000;
-    expect(plain(env.widget.render(80))).toContain("1s elapsed"); // ASCII start still moves.
+    // ASCII start still moves.
+    expect(plain(env.widget.render(80))).toContain("1s elapsed");
     vi.advanceTimersByTime(Math.ceil(ROLL_FRAME_MS));
     expect(env.request).toHaveBeenCalledOnce();
     vi.advanceTimersByTime(130 - Math.ceil(ROLL_FRAME_MS));
@@ -84,7 +102,10 @@ describe("live widget", () => {
 
     const foreground = vi
       .spyOn(env.theme, "fg")
-      .mockImplementation((tone, text) => `\x1b[${tone === "text" ? "37" : "90"}m${text}\x1b[39m`);
+      .mockImplementation(
+        (tone, text) =>
+          `\u001B[${tone === "text" ? "37" : "90"}m${text}\u001B[39m`
+      );
 
     env.widget.render(80);
     env.metrics.toolCalls = 4;
@@ -95,15 +116,17 @@ describe("live widget", () => {
     const middle = env.widget.render(80);
     expect(plain(middle)).toContain(` · ${font.glyph("3", "4", 0.5)} tools`);
     expect(plain(middle)).toContain(
-      `3${font.glyph("7", "8", 0.5)}0 processed · +${font.glyph("4", "5", 0.5)}00 context`,
+      `3${font.glyph("7", "8", 0.5)}0 processed · +${font.glyph("4", "5", 0.5)}00 context`
     );
     expect(middle.join("")).toContain(
-      `\x1b[37m+${font.glyph("4", "5", 0.5)}00\x1b[39m\x1b[90m context\x1b[39m`,
+      `\u001B[37m+${font.glyph("4", "5", 0.5)}00\u001B[39m\u001B[90m context\u001B[39m`
     );
-    foreground.mockImplementation((_tone, text) => `\x1b[36m${text}\x1b[39m`);
+    foreground.mockImplementation(
+      (_tone, text) => `\u001B[36m${text}\u001B[39m`
+    );
     env.widget.invalidate();
     expect(env.widget.render(80).join("")).toContain(
-      `\x1b[36m3${font.glyph("7", "8", 0.5)}0\x1b[39m`,
+      `\u001B[36m3${font.glyph("7", "8", 0.5)}0\u001B[39m`
     );
   });
 
@@ -129,7 +152,9 @@ describe("live widget", () => {
     expect(hasFrames(plain(env.widget.render(20)))).toBe(false);
 
     for (const width of [1, 2, 3, 4, 10, 20, 80]) {
-      expect(env.widget.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+      expect(
+        env.widget.render(width).every((line) => visibleWidth(line) <= width)
+      ).toBe(true);
     }
 
     vi.advanceTimersByTime(770);
@@ -162,7 +187,7 @@ describe("live widget", () => {
   it("renders nothing when idle", () => {
     const env = setup(font);
     env.show(undefined);
-    expect(env.widget.render(80)).toEqual([]);
+    expect(env.widget.render(80)).toStrictEqual([]);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -190,11 +215,19 @@ describe("live widget", () => {
       setProgramStatus() {},
     };
 
-    let state: LiveState | undefined = { elapsedMs: 1000, metrics: snapshot().metrics };
+    let state: LiveState | undefined = {
+      elapsedMs: 1000,
+      metrics: snapshot().metrics,
+    };
 
     const tui = new TuiMainScreen(terminal);
 
-    const widget = createLiveWidget(tui, createIdentityTheme(), () => state, font);
+    const widget = createLiveWidget(
+      tui,
+      createIdentityTheme(),
+      () => state,
+      font
+    );
 
     onTestFinished(() => {
       widget.dispose();
@@ -206,7 +239,8 @@ describe("live widget", () => {
     expect(writes.join("")).toContain("370 processed");
     writes.length = 0;
 
-    if (state) state.metrics.toolCalls = 4;
+    state.metrics.toolCalls = 4;
+
     tui.requestRender();
     await vi.advanceTimersByTimeAsync(180);
     expect(hasFrames(writes.join(""))).toBe(true);

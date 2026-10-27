@@ -1,4 +1,7 @@
-import { inspectModelHistory, isVirtualModel } from "@clanker-stuff/model-history";
+import {
+  inspectModelHistory,
+  isVirtualModel,
+} from "@clanker-stuff/model-history";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const SUPPORTED_PROVIDERS = [
@@ -53,11 +56,13 @@ export interface UsageFetchFailure {
   error: UsageFetchError;
 }
 
-export type UsageFetchResult = { ok: true; snapshot: UsageSnapshot } | UsageFetchFailure;
+export type UsageFetchResult =
+  | { ok: true; snapshot: UsageSnapshot }
+  | UsageFetchFailure;
 
 export const usageFailure = (
   message: string,
-  kind: UsageFetchError["kind"] = "failure",
+  kind: UsageFetchError["kind"] = "failure"
 ): UsageFetchFailure => ({ error: { kind, message }, ok: false });
 
 /** A response without metrics is indistinguishable from an upstream shape change, so it fails. */
@@ -70,22 +75,31 @@ export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
 
 const SUPPORTED_PROVIDER_IDS = new Set<string>(SUPPORTED_PROVIDERS);
 
-export const isSupportedProvider = (provider: string | undefined): provider is SupportedProvider =>
+export const isSupportedProvider = (
+  provider: string | undefined
+): provider is SupportedProvider =>
   provider !== undefined && SUPPORTED_PROVIDER_IDS.has(provider);
 
 /** Physical selections target their account; virtual selections follow physical attempts. */
 export const resolveQuotaProvider = (
-  ctx: Pick<ExtensionContext, "model" | "sessionManager">,
+  ctx: Pick<ExtensionContext, "model" | "sessionManager">
 ): string | undefined => {
-  if (!ctx.model) return undefined;
+  if (!ctx.model) {
+    return undefined;
+  }
 
-  if (!isVirtualModel(ctx.model)) return ctx.model.provider;
+  if (!isVirtualModel(ctx.model)) {
+    return ctx.model.provider;
+  }
 
-  return inspectModelHistory(ctx.sessionManager.getBranch()).lastPhysicalAttempt?.provider;
+  return inspectModelHistory(ctx.sessionManager.getBranch()).lastPhysicalAttempt
+    ?.provider;
 };
 
 /** Unsupported identity is retained until presentation/fetching, rather than mistaken for login failure. */
-export const quotaUnavailableMessage = (provider: string | undefined): string =>
+export const quotaUnavailableMessage = (
+  provider: string | undefined
+): string =>
   provider === undefined
     ? "usage: no physical provider resolved for the current model"
     : `usage: quota reporting is unsupported for ${provider}`;

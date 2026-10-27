@@ -1,8 +1,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 import { DEFAULT_TAIL_BYTES } from "./logs.js";
+import {
+  inspectOutputSchema,
+  listOutputSchema,
+  taskSummarySchema,
+} from "./output.js";
 import { taskRenderers } from "./renderers.js";
-import { TaskRuntime } from "./runtime.js";
-import { inspectOutputSchema, listOutputSchema, taskSummarySchema } from "./output.js";
+import type { TaskRuntime } from "./runtime.js";
 import { DEFAULT_LIMITS } from "./supervisor.js";
 import {
   MAX_TEXT_BYTES,
@@ -14,13 +19,17 @@ import {
 
 const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
 
-export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void => {
+export const registerTaskTools = (
+  pi: ExtensionAPI,
+  runtime: TaskRuntime
+): void => {
   pi.registerTool({
     name: "task_start",
     ...taskRenderers("task_start"),
     label: "Start task",
     description: `Run an executable without blocking. Session-owned: stops on reload, quit, session replacement, and tree navigation to before its start. Optional events-v1 watcher emits strict JSONL event/result records on stdout, diagnostics on stderr. Ordinary output is logs, not automatic context. Default deadline 1 hour. At most ${DEFAULT_LIMITS.concurrency} tasks running or awaiting cleanup.`,
-    promptSnippet: "Start a session-owned background job or watcher with automatic notifications",
+    promptSnippet:
+      "Start a session-owned background job or watcher with automatic notifications",
     promptGuidelines: [
       "Finished tasks and new watcher events notify you automatically once Pi is idle. Use task_inspect to read status, logs and payloads; use task_stop when a job is no longer needed.",
       "After task_start, continue useful work or end the turn; do not block or repeatedly poll task_list while waiting.",
@@ -29,7 +38,8 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     parameters: startParameters,
     outputSchema: taskSummarySchema,
     constrainedSampling: STRICT_PREFERRED,
-    execute: (_id, params, signal, _update, ctx) => runtime.start(params, ctx, signal),
+    execute: async (_id, params, signal, _update, ctx) =>
+      await runtime.start(params, ctx, signal),
   });
   pi.registerTool({
     name: "task_list",
@@ -61,6 +71,6 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     parameters: idSchema,
     outputSchema: taskSummarySchema,
     constrainedSampling: STRICT_PREFERRED,
-    execute: async (_id, params) => runtime.stop(params.id),
+    execute: async (_id, params) => await runtime.stop(params.id),
   });
 };

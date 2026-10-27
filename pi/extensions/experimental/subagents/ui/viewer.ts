@@ -33,8 +33,8 @@ import type {
 
 import type { AgentNode } from "../protocol.js";
 import { agentRenderers } from "../renderers.js";
-import { isCollaborationTool } from "../tools.js";
 import type { ChildRuntime } from "../runtime.js";
+import { isCollaborationTool } from "../tools.js";
 import {
   activityText,
   agentName,
@@ -53,8 +53,8 @@ import {
 } from "./format.js";
 import type { Marks, TreeRow } from "./format.js";
 import { Transcript } from "./transcript.js";
-import type { WidgetSource } from "./widget.js";
 import type { ToolDisplay } from "./transcript.js";
+import type { WidgetSource } from "./widget.js";
 
 /** Share of the terminal the viewer occupies; the overlay options derive from this too. */
 const VIEWER_HEIGHT_RATIO = 0.9;
@@ -70,12 +70,12 @@ const BODY_TOP = 3;
 
 const MIN_HEIGHT = CHROME_ROWS + 3;
 
-const RESET = "\x1b[0m";
+const RESET = "\u001B[0m";
 
 /** OSC and CSI sequences: the forms Pi's colours and links take, captured with the OSC body. */
 const ESCAPES =
   // oxlint-disable-next-line no-control-regex -- The pattern matches terminal control sequences.
-  /\x1b\]([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]/gu;
+  /\u001B\](?<osc>[^\u0007\u001B]*)(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~]/gu;
 
 /** SGR colours (no private marker or intermediate byte), and OSC 8 links whose body holds no controls. */
 const allowed = (sequence: string, osc: string | undefined): boolean =>
@@ -93,7 +93,9 @@ const terminalSafe = (line: string): string => {
   let end = 0;
 
   for (const match of line.matchAll(ESCAPES)) {
-    safe += safeText(line.slice(end, match.index)) + (allowed(match[0], match[1]) ? match[0] : "");
+    safe +=
+      safeText(line.slice(end, match.index)) +
+      (allowed(match[0], match.groups?.["osc"]) ? match[0] : "");
     end = match.index + match[0].length;
   }
 
@@ -117,11 +119,13 @@ const builtIns = (cwd: string): Map<string, ToolDisplay> =>
       createPowerShellToolDefinition(cwd),
       createReadToolDefinition(cwd),
       createWriteToolDefinition(cwd),
-    ].map((definition): [string, ToolDisplay] => [definition.name, definition]),
+    ].map((definition): [string, ToolDisplay] => [definition.name, definition])
   );
 
 export interface ViewerSource extends WidgetSource {
-  live: (path: string) => Pick<ChildRuntime, "snapshot" | "toolRenderers"> | undefined;
+  live: (
+    path: string
+  ) => Pick<ChildRuntime, "snapshot" | "toolRenderers"> | undefined;
 }
 
 /** Events at which a session holds every message announced before them. */
@@ -136,7 +140,9 @@ const REREAD_EVENTS: ReadonlySet<AgentSessionEvent["type"]> = new Set([
 const readBranch = (file: string, cwd: string) => {
   const entries = parseSessionEntries(readFileSync(file, "utf-8"));
 
-  if (entries.length === 0) throw new Error("The session file holds no session");
+  if (entries.length === 0) {
+    throw new Error("The session file holds no session");
+  }
 
   return SessionManager.inMemory(cwd, undefined, entries).getBranch();
 };
@@ -168,7 +174,10 @@ interface Layout {
 const layoutViewer = (width: number, height: number): Layout => {
   const inner = Math.max(0, width - 2);
   const split = width >= SPLIT_MIN_WIDTH;
-  const treeWidth = split ? Math.max(24, Math.min(40, Math.floor(inner * 0.3))) : inner;
+
+  const treeWidth = split
+    ? Math.max(24, Math.min(40, Math.floor(inner * 0.3)))
+    : inner;
 
   return {
     bodyHeight: Math.max(0, height - CHROME_ROWS),
@@ -179,15 +188,23 @@ const layoutViewer = (width: number, height: number): Layout => {
   };
 };
 
-const scrollbar = (theme: Theme, height: number, offset: number, total: number): string[] => {
-  if (total <= height) return Array.from({ length: height }, () => " ");
+const scrollbar = (
+  theme: Theme,
+  height: number,
+  offset: number,
+  total: number
+): string[] => {
+  if (total <= height) {
+    return Array.from({ length: height }, () => " ");
+  }
+
   const thumb = Math.max(1, Math.round((height / total) * height));
   const start = Math.round((offset / (total - height)) * (height - thumb));
 
   return Array.from({ length: height }, (_, index) =>
     index >= start && index < start + thumb
       ? theme.fg("scrollbarThumb", "┃")
-      : theme.fg("dim", "│"),
+      : theme.fg("dim", "│")
   );
 };
 
@@ -199,7 +216,7 @@ export class AgentsViewer implements Component {
   readonly #views = new Map<string, View>();
   #focus: Focus = "tree";
   #layout: Layout | undefined;
-  #rows: TreeRow<AgentNode>[] = [];
+  #rows: Array<TreeRow<AgentNode>> = [];
   #selected: string | undefined;
   #treeScroll = 0;
 
@@ -220,7 +237,7 @@ export class AgentsViewer implements Component {
     marks: Marks,
     cwd: string,
     done: () => void,
-    now: () => number = Date.now,
+    now: () => number = Date.now
   ) {
     this.tui = tui;
     this.theme = theme;
@@ -240,8 +257,9 @@ export class AgentsViewer implements Component {
       if (
         this.source.rootRunning() ||
         this.source.nodes().some((node) => node.status === "running")
-      )
+      ) {
         this.tui.requestRender();
+      }
     }, FRAME_MS);
   }
 
@@ -250,18 +268,31 @@ export class AgentsViewer implements Component {
 
     // Select the first running agent, else the latest, once there is one and when a replaced tree
     // no longer holds the selection.
-    if (this.#selected === undefined || !this.#rows.some((row) => row.path === this.#selected)) {
-      const nodes = this.#rows.flatMap((row) => (row.item === undefined ? [] : [row.item]));
-      this.#select(nodes.find((node) => node.status === "running")?.path ?? nodes.at(-1)?.path);
+    if (
+      this.#selected === undefined ||
+      !this.#rows.some((row) => row.path === this.#selected)
+    ) {
+      const nodes = this.#rows.flatMap((row) =>
+        row.item === undefined ? [] : [row.item]
+      );
+
+      this.#select(
+        nodes.find((node) => node.status === "running")?.path ??
+          nodes.at(-1)?.path
+      );
     }
   }
 
   #renderers(agent: string, name: string): ToolDisplay {
     const live = this.source.live(agent)?.toolRenderers(name);
 
-    if (live !== undefined) learned.set(name, live);
+    if (live !== undefined) {
+      learned.set(name, live);
+    }
 
-    if (isCollaborationTool(name)) return agentRenderers(name);
+    if (isCollaborationTool(name)) {
+      return agentRenderers(name);
+    }
 
     return live ?? learned.get(name) ?? this.#builtIns.get(name);
   }
@@ -270,8 +301,9 @@ export class AgentsViewer implements Component {
     this.#selected = target;
     const node = this.#node();
 
-    if (node !== undefined && !this.#views.has(node.path))
+    if (node !== undefined && !this.#views.has(node.path)) {
       this.#views.set(node.path, this.#open(node));
+    }
   }
 
   #open(node: AgentNode): View {
@@ -289,7 +321,9 @@ export class AgentsViewer implements Component {
       scroll: 0,
       stale: false,
       transcript,
-      unfollow: () => {},
+      unfollow: () => {
+        // Replaced once the agent's events are followed.
+      },
     };
 
     const fail = (error: unknown) => {
@@ -300,20 +334,25 @@ export class AgentsViewer implements Component {
     const live = this.source.live(node.path);
 
     // A spawn is announced before its session runs or is written; it is read once it starts.
-    if (live === undefined && node.status === "running") view.stale = true;
-    else
+    if (live === undefined && node.status === "running") {
+      view.stale = true;
+    } else {
       try {
         const snapshot = live?.snapshot();
-        const branch = snapshot?.branch ?? readBranch(node.sessionFile, this.cwd);
+
+        const branch =
+          snapshot?.branch ?? readBranch(node.sessionFile, this.cwd);
+
         // Unlike the model's context, the transcript keeps history that compaction summarized.
         transcript.load(
           branch.flatMap(sessionEntryToContextMessages),
           snapshot?.streaming,
-          snapshot?.executing,
+          snapshot?.executing
         );
       } catch (error) {
         fail(error);
       }
+    }
 
     // Events follow the path, so the transcript continues across the agent's later turns.
     view.unfollow = this.source.monitor.follow(node.path, (event) => {
@@ -338,7 +377,9 @@ export class AgentsViewer implements Component {
   }
 
   #view(): View | undefined {
-    return this.#selected === undefined ? undefined : this.#views.get(this.#selected);
+    return this.#selected === undefined
+      ? undefined
+      : this.#views.get(this.#selected);
   }
 
   #node(): AgentNode | undefined {
@@ -348,22 +389,32 @@ export class AgentsViewer implements Component {
   #move(delta: number): void {
     const selectable = this.#rows.filter((row) => row.item !== undefined);
     const index = selectable.findIndex((row) => row.path === this.#selected);
-    const next = selectable[Math.max(0, Math.min(selectable.length - 1, index + delta))];
 
-    if (next !== undefined) this.#select(next.path);
+    const next =
+      selectable[Math.max(0, Math.min(selectable.length - 1, index + delta))];
+
+    if (next !== undefined) {
+      this.#select(next.path);
+    }
   }
 
   #scrollBy(delta: number): void {
     const view = this.#view();
 
-    if (view === undefined) return;
+    if (view === undefined) {
+      return;
+    }
+
     view.scroll = Math.max(0, Math.min(view.maxScroll, view.scroll + delta));
     view.follow = view.scroll >= view.maxScroll;
   }
 
   #back(): void {
-    if (this.#focus === "transcript") this.#focus = "tree";
-    else this.done();
+    if (this.#focus === "transcript") {
+      this.#focus = "tree";
+    } else {
+      this.done();
+    }
   }
 
   handleInput(data: string): void {
@@ -371,27 +422,61 @@ export class AgentsViewer implements Component {
     const action = (id: Keybinding) => this.keybindings.matches(data, id);
     const page = Math.max(1, (this.#layout?.bodyHeight ?? 1) - 1);
     const inTranscript = this.#focus === "transcript";
-    const vertical = (delta: number) => (inTranscript ? this.#scrollBy(delta) : this.#move(delta));
+
+    const vertical = (delta: number) => {
+      if (inTranscript) {
+        this.#scrollBy(delta);
+      } else {
+        this.#move(delta);
+      }
+    };
 
     // First matching binding wins; configured Pi actions come before fixed keys and vim aliases.
     const bindings: Array<[boolean, () => void]> = [
-      [action("tui.select.cancel"), () => this.#back()],
+      [
+        action("tui.select.cancel"),
+        () => {
+          this.#back();
+        },
+      ],
       [
         action("tui.select.confirm") || key(Key.tab),
         () => {
           this.#focus = inTranscript ? "tree" : "transcript";
         },
       ],
-      [action("tui.select.pageDown"), () => this.#scrollBy(page)],
-      [action("tui.select.pageUp"), () => this.#scrollBy(-page)],
-      [action("tui.select.down") || key("j"), () => vertical(1)],
-      [action("tui.select.up") || key("k"), () => vertical(-1)],
+      [
+        action("tui.select.pageDown"),
+        () => {
+          this.#scrollBy(page);
+        },
+      ],
+      [
+        action("tui.select.pageUp"),
+        () => {
+          this.#scrollBy(-page);
+        },
+      ],
+      [
+        action("tui.select.down") || key("j"),
+        () => {
+          vertical(1);
+        },
+      ],
+      [
+        action("tui.select.up") || key("k"),
+        () => {
+          vertical(-1);
+        },
+      ],
       [
         key("f"),
         () => {
           const view = this.#view();
 
-          if (view !== undefined) view.follow = !view.follow;
+          if (view !== undefined) {
+            view.follow = !view.follow;
+          }
         },
       ],
       [
@@ -410,25 +495,37 @@ export class AgentsViewer implements Component {
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     const layout = this.#layout;
 
-    if (layout === undefined) return { handled: true };
+    if (layout === undefined) {
+      return { handled: true };
+    }
+
     const row = event.y - BODY_TOP;
-    const inTranscript = !layout.split ? this.#focus === "transcript" : event.x > layout.treeWidth;
+
+    const inTranscript = layout.split
+      ? event.x > layout.treeWidth
+      : this.#focus === "transcript";
 
     if (event.type === "wheel") {
-      if (inTranscript) this.#scrollBy(event.wheelDelta ?? 0);
-      else this.#move(event.wheelDelta ?? 0);
+      if (inTranscript) {
+        this.#scrollBy(event.wheelDelta ?? 0);
+      } else {
+        this.#move(event.wheelDelta ?? 0);
+      }
     } else if (
       event.type === "press" &&
       event.button === "left" &&
       row >= 0 &&
       row < layout.bodyHeight
     ) {
-      if (inTranscript) this.#focus = "transcript";
-      else {
+      if (inTranscript) {
+        this.#focus = "transcript";
+      } else {
         this.#focus = "tree";
         const target = this.#rows[this.#treeScroll + row];
 
-        if (target?.item !== undefined) this.#select(target.path);
+        if (target?.item !== undefined) {
+          this.#select(target.path);
+        }
       }
     } else {
       return undefined;
@@ -441,46 +538,63 @@ export class AgentsViewer implements Component {
 
   #treeLines(width: number, height: number, now: number): string[] {
     const { theme } = this;
-    const selectedIndex = this.#rows.findIndex((row) => row.path === this.#selected);
+
+    const selectedIndex = this.#rows.findIndex(
+      (row) => row.path === this.#selected
+    );
 
     // Keep the selection in view.
-    if (selectedIndex < this.#treeScroll) this.#treeScroll = selectedIndex;
-    else if (selectedIndex >= this.#treeScroll + height)
+    if (selectedIndex < this.#treeScroll) {
+      this.#treeScroll = selectedIndex;
+    } else if (selectedIndex >= this.#treeScroll + height) {
       this.#treeScroll = selectedIndex - height + 1;
-    this.#treeScroll = Math.max(0, Math.min(this.#treeScroll, this.#rows.length - height));
+    }
+
+    this.#treeScroll = Math.max(
+      0,
+      Math.min(this.#treeScroll, this.#rows.length - height)
+    );
     const focused = this.#focus === "tree";
 
-    return this.#rows.slice(this.#treeScroll, this.#treeScroll + height).map((row) => {
-      const node = row.item;
-      const selected = row.path === this.#selected;
+    return this.#rows
+      .slice(this.#treeScroll, this.#treeScroll + height)
+      .map((row) => {
+        const node = row.item;
+        const selected = row.path === this.#selected;
 
-      const glyph = statusMark(
-        theme,
-        this.marks,
-        row.path,
-        node?.status ?? (this.source.rootRunning() ? "running" : "idle"),
-        now,
-      );
+        const glyph = statusMark(
+          theme,
+          this.marks,
+          row.path,
+          node?.status ?? (this.source.rootRunning() ? "running" : "idle"),
+          now
+        );
 
-      const name = node === undefined ? "root" : agentName(row.path);
-      const time = node === undefined ? "" : theme.fg("muted", elapsed(node, now));
-      const timeWidth = visibleWidth(time);
-      const marker = selected ? theme.fg(focused ? "accent" : "muted", "▌") : " ";
+        const name = node === undefined ? "root" : agentName(row.path);
 
-      const label = `${marker}${theme.fg("dim", row.prefix)}${glyph} ${
-        selected || node?.status === "running" ? theme.bold(name) : name
-      }`;
+        const time =
+          node === undefined ? "" : theme.fg("muted", elapsed(node, now));
 
-      const line = `${fit(label, width - timeWidth - 2)} ${time} `;
+        const timeWidth = visibleWidth(time);
 
-      // Truncation ends its text with full resets, which would also end the highlight.
-      return selected
-        ? line
-            .split(RESET)
-            .map((part) => theme.bg("selectedBg", part))
-            .join(RESET)
-        : line;
-    });
+        const marker = selected
+          ? theme.fg(focused ? "accent" : "muted", "▌")
+          : " ";
+
+        const label = `${marker}${theme.fg("dim", row.prefix)}${glyph} ${
+          selected || node?.status === "running" ? theme.bold(name) : name
+        }`;
+
+        const line = `${fit(label, width - timeWidth - 2)} ${time} `;
+
+        // Truncation ends its text with full resets, which would also end the highlight.
+        return selected
+          ? line
+              .split(RESET)
+              .map((part) => theme.bg("selectedBg", part))
+              .join(RESET)
+          : line;
+      });
   }
 
   #transcriptLines(width: number, height: number): string[] {
@@ -488,31 +602,35 @@ export class AgentsViewer implements Component {
     const contentWidth = Math.max(1, width - 2);
     const view = this.#view();
 
-    if (view?.error !== undefined)
+    if (view?.error !== undefined) {
       return [
         fit(` ${theme.fg("error", inlineText(view.error))}`, width),
         ...Array.from({ length: height - 1 }, () => " ".repeat(width)),
       ];
+    }
 
     const lines = view?.transcript.render(contentWidth) ?? [];
 
-    if (view === undefined || lines.length === 0)
+    if (view === undefined || lines.length === 0) {
       return [
         fit(
           ` ${theme.fg("muted", this.#selected === undefined ? "No subagents in this session yet." : "No activity yet.")}`,
-          width,
+          width
         ),
         ...Array.from({ length: height - 1 }, () => " ".repeat(width)),
       ];
+    }
 
     view.maxScroll = Math.max(0, lines.length - height);
-    view.scroll = view.follow ? view.maxScroll : Math.min(view.scroll, view.maxScroll);
+    view.scroll = view.follow
+      ? view.maxScroll
+      : Math.min(view.scroll, view.maxScroll);
     const bar = scrollbar(theme, height, view.scroll, lines.length);
 
     return Array.from(
       { length: height },
       (_, index) =>
-        `${fit(` ${terminalSafe(lines[view.scroll + index] ?? "")}`, width - 1)}${bar[index] ?? " "}`,
+        `${fit(` ${terminalSafe(lines[view.scroll + index] ?? "")}`, width - 1)}${bar[index] ?? " "}`
     );
   }
 
@@ -520,13 +638,18 @@ export class AgentsViewer implements Component {
     const { theme } = this;
     const node = this.#node();
 
-    if (node === undefined) return "";
+    if (node === undefined) {
+      return "";
+    }
+
     const sep = theme.fg("dim", " · ");
 
     const left = [
       `${statusMark(theme, this.marks, node.path, node.status, now)} ${theme.bold(agentName(node.path))}`,
       theme.fg("muted", inlineText(node.path)),
-      node.status === "running" ? activityText(theme, this.source.monitor.activity(node.path)) : "",
+      node.status === "running"
+        ? activityText(theme, this.source.monitor.activity(node.path))
+        : "",
     ]
       .filter(Boolean)
       .join(sep);
@@ -549,7 +672,7 @@ export class AgentsViewer implements Component {
     const inTranscript = this.#focus === "transcript";
     const view = this.#view();
 
-    const hints: [key: string, label: string][] = [
+    const hints: Array<[key: string, label: string]> = [
       ["↑↓", inTranscript ? "scroll" : "select"],
       ["tab", inTranscript ? "tree" : "transcript"],
       ["f", view?.follow === false ? "follow" : "following"],
@@ -559,12 +682,18 @@ export class AgentsViewer implements Component {
 
     // Key hints are chrome the user reads past (docs/color.md); bold picks out the key.
     const keys = hints
-      .map(([key, label]) => `${theme.bold(theme.fg("dim", key))} ${theme.fg("dim", label)}`)
+      .map(
+        ([key, label]) =>
+          `${theme.bold(theme.fg("dim", key))} ${theme.fg("dim", label)}`
+      )
       .join(theme.fg("dim", " · "));
 
     const position =
       view !== undefined && view.maxScroll > 0 && !view.follow
-        ? theme.fg("muted", `${Math.round((view.scroll / view.maxScroll) * 100)}%`)
+        ? theme.fg(
+            "muted",
+            `${Math.round((view.scroll / view.maxScroll) * 100)}%`
+          )
         : "";
 
     const gap = width - visibleWidth(keys) - visibleWidth(position);
@@ -575,14 +704,26 @@ export class AgentsViewer implements Component {
   render(width: number): string[] {
     const { theme } = this;
     const now = this.now();
-    const height = Math.max(1, Math.floor(this.tui.terminal.rows * VIEWER_HEIGHT_RATIO));
+
+    const height = Math.max(
+      1,
+      Math.floor(this.tui.terminal.rows * VIEWER_HEIGHT_RATIO)
+    );
+
     const layout = layoutViewer(width, height);
     this.#layout = layout;
 
-    if (layout.tooSmall) return [fit(theme.fg("muted", "/agents: enlarge the terminal"), width)];
+    if (layout.tooSmall) {
+      return [fit(theme.fg("muted", "/agents: enlarge the terminal"), width)];
+    }
+
     const inner = width - 2;
     const border = (text: string) => theme.fg("border", text);
-    const divider = theme.fg(this.#focus === "transcript" ? "borderAccent" : "borderMuted", "│");
+
+    const divider = theme.fg(
+      this.#focus === "transcript" ? "borderAccent" : "borderMuted",
+      "│"
+    );
 
     const rule = (left: string, junction: string, right: string) =>
       layout.split
@@ -593,11 +734,16 @@ export class AgentsViewer implements Component {
 
     if (layout.split) {
       const tree = this.#treeLines(layout.treeWidth, layout.bodyHeight, now);
-      const transcript = this.#transcriptLines(layout.paneWidth, layout.bodyHeight);
+
+      const transcript = this.#transcriptLines(
+        layout.paneWidth,
+        layout.bodyHeight
+      );
+
       body = Array.from(
         { length: layout.bodyHeight },
         (_, index) =>
-          `${border("│")}${fit(tree[index] ?? "", layout.treeWidth)}${divider}${transcript[index] ?? ""}${border("│")}`,
+          `${border("│")}${fit(tree[index] ?? "", layout.treeWidth)}${divider}${transcript[index] ?? ""}${border("│")}`
       );
     } else {
       const pane =
@@ -607,7 +753,8 @@ export class AgentsViewer implements Component {
 
       body = Array.from(
         { length: layout.bodyHeight },
-        (_, index) => `${border("│")}${fit(pane[index] ?? "", inner)}${border("│")}`,
+        (_, index) =>
+          `${border("│")}${fit(pane[index] ?? "", inner)}${border("│")}`
       );
     }
 
@@ -618,7 +765,7 @@ export class AgentsViewer implements Component {
         theme,
         width,
         `${theme.bold(theme.fg("accent", "agents"))}${theme.fg("dim", " · ")}${theme.fg("muted", `${nodes.length} in this session`)}`,
-        countsText(theme, countStatuses(nodes)),
+        countsText(theme, countStatuses(nodes))
       ),
       frameLine(theme, width, ` ${this.#header(inner - 2, now)}`),
       rule("├", "┬", "┤"),
@@ -630,7 +777,9 @@ export class AgentsViewer implements Component {
   }
 
   invalidate(): void {
-    for (const view of this.#views.values()) view.transcript.invalidate();
+    for (const view of this.#views.values()) {
+      view.transcript.invalidate();
+    }
   }
 
   dispose(): void {
@@ -649,11 +798,13 @@ export const openViewer = async (
   ui: Pick<ExtensionUIContext, "custom">,
   source: ViewerSource,
   marks: Marks,
-  cwd: string,
+  cwd: string
 ): Promise<void> => {
   await ui.custom<undefined>(
     (tui, theme, keybindings, done) =>
-      new AgentsViewer(tui, theme, keybindings, source, marks, cwd, () => done(undefined)),
+      new AgentsViewer(tui, theme, keybindings, source, marks, cwd, () => {
+        done(undefined);
+      }),
     {
       overlay: true,
       overlayOptions: {
@@ -661,6 +812,6 @@ export const openViewer = async (
         maxHeight: `${VIEWER_HEIGHT_RATIO * 100}%`,
         width: "94%",
       },
-    },
+    }
   );
 };

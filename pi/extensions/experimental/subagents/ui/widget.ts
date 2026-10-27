@@ -64,7 +64,7 @@ export class AgentsWidget implements Component {
     marks: Marks,
     since: number,
     hint: string,
-    now: () => number = Date.now,
+    now: () => number = Date.now
   ) {
     this.tui = tui;
     this.theme = theme;
@@ -79,7 +79,7 @@ export class AgentsWidget implements Component {
   }
 
   /** The rows to draw, and the agents of this burst: drawn ones and those the limit left out. */
-  #layout(): { burst: AgentNode[]; hidden: number; rows: TreeRow<AgentNode>[] } {
+  #layout() {
     const nodes = this.source.nodes();
 
     const inBurst = (node: AgentNode) =>
@@ -89,11 +89,18 @@ export class AgentsWidget implements Component {
     let rows = treeRows(nodes, inBurst);
 
     // Past the limit, keep live work and the branches it hangs from.
-    if (rows.length > MAX_ROWS + 1) rows = treeRows(nodes, (node) => node.status === "running");
+    if (rows.length > MAX_ROWS + 1) {
+      rows = treeRows(nodes, (node) => node.status === "running");
+    }
+
     rows = rows.slice(0, MAX_ROWS + 1);
     const drawn = new Set(rows.map((row) => row.item));
 
-    return { burst, hidden: burst.filter((node) => !drawn.has(node)).length, rows };
+    return {
+      burst,
+      hidden: burst.filter((node) => !drawn.has(node)).length,
+      rows,
+    };
   }
 
   render(width: number): string[] {
@@ -101,7 +108,11 @@ export class AgentsWidget implements Component {
     const now = this.now();
     const inner = Math.max(0, width - 4);
     const { burst, hidden, rows } = this.#layout();
-    const nodes = rows.flatMap((row) => (row.item === undefined ? [] : [row.item]));
+
+    const nodes = rows.flatMap((row) =>
+      row.item === undefined ? [] : [row.item]
+    );
+
     const showModel = width >= MODEL_MIN_WIDTH;
 
     const label = (row: TreeRow<AgentNode>) =>
@@ -115,32 +126,50 @@ export class AgentsWidget implements Component {
 
     const nameWidth = Math.min(
       NAME_MAX_WIDTH,
-      Math.max(...named.map(({ name }) => visibleWidth(name))),
+      Math.max(...named.map(({ name }) => visibleWidth(name)))
     );
 
     const modelWidth = showModel
-      ? Math.min(MODEL_MAX_WIDTH, Math.max(0, ...nodes.map((node) => modelText(node).length)))
+      ? Math.min(
+          MODEL_MAX_WIDTH,
+          Math.max(0, ...nodes.map((node) => modelText(node).length))
+        )
       : 0;
 
     const activityWidth = Math.max(
       0,
-      inner - nameWidth - 2 - (modelWidth > 0 ? modelWidth + 2 : 0) - TIME_WIDTH - 1,
+      inner -
+        nameWidth -
+        2 -
+        (modelWidth > 0 ? modelWidth + 2 : 0) -
+        TIME_WIDTH -
+        1
     );
 
-    const line = ({ name, row }: { name: string; row: TreeRow<AgentNode> }): string => {
+    const line = ({
+      name,
+      row,
+    }: {
+      name: string;
+      row: TreeRow<AgentNode>;
+    }): string => {
       const node = row.item;
 
-      if (node === undefined) return name;
+      if (node === undefined) {
+        return name;
+      }
 
       return [
         fit(name, nameWidth),
         "  ",
-        modelWidth > 0 ? `${fit(theme.fg("muted", modelText(node)), modelWidth)}  ` : "",
+        modelWidth > 0
+          ? `${fit(theme.fg("muted", modelText(node)), modelWidth)}  `
+          : "",
         fit(
           node.status === "running"
             ? activityText(theme, this.source.monitor.activity(node.path))
             : outcomeText(theme, node),
-          activityWidth,
+          activityWidth
         ),
         " ",
         fitRight(theme.fg("muted", elapsed(node, now)), TIME_WIDTH),
@@ -149,16 +178,28 @@ export class AgentsWidget implements Component {
 
     const body = named.map((row) => frameLine(theme, width, ` ${line(row)}`));
 
-    if (hidden > 0)
-      body.push(frameLine(theme, width, ` ${theme.fg("muted", `… ${hidden} more in the viewer`)}`));
+    if (hidden > 0) {
+      body.push(
+        frameLine(
+          theme,
+          width,
+          ` ${theme.fg("muted", `… ${hidden} more in the viewer`)}`
+        )
+      );
+    }
 
     return [
-      frameTop(theme, width, theme.bold("agents"), countsText(theme, countStatuses(burst))),
+      frameTop(
+        theme,
+        width,
+        theme.bold("agents"),
+        countsText(theme, countStatuses(burst))
+      ),
       ...body,
       frameBottom(
         theme,
         width,
-        `${theme.bold(theme.fg("dim", this.hint))} ${theme.fg("dim", "inspect")}`,
+        `${theme.bold(theme.fg("dim", this.hint))} ${theme.fg("dim", "inspect")}`
       ),
     ];
   }

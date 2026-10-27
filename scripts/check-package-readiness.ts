@@ -7,11 +7,14 @@ import { Value } from "typebox/value";
 
 import { readWorkspacePackages } from "./workspace-packages.ts";
 
-const TypeOnlyExportSchema = Type.Object({ types: Type.String() }, { additionalProperties: false });
+const TypeOnlyExportSchema = Type.Object(
+  { types: Type.String() },
+  { additionalProperties: false }
+);
 
 const SubpathExportsSchema = Type.Record(
   Type.String(),
-  Type.Union([Type.String(), TypeOnlyExportSchema]),
+  Type.Union([Type.String(), TypeOnlyExportSchema])
 );
 
 const PI_PROVIDED = new Set([
@@ -30,28 +33,38 @@ const EXPECTED_PACKAGE_MANAGER = "pnpm";
 
 const EXPECTED_LICENSE = "MIT";
 
-const REPOSITORY_URL = "git+https://github.com/gjermundgaraba/clanker-stuff.git";
+const REPOSITORY_URL =
+  "git+https://github.com/gjermundgaraba/clanker-stuff.git";
 
 const BUGS_URL = "https://github.com/gjermundgaraba/clanker-stuff/issues";
 
-const HOMEPAGE_PREFIX = "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
+const HOMEPAGE_PREFIX =
+  "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
 
 const EXPERIMENTAL_README_WARNING = "**Experimental:**";
 
-const collectRuntimeTsFiles = (directory: string, files: readonly string[]): string[] =>
+const collectRuntimeTsFiles = (
+  directory: string,
+  files: readonly string[]
+): string[] =>
   globSync(
     files.flatMap((entry) => [entry, `${entry}/**/*.ts`]),
     {
       cwd: directory,
       exclude: ["**/.*", "**/node_modules/**", "**/tests/**", "**/*.test.ts"],
-    },
+    }
   )
     .filter((file) => file.endsWith(".ts"))
     .map((file) => path.join(directory, file));
 
-const importedPiProvidedPackages = (directory: string, files: readonly string[]): Set<string> => {
+const importedPiProvidedPackages = (
+  directory: string,
+  files: readonly string[]
+): Set<string> => {
   const imported = new Set<string>();
-  const importRe = /\b(?:import|export)\b[\s\S]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gu;
+
+  const importRe =
+    /\b(?:import|export)\b[\s\S]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gu;
 
   for (const file of collectRuntimeTsFiles(directory, files)) {
     const text = readFileSync(file, "utf-8");
@@ -64,7 +77,10 @@ const importedPiProvidedPackages = (directory: string, files: readonly string[])
       }
 
       for (const packageName of PI_PROVIDED) {
-        if (specifier === packageName || specifier.startsWith(`${packageName}/`)) {
+        if (
+          specifier === packageName ||
+          specifier.startsWith(`${packageName}/`)
+        ) {
           imported.add(packageName);
           break;
         }
@@ -76,14 +92,18 @@ const importedPiProvidedPackages = (directory: string, files: readonly string[])
 };
 
 const pathExistsForEntry = (packageDirectory: string, entry: string) =>
-  entry.includes("*") || entry.includes("?") || existsSync(path.join(packageDirectory, entry));
+  entry.includes("*") ||
+  entry.includes("?") ||
+  existsSync(path.join(packageDirectory, entry));
 
 const errors: string[] = [];
 
 const workspacePackages = readWorkspacePackages();
 
 const sharedRuntimePackages = new Set(
-  workspacePackages.filter(({ dir }) => dir.startsWith("pi/packages/")).map(({ name }) => name),
+  workspacePackages
+    .filter(({ dir }) => dir.startsWith("pi/packages/"))
+    .map(({ name }) => name)
 );
 
 const rootLicensePath = "LICENSE";
@@ -110,7 +130,9 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
 
     if (pkg.devEngines?.packageManager?.name !== EXPECTED_PACKAGE_MANAGER) {
-      errors.push(`${label}: expected devEngines.packageManager.name ${EXPECTED_PACKAGE_MANAGER}`);
+      errors.push(
+        `${label}: expected devEngines.packageManager.name ${EXPECTED_PACKAGE_MANAGER}`
+      );
     }
 
     continue;
@@ -131,17 +153,33 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   // The evaluation image is a private standalone deployment, not a host-loaded Pi package.
   // It consumes pinned dependencies and the parent evaluation README/root repository license.
   if (dir === "pi/evals/runtime") {
-    if (pkg.private !== true || pkg.exports !== undefined || pkg.pi !== undefined) {
-      errors.push(`${label}: evaluation runtime must stay private without public or Pi exports`);
+    if (
+      pkg.private !== true ||
+      pkg.exports !== undefined ||
+      pkg.pi !== undefined
+    ) {
+      errors.push(
+        `${label}: evaluation runtime must stay private without public or Pi exports`
+      );
     }
 
-    if (!existsSync(path.join(dir, "Dockerfile")) || !existsSync("pi/evals/README.md")) {
-      errors.push(`${label}: evaluation runtime needs its Dockerfile and parent README`);
+    if (
+      !existsSync(path.join(dir, "Dockerfile")) ||
+      !existsSync("pi/evals/README.md")
+    ) {
+      errors.push(
+        `${label}: evaluation runtime needs its Dockerfile and parent README`
+      );
     }
 
     for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
-      if (!PI_PROVIDED.has(name) || (version !== "catalog:" && !/^\d+\.\d+\.\d+$/u.test(version))) {
-        errors.push(`${label}: evaluation dependencies must be pinned native Pi dependencies`);
+      if (
+        !PI_PROVIDED.has(name) ||
+        (version !== "catalog:" && !/^\d+\.\d+\.\d+$/u.test(version))
+      ) {
+        errors.push(
+          `${label}: evaluation dependencies must be pinned native Pi dependencies`
+        );
       }
     }
 
@@ -165,8 +203,14 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
 
   // Skill helper packages are private standalone CLIs, not host-loaded Pi packages.
   if (dir.startsWith("skills/")) {
-    if (pkg.private !== true || pkg.pi !== undefined || pkg.exports !== undefined) {
-      errors.push(`${label}: skill helpers must stay private without Pi or public exports`);
+    if (
+      pkg.private !== true ||
+      pkg.pi !== undefined ||
+      pkg.exports !== undefined
+    ) {
+      errors.push(
+        `${label}: skill helpers must stay private without Pi or public exports`
+      );
     }
 
     continue;
@@ -181,7 +225,9 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   if (subpathExports !== undefined && subpathExports.length > 0) {
     if (
       isExtensionPackage &&
-      !subpathExports.some(([subpath, target]) => subpath === "." && target === "./index.ts")
+      !subpathExports.some(
+        ([subpath, target]) => subpath === "." && target === "./index.ts"
+      )
     ) {
       errors.push(`${label}: expected root export to be ./index.ts`);
     }
@@ -195,12 +241,13 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
         target.includes("..", 2) ||
         !target.endsWith(".ts") ||
         !existsSync(path.join(dir, target)) ||
-        !pkg.files?.some(
-          (entry) => target.slice(2) === entry || target.slice(2).startsWith(`${entry}/`),
-        )
+        pkg.files?.some(
+          (entry) =>
+            target.slice(2) === entry || target.slice(2).startsWith(`${entry}/`)
+        ) !== true
       ) {
         errors.push(
-          `${label}: shared export ${subpath} must point to a published TypeScript source file`,
+          `${label}: shared export ${subpath} must point to a published TypeScript source file`
         );
       }
     }
@@ -218,11 +265,15 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
   }
 
-  const isExperimentalExtensionPackage = dir.startsWith("pi/extensions/experimental/");
+  const isExperimentalExtensionPackage = dir.startsWith(
+    "pi/extensions/experimental/"
+  );
 
   if (isExtensionPackage) {
-    if (!pkg.keywords?.includes("pi-package")) {
-      errors.push(`${label}: extension package must include keyword pi-package`);
+    if (pkg.keywords?.includes("pi-package") !== true) {
+      errors.push(
+        `${label}: extension package must include keyword pi-package`
+      );
     }
 
     if (pkg.pi?.extensions === undefined || pkg.pi.extensions.length === 0) {
@@ -237,32 +288,41 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
 
     if (pkg.private !== isExperimentalExtensionPackage) {
       errors.push(
-        `${label}: ${isExperimentalExtensionPackage ? "experimental" : "stable"} extension packages must set private: ${isExperimentalExtensionPackage}`,
+        `${label}: ${isExperimentalExtensionPackage ? "experimental" : "stable"} extension packages must set private: ${isExperimentalExtensionPackage}`
       );
     }
 
     if (
       isExperimentalExtensionPackage &&
       existsSync(path.join(dir, "README.md")) &&
-      !readFileSync(path.join(dir, "README.md"), "utf-8").includes(EXPERIMENTAL_README_WARNING)
+      !readFileSync(path.join(dir, "README.md"), "utf-8").includes(
+        EXPERIMENTAL_README_WARNING
+      )
     ) {
       errors.push(
-        `${label}: experimental extension README must include ${EXPERIMENTAL_README_WARNING}`,
+        `${label}: experimental extension README must include ${EXPERIMENTAL_README_WARNING}`
       );
     }
   }
 
   for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
-    if (name.startsWith("@clanker-stuff/") && !sharedRuntimePackages.has(name)) {
+    if (
+      name.startsWith("@clanker-stuff/") &&
+      !sharedRuntimePackages.has(name)
+    ) {
       errors.push(`${label}: unapproved shared runtime dependency ${name}`);
     }
 
     if (PI_PROVIDED.has(name)) {
-      errors.push(`${label}: ${name} belongs in peerDependencies, not dependencies`);
+      errors.push(
+        `${label}: ${name} belongs in peerDependencies, not dependencies`
+      );
     }
 
     if (version === "workspace:*") {
-      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
+      errors.push(
+        `${label}: use workspace:^ instead of workspace:* for ${name}`
+      );
     }
   }
 
@@ -272,13 +332,17 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
 
     if (version === "workspace:*") {
-      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
+      errors.push(
+        `${label}: use workspace:^ instead of workspace:* for ${name}`
+      );
     }
   }
 
   for (const name of importedPiProvidedPackages(dir, pkg.files ?? [])) {
     if (pkg.peerDependencies?.[name] === undefined) {
-      errors.push(`${label}: imports ${name}; add peerDependencies.${name} = "*"`);
+      errors.push(
+        `${label}: imports ${name}; add peerDependencies.${name} = "*"`
+      );
     }
   }
 
@@ -290,7 +354,10 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: publishable packages must set private: false`);
   }
 
-  if (pkg.repository?.type !== "git" || pkg.repository?.url !== REPOSITORY_URL) {
+  if (
+    pkg.repository?.type !== "git" ||
+    pkg.repository?.url !== REPOSITORY_URL
+  ) {
     errors.push(`${label}: expected repository URL ${REPOSITORY_URL}`);
   }
 
@@ -313,7 +380,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
 
 if (errors.length > 0) {
   console.error(
-    `Package readiness check failed with ${errors.length} issue${errors.length === 1 ? "" : "s"}:`,
+    `Package readiness check failed with ${errors.length} issue${errors.length === 1 ? "" : "s"}:`
   );
 
   for (const error of errors) {

@@ -4,7 +4,7 @@
 // tokens and no tools.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import type { RegisteredMcpServer } from "@earendil-works/pi-coding-agent";
@@ -20,13 +20,13 @@ const EXPOSURES = ["codemode", "deferred", "direct", "hidden"];
 /** Older exposure names Pi still accepts. */
 const EXPOSURE_ALIASES = new Map([["codemode-deferred", "codemode"]]);
 
-const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * Keys a project entry may set to override a global server of the same name. Skills ignore
  * `toolExposure`, but an override that also sets it must still apply.
  */
-const OVERRIDE_KEYS = ["enabled", "exposure", "toolExposure"];
+const OVERRIDE_KEYS = new Set(["enabled", "exposure", "toolExposure"]);
 
 const Entry = Type.Record(Type.String(), Type.Unknown());
 
@@ -40,8 +40,19 @@ type Entry = Static<typeof Entry>;
 
 /** The connection settings of one server, as far as skills need them. */
 export type SkillServerTransport =
-  | { kind: "http"; url: string; headers: Record<string, string>; authProvider?: string }
-  | { kind: "stdio"; command: string; args: string[]; env: Record<string, string>; cwd?: string };
+  | {
+      kind: "http";
+      url: string;
+      headers: Record<string, string>;
+      authProvider?: string;
+    }
+  | {
+      kind: "stdio";
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+      cwd?: string;
+    };
 
 export interface SkillServerConfig {
   /** Host label: the server name in mcp.json, which the built-in MCP tools also use. */
@@ -65,24 +76,34 @@ interface Accepted {
 }
 
 /** Pi's namespace of a server's tools. Names that share one are the same server to Pi. */
-export const mcpNamespace = (name: string): string => `mcp__${name.replace(/-/gu, "_")}`;
+export const mcpNamespace = (name: string): string =>
+  `mcp__${name.replaceAll("-", "_")}`;
 
 const isEntry = (value: unknown): value is Entry =>
   !Array.isArray(value) && Value.Check(Entry, value);
 
 /** An exposure by its current name, if the value is a string. */
 const exposureName = (value: unknown): string | undefined =>
-  typeof value === "string" ? (EXPOSURE_ALIASES.get(value) ?? value) : undefined;
+  typeof value === "string"
+    ? (EXPOSURE_ALIASES.get(value) ?? value)
+    : undefined;
 
 /** Pi's checks of the settings skills use: connection settings or a rejection reason. */
 const validateServer = (name: string, raw: unknown): Settings | string => {
-  if (!SERVER_NAME.test(name)) return `invalid server name "${name}"`;
+  if (!SERVER_NAME.test(name)) {
+    return `invalid server name "${name}"`;
+  }
 
-  if (!isEntry(raw)) return `server "${name}" must be an object`;
+  if (!isEntry(raw)) {
+    return `server "${name}" must be an object`;
+  }
 
   const { enabled, exposure, timeout, type } = raw;
 
-  if (exposure !== undefined && !EXPOSURES.includes(exposureName(exposure) ?? "")) {
+  if (
+    exposure !== undefined &&
+    !EXPOSURES.includes(exposureName(exposure) ?? "")
+  ) {
     return `server "${name}": exposure must be one of ${EXPOSURES.join(", ")}`;
   }
 
@@ -90,11 +111,16 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
     return `server "${name}": enabled must be a boolean`;
   }
 
-  if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) {
+  if (
+    timeout !== undefined &&
+    (typeof timeout !== "number" || !(timeout > 0))
+  ) {
     return `server "${name}": timeout must be a positive number of seconds`;
   }
 
-  if (type === "sse") return `server "${name}": legacy SSE transport is not supported`;
+  if (type === "sse") {
+    return `server "${name}": legacy SSE transport is not supported`;
+  }
 
   const common = {
     enabled: enabled !== false,
@@ -119,17 +145,21 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
     let provider: string | undefined;
 
     if (auth !== undefined) {
-      if (!isEntry(auth) || typeof auth["provider"] !== "string" || !auth["provider"]) {
+      if (
+        !isEntry(auth) ||
+        typeof auth["provider"] !== "string" ||
+        !auth["provider"]
+      ) {
         return `server "${name}": auth.provider must be a provider name`;
       }
 
       const { hostname, protocol } = new URL(url);
 
-      if (protocol !== "https:" && !LOOPBACK_HOSTS.includes(hostname)) {
+      if (protocol !== "https:" && !LOOPBACK_HOSTS.has(hostname)) {
         return `server "${name}": auth requires an https URL, or http on a loopback host`;
       }
 
-      provider = auth["provider"];
+      ({ provider } = auth);
     }
 
     return {
@@ -152,8 +182,9 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
       return `server "${name}": env must map names to strings`;
     }
 
-    if (cwd !== undefined && typeof cwd !== "string")
+    if (cwd !== undefined && typeof cwd !== "string") {
       return `server "${name}": cwd must be a string`;
+    }
 
     return {
       ...common,
@@ -175,19 +206,27 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
  * `type` overrides only `enabled`, `exposure`, and `toolExposure` of the global server it names.
  * Invalid connection entries are left out.
  */
-const readConfigFile = (path: string, project: boolean, servers: Map<string, Accepted>): void => {
-  if (!existsSync(path)) return;
+const readConfigFile = (
+  file: string,
+  project: boolean,
+  servers: Map<string, Accepted>
+): void => {
+  if (!existsSync(file)) {
+    return;
+  }
 
   let parsed: unknown;
 
   try {
     // Like Pi, accept the UTF-8 BOM that Windows PowerShell 5.1 writes.
-    parsed = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/u, ""));
+    parsed = JSON.parse(readFileSync(file, "utf-8").replace(/^\uFEFF/u, ""));
   } catch {
     return;
   }
 
-  if (!isEntry(parsed) || !Value.Check(FileSchema, parsed)) return;
+  if (!isEntry(parsed) || !Value.Check(FileSchema, parsed)) {
+    return;
+  }
 
   for (const [name, value] of Object.entries(parsed.mcpServers ?? {})) {
     if (
@@ -199,24 +238,30 @@ const readConfigFile = (path: string, project: boolean, servers: Map<string, Acc
     ) {
       const base = servers.get(name);
 
-      if (base && Object.keys(value).every((key) => OVERRIDE_KEYS.includes(key))) {
+      if (base && Object.keys(value).every((key) => OVERRIDE_KEYS.has(key))) {
         const raw = { ...base.raw, ...value };
         const settings = validateServer(name, raw);
 
-        if (typeof settings !== "string") servers.set(name, { raw, settings });
+        if (typeof settings !== "string") {
+          servers.set(name, { raw, settings });
+        }
       }
 
       continue;
     }
 
-    if (!isEntry(value)) continue;
+    if (!isEntry(value)) {
+      continue;
+    }
 
     const settings = validateServer(name, value);
 
-    if (typeof settings === "string") continue;
+    if (typeof settings === "string") {
+      continue;
+    }
 
     const clashes = [...servers.keys()].some(
-      (other) => other !== name && mcpNamespace(other) === mcpNamespace(name),
+      (other) => other !== name && mcpNamespace(other) === mcpNamespace(name)
     );
 
     // A repository cannot pick where a provider's credential goes.
@@ -225,7 +270,9 @@ const readConfigFile = (path: string, project: boolean, servers: Map<string, Acc
       settings.transport.kind === "http" &&
       settings.transport.authProvider !== undefined;
 
-    if (!clashes && !projectAuth) servers.set(name, { raw: value, settings });
+    if (!clashes && !projectAuth) {
+      servers.set(name, { raw: value, settings });
+    }
   }
 };
 
@@ -256,18 +303,22 @@ export const loadServers = (options: {
 }): SkillServerConfig[] => {
   const servers = new Map<string, Accepted>();
 
-  readConfigFile(join(options.agentDir, "mcp.json"), false, servers);
+  readConfigFile(path.join(options.agentDir, "mcp.json"), false, servers);
 
   if (options.projectTrusted) {
-    readConfigFile(join(options.cwd, CONFIG_DIR_NAME, "mcp.json"), true, servers);
+    readConfigFile(
+      path.join(options.cwd, CONFIG_DIR_NAME, "mcp.json"),
+      true,
+      servers
+    );
   }
 
-  const configured = [...servers.keys()].map(mcpNamespace);
+  const configured = new Set([...servers.keys()].map(mcpNamespace));
 
   const registered = options.registered.flatMap(({ config, name }) => {
     const settings = validateServer(name, config);
 
-    return typeof settings === "string" || configured.includes(mcpNamespace(name))
+    return typeof settings === "string" || configured.has(mcpNamespace(name))
       ? []
       : [{ name, settings }];
   });
@@ -278,6 +329,6 @@ export const loadServers = (options: {
   ].flatMap(({ name, settings }) =>
     settings.enabled && settings.exposure !== "hidden"
       ? [{ name, timeoutMs: settings.timeoutMs, transport: settings.transport }]
-      : [],
+      : []
   );
 };

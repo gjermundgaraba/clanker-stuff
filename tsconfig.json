@@ -1,5 +1,5 @@
 {
-  "exclude": ["node_modules", "skills/install-anti-slop"],
+  "exclude": ["node_modules"],
   "compilerOptions": {
     "target": "ESNext",
     "allowImportingTsExtensions": true,
@@ -21,7 +21,9 @@
     ],
     "paths": {
       "/opt/pi-evals/codex-runner.mjs": ["./pi/evals/runtime/codex-eval.mjs"],
-      "/opt/pi-evals/pi-eval-tools.mjs": ["./pi/evals/suites/scaling/pi-eval-tools.mjs"],
+      "/opt/pi-evals/pi-eval-tools.mjs": [
+        "./pi/evals/suites/scaling/pi-eval-tools.mjs"
+      ],
       "/opt/pi-evals/services.mjs": ["./pi/evals/suites/scaling/services.mjs"],
       "/opt/pi-evals/eval-journal.mjs": ["./pi/evals/runtime/eval-journal.mjs"],
       "/opt/pi-evals/*": ["./pi/evals/runtime/*"],
@@ -29,6 +31,7 @@
       "/tests/comparison.mjs": ["./pi/evals/verifiers/comparison.mjs"],
       "/tests/tool-mode.mjs": ["./pi/evals/suites/scaling/tool-mode.mjs"],
       "/tests/scoring.mjs": ["./pi/evals/suites/scaling/scoring.mjs"],
+      "/tests/validity.mjs": ["./pi/evals/suites/scaling/validity.mjs"],
       "/app/src/release.js": [
         "./pi/evals/suites/compaction/tasks/decision-continuity/steps/implement/solution/release.js"
       ],

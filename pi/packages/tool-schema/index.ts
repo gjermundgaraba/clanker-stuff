@@ -18,15 +18,23 @@ const Constraints = Type.Partial(
     multipleOf: Type.Number(),
     pattern: Type.String(),
     uniqueItems: Type.Boolean(),
-  }),
+  })
 );
 
 const VALUE_CONSTRAINTS = new Set(Object.keys(Constraints.properties));
 
-const range = (min: number | undefined, max: number | undefined, unit: string): string[] => {
-  if (min === undefined) return max === undefined ? [] : [`at most ${max}${unit}`];
+const range = (
+  min: number | undefined,
+  max: number | undefined,
+  unit: string
+): string[] => {
+  if (min === undefined) {
+    return max === undefined ? [] : [`at most ${max}${unit}`];
+  }
 
-  if (max === undefined) return [`at least ${min}${unit}`];
+  if (max === undefined) {
+    return [`at least ${min}${unit}`];
+  }
 
   return [min === max ? `exactly ${min}${unit}` : `${min}–${max}${unit}`];
 };
@@ -35,18 +43,26 @@ const range = (min: number | undefined, max: number | undefined, unit: string): 
 // description: the limit is still enforced when the call executes.
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- JSON Schema nodes are open records; the constraint keywords are parsed before use.
 const limits = (node: Record<string, unknown>): string[] => {
-  if (!Value.Check(Constraints, node)) return [];
+  if (!Value.Check(Constraints, node)) {
+    return [];
+  }
 
   return [
     ...range(node.minLength, node.maxLength, " characters"),
     ...range(node.minItems, node.maxItems, " items"),
     ...range(node.minimum, node.maximum, ""),
-    ...(node.exclusiveMinimum !== undefined ? [`greater than ${node.exclusiveMinimum}`] : []),
-    ...(node.exclusiveMaximum !== undefined ? [`less than ${node.exclusiveMaximum}`] : []),
-    ...(node.multipleOf !== undefined ? [`multiple of ${node.multipleOf}`] : []),
+    ...(node.exclusiveMinimum === undefined
+      ? []
+      : [`greater than ${node.exclusiveMinimum}`]),
+    ...(node.exclusiveMaximum === undefined
+      ? []
+      : [`less than ${node.exclusiveMaximum}`]),
+    ...(node.multipleOf === undefined
+      ? []
+      : [`multiple of ${node.multipleOf}`]),
     ...(node.uniqueItems === true ? ["unique items"] : []),
-    ...(node.format !== undefined ? [`format ${node.format}`] : []),
-    ...(node.pattern !== undefined ? [`pattern ${node.pattern}`] : []),
+    ...(node.format === undefined ? [] : [`format ${node.format}`]),
+    ...(node.pattern === undefined ? [] : [`pattern ${node.pattern}`]),
   ];
 };
 
@@ -56,26 +72,38 @@ const isSchemaNode = (value: unknown): value is Record<string, unknown> =>
 
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- JSON Schema is an open tree; only schema-valued keywords are traversed.
 const strip = (node: unknown): unknown => {
-  if (Array.isArray(node)) return node.map(strip);
+  if (Array.isArray(node)) {
+    return node.map(strip);
+  }
 
-  if (!isSchemaNode(node)) return node;
+  if (!isSchemaNode(node)) {
+    return node;
+  }
 
   const result = Object.fromEntries(
     Object.entries(node)
       .filter(([key]) => !VALUE_CONSTRAINTS.has(key))
       .map(([key, value]) => {
         // Property names are data: a property called `pattern` must survive.
-        if (key === "properties" && isSchemaNode(value))
+        if (key === "properties" && isSchemaNode(value)) {
           return [
             key,
-            Object.fromEntries(Object.entries(value).map(([name, child]) => [name, strip(child)])),
+            Object.fromEntries(
+              Object.entries(value).map(([name, child]) => [name, strip(child)])
+            ),
           ];
+        }
 
-        if (key === "items" || key === "anyOf" || key === "additionalProperties")
+        if (
+          key === "items" ||
+          key === "anyOf" ||
+          key === "additionalProperties"
+        ) {
           return [key, strip(value)];
+        }
 
         return [key, value];
-      }),
+      })
   );
 
   const summary = limits(node);
@@ -83,7 +111,7 @@ const strip = (node: unknown): unknown => {
   if (summary.length > 0) {
     const description =
       typeof node["description"] === "string"
-        ? `${node["description"].replace(/[.\s]*$/, "")}. `
+        ? `${node["description"].replace(/[.\s]*$/u, "")}. `
         : "";
 
     result["description"] = `${description}Limits: ${summary.join("; ")}.`;
@@ -101,8 +129,13 @@ export const structuralSchema = <T extends TSchema>(schema: T): T =>
   strip(schema) as T;
 
 /** Why `input` fails the constrained schema, naming each violation. */
-export const invalidArguments = (schema: TSchema, input: unknown, label: string) =>
+export const invalidArguments = (
+  schema: TSchema,
+  input: unknown,
+  label: string
+) =>
   new Error(
-    `Invalid ${label} arguments: ` +
-      [...Value.Errors(schema, input)].map((e) => `${e.instancePath}: ${e.message}`).join("; "),
+    `Invalid ${label} arguments: ${[...Value.Errors(schema, input)]
+      .map((e) => `${e.instancePath}: ${e.message}`)
+      .join("; ")}`
   );

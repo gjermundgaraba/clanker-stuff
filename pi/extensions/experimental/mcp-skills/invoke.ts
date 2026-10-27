@@ -1,14 +1,20 @@
+import { skillBlock } from "@clanker-stuff/pi-skill-providers";
+import type {
+  ProvidedSkill,
+  SkillProvider,
+} from "@clanker-stuff/pi-skill-providers";
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
   InputEvent,
   InputEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { skillBlock } from "@clanker-stuff/pi-skill-providers";
-import type { ProvidedSkill, SkillProvider } from "@clanker-stuff/pi-skill-providers";
-import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
-import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
+import type {
+  AutocompleteItem,
+  AutocompleteProvider,
+} from "@earendil-works/pi-tui";
 
 import type { CatalogSkill } from "./catalog.js";
 import type { McpSkills } from "./runtime.js";
@@ -26,14 +32,16 @@ const completionDescription = (skill: CatalogSkill): string =>
 const loadSkill = async (
   skills: McpSkills,
   skill: CatalogSkill,
-  ctx: ExtensionContext,
+  ctx: ExtensionContext
 ): Promise<ProvidedSkill | { error: string }> => {
   const loaded = await skills.load(ctx, skill, ctx.signal);
 
-  if ("error" in loaded) return loaded;
+  if ("error" in loaded) {
+    return loaded;
+  }
 
   return {
-    content: `${skillOrigin(skill)}\n\n${stripFrontmatter(loaded.bytes.toString("utf8")).trim()}`,
+    content: `${skillOrigin(skill)}\n\n${stripFrontmatter(loaded.bytes.toString("utf-8")).trim()}`,
     location: skill.path,
   };
 };
@@ -45,15 +53,19 @@ const loadSkill = async (
 export const expandSkillCommand = async (
   skills: McpSkills,
   event: InputEvent,
-  ctx: ExtensionContext,
+  ctx: ExtensionContext
 ): Promise<InputEventResult | undefined> => {
   const match = SKILL_COMMAND.exec(event.text);
   const name = match?.groups?.["name"];
 
   const skill =
-    name === undefined ? undefined : skills.catalog().find((candidate) => candidate.name === name);
+    name === undefined
+      ? undefined
+      : skills.catalog().find((candidate) => candidate.name === name);
 
-  if (!skill) return undefined;
+  if (!skill) {
+    return undefined;
+  }
 
   const loaded = await loadSkill(skills, skill, ctx);
 
@@ -66,7 +78,10 @@ export const expandSkillCommand = async (
   const args = match?.groups?.["args"]?.trim();
   const block = skillBlock([{ ...loaded, name: skill.name }]);
 
-  return { action: "transform", text: args ? `${block}\n\n${args}` : block };
+  return {
+    action: "transform",
+    text: args !== undefined && args !== "" ? `${block}\n\n${args}` : block,
+  };
 };
 
 /** MCP skills for `$` mentions in dollah-skills, loaded the same way as `/skill:`. */
@@ -90,8 +105,14 @@ export const createMentionProvider = (skills: McpSkills): SkillProvider => ({
  * Rank command completions like Pi does: matches on the name without `skill:` first, then matches
  * on the full name.
  */
-const rankCommands = (items: readonly AutocompleteItem[], query: string): AutocompleteItem[] => {
-  const bare = fuzzyFilter([...items], query, (item) => item.value.replace(/^skill:/u, ""));
+const rankCommands = (
+  items: readonly AutocompleteItem[],
+  query: string
+): AutocompleteItem[] => {
+  const bare = fuzzyFilter([...items], query, (item) =>
+    item.value.replace(/^skill:/u, "")
+  );
+
   const matched = new Set(bare);
 
   return [
@@ -99,7 +120,7 @@ const rankCommands = (items: readonly AutocompleteItem[], query: string): Autoco
     ...fuzzyFilter(
       items.filter((item) => !matched.has(item)),
       query,
-      (item) => item.value,
+      (item) => item.value
     ),
   ];
 };
@@ -109,18 +130,32 @@ export const skillCommandCompletion =
   (skills: McpSkills) =>
   (current: AutocompleteProvider): AutocompleteProvider => ({
     applyCompletion: current.applyCompletion.bind(current),
-    ...(current.triggerCharacters ? { triggerCharacters: current.triggerCharacters } : {}),
+    ...(current.triggerCharacters
+      ? { triggerCharacters: current.triggerCharacters }
+      : {}),
     ...(current.shouldTriggerFileCompletion
-      ? { shouldTriggerFileCompletion: current.shouldTriggerFileCompletion.bind(current) }
+      ? {
+          shouldTriggerFileCompletion:
+            current.shouldTriggerFileCompletion.bind(current),
+        }
       : {}),
     async getSuggestions(lines, cursorLine, cursorCol, options) {
-      const suggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
+      const suggestions = await current.getSuggestions(
+        lines,
+        cursorLine,
+        cursorCol,
+        options
+      );
 
-      const query = options.force
-        ? undefined
-        : COMMAND_PREFIX.exec((lines[cursorLine] ?? "").slice(0, cursorCol))?.groups?.["query"];
+      const query =
+        options.force === true
+          ? undefined
+          : COMMAND_PREFIX.exec((lines[cursorLine] ?? "").slice(0, cursorCol))
+              ?.groups?.["query"];
 
-      if (query === undefined || cursorLine !== 0) return suggestions;
+      if (query === undefined || cursorLine !== 0) {
+        return suggestions;
+      }
 
       const items = skills.catalog().map((skill) => ({
         description: completionDescription(skill),
@@ -128,8 +163,13 @@ export const skillCommandCompletion =
         value: `skill:${skill.name}`,
       }));
 
-      const ranked = rankCommands([...(suggestions?.items ?? []), ...items], query);
+      const ranked = rankCommands(
+        [...(suggestions?.items ?? []), ...items],
+        query
+      );
 
-      return ranked.length > 0 ? { items: ranked, prefix: `/${query}` } : suggestions;
+      return ranked.length > 0
+        ? { items: ranked, prefix: `/${query}` }
+        : suggestions;
     },
   });

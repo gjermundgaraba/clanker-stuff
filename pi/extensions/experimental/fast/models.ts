@@ -3,9 +3,12 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const canRequestPriority = (ctx: {
   model: ExtensionContext["model"];
-  modelRegistry: Pick<ExtensionContext["modelRegistry"], "isUsingOAuth" | "getProvider">;
+  modelRegistry: Pick<
+    ExtensionContext["modelRegistry"],
+    "isUsingOAuth" | "getProvider"
+  >;
 }): boolean => {
-  const model = ctx.model;
+  const { model } = ctx;
 
   return (
     model?.provider === "openai" &&

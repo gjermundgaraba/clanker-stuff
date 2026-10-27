@@ -1,7 +1,7 @@
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import { highlightDiff, SyntaxSchema } from "../highlight.js";
-import { Value } from "typebox/value";
 
 describe("Highlights diff projection", () => {
   it("preserves multiline lexer state beyond the displayed hunk and separates the two source versions", async () => {
@@ -15,12 +15,12 @@ describe("Highlights diff projection", () => {
       "source.ts",
       `-14 ${oldLine}\n+14 ${newLine}`,
       before,
-      after,
+      after
     );
 
     expect(Value.Check(SyntaxSchema, syntax)).toBe(true);
-    expect(syntax?.[0]).toEqual([[oldLine.length, "comment"]]);
-    expect(syntax?.[1]?.map((span) => span[1])).toEqual([
+    expect(syntax?.[0]).toStrictEqual([[oldLine.length, "comment"]]);
+    expect(syntax?.[1]?.map((span) => span[1])).toStrictEqual([
       "keyword",
       "variable",
       "operator",
@@ -38,7 +38,7 @@ describe("Highlights diff projection", () => {
       "source.ts",
       `-1 ${before}\n+1 ${after}`,
       `\uFEFF${before}\r\n`,
-      `\uFEFF${after}\r\n`,
+      `\uFEFF${after}\r\n`
     );
 
     expect(syntax?.[0]?.at(-1)?.[0]).toBe(before.length);
@@ -48,13 +48,13 @@ describe("Highlights diff projection", () => {
 
   it("projects old-numbered context after insertions and leaves ellipses or unmatched rows unstyled", async () => {
     const before = "const first = 1;\nconst second = 2;\n";
-    const after = "const extra = 0;\n" + before;
+    const after = `const extra = 0;\n${before}`;
 
     const syntax = await highlightDiff(
       "source.ts",
       "+1 const extra = 0;\n 1 const first = 1;\n   ...\n 2 const second = 2;\n+99 mismatch",
       before,
-      after,
+      after
     );
 
     expect(syntax?.[1]?.[0]?.[1]).toBe("keyword");
@@ -68,11 +68,16 @@ describe("Highlights diff projection", () => {
     const syntax = await highlightDiff("view.tsx", `+1 ${line}`, "", line);
     const spans = syntax?.[0];
     expect(spans).not.toBeNull();
-    expect(spans).toContainEqual([line.indexOf('"hello"') + '"hello"'.length, "string"]);
+    expect(spans).toContainEqual([
+      line.indexOf('"hello"') + '"hello"'.length,
+      "string",
+    ]);
     expect(spans?.at(-1)?.[0]).toBe(line.length);
   });
 
   it("returns no highlighting for unknown languages", async () => {
-    expect(await highlightDiff("notes.txt", "+1 plain", "", "plain")).toBeUndefined();
+    await expect(
+      highlightDiff("notes.txt", "+1 plain", "", "plain")
+    ).resolves.toBeUndefined();
   });
 });

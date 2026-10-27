@@ -1,14 +1,25 @@
-import { KeybindingsManager, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { highlightCode } from "@earendil-works/pi-coding-agent";
+import {
+  KeybindingsManager,
+  TUI_KEYBINDINGS,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
+
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../tests/harness/tui.js";
 import { observeRequest } from "../observation.js";
-import { ContextViews } from "../views.js";
+import type { OverlayServices } from "../overlay.js";
 import { buildToolsSnapshot } from "../tools.js";
+import { ContextViews } from "../views.js";
 import { fixtureSnapshot } from "./fixtures/snapshot.js";
 
 const setup = (captured = true) => {
   const tui = createMockTui({ rows: 24 });
-  const done = vi.fn();
+  const done = vi.fn<() => void>();
 
   const views = new ContextViews(
     tui,
@@ -22,8 +33,12 @@ const setup = (captured = true) => {
         : undefined,
     },
     buildToolsSnapshot([], []),
-    { notify: vi.fn() },
-    done,
+    { notify: vi.fn<ExtensionUIContext["notify"]>() },
+    {
+      copyToClipboard: vi.fn<OverlayServices["copyToClipboard"]>(),
+      highlightCode,
+    },
+    done
   );
 
   views.focused = true;
@@ -47,7 +62,7 @@ describe(ContextViews, () => {
     t.press("/", ..."needle".split(""), "v");
     expect(t.render()).toContain("/needlev");
     expect(t.render()).not.toContain("request observation");
-    t.press("\u007f", "\r", "v");
+    t.press("\u007F", "\r", "v");
     expect(t.render()).toContain("request observation");
     expect(t.render()).toContain("v tools");
     expect(t.render()).not.toContain("state-only instruction");
@@ -70,7 +85,7 @@ describe(ContextViews, () => {
       expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
     }
 
-    t.press("\u001b", "\u001b");
+    t.press("\u001B", "\u001B");
     expect(t.done).toHaveBeenCalledOnce();
   });
 

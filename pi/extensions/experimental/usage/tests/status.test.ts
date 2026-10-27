@@ -5,9 +5,11 @@ import type { UsageSnapshot } from "../providers.js";
 import { statusText } from "../status.js";
 
 /** Renders `fg` as `<tone:text>` so assertions can check meaning without real colors. */
-const tones: Pick<Theme, "fg"> = { fg: (tone, text) => (text ? `<${tone}:${text}>` : "") };
+const tones: Pick<Theme, "fg"> = {
+  fg: (tone, text) => (text ? `<${tone}:${text}>` : ""),
+};
 
-const plain = (text: string) => text.replaceAll(/<\w+:|>/g, "");
+const plain = (text: string) => text.replaceAll(/<\w+:|>/gu, "");
 
 const snapshot: UsageSnapshot = {
   fetchedAt: 1000,
@@ -22,7 +24,10 @@ const snapshot: UsageSnapshot = {
   ],
 };
 
-const ready = (value: UsageSnapshot) => ({ kind: "ready" as const, snapshot: value });
+const ready = (value: UsageSnapshot) => ({
+  kind: "ready" as const,
+  snapshot: value,
+});
 
 describe(statusText, () => {
   it("shows the most-used window with a toned meter and its reset", () => {
@@ -42,19 +47,21 @@ describe(statusText, () => {
         additionalQuotaWindows: [{ label: "Spark 5h", remainingPercent: 0 }],
       }),
       1000,
-      tones,
+      tones
     );
 
     expect(plain(text)).toBe("Codex account quota not reported");
   });
 
   it("marks stale data and stays quiet while loading or unavailable", () => {
-    expect(statusText({ kind: "stale", snapshot }, 1000, tones)).toMatch(/<warning: !>$/);
+    expect(statusText({ kind: "stale", snapshot }, 1000, tones)).toMatch(
+      /<warning: !>$/u
+    );
     expect(statusText({ kind: "loading", provider: "zai" }, 1000, tones)).toBe(
-      "<dim:GLM usage loading>",
+      "<dim:GLM usage loading>"
     );
     expect(statusText({ kind: "error", provider: "xai" }, 1000, tones)).toBe(
-      "<muted:Grok usage unavailable>",
+      "<muted:Grok usage unavailable>"
     );
   });
 
@@ -75,7 +82,7 @@ describe(statusText, () => {
           quotaWindows: [],
         }),
         1000,
-        tones,
+        tones
       );
 
     expect(radius(43.26)).toBe("<muted:Radius ><text:$43.26 available>");
@@ -90,9 +97,9 @@ describe(statusText, () => {
             quotaWindows: [],
           }),
           1000,
-          tones,
-        ),
-      ),
+          tones
+        )
+      )
     ).toBe("OpenRouter 12.5 credits");
   });
 
@@ -109,7 +116,7 @@ describe(statusText, () => {
         ],
       }),
       1000,
-      tones,
+      tones
     );
 
     expect(plain(text)).toBe("Codex Spark 15m ━━━━━━━━── 80%");
@@ -117,9 +124,13 @@ describe(statusText, () => {
 
   it("strips terminal controls from provider plan labels", () => {
     const text = statusText(
-      ready({ ...snapshot, provider: "zai", planLabel: "Pro\u001B]52;c;x\u0007\u202E" }),
+      ready({
+        ...snapshot,
+        provider: "zai",
+        planLabel: "Pro\u001B]52;c;x\u0007\u202E",
+      }),
       1000,
-      tones,
+      tones
     );
 
     expect(text).not.toContain("\u001B");

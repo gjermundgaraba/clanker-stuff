@@ -1,8 +1,16 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { resetCapabilitiesCache, setCapabilities, Text } from "@earendil-works/pi-tui";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+  resetCapabilitiesCache,
+  setCapabilities,
+  Text,
+} from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
-import { createIdentityTheme, createMockTui } from "../../../../../tests/harness/tui.js";
+import {
+  createIdentityTheme,
+  createMockTui,
+} from "../../../../../tests/harness/tui.js";
 import { envelopeText, SUBAGENT_MESSAGE_TYPE } from "../../protocol.js";
 import type { AgentMessage } from "../../runtime.js";
 import { Transcript } from "../../ui/transcript.js";
@@ -14,8 +22,18 @@ const PIXEL =
 const calls: AgentMessage = {
   api: "faux",
   content: [
-    { arguments: { path: "fast.txt" }, id: "fast", name: "read", type: "toolCall" },
-    { arguments: { path: "slow.txt" }, id: "slow", name: "read", type: "toolCall" },
+    {
+      arguments: { path: "fast.txt" },
+      id: "fast",
+      name: "read",
+      type: "toolCall",
+    },
+    {
+      arguments: { path: "slow.txt" },
+      id: "slow",
+      name: "read",
+      type: "toolCall",
+    },
   ],
   model: "child",
   provider: "provider",
@@ -34,7 +52,7 @@ const calls: AgentMessage = {
 
 const result = (
   toolCallId: string,
-  content: Extract<AgentMessage, { role: "toolResult" }>["content"],
+  content: Extract<AgentMessage, { role: "toolResult" }>["content"]
 ): AgentMessage => ({
   content,
   isError: false,
@@ -47,18 +65,33 @@ const result = (
 const transcript = () =>
   new Transcript({
     cwd: "/project",
-    renderers: () => undefined,
+    renderers: (): undefined => undefined,
     theme: createIdentityTheme(),
     tui: createMockTui({ rows: 40 }),
   });
 
 const text = (component: Transcript) => component.render(100).join("\n");
 
-beforeAll(() => initTheme("dark"));
-
-afterEach(() => resetCapabilitiesCache());
+const timedTranscript = () =>
+  new Transcript({
+    cwd: "/project",
+    renderers: () => ({
+      renderResult: (_result, _options, _theme, context) =>
+        new Text(`duration=${context.durationMs ?? "unknown"}`, 0, 0),
+    }),
+    theme: createIdentityTheme(),
+    tui: createMockTui({ rows: 40 }),
+  });
 
 describe(Transcript, () => {
+  beforeAll(() => {
+    initTheme("dark");
+  });
+
+  afterEach(() => {
+    resetCapabilitiesCache();
+  });
+
   it.each([false, true])(
     "shows and expands mail regardless of display, while other custom messages honor it (%s)",
     (display) => {
@@ -69,7 +102,8 @@ describe(Transcript, () => {
             role: "custom",
             customType: SUBAGENT_MESSAGE_TYPE,
             content: envelopeText({
-              content: "First line\nSecond line\nThird line\nFourth line\nMAIL-TAIL",
+              content:
+                "First line\nSecond line\nThird line\nFourth line\nMAIL-TAIL",
               from: "/root/scout",
               kind: "MESSAGE",
               to: "/root/worker",
@@ -85,7 +119,7 @@ describe(Transcript, () => {
             timestamp: 0,
           },
         ],
-        undefined,
+        undefined
       );
 
       expect(text(component)).toContain("message from");
@@ -97,7 +131,7 @@ describe(Transcript, () => {
       component.setExpanded(true);
       expect(text(component)).toContain("MAIL-TAIL");
       component.dispose();
-    },
+    }
   );
 
   it("shows results of calls that finished before it was opened mid-batch", () => {
@@ -125,19 +159,12 @@ describe(Transcript, () => {
   ])(
     "preserves live and recorded timing ($durationMs ms, error: $isError)",
     ({ durationMs, isError }) => {
-      const create = () =>
-        new Transcript({
-          cwd: "/project",
-          renderers: () => ({
-            renderResult: (_result, _options, _theme, context) =>
-              new Text(`duration=${context.durationMs ?? "unknown"}`, 0, 0),
-          }),
-          theme: createIdentityTheme(),
-          tui: createMockTui({ rows: 40 }),
-        });
+      const live = timedTranscript();
 
-      const live = create();
-      const output = { content: [{ text: "done", type: "text" as const }], details: undefined };
+      const output = {
+        content: [{ text: "done", type: "text" as const }],
+        details: undefined,
+      };
 
       const recorded = {
         ...result("fast", output.content),
@@ -158,16 +185,18 @@ describe(Transcript, () => {
       expect(text(live)).toContain(expected);
       live.handle({ type: "message_start", message: recorded });
       expect(text(live)).toContain(expected);
-      const restored = create();
+      const restored = timedTranscript();
       restored.load([calls, recorded], undefined);
       expect(text(restored)).toContain(expected);
       live.dispose();
       restored.dispose();
-    },
+    }
   );
 
   it("settles running rows when disposed, so their renderers can stop timers", () => {
-    const renderResult = vi.fn(() => new Text("", 0, 0));
+    const renderResult = vi.fn<NonNullable<ToolDefinition["renderResult"]>>(
+      () => new Text("", 0, 0)
+    );
 
     const component = new Transcript({
       cwd: "/project",
@@ -188,7 +217,7 @@ describe(Transcript, () => {
       expect.anything(),
       expect.objectContaining({ isPartial: true }),
       expect.anything(),
-      expect.anything(),
+      expect.anything()
     );
 
     component.dispose();
@@ -196,7 +225,7 @@ describe(Transcript, () => {
       expect.anything(),
       expect.objectContaining({ isPartial: false }),
       expect.anything(),
-      expect.anything(),
+      expect.anything()
     );
   });
 
@@ -204,8 +233,11 @@ describe(Transcript, () => {
     setCapabilities({ hyperlinks: true, images: "kitty", trueColor: true });
     const component = transcript();
     component.load(
-      [calls, result("fast", [{ data: PIXEL, mimeType: "image/png", type: "image" }])],
-      undefined,
+      [
+        calls,
+        result("fast", [{ data: PIXEL, mimeType: "image/png", type: "image" }]),
+      ],
+      undefined
     );
 
     expect(text(component)).toContain("[Image: [image/png] 1x1]");
