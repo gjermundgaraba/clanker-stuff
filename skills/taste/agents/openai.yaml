@@ -1,7 +1,7 @@
 interface:
   display_name: "Taste"
   short_description: "Give any UI deliberate hierarchy, spacing and copy"
-  default_prompt: "Use $taste to review this UI's hierarchy, spacing, type, colour, copy and states, and fix the top problems."
+  default_prompt: "Use $taste to review this UI's hierarchy, spacing, type, colour, copy, figures and states, and fix the top problems."
 
 policy:
   allow_implicit_invocation: false

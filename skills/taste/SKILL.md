@@ -1,23 +1,23 @@
 ---
 name: taste
 disable-model-invocation: true
-description: Design, refine, or review any user interface (web, native, mobile, desktop, terminal) for deliberate hierarchy, spacing, type, colour, copy, and states instead of generated defaults.
+description: Design, refine, or review any user interface (web, native, mobile, desktop, terminal) for deliberate hierarchy, spacing, type, colour, copy, figures, and states instead of generated defaults.
 license: MIT AND Apache-2.0
 metadata:
   upstream-source: "https://github.com/Leonxlnx/taste-skill"
   upstream-path: "skills/"
-  upstream-revision: "f624f37a8c650b9cc550253104925efe4c8de246"
+  upstream-revision: "12af471f627f866411b4bd785b19646d3672784c"
   upstream-relationship: "adapted"
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
-  upstream-baseline-kind: "recorded"
+  upstream-baseline-kind: "reconciled"
   upstream-impeccable-source: "https://github.com/pbakaus/impeccable"
   upstream-impeccable-path: ".agents/skills/impeccable/"
-  upstream-impeccable-revision: "9304afa97f89b30609e4c538584fb3e0cd4df013"
+  upstream-impeccable-revision: "d34c87e1a00989ae8dbdd7f6b30b70f23319e860"
   upstream-impeccable-relationship: "adapted"
   upstream-impeccable-license: "Apache-2.0"
   upstream-impeccable-license-file: "LICENSE.impeccable"
-  upstream-impeccable-baseline-kind: "recorded"
+  upstream-impeccable-baseline-kind: "reconciled"
   upstream-emil-source: "https://github.com/emilkowalski/skills"
   upstream-emil-path: "skills/"
   upstream-emil-revision: "2d228630ba1446365f614a108cb8252f1feda202"
@@ -50,6 +50,9 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 ## Hierarchy
 
 - Give each screen one dominant element: the thing the user came to see or do. In a one-second glance there should be exactly one answer.
+- In five seconds a stranger can say, from words on the first screen, what this is and what to do next. When the title is a name, the line under it says what the thing is.
+- Put the one finding that most needs attention where it is read first, beside the action it drives. The most frequent job is one step from the first view; a screen with no control for its job is a report, not a tool.
+- Every region the user came for opens with a heading that names it, not a small label standing in for one.
 - Use few levels, far apart. Two or three carry most screens; five is the ceiling. Levels that are almost the same read as noise, so merge them.
 - Emphasis is scarce. If every line is bold, coloured, or boxed, none is.
 - Secondary information is the same face in a softer ink, not a smaller or thinner one that stops being readable.
@@ -64,7 +67,10 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - A heading belongs to what follows it: at least twice as much space above it as below.
 - Text hangs from two or three shared edges reused across the whole UI. Six distinct left edges means things were placed one at a time.
 - Align numbers in columns by their right edge, with fixed-width figures where the medium offers them.
-- Empty space is placed, not left over. When a region looks empty, enlarge the main element or remove the region; do not fill it with ornament.
+- Empty space is placed, not left over: a void is placed only when something closes it on the far side (the main element, a picture, the type). If nothing does, it is a hole: move the region's own content into it, enlarge the main element, or take the space out; never fill it with ornament. Text in one half with nothing in the other is a hole.
+- The outer margins are equal at every size, and navigation sits on the same margins as the content. Asymmetry lives inside the grid, never in the frame.
+- Size each region to its content. Blocks in one row end on the same line; get there by choosing counts and spans, not by stretching a short block until it holds a blank band.
+- Density is row pitch, padding, and type size moved together. Do not shrink the type and keep the padding.
 - Separate with space first, then a tone step, and only then a line. Do not box everything, and do not put a panel inside a panel.
 - Align optically, not only numerically: an icon beside text, a glyph in a circle, or a round letter at an edge often needs a small nudge to look right.
 - Layout follows the space the UI is given, not the device: a split window is a small screen, a resized terminal is a new size.
@@ -77,13 +83,13 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - Keep running text to about 45 to 75 characters per line. Do not centre more than three lines; do not justify.
 - Sentence case for headings, labels, and buttons. Capitals only for a few words, and never as tiny decorative labels.
 - Use one family, or two with fixed jobs. Do not add a face for labels or numbers.
-- Author line breaks in titles: no single orphan word, no break that splits a phrase.
+- Author line breaks in titles: no single orphan word, no break that splits a phrase, and check each break at every size the title renders at. Use the medium's own balancing where it has one. An uneven break is fine when it is deliberate and rare.
 - Use real characters where the medium renders them (curly quotes, an ellipsis, an en dash for ranges), and check their width where alignment depends on it.
 
 ## Colour and surfaces
 
 - Name roles before choosing values: ground, surface, ink, muted ink, one accent, the ink on the accent, and status colours if needed. Use only those roles; a raw value in a component starts a second palette.
-- Ground holds most of the screen. The accent marks the primary action, the selection, or the current place, and covers under about five percent of a screen. Headings are ink, not accent. A tinted surface, such as a coloured sidebar, is a surface, not the accent.
+- Ground holds most of the screen. The accent marks the primary action, the selection, or the current place, and covers under about five percent of a screen. Headings are ink, not accent. A tinted surface, such as a sidebar one tone step off the ground, is a surface, not the accent.
 - A surface differs from the ground by one tone step. Depth comes from a lighter or darker surface, never from glows.
 - Body text meets 4.5:1 contrast and large text or controls 3:1. Muted text on dark grounds fails first, so check it.
 - Colour never carries meaning alone: pair it with a word, a symbol, or position, so the UI survives colour blindness, monochrome output, and a user's own theme.
@@ -91,9 +97,10 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 
 ## Copy
 
-- Cut taglines, helper text, and secondary labels. If a screen needs them to make sense, fix the layout.
+- Cut filler, not meaning: taglines, decorative helper text, and labels that repeat the layout. If a screen needs them to make sense, fix the layout.
+- A control explains itself by its form, label, and place; if it needs a sentence on how to operate it, redesign the control. What a field accepts is different: first remove the limit (a picker, a parser that takes any common format), and keep a limit that remains visible beside the field and tied to it for assistive technology.
 - Name the outcome or the thing: "Save draft", "Delete 3 files", never the gesture ("Click here"). One action keeps one name everywhere.
-- Prefer the specific noun and the real number. If another product could print the sentence unchanged, sharpen it or cut it.
+- Prefer the specific noun and the real number. If another product could print the sentence unchanged, sharpen it or cut it. Use the trade's own words ("Waiting on the customer", "Off sick"), not a template's ("Items", "Records", "Status").
 - Say it once. If the heading explains the state, the text below adds something new or goes.
 - A placeholder is an example, not a label; the label stays visible while the user types.
 - Errors say what happened, why if known, and what to do next, with no "Oops" and no exclamation marks.
@@ -101,18 +108,27 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - Write messages as whole sentences, not pasted-together fragments, and leave room for text to grow by about a third.
 - No invented proof, customers, or metrics. Sample data is plausible, varied, and at the real density, and you name it as sample data in your report.
 
+## Data and figures
+
+- A fact shown twice is one value in the data. Totals and changes are computed from the parts as displayed, and every relative figure names its baseline in the same phrase ("+5 on the usual Monday").
+- On screens people work in, colour goes on data, status, and the one primary action, not on navigation, headers, or every button. Colour on a change says good or bad, not up or down; no change is neutral. Red marks the failing fact once per object, never as a texture.
+- A chart answers one question: one hue, no legend for a single series, never without a scale, and the event that matters annotated where it happens. A forecast looks different from a fact. If a caption has to say which mark is which, encode it in the chart instead.
+- A real zero prints as a zero. A missing value in a column is a quiet dash, never at value size, where it reads as loading; a missing optional line is left out. An empty chart is still drawn on its baseline.
+- Counts follow the current filter. A count badge marks only a queue that needs action, and its noun is clear from the label.
+
 ## States and interaction
 
-- Every control has visible resting, focused, pressed, disabled, and selected or current states. Keyboard focus is always visible.
+- Every control has visible resting, focused, pressed, disabled, and selected or current states. Keyboard focus is always visible. A disabled control stays legible and says why.
+- Every control has an accessible name: its visible label, or a name of its own when it shows only an icon.
 - Every view of data has designed loading, error, partial, and overflow states, and five distinct empty states: first use, no results, everything filtered out, no permission, and failed to load. Each says what belongs here and gives its own next step.
-- Loading keeps the layout's shape so nothing jumps when content arrives. Progress is never invented.
+- Loading is the final layout with a flat placeholder at each value's real size, so nothing jumps when content arrives. A refresh keeps the old values and says when they were last good. Progress is never invented.
 - The visible response lands on press, in the same frame as the input; only slow work comes after it. Anything slower than about a second shows progress.
 - New input changes course from wherever the screen is now. Never lock input while something moves, redraws, or loads.
 - A key that might start a sequence delays every press of it, so keep frequent keys out of sequences.
 - A cancelled gesture, lost focus, or a resize mid-action leaves no stuck state. A user who leaves mid-task returns to where they were.
-- An error keeps what the user entered, and a failure in one region degrades only that region. Check a field as it is filled in, not only at submit.
+- An error keeps what the user entered, and a failure in one region degrades only that region, says what failed, and offers a retry there. Check a field as it is filled in, not only at submit.
 - Use a modal only when the task must interrupt or hold focus; try inline first. Passing feedback never blocks. A blocking task dims what is behind it; a panel used alongside the main view does not. A self-dismissing message pauses its timer while the screen is hidden or unfocused.
-- The user can always tell where they are and how to go back. The platform's own way back (system back, edge swipe, Esc or q) is never disabled or overridden.
+- The user can always tell which product and scope (workspace, account) they are in, where they are, and how to go back. The platform's own way back (system back, edge swipe, Esc or q) is never disabled or overridden.
 - Destructive actions are undoable or confirmed in proportion to their cost.
 - Every action is reachable from every input the medium supports, with targets large enough for the coarsest one. Nothing works only on hover.
 - Never block the user's own scaling (zoom, text size, terminal font), and keep content out of areas the system owns (notches, system bars, the on-screen keyboard).
@@ -120,7 +136,7 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 
 ## Motion
 
-Motion comes last and never rescues a weak layout. Animate only to show where something came from, confirm an action, or soften a change. The more often a user sees it, the shorter it is: actions repeated hundreds of times get none, and a pressed state is required but animating it is not. Things leave the way they came, toward the control that opened them; only something anchored to nothing comes from the centre. Entrances ease out, leaving is faster than arriving, and nothing bounces unless the user's gesture threw it. Never move what the user is reading for decoration, and let ongoing motion be stopped. Reduced-motion settings keep fades and colour changes and drop movement. Never hide content until an animation finishes. Judge motion on the slowest real target, slowed down, not on the development machine. In a terminal, redraw only what changed, without flicker, and show a spinner only for waits a user would notice.
+Motion comes last and never rescues a weak layout. Animate only to show where something came from, confirm an action, or soften a change. The more often a user sees it, the shorter it is: actions repeated hundreds of times get none, and a pressed state is required but animating it is not. Things leave the way they came, toward the control that opened them; only something anchored to nothing comes from the centre. Entrances ease out, leaving is faster than arriving, and nothing bounces unless the user's gesture threw it. Never move what the user is reading for decoration, and let ongoing motion be stopped. Reduced-motion settings keep fades and colour changes and drop movement. Content is in place on the first frame: an entrance moves what is already there, and nothing ready waits behind a loading screen. Loops pause while off screen. The reduced-motion version is the finished screen. Judge motion on the slowest real target, slowed down, not on the development machine. In a terminal, redraw only what changed, without flicker, and show a spinner only for waits a user would notice.
 
 ## Generated-default tells
 
@@ -135,27 +151,31 @@ These appear because they are defaults, not because the content asks for them. F
 - Genre words (seamless, effortless, elevate, unlock, supercharge, powerful, all-in-one), "not just X, it's Y", three-part slogans, "Get started" and "Learn more" as labels, an em dash habit.
 - Three of everything: three features, three stats, three steps. Use the number the content has.
 - Identical fade-and-rise on every block, hover lift on every card, bounce easing.
+- The dashboard kit: "Welcome back" with a waving hand; a metric tile with an icon in a tinted circle, a green "+12.5%" pill, and a sparkline; a smoothed gradient area chart with a dot on every point; zebra rows under tracked capital headers; a dark or saturated sidebar on a light screen; placeholder people (Acme, John Doe) and round vanity totals.
 
 ## Look at the render, then fix
 
-Judge the rendered output at the smallest, typical, and largest sizes, in light and dark, never the code: you wrote the code and will read your intentions into it. Form your own judgement before reading any linter or checker, whose findings anchor you. Let motion settle before capturing, then open each capture and confirm it shows what its name claims. A screenshot checks layout, not interaction: drive each interaction and say what drove it (simulated keys, a simulator, a real device). Load the UI with stress data from [references/stress.md](references/stress.md) through the same path real data takes.
+Judge the rendered output at the smallest, typical, and largest sizes, in light and dark, never the code: you wrote the code and will read your intentions into it. Judge what ships: with a build step, the production build, not only the development server. Form your own judgement before reading any linter or checker, whose findings anchor you. Let motion settle before capturing, then open every capture taken after the last change and confirm it shows what its name claims. A screenshot checks layout, not interaction: drive each interaction and say what drove it (simulated keys, a simulator, a real device). Load the UI with stress data from [references/stress.md](references/stress.md) through the same path real data takes. Restore any system setting you change for a check, such as theme or text size.
+
+For an existing UI, capture the before first. After the work, compare before and after at each size, re-drive everything that worked before, and report both.
 
 Make each pass separately:
 
-1. One second: what is the focal point, and is it the screen's task?
+1. One second, then five: what is the focal point, and is it the screen's task? Then, as a stranger, can you say what this is, who it is for, and what to do next?
 2. Squint: does it reduce to two or three masses of clearly different weight?
 3. Edges: count the distinct left edges.
-4. Space: related close, unrelated far, no accidental holes.
+4. Space: related close, unrelated far, equal outer margins, and every void closed by something or it is a hole.
 5. Emphasis: count the levels; check measure and line breaks.
 6. Colour: name the proportions, the accent's job, and any contrast failure; check without colour.
 7. Copy: read every label and message aloud.
-8. States: walk every empty state, loading, error, and interruption.
-9. Sizes and data: overflow, truncation, collisions, anything covering content, and the stress data.
-10. Decisions: count the equal options at each decision point.
-11. The task: walk it end to end as an expert (keyboard only, nothing forced or unskippable), as a first-timer who reads every label literally, and as an agent that sees only the captured text or accessibility names.
-12. Substance: does it show what the user came for, completely and at a readable size? Cover the product's name: could the screen belong to anything else?
+8. Figures: recompute every total and change from the values shown, check that every fact shown twice agrees, and name each relative figure's baseline.
+9. States: walk every empty state, loading, error, and interruption.
+10. Sizes and data: overflow, truncation, collisions, anything covering content, and the stress data.
+11. Decisions: count the equal options at each decision point.
+12. The task: walk it end to end as an expert (keyboard only, nothing forced or unskippable), as a first-timer who reads every label literally, and as an agent that sees only the captured text or accessibility names.
+13. Substance: does it show what the user came for, completely and at a readable size? Cover the product's name: could the screen belong to anything else?
 
-Fix anything broken, misleading, blocking, or losing data first. Then fix in this order, since later items cannot rescue earlier ones: purpose and hierarchy, composition and spacing, type, colour, copy, states, detail, motion. Fix the top three problems, render again, and critique again, for at most three rounds. Stop early when a round finds nothing a stranger would notice.
+Fix anything broken, misleading, blocking, or losing data first. Then fix in this order, since later items cannot rescue earlier ones: purpose and hierarchy, composition and spacing, type, colour, copy and figures, states, detail, motion. Fix the top three problems, render again, and critique again, for at most three rounds. Stop early when a round finds nothing a stranger would notice.
 
 Report each round in this shape, ranking problems by harm, then visibility, and naming them as a designer would to a colleague ("the status column starts one cell left of the title column"), never "could be more polished":
 

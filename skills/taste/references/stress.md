@@ -14,17 +14,21 @@ Feed the UI values that real data allows and real users produce, to find where i
 
 - None, exactly one (singular wording), exactly a full screen, and one more than fits.
 - Items with identical names; every status value in one list; the current user in a list of users.
+- A new account with 1, 6, or 9 of something, not only the busy account the design hoped for.
 
 ## Numbers
 
 - Zero, negative, very large, and a live value that gains a digit while shown.
 - Percentages below 0 or above 100 on a bar or gauge.
-- Thousands and locale separators, and missing values printed literally (null, NaN, undefined).
+- Thousands and locale separators, other numeral systems (Eastern Arabic-Indic digits), and missing values printed literally (null, NaN, undefined).
+- A figure shown in two places, or a total beside the rows it sums, after a change to one of them.
+- A series that is flat except for one event, and a forecast that runs past today.
 
 ## Time
 
 - "0 seconds ago", dates in the future, the zero date (1970), and a time that falls on another day in another time zone.
 - Durations long enough that they must roll up into hours or days.
+- A locale whose calendar is not Gregorian (Solar Hijri, Hijri).
 
 ## Short and missing values
 
@@ -35,7 +39,7 @@ Feed the UI values that real data allows and real users produce, to find where i
 
 - Wide characters (CJK takes two cells in a terminal), joined emoji, stacked combining accents clipped by tight rows.
 - Strings with no break points: URLs, identifiers, long compound words.
-- Translation growth of about a third, and right-to-left text.
+- Translation growth of about a third, and right-to-left text, with zero-width non-joiners in Persian or Kurdish kept intact.
 - Markup or escape sequences inside data (HTML, ANSI codes in a title) shown as literal text, never interpreted.
 - A newline inside a value meant for one line.
 
