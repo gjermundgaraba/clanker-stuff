@@ -5,10 +5,10 @@ disable-model-invocation: true
 metadata:
   upstream-source: "https://github.com/joelhooks/skills"
   upstream-path: "skills/uncomplect/"
-  upstream-revision: "022f29cbfa2ddd36916622d49c02b763060f6847"
+  upstream-revision: "14ebbc3dca50bc83921c73291d63b35a76643727"
   upstream-relationship: "adapted"
   upstream-license: "unresolved"
-  upstream-baseline-kind: "recorded"
+  upstream-baseline-kind: "reconciled"
 ---
 
 # Uncomplect
@@ -119,6 +119,8 @@ Use an explicit state machine when modes change which events are legal, or when 
 - Normalize persisted state before it gets current authority.
 - A transient computation does not need a durable state.
 - Restoration tests cross version and deployment boundaries.
+
+For crash recovery, repeated delivery, overload, or replay, use [the resilience and durability terms](references/resilience-and-durability.md). Keep execution, persisted state, safe repetition, and recovery ownership separate.
 
 A small machine fed validated domain values beats a large one that interprets raw rows.
 
