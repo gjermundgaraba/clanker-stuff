@@ -21,19 +21,16 @@ import {
 
 const STATUS_KEY = "history";
 
-/** Native ↑/↓ recall holds this many of the most recent prompts. */
 const RECALL_LIMIT = 100;
 
 export const createHistoryRuntime = () => {
   let database: DatabaseSync | undefined;
   let persistent = false;
-  // Search snapshot; own writes are mirrored, other processes' writes reload it.
   let history: HistoryItem[] = [];
   let databaseVersion: number | undefined;
   let closeSearch: (() => void) | undefined;
-  /** Aborted when the session ends, stopping a running import. Pi loads extensions afresh per session. */
   const session = new AbortController();
-  let importPromise: Promise<number> | undefined;
+  let importSettled: Promise<Array<PromiseSettledResult<number>>> | undefined;
   let persistenceWarningShown = false;
 
   const warnPersistence = (
@@ -63,7 +60,6 @@ export const createHistoryRuntime = () => {
       }
     }
 
-    // --no-session, or an unavailable store, keeps this session's history in memory only.
     database ??= openMemoryDatabase();
     let recent: HistoryItem[] = [];
 
@@ -148,13 +144,13 @@ export const createHistoryRuntime = () => {
       return;
     }
 
-    if (importPromise) {
+    if (importSettled) {
       ctx.ui.notify("Session history import is already running.", "warning");
 
       return;
     }
 
-    importPromise = importPersistentHistory(
+    const imported = importPersistentHistory(
       database,
       ctx.sessionManager.getSessionDir(),
       (status) => {
@@ -163,8 +159,10 @@ export const createHistoryRuntime = () => {
       session.signal
     );
 
+    importSettled = Promise.allSettled([imported]);
+
     try {
-      const files = await importPromise;
+      const files = await imported;
       ctx.ui.notify(
         `Imported prompt history from ${files} session files.`,
         "info"
@@ -175,14 +173,13 @@ export const createHistoryRuntime = () => {
         ctx.ui.notify(`Session history import failed${message}`, "error");
       }
     } finally {
-      // Writes on this connection do not change its data version.
+      // SQLite does not change data_version for this connection's own commits: https://www.sqlite.org/pragma.html#pragma_data_version
       databaseVersion = undefined;
       ctx.ui.setStatus(STATUS_KEY, undefined);
-      importPromise = undefined;
+      importSettled = undefined;
     }
   };
 
-  /** An earlier input handler may already have expanded skills into the text; keep what was typed. */
   const recordInput = (event: InputEvent, ctx: ExtensionContext) => {
     if (event.source === "interactive") {
       record(typedPrompt(event.text), ctx.ui);
@@ -197,13 +194,8 @@ export const createHistoryRuntime = () => {
     closeSearch?.();
     session.abort();
 
-    try {
-      await importPromise;
-    } catch {
-      // The import command reports its errors; shutdown only waits for it to stop writing.
-    }
+    await importSettled;
 
-    // Shutdown can run more than once; close the database only the first time.
     database?.close();
     database = undefined;
   };

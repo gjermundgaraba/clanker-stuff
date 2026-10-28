@@ -22,7 +22,6 @@ const respond = (
 ) => session.appendMessage(measuredResponse(...args));
 
 describe("context growth", () => {
-  // Responses report 50 output tokens unless stated.
   it.each<{ name: string; before: Build; run: Build; expected: number }>([
     {
       name: "counts a fresh session from zero, prompt to prompt plus the last output",
@@ -223,10 +222,8 @@ describe("run metrics", () => {
         ...(durationMs === undefined ? {} : { durationMs }),
       });
 
-    // A parallel batch ends at 10s, its results stamped together, the last a little later.
     result("long", 10_000, 3000);
     result("short", 10_002, 1000);
-    // Then two calls run one at a time.
     result("first", 11_000, 500);
     result("second", 11_800, 800);
     result("untimed", 12_000);

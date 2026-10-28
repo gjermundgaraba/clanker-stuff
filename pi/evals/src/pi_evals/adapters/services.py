@@ -1,5 +1,3 @@
-"""API-only adapters; service attempts are counted at the backend boundary."""
-
 import json
 
 from pi_evals.adapters.pi import PiEval, load_pi_events

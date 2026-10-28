@@ -65,7 +65,8 @@ SIMPLE = {
     39: {"fg": None},
     49: {"bg": None},
 }
-IGNORED = {5, 6, 8, 25, 28}  # blink and conceal: no visual cue a capture can show
+INVISIBLE_IN_CAPTURE = {5, 6, 8, 25, 28}
+UNDERLINE_COLOUR = 58
 
 
 def extended(mode, operands):
@@ -84,7 +85,7 @@ def sgr(params, style, unsupported):
         sub = fields[i].split(":")
         code = int(sub[0] or 0)
         i += 1
-        if code in (38, 48, 58):
+        if code in (38, 48, UNDERLINE_COLOUR):
             if len(sub) > 1:  # colon form: 38:5:n or 38:2:[colour space]:r:g:b
                 colour = extended(sub[1], sub[2:])
             else:  # 38;5;n or 38;2;r;g;b; an unknown mode swallows the rest
@@ -94,7 +95,7 @@ def sgr(params, style, unsupported):
                 i += 1 + count
             if colour is None:
                 unsupported[f"SGR {params}"] += 1
-            elif code != 58:  # underline colour has no slot here
+            elif code != UNDERLINE_COLOUR:
                 style = replace(style, **{"fg" if code == 38 else "bg": colour})
         elif code == 0:
             style = PLAIN
@@ -106,7 +107,7 @@ def sgr(params, style, unsupported):
             style = replace(style, fg=f"c{code - 30 if code < 90 else code - 82}")
         elif 40 <= code <= 47 or 100 <= code <= 107:
             style = replace(style, bg=f"c{code - 40 if code < 100 else code - 92}")
-        elif code not in IGNORED:
+        elif code not in INVISIBLE_IN_CAPTURE:
             unsupported[f"SGR {code}"] += 1
     return style
 
@@ -260,7 +261,7 @@ def png(lines, out, page_bg, page_fg):
             handle.write(to_html(lines, page_bg, page_fg))
         command = [
             chrome(), "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-            "--force-device-scale-factor=2",  # thin box-drawing lines vanish at 1x
+            "--force-device-scale-factor=2",
             f"--user-data-dir={os.path.join(work, 'profile')}", f"--screenshot={shot}",
             f"--window-size={width},{height}", "file://" + page,
         ]

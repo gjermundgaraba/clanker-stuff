@@ -17,7 +17,6 @@ def controlled_instruction(instruction: str, mode: str) -> tuple[str, bool]:
 
 
 def validate_manifest(value: Any) -> Manifest:
-    """Validate the provenance contract recorded in every trajectory."""
     code_mode = isinstance(value, dict) and value.get("experiment") == "code-mode"
     keys = _KEYS | {"experiment", "arm", "tool_mode", "pair_id"} if code_mode else _KEYS
     if not isinstance(value, dict) or not keys.issubset(value):

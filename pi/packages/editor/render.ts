@@ -11,8 +11,6 @@ export interface Decoration {
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-// Zero-width terminal sequences: CSI styles, and APC/OSC strings ended by BEL or ST. A focused
-// editor emits Pi's cursor marker, the BEL-terminated APC "\x1b_pi:c\x07", on the cursor's row.
 const escapes =
   // oxlint-disable-next-line no-control-regex -- The pattern matches terminal control sequences, which begin with ESC and may end with BEL.
   /(?<escape>\u001B\[[0-?]*[ -/]*[@-~]|\u001B[_\]][^\u0007\u001B]*(?:\u0007|\u001B\\))/gu;

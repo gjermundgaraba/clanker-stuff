@@ -13,7 +13,6 @@ import { formatElapsed } from "./timing.js";
 
 type Foreground = Pick<Theme, "fg">;
 
-/** Supplies the displayed text for one numeric field before styling and layout. */
 export type NumericText = (id: string, text: string) => string;
 
 const plain: NumericText = (_id, text) => text;
@@ -24,7 +23,6 @@ const compact = new Intl.NumberFormat("en", {
   maximumFractionDigits: 1,
 });
 
-// Lowercase k matches Pi's footer.
 const number = (value: number): string =>
   value < 1000 ? String(value) : compact.format(value).replace("K", "k");
 
@@ -34,7 +32,6 @@ const clock = (timestamp: number): string =>
     minute: "2-digit",
   });
 
-// Values carry the contrast so labels and separators can recede.
 const stat = (
   theme: Foreground,
   value: string,
@@ -60,10 +57,8 @@ const statistics = (
   const { context, contextGrowth } = metrics;
   const percent = context?.percent;
 
-  // The counter shows what the run added; details keep the whole window in view.
   const added = numeric("context", `+${number(contextGrowth)}`);
 
-  // Details only appear on finished cards, which never animate.
   const windowDetail =
     context &&
     (context.tokens === null
@@ -109,10 +104,8 @@ export interface LiveState {
   metrics: Metrics;
 }
 
-/** A card's recap as the runtime knows it; generation lives only in memory. */
 export type RecapView = Recap | { status: "generating" };
 
-/** One row above the editor while a run is active. */
 export const renderLive = (
   state: LiveState,
   width: number,
@@ -135,7 +128,6 @@ export const renderLive = (
   return [truncateToWidth(`${width > 2 ? "  " : ""}${text}`, width, "…")];
 };
 
-/** The finished run as a transcript card; `expanded` follows Pi's tool-output toggle. */
 export const renderCard = (
   snapshot: Snapshot,
   recap: RecapView | undefined,
@@ -198,7 +190,6 @@ export const renderCard = (
     add(theme.fg("dim", "Generating recap…"));
   }
 
-  // Recap prose and statistics read as separate blocks.
   if (recap) {
     lines.push("");
   }
@@ -262,11 +253,6 @@ export const renderCard = (
   return lines;
 };
 
-/**
- * Draws saved cards in the transcript. Pi renders every card on every frame, so each keeps
- * its lines until the width or its recap changes; expanding or retheming rebuilds the card.
- * Entries from retired schemas no longer render.
- */
 export const createCardRenderer =
   (recap: (runId: string) => RecapView | undefined): EntryRenderer =>
   (entry, { expanded }, theme) => {

@@ -15,7 +15,6 @@ def summarise(data):
 
 class Parse(unittest.TestCase):
     def test_a_real_herdr_capture(self):
-        # Herdr re-encodes the 16 basic colours as palette indices (38;5;n / 48;5;n).
         with open(os.path.join(HERE, "fixtures", "herdr-styles.ansi"), encoding="utf-8") as handle:
             data = handle.read()
         self.assertEqual(

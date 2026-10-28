@@ -19,7 +19,6 @@ const listDirectory = async (directory: string) => {
   try {
     return await readdir(directory, { withFileTypes: true });
   } catch {
-    // Session directories can disappear or be unreadable during discovery.
     return [];
   }
 };
@@ -48,7 +47,6 @@ const readSessionHistory = async (
       }
 
       if (history === undefined) {
-        // Like Pi's discovery, require the first parsed entry to be a session header.
         if (!Value.Check(SessionHeaderSchema, entry)) {
           return undefined;
         }
@@ -68,7 +66,6 @@ const readSessionHistory = async (
   } catch {
     signal.throwIfAborted();
 
-    // A concurrently deleted or unreadable file should not fail the import.
     return undefined;
   } finally {
     lines.close();

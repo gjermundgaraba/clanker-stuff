@@ -29,12 +29,10 @@ export interface ContextPart {
   readonly estimatedTokens: number;
 }
 
-/** Finished inspector previews; token estimates describe model input, not preview text. */
 export interface ContextSnapshot {
   readonly kind: "state";
   readonly modelLabel: string;
   readonly usage: ContextUsage | undefined;
-  /** False before the first request records the prompt and tool declarations. */
   readonly recorded: boolean;
   readonly system: ContextPart;
   readonly tools: readonly ContextPart[];
@@ -56,14 +54,12 @@ export interface ContextMessagePart extends ContextPart {
 }
 
 interface SnapshotInput {
-  /** `ctx.getSystemPrompt()`, shown only until the first request records the prompt. */
   pendingPrompt: string;
   branch: SessionEntry[];
   usage: ContextUsage | undefined;
   modelLabel: string;
 }
 
-/** Exhaustive over Pi's content blocks, so a new block type fails to type-check here. */
 const blockBody = (
   block: Exclude<Message["content"], string>[number]
 ): string => {
@@ -85,7 +81,6 @@ const blockBody = (
     case "image": {
       return `[Image: ${block.mimeType}, ${block.data.length} base64 characters]`;
     }
-    // no default
   }
 };
 
@@ -105,7 +100,6 @@ const messageTone = (message: Message): NodeTone => {
   return message.role === "user" ? "accent" : "text";
 };
 
-/** The prompt and tool declarations the latest request recorded in the transcript. */
 const declarations = (
   declared: SystemMessage | undefined,
   pendingPrompt: string
@@ -151,7 +145,6 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
     )
   );
 
-  // Only the canonical retained range is inspected; this is not a raw-history browser.
   const messages: ContextMessagePart[] = [];
 
   for (const { sourceEntry, messages: projected } of projection.entries) {
@@ -169,7 +162,6 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
 
     const message = effective[0] ?? original[0];
 
-    // Excludes metadata, prompt/tool declarations, !! executions, and older compaction summaries.
     if (!message) {
       continue;
     }

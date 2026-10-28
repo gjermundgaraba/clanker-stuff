@@ -1,8 +1,3 @@
-// The pi sessions one load of the extension serves: each session's cwd, the UI its
-// notices go to, and its Claude Code conversation. Provider registrations belong to the
-// runtime that loaded the extension, so this state does too. A pi restart starts empty;
-// its first turn rebuilds.
-
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createActor, waitFor } from "xstate";
@@ -16,8 +11,6 @@ import type { ConversationSnapshot } from "./machine/conversation.js";
 export type Conversation = Actor<typeof conversationMachine>;
 
 interface PiSession {
-  /** A host serving many sessions from one process (pi-web) has one process cwd, so
-   *  Claude Code would otherwise run in, and load from, the host's directory. */
   cwd?: string;
   ui?: ExtensionUIContext;
   conversation?: Conversation;

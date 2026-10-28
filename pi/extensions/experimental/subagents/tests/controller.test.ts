@@ -40,7 +40,6 @@ class FakeRuntime implements ChildRuntime {
   readonly #reads: Array<PromiseWithResolvers<boolean>> = [];
   readonly #saved: () => Promise<Tree>;
   readonly delivered: Mail[] = [];
-  /** Pending until `release()` when the test holds disposal open. */
   disposal: Promise<void> = Promise.resolve();
   readonly dispose = vi.fn<ChildRuntime["dispose"]>(async () => {
     await this.disposal;
@@ -82,13 +81,11 @@ class FakeRuntime implements ChildRuntime {
   deliver(mail: Mail): void {
     this.delivered.push(mail);
 
-    // An idle Pi session appends passive mail at once; a running one waits for the turn to end.
     if (!this.streaming) {
       this.request.onDelivered(mail.id);
     }
   }
 
-  /** Steering reaches only a current turn, which reads it only once `read()` says so. */
   steer(task: Envelope): Promise<boolean> | undefined {
     if (!this.streaming) {
       return undefined;
@@ -101,7 +98,6 @@ class FakeRuntime implements ChildRuntime {
     return read.promise;
   }
 
-  /** Lets the current turn read every task steered into it so far. */
   read(): void {
     for (const read of this.#reads.splice(0)) {
       read.resolve(true);
@@ -118,14 +114,12 @@ class FakeRuntime implements ChildRuntime {
     } finally {
       this.streaming = false;
 
-      // Like the real runtime, a settled turn reports what it never read.
       for (const read of this.#reads.splice(0)) {
         read.resolve(false);
       }
     }
   }
 
-  /** Keeps disposal pending until the returned function releases it. */
   hold(): () => void {
     const held = Promise.withResolvers<undefined>();
     this.disposal = held.promise;
@@ -135,7 +129,6 @@ class FakeRuntime implements ChildRuntime {
     };
   }
 
-  /** Settles the current turn and waits until the controller has started disposing it. */
   async settle(outcome: ChildTurnOutcome): Promise<void> {
     this.turns.at(-1)?.outcome.resolve(outcome);
     await vi.waitFor(() => {
@@ -143,7 +136,6 @@ class FakeRuntime implements ChildRuntime {
     });
   }
 
-  /** Settles the current turn and waits until the stored tree records its outcome. */
   async finish(outcome: ChildTurnOutcome): Promise<void> {
     await this.settle(outcome);
     await vi.waitFor(async () => {
@@ -171,7 +163,6 @@ describe(Controller, () => {
     await rm(dataDir, { force: true, recursive: true });
   });
 
-  /** `startup` lists what each child session, by creation order, switches to as it starts. */
   const setup = async (
     config: SubagentsConfig = DEFAULT_CONFIG,
     tree: Tree = emptyTree(),
@@ -423,7 +414,6 @@ describe(Controller, () => {
     await yieldToEventLoop();
     expect(runtimes).toHaveLength(1);
 
-    // Recording the outcome needs the key the follow-up held, so this deadlocks if it waits inside.
     await settling?.settle({ status: "completed", text: "done" });
     await following;
 
@@ -463,7 +453,6 @@ describe(Controller, () => {
     await controller.interrupt("/root", "stopped");
     stopped?.turns[0]?.outcome.resolve({ status: "interrupted" });
 
-    // A resend would load a third runtime; give it time to appear.
     await delay(50);
     expect(runtimes).toHaveLength(2);
     expect(errors).toStrictEqual([]);

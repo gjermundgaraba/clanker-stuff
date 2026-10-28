@@ -32,7 +32,7 @@ Claude Code receives pi's messages as written: an `@file` mention is not expande
 
 ## Debugging
 
-`CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, `finish` (a tool result after an abort), or `rebuild reason=none|diverged|tail|changed`.
+`CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, `finish` (a tool result after an abort), or `rebuild reason=none|diverged|tail|changed`. `CLAUDE_BRIDGE_RECORD_STREAM=<path>` appends every SDK message to that file as a JSON line, for capturing replay fixtures of what Claude Code emits.
 
 ## Tests
 
@@ -41,3 +41,27 @@ Claude Code receives pi's messages as written: an `@file` mention is not expande
 ```bash
 CLAUDE_BRIDGE_LIVE=1 vp test --project integration pi/extensions/experimental/claude-bridge
 ```
+
+## Upstream behavior the bridge relies on
+
+Facts about Claude Code, Agent SDK 0.3.310, pi and XState that the code depends on. Most of the Claude Code ones are observed rather than documented, so an upgrade can break them silently.
+
+- The prompt is a streaming input that stays open for the whole query. Claude Code takes a steer at the next tool boundary only if it reached stdin before the tool result, so the bridge waits until the SDK has written the steer before it releases the result.
+- Pi's TypeBox schemas are served verbatim from a raw MCP protocol server. The SDK's `createSdkMcpServer` accepts only Zod, and its round trip drops nested objects, `anyOf` and `const`. Argument validation is left to pi.
+- Claude Code drops an MCP tool whose input schema has a top-level `anyOf`, `oneOf` or `allOf`, so the bridge flattens such a schema into one object the way Claude Code's own normalizer does.
+- Claude Code stamps each `tools/call` with `_meta["claudecode/toolUseId"]`. It is the only reliable link from a call to its `tool_use` block, since calls need not arrive in block order.
+- Claude Code answers a call to a tool it does not serve with "No such tool available" and retries under a fresh id, so such a call must never reach pi.
+- `--strict-mcp-config` does not keep claude.ai connectors out; `ENABLE_CLAUDEAI_MCP_SERVERS=0` does.
+- 1M context is requested only through the `[1m]` model id suffix. A model not entitled to it fails every turn with a 400 or 429, so only measured models get the suffix.
+- `--resume` does not follow records appended as a branch and re-reads the session file on every resume, so a rebuild rewrites the file whole.
+- Anthropic rejects thinking signatures it cannot verify, so only thinking blocks Claude Code signed are replayed.
+- An image with an unsupported media type or no data fails its request, and every later one once it is in the session, so images are checked on both the prompt and the tool-result path.
+- Claude Code streams each API response and then repeats it as one complete `assistant` message; either can carry the content first. A complete message under a new id is the non-streaming fallback after a stalled stream.
+- Claude Code reports API failures and quota or context notices as an `assistant` message whose model is `<synthetic>`. It is a report, not model output.
+- Claude Code writes a stop reason only on a message's last block.
+- `thinking_tokens` in usage is part of `output_tokens`, never an addend to the total or the cost.
+- A rate-limit `resetsAt` is in Unix seconds.
+- Claude Code finishes writing its session file after its stdin closes; stopping it sooner can cut the file short.
+- Some models default to an omitted thinking display. The bridge passes the raw `thinking-display` flag because the typed option would force a thinking mode on every model.
+- Pi passes a session id on every agent turn, so a call without one is an extension's one-off. Compaction, branch and bug-report summaries carry `cacheRetention: "none"`.
+- XState freezes machine context while pi goes on writing to its own messages, so the conversation keeps copies.

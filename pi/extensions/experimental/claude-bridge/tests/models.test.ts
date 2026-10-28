@@ -12,8 +12,6 @@ import {
 import type { ProviderChatModelConfig } from "../models.js";
 import { testModel } from "./helpers.js";
 
-// A pi-ai catalog entry: priced, and carrying the api/provider/baseUrl/headers fields
-// that must not leak into the provider registration.
 const catalogEntry = (id: string, contextWindow = 200_000): Model<Api> => ({
   id,
   name: id,
@@ -152,7 +150,6 @@ describe("resolveClaudeCodeRuntimeModel", () => {
     });
   });
 
-  // Both serve 1M only on Max or with metered Extra Usage; an unentitled [1m] fails.
   it("keeps opus-4-6 and sonnet-4-6 at 200K", () => {
     for (const id of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
       expect(resolveClaudeCodeRuntimeModel(id)).toStrictEqual({

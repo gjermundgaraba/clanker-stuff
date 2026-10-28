@@ -160,9 +160,7 @@ describe("footer AgentSession lifecycle", () => {
       getAvailableProviderCount: () => 1,
       getExtensionStatuses: () => new Map<string, string>(),
       getGitBranch: () => null,
-      onBranchChange: () => () => {
-        // No branch source in this integration test.
-      },
+      onBranchChange: () => () => undefined,
     };
 
     const uiContext = testUiContext((factory) => {

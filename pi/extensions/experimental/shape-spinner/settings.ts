@@ -34,7 +34,6 @@ const fontPath = fileURLToPath(
   new URL("assets/ShapeSpinner.ttf", import.meta.url)
 );
 
-/** Apply a SettingsList value, ignoring values that the setting does not offer. */
 export const updateSetting = (
   config: Config,
   id: string,
@@ -47,7 +46,6 @@ export const updateSetting = (
   }
 };
 
-/** Animates the configured spinner at its real frame rate. */
 class SpinnerPreview implements Component {
   private tick = 0;
   private readonly timer: ReturnType<typeof setInterval>;
@@ -76,7 +74,7 @@ class SpinnerPreview implements Component {
   }
 
   invalidate(): void {
-    // Preview lines are rebuilt on every render; there is no cached state.
+    return;
   }
 
   render(): string[] {
@@ -87,10 +85,6 @@ class SpinnerPreview implements Component {
   }
 }
 
-/**
- * Opens the shape spinner settings as an overlay, so the live editor with its
- * restyled border spinners stays visible around the dialog while editing.
- */
 export const openSettings = async (
   ctx: ExtensionContext,
   config: Config,
@@ -98,7 +92,6 @@ export const openSettings = async (
 ): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, _keybindings, done) => {
-      // The preview timer re-renders every frame, so edits need no render request of their own.
       const preview = new SpinnerPreview(
         config,
         styleFor(config, ctx.ui.theme.appearance).frames,

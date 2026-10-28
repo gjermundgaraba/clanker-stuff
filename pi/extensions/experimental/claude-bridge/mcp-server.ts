@@ -1,19 +1,3 @@
-// In-process MCP server that exposes pi tools to Claude Code.
-//
-// Pi declares tool parameters as TypeBox objects, which are already JSON Schema, the
-// same thing MCP puts on the wire. They are served verbatim instead of through the
-// SDK's `createSdkMcpServer`, which accepts only Zod and so forces a lossy JSON
-// Schema → Zod → JSON Schema round trip: nested objects collapse to open records and
-// `anyOf`/`const` vanish, so Claude saw only the first level of tools like `edit`.
-// The one exception is a top-level combinator, flattened below because Claude Code
-// drops a tool whose schema has one.
-//
-// Handlers go on the underlying protocol server, not `McpServer.registerTool` (the
-// Zod-only path). That also skips argument validation, which is wanted: pi validates
-// and executes tools itself, and a rejection here would only strand the call. This
-// rests on the Agent SDK treating the server as an opaque JSON-RPC endpoint; if it
-// breaks after an SDK update, check whether the SDK began inspecting the instance.
-
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type {
   JsonObject,
@@ -29,10 +13,6 @@ import {
 import { acceptedImageType, IMAGE_MARKER } from "./images.js";
 import { isJsonArray, isJsonObject } from "./json.js";
 
-// Claude Code stamps every tools/call with the id of the tool_use block it came from.
-// That is the only reliable pairing: call order need not match the order the blocks
-// were emitted. This is a Claude Code extension to MCP; if it ever stops sending it,
-// every call fails loudly rather than pairing results to the wrong call.
 const TOOL_USE_ID_META = "claudecode/toolUseId";
 
 export type McpContent = Array<
@@ -77,15 +57,6 @@ export interface McpToolDef {
   handler: (toolCallId: string) => Promise<McpResult>;
 }
 
-// Claude Code drops an MCP tool outright when its input schema has a top-level
-// anyOf/oneOf/allOf. The tool would still be in the served-name map, so a call Claude
-// makes anyway runs in pi while Claude Code answers "No such tool available" and
-// retries under a fresh id: the tool runs twice, or the retry waits forever. Advertise
-// a flat object instead, built the way Claude Code's own normalizer does: root
-// properties win over branch ones, root `required` stays, and allOf requirements join
-// it. Branch `$ref`s into the root's `$defs`/`definitions` are followed, and the lost
-// constraint is restated in the description so Claude's first call is likely to pass
-// pi's validation against the full schema.
 const ROOT_COMBINATORS = ["anyOf", "oneOf", "allOf"] as const;
 
 type RootCombinator = (typeof ROOT_COMBINATORS)[number];
@@ -109,7 +80,6 @@ const resolveLocalRef = (branch: JsonValue, root: JsonObject): JsonValue => {
   return isJsonObject(target) ? target : branch;
 };
 
-// A branch is named by its required keys, else by all of its keys.
 const branchGroup = (branch: JsonValue): string | undefined => {
   if (!isJsonObject(branch)) {
     return undefined;
@@ -130,7 +100,6 @@ const branchGroup = (branch: JsonValue): string | undefined => {
   return keys.length > 0 ? keys.join(", ") : undefined;
 };
 
-// Claude Code's wording, so the tool reads the same as one it normalized itself.
 const combinatorNote = (
   combinators: readonly RootCombinator[],
   branchesOf: (key: RootCombinator) => JsonValue[]
@@ -247,9 +216,6 @@ export const createToolServer = (
         description: [note, tool.description]
           .filter((part) => part !== undefined && part !== "")
           .join("\n\n"),
-        // MCP requires an object schema. A union's flattening already is one; anything
-        // else is served as an object, the way pi's own Anthropic provider serves it,
-        // rather than failing every turn over one tool.
         inputSchema: { ...schema, type: "object" as const },
       };
     }),
@@ -270,7 +236,6 @@ export const createToolServer = (
       );
     }
 
-    // An object literal: MCP's result type is open to extra fields, an interface is not.
     return { ...(await tool.handler(toolCallId)) };
   });
 

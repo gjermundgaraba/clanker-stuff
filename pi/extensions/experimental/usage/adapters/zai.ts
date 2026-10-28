@@ -30,14 +30,6 @@ const ZaiQuotaPayloadSchema = Type.Object({
 
 type ZaiLimit = Static<typeof ZaiLimitSchema>;
 
-/**
- * Quota windows are TOKENS_LIMIT/CREDIT_LIMIT (seen across plan
- * generations); TIME_LIMIT is the monthly web-search count. Unknown types
- * are dropped rather than guessed by unit (cf. CodexBar issue #2724).
- * Unit is an opaque enum: 3 marks the sub-daily window, 6 the
- * multi-day one; `number` is ignored because its meaning flipped between
- * plan generations (7 vs 1 for weekly).
- */
 const windowLabel = (limit: ZaiLimit): string | undefined => {
   if (limit.type === "TIME_LIMIT") {
     return "web search month";
@@ -65,7 +57,6 @@ const remainingPercentFrom = (limit: ZaiLimit): number | undefined => {
     return (limit.remaining / total) * 100;
   }
 
-  // percentage is used percent on this endpoint.
   return limit.percentage === undefined ? undefined : 100 - limit.percentage;
 };
 

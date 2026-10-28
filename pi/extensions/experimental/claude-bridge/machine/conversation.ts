@@ -1,11 +1,3 @@
-// One pi session's Claude Code conversation: the query serving it, the pi stream each
-// provider call hands over, and the record of what Claude Code holds.
-//
-// The query runs as a child of `active`, so every exit from `active` (completion,
-// failure, abort, discard) stops it and closes Claude Code, and a stopped child's late
-// messages are dropped by XState rather than by bookkeeping here. Abort listeners and the
-// steer push are children of the states they serve, for the same reason.
-
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -60,11 +52,9 @@ export interface QueryStart extends ActiveQuery {
   held: readonly Message[];
 }
 
-/** Results waiting for the steer ahead of them, if any, to reach Claude Code's stdin. */
 interface PendingDelivery {
   results: ReadonlyMap<string, McpResult>;
   steer: readonly Message[];
-  /** The steer as Claude Code reads it; undefined when there is none. */
   message: SDKUserMessage | undefined;
 }
 
@@ -79,7 +69,6 @@ const ENDED = "Claude Code query ended";
 /** How long Claude Code may take to exit after its result before it is killed. */
 export const CLOSE_GRACE_MS = 10_000;
 
-// Handlers for what `closing` shares with the other `active` states live on `active`.
 const isClosing = (value: StateValue): boolean =>
   typeof value === "object" && value["active"] === "closing";
 
@@ -98,9 +87,6 @@ interface QueryInput {
   params: QueryParams;
 }
 
-// Reads Claude Code's messages into the conversation. Cleanup stops the query; XState
-// drops anything the read loop sends after that. Starting it is inside the try: the SDK
-// throws there when it cannot find Claude Code.
 const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
   ({ input, sendBack }) => {
     let query: BridgeQuery | undefined;
@@ -125,7 +111,6 @@ const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
   }
 );
 
-// pi's abort, for as long as the state that invoked this listens.
 const abortOn = createCallbackLogic<EventObject, AbortSignal | undefined>(
   ({ input: signal, sendBack }) => {
     if (signal === undefined) {
@@ -155,15 +140,10 @@ interface SteerInput {
   message: SDKUserMessage | undefined;
 }
 
-// The steer must reach stdin before the results it rides with: both travel over the
-// same FIFO, and Claude Code drains a steer at the tool boundary only if it was queued
-// before the result. The push resolves once the SDK wrote it (see prompt-stream.ts).
-// With no steer there is nothing to wait for.
 const pushSteer = createCallbackLogic<EventObject, SteerInput>(
   ({ input, sendBack }) => {
     void (async () => {
       try {
-        // Settle after a microtask even with no steer, as the actor did before.
         await (input.message === undefined
           ? undefined
           : input.promptStream.push(input.message));
@@ -178,8 +158,6 @@ const pushSteer = createCallbackLogic<EventObject, SteerInput>(
   }
 );
 
-// XState freezes context, and pi goes on writing to its own messages (it records the requested
-// thinking level on a turn's output), so the conversation keeps copies.
 const copies = (messages: readonly Message[]): Message[] =>
   structuredClone([...messages]);
 
@@ -197,7 +175,6 @@ const toMcpResult = (message: ToolResultMessage): McpResult => ({
   isError: message.isError,
 });
 
-/** Hand each result to its waiting handler, or keep it for the handler still to come. */
 const release = (
   handlers: ReadonlyMap<string, ResolveToolCall>,
   stored: ReadonlyMap<string, McpResult>,
@@ -317,9 +294,6 @@ export const conversationMachine = setup({
     ...IDLE,
   }),
   initial: "idle",
-  // A request the current state cannot take still holds a pi stream: end it, rather than
-  // leave pi waiting on a stream nothing ends. The provider's sync decision should make
-  // this unreachable.
   on: {
     "pi.start": ({ event, value }, enq) => {
       enq(() => {
@@ -356,8 +330,6 @@ export const conversationMachine = setup({
             },
             turn: event.turn,
             held: copies(event.held),
-            // A rejection that labelled no failure in its own query says nothing about
-            // the next one.
             rateLimit: null,
           },
         }),
@@ -372,7 +344,6 @@ export const conversationMachine = setup({
           params: context.query.params,
         }),
       },
-      // Leaving `active` stops the query: no handler or steer may outlive it waiting.
       exit: ({ context }, enq) => {
         enq(() => {
           resolveAll(context.handlers, ENDED);
@@ -380,7 +351,6 @@ export const conversationMachine = setup({
         });
       },
       on: {
-        // Either order is fine: a handler finds its result already delivered, or waits.
         "cc.toolCall": ({ context, event }, enq) => {
           const result = context.results.get(event.id);
 
@@ -407,7 +377,6 @@ export const conversationMachine = setup({
 
           return { context: { results } };
         },
-        // What the child states pass up: anything that is not the turn's content.
         "cc.message": ({ context, event }, enq) => {
           const { message } = event;
 
@@ -450,13 +419,11 @@ export const conversationMachine = setup({
           const failure = resultErrorText(message);
 
           enq(() => {
-            // Nothing else closes a streamed prompt's stdin, and Claude Code waits on it.
             query.promptStream.end();
             logServedContextWindow(message, query.model);
           });
 
           if (failure !== undefined) {
-            // Consumed with the failure it caused.
             const text =
               context.rateLimit === null
                 ? failure
@@ -479,7 +446,6 @@ export const conversationMachine = setup({
             return { target: ".closing", context: { ...IDLE, query } };
           }
 
-          // Finish the turn before `held` copies its output, so the copy has the result's text.
           if (message.subtype === "success") {
             turn.result(message);
           }
@@ -495,7 +461,6 @@ export const conversationMachine = setup({
             },
           };
         },
-        // In `closing` the turn is already answered: an end is the expected exit.
         "cc.end": ({ context, value }, enq) => {
           if (isClosing(value)) {
             return { target: "idle", context: IDLE };
@@ -507,8 +472,6 @@ export const conversationMachine = setup({
 
           return { target: "idle", context: { ...IDLE, held: [] } };
         },
-        // In `closing` there is no turn left to fail, but a failed exit after the result
-        // may still have cut the session file short.
         "cc.error": ({ context, event }, enq) => {
           debug(`conversation: query failed: ${event.message}`);
           enq(() => {
@@ -525,8 +488,6 @@ export const conversationMachine = setup({
 
           return { target: "idle", context: { ...IDLE, held: [] } };
         },
-        // Claude Code may go on from the cut on its own, into a session pi will never see:
-        // stop it, and rebuild from pi's history next time.
         "turn.truncated": () => {
           debug(
             "conversation: tool calls cut off at the output limit, stopping the query"
@@ -583,7 +544,6 @@ export const conversationMachine = setup({
                 return {};
               }
 
-              // pi now runs the tools; their results come back through the next call.
               return {
                 target: "parked",
                 context: {
@@ -610,7 +570,6 @@ export const conversationMachine = setup({
                 target: "delivering",
                 context: {
                   turn: event.turn,
-                  // A distinct signal only; pi usually aborts one signal for the whole run.
                   callSignal:
                     event.signal === context.query.signal
                       ? undefined
@@ -657,8 +616,6 @@ export const conversationMachine = setup({
             },
           ],
           on: {
-            // A steer that never reached Claude Code is still in pi's history: leaving it
-            // out of `held` makes the next request rebuild with it.
             "steer.done": ({ context, event }, enq) => {
               const { pending } = context;
 
@@ -701,8 +658,6 @@ export const conversationMachine = setup({
             },
           },
         },
-        // pi has its answer. Claude Code finishes writing its session file and exits once
-        // its stdin closes; stopping it sooner could cut that file short.
         closing: {
           timeout: CLOSE_GRACE_MS,
           onTimeout: (_, enq) => {

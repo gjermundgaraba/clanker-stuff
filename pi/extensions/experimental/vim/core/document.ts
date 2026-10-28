@@ -24,7 +24,6 @@ export const segmenter = new Intl.Segmenter(undefined, {
 export const single = (text: string) =>
   [...segmenter.segment(text)].length === 1;
 
-/** UTF-16 offsets at the host boundary; operations traverse whole graphemes/paste atoms. */
 export const units = (view: View): Unit[] => {
   const result: Unit[] = [];
   let offset = 0;

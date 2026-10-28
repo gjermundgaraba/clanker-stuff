@@ -69,31 +69,32 @@ export const idSchema = Type.Object(
 
 export const listSchema = Type.Object({}, { additionalProperties: false });
 
-/** Pi cuts its own tools' output at the same size. */
 export const MAX_TEXT_BYTES = DEFAULT_MAX_BYTES;
 
-// Tools publish the structural shape so every provider's strict sampling subset
-// can represent it; the runtime checks calls against the bounded schemas above.
 export const startParameters = structuralSchema(startSchema);
 
 export const inspectParameters = structuralSchema(inspectSchema);
 
 const PREVIEW_NOTE = `\n[Incomplete preview: the output exceeds ${MAX_TEXT_BYTES} bytes. task_inspect cuts only log tails, so a smaller tailBytes fits; Code Mode, where enabled, receives the complete structured value.]`;
 
-/** Direct-model text is the JSON value, cut from the end when large; identity and status come first. */
+const truncateUtf8 = (bytes: Buffer, maxBytes: number): string => {
+  let end = maxBytes;
+
+  while (((bytes[end] ?? 0) & 0xc0) === 0x80) {
+    end -= 1;
+  }
+
+  return bytes.subarray(0, end).toString("utf-8");
+};
+
 export const toolResult = <Details extends ToolOutput>(details: Details) => {
   const json = Buffer.from(jsonText(details));
   let text = json.toString("utf-8");
 
   if (json.length > MAX_TEXT_BYTES) {
-    let end = MAX_TEXT_BYTES - Buffer.byteLength(PREVIEW_NOTE);
-
-    // Cut on a UTF-8 character boundary.
-    while (((json[end] ?? 0) & 0xc0) === 0x80) {
-      end -= 1;
-    }
-
-    text = json.subarray(0, end).toString("utf-8") + PREVIEW_NOTE;
+    text =
+      truncateUtf8(json, MAX_TEXT_BYTES - Buffer.byteLength(PREVIEW_NOTE)) +
+      PREVIEW_NOTE;
   }
 
   return {

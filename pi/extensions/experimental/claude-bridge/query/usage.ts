@@ -1,5 +1,3 @@
-// Claude Code's SDK usage counters mapped onto pi's AssistantMessage.
-
 import { calculateCost } from "@earendil-works/pi-ai";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 
@@ -17,9 +15,7 @@ export interface SdkUsage {
 }
 
 interface UsageReport {
-  /** Cache-read share of the prompt as a whole percentage; 0 for an empty prompt. */
   cachePct: number;
-  /** Thinking tokens carried by this frame, absent when it carried none. */
   reasoning?: number;
 }
 
@@ -53,7 +49,6 @@ export const updateUsage = (
     output.usage.cacheWrite = usage.cache_creation_input_tokens;
   }
 
-  // A subset of output_tokens, never a separate addend in the total or in cost.
   const reasoning = usage.output_tokens_details?.thinking_tokens;
 
   if (reasoning !== null && reasoning !== undefined) {

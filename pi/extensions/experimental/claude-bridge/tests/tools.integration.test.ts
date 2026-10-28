@@ -1,6 +1,3 @@
-// Live: pi tools served to real Claude Code, and messages arriving while one runs. Each
-// test bills the user's Claude subscription; run with CLAUDE_BRIDGE_LIVE=1 (see live.ts).
-
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,7 +25,6 @@ import {
 } from "./live.js";
 import type { DebugLog, LiveSession } from "./live.js";
 
-/** Blocks for a while, so a test can act while Claude Code waits on the result. */
 const slowTool = defineTool({
   name: "SlowTool",
   label: "Slow tool",
@@ -53,7 +49,26 @@ const slowTool = defineTool({
   },
 });
 
-/** The `claude` processes under `pid`, at any depth, matched on the executable. */
+const commandOrEmptyIfExited = (pid: number): string => {
+  try {
+    return execFileSync("ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf-8",
+    }).trim();
+  } catch {
+    return "";
+  }
+};
+
+const killIfAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, "SIGKILL");
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const claudeDescendants = (
   pid: number
 ): Array<{ pid: number; command: string }> => {
@@ -65,20 +80,11 @@ const claudeDescendants = (
       .filter((line) => line.trim() !== "")
       .map(Number);
   } catch {
-    // pgrep exits 1 when there are none.
     return [];
   }
 
   return children.flatMap((child) => {
-    let command = "";
-
-    try {
-      command = execFileSync("ps", ["-o", "command=", "-p", String(child)], {
-        encoding: "utf-8",
-      }).trim();
-    } catch {
-      // Exited between pgrep and ps.
-    }
+    const command = commandOrEmptyIfExited(child);
 
     const own =
       path.basename(command.split(" ")[0] ?? "") === "claude"
@@ -148,10 +154,6 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
       await run;
       expectAnswer(live.h);
 
-      // Only mid-turn steering produces a `queued_command` attachment between the tool
-      // result and the next assistant message. A steer that lost the stdin race lands
-      // after that message, and one replayed as a follow-up has no attachment at all.
-      // Model output cannot tell these apart: Claude obeys a late steer too.
       const written = log.since(mark);
       const records = sessionRecords(written, live.projectDir);
 
@@ -210,7 +212,6 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
 
       const records = sessionRecords(log.since(mark), live.projectDir);
 
-      // Parallel results usually share one user record, so count the results themselves.
       const delivered = records
         .filter((r) => r.type === "user")
         .flatMap((r) => [
@@ -225,9 +226,6 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
         delivered,
         "a parallel tool result never reached Claude Code"
       ).toStrictEqual([3000, 4000, 5000]);
-      // pi drains steers between tool results too. Assert the transport fact, not an echo:
-      // Claude Code delivers a drained steer as a system reminder inside the tool result,
-      // which its own prompt-injection guidance tells the model to distrust.
       expect(
         sessionMentions(records, "PAPAYA"),
         "the steer was dropped between results"
@@ -259,7 +257,6 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
 
       expect(expectAnswer(live.h).toLowerCase()).toContain("kiwi");
 
-      // No tool boundary to steer at: the steer waits for the next turn.
       const written = log.since(mark);
 
       expect(written).not.toContain("steer written to Claude Code's stdin");
@@ -285,9 +282,6 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
           "no Claude Code subprocess while a tool call is in flight"
         ).toBeGreaterThan(0);
 
-        // Claude Code survives stdin EOF while a tool call is parked: it reads the lost
-        // MCP transport as a tool error and keeps calling the API. Nothing throws when
-        // this regresses, so the assertion is on the process table.
         await live.h.session.abort();
         await run;
 
@@ -301,13 +295,8 @@ describe.skipIf(!LIVE)("claude-bridge live tool calls", () => {
           cc.filter((p) => alive(p.pid)).map((p) => `${p.pid} ${p.command}`)
         ).toStrictEqual([]);
       } finally {
-        // A survivor bills API requests until something stops it.
         for (const p of cc) {
-          try {
-            process.kill(p.pid, "SIGKILL");
-          } catch {
-            // Already gone.
-          }
+          killIfAlive(p.pid);
         }
       }
 

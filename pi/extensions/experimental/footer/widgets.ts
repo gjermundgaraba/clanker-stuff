@@ -22,7 +22,6 @@ export interface BuiltinWidget {
   id: string;
   content: Span[];
   icon?: Record<IconFamily, string>;
-  /** Keep the end visible; otherwise the widget's side decides. */
   truncate?: "start";
 }
 
@@ -112,7 +111,6 @@ const modelWidget = (
     return { ...base, content: span("no model", "muted") };
   }
 
-  // Name the provider only when another available provider offers the same model name or ID.
   const ambiguous = ctx.modelRegistry
     .getAvailable()
     .some(
@@ -173,7 +171,6 @@ const contextWidget = (ctx: ExtensionContext): BuiltinWidget => {
     id: "footer.context",
   };
 
-  // Pi reports unknown usage after compaction until the next response, and none without a window.
   if (usage === undefined || usage.percent === null) {
     return {
       ...base,
@@ -219,7 +216,6 @@ const gitWidgets = (
     id: "footer.git",
   },
   {
-    // A dirty tree is routine; the counts are the marker.
     content: span(
       details === undefined
         ? ""

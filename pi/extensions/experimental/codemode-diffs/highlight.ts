@@ -5,7 +5,6 @@ import type { Theme as HighlightsTheme } from "@pierre/highlights";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-// Palette names are semantic labels, not colors. No Pierre palette is baked into saved sessions.
 export const SyntaxRoleSchema = Type.Union([
   Type.Literal("text"),
   Type.Literal("comment"),
@@ -90,7 +89,6 @@ export const parseDiffLine = (line: string): DiffLine | undefined => {
   return { prefix: `${kind}${number} `, kind, number: Number(number), text };
 };
 
-// Match Pi's BOM and newline normalization before projecting lexer offsets onto its display diff.
 const normalize = (source: string) =>
   source.replace(/^\uFEFF/u, "").replaceAll(/\r\n?/gu, "\n");
 
@@ -103,7 +101,6 @@ export const highlightDiff = async (
   const { codeToTokens, isSupportedLanguage } =
     await import("@pierre/highlights");
 
-  // Pi aliases TSX/JSX to TS/JS; prefer Highlights' dedicated lexer when it recognizes the suffix.
   const suffix = (
     path.extname(file).slice(1) || path.basename(file)
   ).toLowerCase();
@@ -142,7 +139,6 @@ export const highlightDiff = async (
       return null;
     }
 
-    // Pi numbers unchanged context in the old file, so it uses the old side's lexer state.
     const lines = line.kind === "+" ? newLines : oldLines;
     const tokens = (line.kind === "+" ? newTokens : oldTokens)[line.number - 1];
 

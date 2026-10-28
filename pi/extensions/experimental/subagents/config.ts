@@ -1,4 +1,4 @@
-// Spawn model errors adapted from OpenAI Codex (Apache-2.0); see ./NOTICE.
+// Spawn model errors adapted from OpenAI Codex (https://github.com/openai/codex) under the Apache License 2.0; see ./NOTICE.
 import { readFile } from "node:fs/promises";
 
 import {

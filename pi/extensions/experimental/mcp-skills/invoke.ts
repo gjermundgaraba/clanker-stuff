@@ -24,11 +24,9 @@ const SKILL_COMMAND = /^\/skill:(?<name>\S+)(?:\s+(?<args>[\s\S]*))?$/u;
 
 const COMMAND_PREFIX = /^\s*\/(?<query>\S*)$/u;
 
-/** What completions say about a skill: its server, then its description on one line. */
 const completionDescription = (skill: CatalogSkill): string =>
   `[MCP ${skill.server}] ${inlineText(skill.entry.description)}`;
 
-/** Load skill content through the same approval and checks as a model load. */
 const loadSkill = async (
   skills: McpSkills,
   skill: CatalogSkill,
@@ -84,7 +82,6 @@ export const expandSkillCommand = async (
   };
 };
 
-/** MCP skills for `$` mentions in dollah-skills, loaded the same way as `/skill:`. */
 export const createMentionProvider = (skills: McpSkills): SkillProvider => ({
   id: "mcp-skills",
   async load(name, ctx) {
@@ -101,10 +98,6 @@ export const createMentionProvider = (skills: McpSkills): SkillProvider => ({
     })),
 });
 
-/**
- * Rank command completions like Pi does: matches on the name without `skill:` first, then matches
- * on the full name.
- */
 const rankCommands = (
   items: readonly AutocompleteItem[],
   query: string
@@ -125,7 +118,6 @@ const rankCommands = (
   ];
 };
 
-/** Add `/skill:<server>:<name>` entries to slash-command completion, ranked with Pi's own commands. */
 export const skillCommandCompletion =
   (skills: McpSkills) =>
   (current: AutocompleteProvider): AutocompleteProvider => ({

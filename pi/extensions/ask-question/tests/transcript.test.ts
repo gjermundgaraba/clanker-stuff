@@ -79,7 +79,6 @@ describe("compact questionnaire transcript", () => {
     const projected = transformAnswerMarkdown(wire, ctx);
     expect(projected).not.toContain('"type":"questionnaire_answer"');
     expect(projected).not.toContain(item.id);
-    // Deselected option notes stay private.
     expect(projected).not.toContain("Option note");
     expect(
       transformAnswerMarkdown(answerMessage(answerEnvelope(item, first)), ctx)
@@ -92,7 +91,6 @@ describe("compact questionnaire transcript", () => {
     expect(rendered).toContain("Written-answer note");
     expect(rendered).toContain("END_NOTE");
     expect(rendered).toContain("Changed: Q, Questionnaire note");
-    // User text stays literal: fences, headings and hard breaks render as text lines.
     expect(rendered).toContain("# literal text");
     expect(rendered).toContain("```");
     expect(rendered).not.toMatch(/\\[#`-]/u);

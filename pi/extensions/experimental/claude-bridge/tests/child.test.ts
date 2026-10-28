@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { childEnv } from "../child.js";
 
-// Silent when missing: Claude Code compacts its own copy or loads claude.ai MCP servers,
-// nothing throws, and the damage shows up away from any test.
 describe("childEnv", () => {
   let restoreEnv: (() => void) | undefined;
 

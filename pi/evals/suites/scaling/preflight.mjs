@@ -95,7 +95,6 @@ for (const mode of ["direct", "code"]) {
       assert.ok(content);
       /** @type {unknown} */
       const decoded = JSON.parse(content.text);
-      // Solve receives the decoded JSON, as through the real tool transport; it must match the typed result.
       assert.deepEqual(decoded, result.structuredContent);
 
       return decoded;

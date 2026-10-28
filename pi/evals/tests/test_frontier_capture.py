@@ -100,7 +100,6 @@ class CaptureTest(IsolatedAsyncioTestCase):
 
 class NativeDurabilityTest(TestCase):
     def test_real_runner_journals_before_turn_completion_and_survives_sigkill(self):
-        # Stub only transport; exercise run(), RPC parsing and its actual journal.
         script = """
 import {run} from MODULE;
 globalThis.WebSocket = class extends EventTarget {

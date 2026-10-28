@@ -36,10 +36,8 @@ import type { InspectorSnapshot } from "./snapshot.js";
 import { buildTree, filterTree, flattenTree, followSelection } from "./tree.js";
 import type { FlatRow, TreeNode } from "./tree.js";
 
-/** Columns used by the preview's left padding and right scrollbar. */
 const PREVIEW_GUTTER = PAD.length + 1;
 
-/** Pi's clipboard and syntax highlighter, which the runtime passes in. */
 export interface OverlayServices {
   copyToClipboard: typeof copyToClipboard;
   highlightCode: typeof highlightCode;
@@ -49,7 +47,6 @@ export class ContextOverlay implements Component, Focusable {
   private readonly tree: readonly TreeNode[];
   private readonly expanded: Set<string>;
   private readonly search = new Input({ prompt: "/" });
-  /** Pi's markdown theme resolves colors through the live global theme; only the indent differs. */
   private readonly markdownTheme: MarkdownTheme = {
     ...getMarkdownTheme(),
     codeBlockIndent: "",
@@ -117,7 +114,6 @@ export class ContextOverlay implements Component, Focusable {
     );
   }
 
-  /** Scrolls the preview when it owns navigation, otherwise moves the tree selection. */
   private move(delta: number): void {
     if (this.detail || this.previewFocused) {
       this.scrollPreview(delta);
@@ -228,7 +224,6 @@ export class ContextOverlay implements Component, Focusable {
       case undefined: {
         return new Text(body, 0, 0);
       }
-      // no default
     }
   }
 
@@ -239,7 +234,6 @@ export class ContextOverlay implements Component, Focusable {
       return;
     }
 
-    // Resolve the target first so the rebuild selects (and builds a preview) exactly once.
     let target = row.node.id;
 
     if (expand && row.node.children.length > 0) {
@@ -249,7 +243,6 @@ export class ContextOverlay implements Component, Focusable {
         this.expanded.add(row.node.id);
       }
     } else if (!expand && row.depth > 0) {
-      // flattenTree emits every parent before its descendants; a non-root row has an ancestor.
       const parent = this.rows
         .slice(0, this.selected)
         .findLast((candidate) => candidate.depth < row.depth);
@@ -281,7 +274,6 @@ export class ContextOverlay implements Component, Focusable {
     }
   }
 
-  /** Escape unwinds one layer at a time: details, preview focus, search filter, then the overlay. */
   private back(): void {
     if (this.detail) {
       this.detail = false;
@@ -321,8 +313,6 @@ export class ContextOverlay implements Component, Focusable {
     const action = (id: Keybinding) => this.keybindings.matches(data, id);
     const treeMode = !this.detail && !this.previewFocused;
 
-    // First matching binding wins. Configured Pi actions come before the fixed keys and vim-style
-    // aliases so a user's remapping is never shadowed by a built-in.
     const bindings: Array<[boolean, () => void]> = [
       [
         action("tui.select.cancel"),
@@ -423,7 +413,6 @@ export class ContextOverlay implements Component, Focusable {
   }
 
   invalidate(): void {
-    // Rebuild rather than invalidate: JSON previews hold pre-highlighted text from the old theme.
     this.preview = this.createPreview(this.rows[this.selected]?.node);
     this.search.invalidate();
   }
@@ -490,7 +479,6 @@ export class ContextOverlay implements Component, Focusable {
       return renderOverlay(this.theme, this.snapshot, layout, [], "");
     }
 
-    // The preview pane disappears below the split width; do not leave keyboard focus on it.
     if (previewWidth === 0) {
       this.previewFocused = false;
     }

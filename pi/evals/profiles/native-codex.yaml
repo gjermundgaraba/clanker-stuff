@@ -1,4 +1,3 @@
-# Agent template for Frontier and scaling; each series freezes the latest Codex.
 job_name: native-codex
 jobs_dir: .harbor/jobs
 n_attempts: 1

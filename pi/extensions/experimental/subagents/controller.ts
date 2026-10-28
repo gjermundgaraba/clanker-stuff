@@ -61,7 +61,6 @@ const errorText = (cause: unknown): string =>
     MAX_STATUS_TEXT
   );
 
-/** Waits for `work` unless `signal` aborts first; aborting abandons the wait, not the work. */
 const waitUnlessAborted = async (
   work: Promise<void>,
   signal: AbortSignal | undefined
@@ -100,11 +99,8 @@ export type CallerContext = Pick<
 
 interface Resident {
   runtime: ChildRuntime;
-  /** Settles once the turn's outcome has been recorded or ignored. */
   settled: Promise<void>;
-  /** Identifies the turn whose outcome may still update this node. */
   turn: symbol | undefined;
-  /** Set when retired; the resident keeps its slot and session until disposal settles. */
   retiring?: Promise<void>;
 }
 
@@ -193,7 +189,6 @@ export class Controller {
     const stranded = tree.nodes.filter((node) => node.status === "running");
 
     for (const node of stranded) {
-      // When the turn really ended is unknown; no end time beats a made-up duration.
       node.status = "interrupted";
     }
 
@@ -404,7 +399,6 @@ export class Controller {
           const node = this.#requireNode(path);
           let resident = this.#residents.get(path);
 
-          // Reopening the session before the retired runtime closes it would give the file two writers.
           if (resident?.retiring !== undefined) {
             await waitUnlessAborted(resident.retiring, signal);
             signal?.throwIfAborted();
@@ -416,15 +410,11 @@ export class Controller {
             const read = resident.runtime.steer(task);
 
             if (read === undefined) {
-              // Recording the ended turn's outcome needs this key, so wait for it outside.
               return { turn: resident.settled };
             }
 
-            // A pending wait_agent call would hold the steered task until it times out.
             this.notify(path);
 
-            // A turn can settle without reading the task; it then starts a turn of its own, unless
-            // the agent was interrupted or the tree replaced meanwhile.
             void (async () => {
               try {
                 const delivered = await read;
@@ -455,7 +445,6 @@ export class Controller {
           try {
             runtime = await this.#load(node, ctx, epoch);
             signal?.throwIfAborted();
-            // Child extensions can switch models at session start, as on spawn.
             node.model = runtime.model;
             node.thinking = runtime.thinkingLevel;
             node.status = "running";
@@ -677,7 +666,6 @@ export class Controller {
       this.#assertEpoch(epoch);
     }
 
-    // Mail that waited while the agent was not resident precedes its new task.
     for (const mail of this.#tree.outbox) {
       if (mail.to === node.path) {
         runtime.deliver(mail);
@@ -700,7 +688,6 @@ export class Controller {
       delegation: DelegationPolicy | undefined;
     }
   ): Promise<ChildRuntime> {
-    // Children share Pi's two process-wide codemode workers: a third concurrent script waits 60 s, then fails.
     process.env["PI_CODEMODE_MAX_WORKERS"] ??= String(
       this.#config.maxConcurrent + 2
     );
@@ -843,7 +830,6 @@ export class Controller {
         await resident.runtime.dispose();
       } finally {
         if (node !== undefined) {
-          // Child extensions can change selection after startup; cold reuse needs its final values.
           node.model = resident.runtime.model;
           node.thinking = resident.runtime.thinkingLevel;
           await store.save(tree);
@@ -866,7 +852,6 @@ export class Controller {
     this.#tree.outbox.push(mail);
     await this.#save();
 
-    // A replaced tree keeps its mail; delivering it would reach the new session.
     if (epoch !== this.#epoch) {
       return;
     }
@@ -876,7 +861,6 @@ export class Controller {
     } else {
       const resident = this.#residents.get(mail.to);
 
-      // A retiring child never reads it; its next run receives the mail from the outbox.
       if (resident?.retiring === undefined) {
         resident?.runtime.deliver(mail);
       }

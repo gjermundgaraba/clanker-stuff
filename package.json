@@ -5,11 +5,10 @@
   "scripts": {
     "eval:frontier": "uv run --project pi/evals python -m pi_evals.frontier",
     "eval:scaling": "uv run --project pi/evals python -m pi_evals.scaling",
-    "prepare": "vp config && effect-tsgo patch --no-typescript --oxlint",
-    "publish:dry-run": "node ./scripts/publish-packages.ts --dry-run",
-    "publish:packages": "node ./scripts/publish-packages.ts"
+    "prepare": "vp config && effect-tsgo patch --no-typescript --oxlint"
   },
   "devDependencies": {
+    "@clanker-stuff/oxlint-config": "workspace:*",
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-tui": "catalog:",

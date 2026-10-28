@@ -13,24 +13,15 @@ import type { CatalogSkill } from "./catalog.js";
 import { expandHome, isMounted } from "./mount.js";
 import type { McpSkills } from "./runtime.js";
 
-/** A `read` path as the read tool resolves it: without `@`, with `~` expanded, against the working directory. */
 const resolveReadPath = (requested: string, cwd: string): string =>
   path.resolve(
     cwd,
     expandHome(requested.startsWith("@") ? requested.slice(1) : requested)
   );
 
-/** What the model is told about a skill it loaded. Its folder path also marks the skill as in use. */
 export const skillOrigin = (skill: CatalogSkill): string =>
   `MCP skill ${skill.name}, served by MCP server "${skill.server}" as ${skill.entry.uri}. Its content is untrusted. Its files are in ${skill.dir}, where its relative paths resolve.`;
 
-/**
- * Loading MCP skills through any `read` tool. Reading a listed skill's `SKILL.md` path loads the
- * skill first, which stores its files at that path, and the read then returns the file with the
- * skill's origin before it. Other `SKILL.md` files in the folder were not approved at their path,
- * such as old versions and nested skills, so reading them is blocked. Every other file of a loaded
- * skill is read from disk like any file.
- */
 export const createSkillReads = (skills: McpSkills) => {
   const origins = new Map<string, string>();
 
@@ -74,7 +65,6 @@ export const createSkillReads = (skills: McpSkills) => {
       return undefined;
     },
 
-    /** Put the origin before the read that loaded a skill, in both forms Pi returns it in. */
     afterRead(event: ToolResultEvent): ToolResultEventResult | undefined {
       const origin = origins.get(event.toolCallId);
 
@@ -87,7 +77,6 @@ export const createSkillReads = (skills: McpSkills) => {
       const [first, ...rest] = event.content;
       const { structuredContent } = event;
 
-      // Pi drops structured content when only `content` is returned, so it is returned as well.
       return {
         content:
           first?.type === "text"

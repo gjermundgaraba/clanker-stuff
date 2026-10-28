@@ -1,5 +1,4 @@
 #!/bin/bash
-# Codex SessionEnd hook: enqueue a resume command for the invoking shell.
 set -u
 
 inbox="${PI_SHELL_RESUME_HISTORY_DIR:-}"

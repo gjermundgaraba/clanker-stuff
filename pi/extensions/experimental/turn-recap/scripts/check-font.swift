@@ -1,5 +1,3 @@
-// macOS: swift check-font.swift SOURCE.ttf manifest.json [proof.png]
-// Uses CoreText directly; does not install fonts or claim Ghostty validation.
 import CoreGraphics
 import CoreText
 import Foundation
@@ -112,7 +110,6 @@ do {
         let cell = CGRect(x: origin.x, y: origin.y + CGFloat(manifest.descent) * scale,
                           width: CGFloat(manifest.advance) * scale,
                           height: CGFloat(manifest.ascent - manifest.descent) * scale)
-        // One pixel accommodates antialiasing along the cell clip boundary.
         let allowed = cell.insetBy(dx: -1, dy: -1)
         for cp in all {
             var g = glyph(font, cp)

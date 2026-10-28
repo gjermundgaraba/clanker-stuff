@@ -82,7 +82,6 @@ describe("Code Mode edit diffs in real sessions", () => {
     expect(b?.[1]?.diff).toContain("+1 charlie");
 
     for (const message of messages) {
-      // The extension must augment, not replace Code Mode's existing details.
       expect(message.details).toHaveProperty("calls");
       expect(message.content).toHaveLength(1);
       const [block] = message.content;

@@ -22,8 +22,7 @@ from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont, newTable
 
-BASE = 0xF2000  # Supplementary PUA-A; outside this project's spinner banks.
-# Frames per digit step: an uncapped 260 ms step sampled at 30 fps shows about 8.
+BASE = 0xF2000
 STEPS = 8
 TIMESTAMP = 3660681600
 
@@ -46,7 +45,6 @@ def rectangle(left, bottom, right, top):
 
 
 def frame_glyph(before, after, phase, viewport, cell_height, units_per_em):
-    # Font coordinates increase upwards. Incoming ink starts one cell below.
     outgoing = before.transform(translateY=phase * cell_height)
     incoming = after.transform(translateY=(phase - 1) * cell_height)
     combined = pathops.op(outgoing, incoming, pathops.PathOp.UNION)
@@ -97,9 +95,6 @@ def build(source_bytes, pairs):
             )
         paths[digit] = path
 
-    # Keep original endpoint glyphs and their TrueType hint programs, including
-    # composite dependencies and global hint tables. Intermediate outlines are
-    # intentionally unhinted: the original instructions do not describe them.
     metrics = {
         name: getattr(font["OS/2"], name)
         for name in (
@@ -116,7 +111,7 @@ def build(source_bytes, pairs):
     options.name_legacy = True
     options.name_languages = ["*"]
     options.layout_features = []
-    options.drop_tables += ["PfEd"]  # FontForge editor data, not rendering data.
+    options.drop_tables += ["PfEd"]
     subsetter = subset.Subsetter(options=options)
     subsetter.populate(unicodes=range(ord("0"), ord("9") + 1))
     subsetter.subset(font)
@@ -162,8 +157,6 @@ def build(source_bytes, pairs):
     font["name"] = newTable("name")
     font["name"].names = notices
     font["head"].created = font["head"].modified = TIMESTAMP
-    # Canonicalize once before hashing: this includes outlines, hints, metrics,
-    # source notices and cmap, but excludes the derived family name itself.
     font = TTFont(io.BytesIO(serialize(font)), recalcTimestamp=False)
     digest = hashlib.sha256(serialize(font)).hexdigest()[:10]
     family = f"Rolling Digits {digest}"
@@ -240,19 +233,7 @@ def validate(font_bytes, manifest, source_bytes):
                 )
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    # Digit transitions the runtime rolls through, e.g. "01,12,50".
-    parser.add_argument("--pairs", type=lambda text: text.split(","), required=True)
-    args = parser.parse_args()
-    source = args.source.expanduser().resolve()
-    out = args.out.expanduser().resolve()
-    # Derivatives may contain licensed outlines and personal license metadata.
-    # Keep local builds out of the source tree, including untracked directories.
+def inside_repository(path):
     root = next(
         (
             parent
@@ -261,7 +242,20 @@ def main():
         ),
         None,
     )
-    if root is not None and (out == root or root in out.parents):
+    return root is not None and (path == root or root in path.parents)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--pairs", type=lambda text: text.split(","), required=True)
+    args = parser.parse_args()
+    source = args.source.expanduser().resolve()
+    out = args.out.expanduser().resolve()
+    if inside_repository(out):
         parser.error(
             "--out must be outside the repository; do not commit derived fonts"
         )

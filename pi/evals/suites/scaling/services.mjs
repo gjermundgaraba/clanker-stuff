@@ -42,7 +42,6 @@ const settings = JSON.parse(
 const isRecord = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-// The task generator owns these required seed and sizing settings. Fail before creating a ledger or cursor loop.
 if (
   !isRecord(settings) ||
   typeof settings["count"] !== "number" ||
@@ -72,7 +71,7 @@ export const FIXTURE = `scaling-ledger-${SETTINGS.count}-${SETTINGS.seed}-v1`;
 /** @param {string} code @returns {ServiceFailure} */
 const fail = (code) => ({ error: { code, retryable: false } });
 
-/** @param {string} s Seed-derived key; its digest makes entry ids and cursors deterministic. */
+/** @param {string} s */
 const hash = (s) => createHash("sha256").update(s).digest("hex");
 
 export const fixture = () => ({
@@ -195,9 +194,8 @@ export const createServices = ({ emit, latencyMs = 150 } = {}) => {
   };
 
   return {
-    /** @param {string} name @param {unknown} args Raw service arguments, validated by the independently callable backend. @param {AbortSignal} [signal] */
+    /** @param {string} name @param {unknown} args @param {AbortSignal} [signal] */
     async call(name, args, signal) {
-      // Shared cap applies to the entire operation, not merely the reported count.
       const pending = tail.then(async () => await execute(name, args, signal));
       tail = Promise.allSettled([pending]);
 

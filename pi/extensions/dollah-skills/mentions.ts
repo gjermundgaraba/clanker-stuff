@@ -26,14 +26,12 @@ const SKILL_NAME = /^[A-Za-z0-9_:-]*[A-Za-z0-9_-]$/u;
 
 const SKILL_COMMAND_PREFIX = "skill:";
 
-/** A skill `$` mentions can name: on disk, or from a provider extension. */
 interface LoadableSkill {
   name: string;
   description: string | undefined;
   load: (ctx: ExtensionContext) => Promise<ProvidedSkill | { error: string }>;
 }
 
-/** Pi's block parts for a skill on disk, with its body read now. */
 const readSkill = async (filePath: string): Promise<ProvidedSkill> => {
   const body = stripFrontmatter(await readFile(filePath, "utf-8")).trim();
 
@@ -46,7 +44,6 @@ const readSkill = async (filePath: string): Promise<ProvidedSkill> => {
 export const createSkillMentions = (pi: ExtensionAPI) => {
   const providers = collectSkillProviders(pi.events);
 
-  /** Skills on disk, then skills providers offer under names no skill on disk has. */
   const getSkills = (): LoadableSkill[] => {
     const local = pi.getCommands().flatMap((command): LoadableSkill[] => {
       const name = command.name.slice(SKILL_COMMAND_PREFIX.length);
@@ -85,10 +82,6 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     return [...local, ...provided];
   };
 
-  /**
-   * Pi runs extension commands before input handlers and expands `/skill:name` and prompt templates
-   * after them, so input that names a registered command, template or skill stays with Pi.
-   */
   const invokesCommand = (text: string): boolean => {
     if (!text.startsWith("/")) {
       return false;
@@ -148,10 +141,6 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     }));
   };
 
-  /**
-   * Parts of the mentioned skills, in skill-list order. Skills load one at a time, since a
-   * provider may ask the user before loading; a skill that fails is reported and left out.
-   */
   const loadMentionedSkills = async (
     text: string,
     ctx: ExtensionContext
@@ -182,10 +171,6 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     return loaded;
   };
 
-  /**
-   * Put the mentioned skills ahead of the typed text in Pi's native `/skill:name` shape. Pi records
-   * it as the user message, collapses the block in the chat view and keeps the typed text visible.
-   */
   const expand = async (
     event: InputEvent,
     ctx: ExtensionContext

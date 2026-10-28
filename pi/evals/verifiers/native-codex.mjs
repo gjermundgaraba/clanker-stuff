@@ -3,7 +3,6 @@ const isRecord = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @param {unknown} trajectory @param {{model: string, thinking: string}} comparison */
-// Native Codex is a harness comparison, not a third Pi tool-mode arm.
 export const validateNativeCodex = (trajectory, comparison) => {
   if (
     !isRecord(trajectory) ||

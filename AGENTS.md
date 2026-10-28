@@ -56,7 +56,7 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 
 ## Linting and formatting
 
-`vp check` lints, formats and type-checks; `vp check --fix` applies fixes. Oxlint and Oxfmt run Ultracite's core, anti-slop and Vitest presets and `@effect/tsgo`'s recommended preset. Every exception to them lives in `oxlint.config.ts` beside its reason: a shared block that is identical across the maintainer's repositories, then file-scoped overrides for this one. Adding or widening an exception needs the maintainer's approval. Do not add inline `oxlint-disable` comments; the ones that predate Ultracite stay with their reasons.
+`vp check` lints, formats and type-checks; `vp check --fix` applies fixes. Oxlint runs [`@clanker-stuff/oxlint-config`](packages/oxlint-config/README.md), the maintainer's shared preset of Ultracite, `@effect/tsgo` and their exceptions, and `oxlint.config.ts` adds this repository's file-scoped overrides, whose reasons are listed in [docs/lint-policy.md](docs/lint-policy.md#repository-overrides). Fix the code rather than add a lint exception. Do not add inline `oxlint-disable` comments; the ones that predate Ultracite stay.
 
 ## Lint policy and exceptions
 
@@ -103,4 +103,10 @@ Use these for broad or cross-cutting changes, README policy changes, shared code
 - `vp check` / `vp check --fix` — format, lint, and type-check the repository.
 - `vp test` — run all unit, integration, and smoke projects; use `--project <name>` to select one.
 - `vp run check:readmes` / `vp run check:tests` — run repository README or test-boundary policy checks.
-- `vp run ready` — run every static check, policy check, and test.
+- `vp run ready` — run every static check, policy check, and test. The `check:*` tasks are separate so each caches on the files it reads; `ready` fans them out, then runs the tests.
+- `bash claude/plugins/resume-history/test.sh` / `bash codex/plugins/resume-history/test.sh` — self-check the resume-history hooks. Neither `vp run ready` nor CI runs them.
+
+## Dependencies
+
+- Dependabot keeps only the SHA-pinned GitHub Actions current. npm dependencies are left out of it on purpose: bump them by hand through the pnpm catalog in `pnpm-workspace.yaml`.
+- `pnpm-workspace.yaml` names the `skills.dirs` that pnpm links Ultracite's skill into, because pnpm otherwise auto-detects an agent to link it for.

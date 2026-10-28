@@ -1,4 +1,3 @@
-// Additional scaling controls, run without a model service.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 

@@ -21,7 +21,6 @@ import { openTree } from "../store.js";
 
 const WORKERS = "PI_CODEMODE_MAX_WORKERS";
 
-// Each child's script holds its worker until every child's script is running.
 const respond: FauxResponseStep = (context) =>
   context.messages.at(-1)?.role === "toolResult"
     ? fauxAssistantMessage("done")
@@ -141,7 +140,6 @@ describe("codemode workers", () => {
         );
       }
 
-      // At Pi's default of two workers, the third script waits 60 s for one instead.
       await vi.waitFor(
         () => {
           expect(holding).toBe(children);

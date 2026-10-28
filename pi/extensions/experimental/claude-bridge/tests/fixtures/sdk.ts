@@ -1,7 +1,3 @@
-// Claude Code SDK messages for tests: the streams recorded in sdk-streams/, and
-// hand-built frames for what cannot be recorded on demand (a stalled stream, a 429, a
-// tool name the bridge does not serve).
-
 import { readFileSync } from "node:fs";
 
 import type {
@@ -51,7 +47,7 @@ export const recordedStream = (name: RecordedStream): SDKMessage[] => {
     .map((line) => {
       const raw: unknown = JSON.parse(line);
 
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Claude Code output from the pinned SDK, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. No bridge logic reads those fields; debug logging writes the rate-limit info whole.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Claude Code output from the pinned SDK, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. No bridge logic reads those fields; debug logging writes the rate-limit info whole.
       return raw as SDKMessage;
     });
 };
@@ -71,8 +67,6 @@ export const recordingStream = (log: string[] = []): RecordingStream => {
   const push = stream.push.bind(stream);
   const end = stream.end.bind(stream);
 
-  // pi-ai exports the stream class as a type only, so the instance is wrapped rather
-  // than subclassed; it still queues and ends exactly as pi's own streams do.
   stream.push = (event) => {
     events.push(event);
     log.push(event.type);

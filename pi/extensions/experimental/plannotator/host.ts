@@ -7,7 +7,6 @@ import type {
 import type { CliStarter } from "./cli.js";
 import type { createCommandRuntime } from "./command-runtime.js";
 
-/** Loads the command runtime on first use, so Pi starts without it. */
 export type CommandRuntimeLoader = () => Promise<{
   createCommandRuntime: typeof createCommandRuntime;
 }>;

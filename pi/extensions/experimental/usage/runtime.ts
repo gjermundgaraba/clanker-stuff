@@ -9,7 +9,6 @@ import type {
   UsageControllerDependencies,
 } from "./controller.js";
 
-/** Loads the controller module on first use, keeping it off Pi's startup path. */
 export type LoadUsageController = () => Promise<typeof createUsageController>;
 
 export const createUsageRuntime = (

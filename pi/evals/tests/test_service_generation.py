@@ -1,5 +1,3 @@
-"""Execute generated programs, including all three runtime validity boundaries."""
-
 import json
 from pathlib import Path
 import subprocess

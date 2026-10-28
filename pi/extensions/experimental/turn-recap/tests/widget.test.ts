@@ -77,7 +77,6 @@ describe("live widget", () => {
     const env = setup(font);
     expect(plain(env.widget.render(80))).toContain("1s elapsed");
     env.running.elapsedMs = 2000;
-    // ASCII start still moves.
     expect(plain(env.widget.render(80))).toContain("1s elapsed");
     vi.advanceTimersByTime(Math.ceil(ROLL_FRAME_MS));
     expect(env.request).toHaveBeenCalledOnce();
@@ -90,7 +89,6 @@ describe("live widget", () => {
     vi.advanceTimersByTime(1);
     expect(plain(env.widget.render(80))).toContain("2s elapsed");
 
-    // Settled: the next wake is the next second, not another frame.
     env.request.mockClear();
     vi.advanceTimersByTime(1000);
     expect(env.request).not.toHaveBeenCalled();
@@ -147,7 +145,6 @@ describe("live widget", () => {
     env.metrics.usage.input = 222;
     env.widget.render(80);
     vi.advanceTimersByTime(130);
-    // Processed tokens are 381 → 492; width twenty truncates that field away.
     expect(plain(env.widget.render(80))).toContain(font.glyph("3", "4", 0.5));
     expect(hasFrames(plain(env.widget.render(20)))).toBe(false);
 

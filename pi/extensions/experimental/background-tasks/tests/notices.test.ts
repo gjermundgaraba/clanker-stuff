@@ -19,7 +19,6 @@ describe("TaskNotices", () => {
     expect(notices.unread(undefined)).toStrictEqual({ events: 2 });
     notices.clear(false);
     expect(notices.unread(undefined)).toBeUndefined();
-    // Clearing events alone leaves a later outcome to announce.
     expect(notices.unread("completed")).toStrictEqual({
       events: 0,
       outcome: "completed",
@@ -83,8 +82,6 @@ describe("TaskNotices", () => {
     expect(counted.events[0]?.data).toBe(3);
     expect(counted.omitted).toBe(3);
 
-    // Each U+202E renders as a 6-byte escape: four such events fill the cap as rendered,
-    // counting their seq and key, though their data is under a third of it in UTF-8.
     const sized = new TaskNotices();
     const large = "\u202E".repeat(677);
 

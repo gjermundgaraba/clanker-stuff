@@ -71,7 +71,6 @@ describe("questionnaire transitions", () => {
       tool_call_id: "call2",
       reason: "Reconsider",
     });
-    // An agent revision is asked the way the questionnaire was last asked.
     expect(item.draft?.mode).toBe("async");
     expect(() => {
       apply({ type: "reopen", base: 1, initiated_by: "user", mode: "async" });

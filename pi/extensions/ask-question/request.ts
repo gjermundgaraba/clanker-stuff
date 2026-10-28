@@ -95,8 +95,6 @@ export const RevisionSchema = Type.Object(
   { additionalProperties: false }
 );
 
-// Tools publish the structural shape so every provider's strict sampling subset
-// can represent it; the validators below enforce the limits declared above.
 export const QuestionnaireParameters = structuralSchema(QuestionnaireSchema);
 
 export const RevisionParameters = structuralSchema(RevisionSchema);

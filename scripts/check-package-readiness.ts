@@ -33,6 +33,10 @@ const EXPECTED_PACKAGE_MANAGER = "pnpm";
 
 const EXPECTED_LICENSE = "MIT";
 
+const EVALUATION_RUNTIME_DIR = "pi/evals/runtime";
+
+const SKILL_HELPERS_ROOT = "skills/";
+
 const REPOSITORY_URL =
   "git+https://github.com/gjermundgaraba/clanker-stuff.git";
 
@@ -42,6 +46,8 @@ const HOMEPAGE_PREFIX =
   "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
 
 const EXPERIMENTAL_README_WARNING = "**Experimental:**";
+
+const BUILD_OUTPUT_DIR = "dist";
 
 const collectRuntimeTsFiles = (
   directory: string,
@@ -150,9 +156,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: expected license ${EXPECTED_LICENSE}`);
   }
 
-  // The evaluation image is a private standalone deployment, not a host-loaded Pi package.
-  // It consumes pinned dependencies and the parent evaluation README/root repository license.
-  if (dir === "pi/evals/runtime") {
+  if (dir === EVALUATION_RUNTIME_DIR) {
     if (
       pkg.private !== true ||
       pkg.exports !== undefined ||
@@ -201,8 +205,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: missing README.md`);
   }
 
-  // Skill helper packages are private standalone CLIs, not host-loaded Pi packages.
-  if (dir.startsWith("skills/")) {
+  if (dir.startsWith(SKILL_HELPERS_ROOT)) {
     if (
       pkg.private !== true ||
       pkg.pi !== undefined ||
@@ -217,6 +220,14 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
 
   const isExtensionPackage = dir.startsWith("pi/extensions/");
+
+  const isBuiltPackage = pkg.publishConfig?.exports !== undefined;
+
+  if (isBuiltPackage && pkg.files?.includes(BUILD_OUTPUT_DIR) !== true) {
+    errors.push(
+      `${label}: a package that publishes built exports must list ${BUILD_OUTPUT_DIR} in files`
+    );
+  }
 
   const subpathExports = Value.Check(SubpathExportsSchema, pkg.exports)
     ? Object.entries(pkg.exports)
@@ -241,10 +252,12 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
         target.includes("..", 2) ||
         !target.endsWith(".ts") ||
         !existsSync(path.join(dir, target)) ||
-        pkg.files?.some(
-          (entry) =>
-            target.slice(2) === entry || target.slice(2).startsWith(`${entry}/`)
-        ) !== true
+        (!isBuiltPackage &&
+          pkg.files?.some(
+            (entry) =>
+              target.slice(2) === entry ||
+              target.slice(2).startsWith(`${entry}/`)
+          ) !== true)
       ) {
         errors.push(
           `${label}: shared export ${subpath} must point to a published TypeScript source file`
@@ -259,7 +272,10 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: missing files allowlist`);
   } else {
     for (const entry of pkg.files) {
-      if (!pathExistsForEntry(dir, entry)) {
+      if (
+        !(isBuiltPackage && entry === BUILD_OUTPUT_DIR) &&
+        !pathExistsForEntry(dir, entry)
+      ) {
         errors.push(`${label}: files entry does not exist: ${entry}`);
       }
     }

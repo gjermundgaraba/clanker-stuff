@@ -8,7 +8,6 @@ import { Value } from "typebox/value";
 import { emptyTree, TreeSchema } from "./protocol.js";
 import type { Tree } from "./protocol.js";
 
-/** Version 4 trees live in their own directory, so earlier formats are never read. */
 const TREE_DIRECTORY = "trees-v4";
 
 const writeAtomically = async (
@@ -89,6 +88,12 @@ export const openTree = async (
     );
   }
 
+  const invalidTree = () =>
+    fresh(
+      store,
+      `Starting a new subagent tree; ${file} is not a valid version 4 tree.`
+    );
+
   try {
     const parsed: unknown = JSON.parse(text);
 
@@ -96,11 +101,8 @@ export const openTree = async (
       return { store, tree: parsed, warning: undefined };
     }
   } catch {
-    // Malformed JSON is reported below with schema mismatches.
+    return invalidTree();
   }
 
-  return fresh(
-    store,
-    `Starting a new subagent tree; ${file} is not a valid version 4 tree.`
-  );
+  return invalidTree();
 };

@@ -1,4 +1,3 @@
-"""Small shared helpers for evaluation artifacts and provenance."""
 from __future__ import annotations
 import hashlib
 import json

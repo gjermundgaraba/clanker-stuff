@@ -83,9 +83,7 @@ describe("isolated recap requests", () => {
   it("reports an unavailable model as a request failure without falling back", async () => {
     const ctx = createExtensionHost(() => {}).createContext({
       modelRegistry: {
-        find: () => {
-          // No model matches the configured provider and ID.
-        },
+        find: () => undefined,
       },
     });
 

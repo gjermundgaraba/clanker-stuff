@@ -89,7 +89,6 @@ describe(orbMarks, () => {
     expect(inks("purple").has(at("/root/second"))).toBe(true);
     expect(inks("purple").has(at("/root/second/child/grandchild"))).toBe(true);
     expect(inks("gray").has(at("/root"))).toBe(true);
-    // The orb turns with time.
     expect(marks.running(theme, "/root/first", 0)).not.toBe(
       marks.running(theme, "/root/first", 1000)
     );

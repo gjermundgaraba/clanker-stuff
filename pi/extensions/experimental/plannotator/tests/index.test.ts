@@ -22,7 +22,6 @@ describe("plannotator registration", () => {
 
     const command = host.runCommand("plannotator-review", "", ctx);
     const shutdown = host.emitSessionShutdown(ctx);
-    // Shutdown reaches the extension while the runtime is still loading.
     await setImmediate();
     loaded.resolve({ createCommandRuntime: createRuntime });
     await shutdown;

@@ -112,7 +112,6 @@ describe("collaboration tools", () => {
       content: [{ text: "", type: "text" }],
       details: {},
     });
-    // Sessions and the tree keep task and message text, so it shares the final-answer limit.
     await expect(
       extension.runTool("send_message", {
         message: "x".repeat(MAX_DURABLE_TEXT + 1),
@@ -129,7 +128,6 @@ describe("collaboration tools", () => {
     ).rejects.toThrow(
       /Validation failed for tool "spawn_agent":\n {2}- message:/u
     );
-    // Every node is listed, not only those with a loaded runtime.
     await expect(extension.runTool("list_agents", {})).resolves.toMatchObject({
       details: {
         agents: [

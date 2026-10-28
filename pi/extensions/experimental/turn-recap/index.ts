@@ -8,7 +8,6 @@ import { TurnRecapRuntime } from "./runtime.js";
 export default function turnRecapExtension(pi: ExtensionAPI): void {
   const runtime = new TurnRecapRuntime(pi);
 
-  // Recap entries have no renderer of their own: each card shows its run's recap in place.
   pi.registerEntryRenderer(
     ENTRY_TYPE,
     createCardRenderer((runId) => runtime.recap(runId))
@@ -20,7 +19,6 @@ export default function turnRecapExtension(pi: ExtensionAPI): void {
   pi.on("agent_start", (_event, ctx) => {
     runtime.begin(ctx);
   });
-  // Calls a tool makes itself land on its result; they change nothing until it finishes.
   pi.on("tool_execution_start", (event, ctx) => {
     if (event.parentToolCallId === undefined) {
       runtime.refresh(ctx);

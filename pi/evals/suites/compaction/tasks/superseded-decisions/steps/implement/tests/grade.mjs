@@ -5,16 +5,22 @@ import { isDeepStrictEqual } from "node:util";
 import { validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/deployment.js").planDeployment} */
-let planDeployment = () => {
+const missingCandidate = () => {
   throw new Error("deployment module did not load");
 };
 
-try {
-  // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
-  ({ planDeployment } = await import("/app/src/deployment.js"));
-} catch {
-  // The stub stays in place, so every probe of the missing module scores zero.
-}
+const loadCandidate = async () => {
+  try {
+    const { planDeployment: candidate } =
+      await import("/app/src/deployment.js");
+
+    return candidate;
+  } catch {
+    return missingCandidate;
+  }
+};
+
+const planDeployment = await loadCandidate();
 
 const tests = spawnSync("node", ["--test", "/app/test/deployment.test.js"], {
   encoding: "utf-8",
@@ -22,18 +28,24 @@ const tests = spawnSync("node", ["--test", "/app/test/deployment.test.js"], {
 
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
-/** @type {unknown} */
-let trajectory = {};
+const readTrajectory = () => {
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(
+      readFileSync("/logs/agent/trajectory.json", "utf-8")
+    );
 
-try {
-  trajectory = JSON.parse(readFileSync("/logs/agent/trajectory.json", "utf-8"));
-} catch {
-  // A missing or unreadable trajectory is graded as an invalid experiment.
-}
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+
+const trajectory = readTrajectory();
 
 const validation = validateCompaction(trajectory, { expectedSegments: [4, 9] });
 
-/** @param {()=>boolean} fn Probe whose thrown failure scores zero. */
+/** @param {()=>boolean} fn */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -111,19 +123,21 @@ const facts = {
   }),
 };
 
-let combined;
+const tryCombined = () => {
+  try {
+    return planDeployment({
+      attempts: 5,
+      ignored: true,
+      regions: ["APAC", " us ", "apac", "eu"],
+      service: " Worker ",
+      target: " Staging ",
+    });
+  } catch {
+    return undefined;
+  }
+};
 
-try {
-  combined = planDeployment({
-    attempts: 5,
-    ignored: true,
-    regions: ["APAC", " us ", "apac", "eu"],
-    service: " Worker ",
-    target: " Staging ",
-  });
-} catch {
-  // A throwing candidate leaves `combined` unset; the check below scores that case.
-}
+const combined = tryCombined();
 
 if (combined) {
   facts.attempts_current &&= Number(combined.attempts === 5);

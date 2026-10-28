@@ -1,7 +1,3 @@
-// Claude Code's messages mapped onto one pi turn. Recorded streams cover the shapes live
-// Claude Code emits; hand-built ones cover what cannot be recorded on demand: a stall, a
-// cut inside a tool call, a hallucinated tool name, a failure report.
-
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { JsonObject } from "@earendil-works/pi-ai";
@@ -50,8 +46,6 @@ const NOTIFY = "mcp__custom-tools__notify_parent";
 
 const READ = "mcp__custom-tools__read";
 
-/** What the conversation machine does with each message for the turn it owns. A failed
- *  result fails the turn; a successful one delivers its text and finishes it. */
 const feed = (turn: Turn, messages: readonly SDKMessage[]): void => {
   for (const message of messages) {
     if (message.type === "stream_event") {
@@ -106,8 +100,6 @@ const text = (turn: Turn): string =>
 const toolCalls = (turn: Turn) =>
   turn.output.content.filter((block) => block.type === "toolCall");
 
-// Got as far as a thinking block and the start of a tool call, then stalled: no
-// content_block_stop, no message_stop.
 const stalledStream = (id: string): SDKMessage[] => [
   messageStart(id),
   thinkingStart(0),
@@ -116,8 +108,6 @@ const stalledStream = (id: string): SDKMessage[] => [
   inputJsonDelta(1, '{"comm'),
 ];
 
-// Claude Code repeats the request without streaming; the answer arrives as one
-// assistant message under a new id, with no stream events of its own.
 const fallback = (id: string): SDKMessage =>
   assistantMessage(id, [
     { type: "thinking", thinking: "Let me look at both.", signature: "sig" },
@@ -206,11 +196,6 @@ const cutInsideToolInput = (id: string): SDKMessage[] => [
   messageStop(),
 ];
 
-// A stream cut off inside a tool call's input: the block started, so its name and id are
-// known, and then nothing. Claude Code drops the block from its own conversation and
-// resumes the turn under a new message and tool_use id. Dispatching the half-built call
-// sent pi `{}` under an id no MCP handler would ever claim, while Claude Code's resumed
-// call waited on a handler pi never answered.
 describe("a tool call whose content_block_stop never arrived", () => {
   it("is not dispatched to pi, and does not end pi's turn", () => {
     const { turn, pi } = run(
@@ -218,11 +203,9 @@ describe("a tool call whose content_block_stop never arrived", () => {
       served("notify_parent")
     );
 
-    // Only the unfinished block goes; the text closed, and Claude Code keeps it too.
     expect(turn.output.content.map(describeBlock)).toStrictEqual([["text"]]);
     expect(turn.output.stopReason).not.toBe("toolUse");
     expect(turn.toolCallIds).toStrictEqual([]);
-    // Left open on purpose: Claude Code's resume is more of this same pi turn.
     expect(turn.ended).toBe(false);
     expect(terminalTypes(pi)).toStrictEqual([]);
     expect(pi.ended).toBe(false);
@@ -275,8 +258,6 @@ describe("a tool call whose content_block_stop never arrived", () => {
     expect(turn.ended).toBe(true);
   });
 
-  // Dropping the whole message would throw away a call Claude Code kept and dispatched:
-  // the same deadlock the other way round.
   it("leaves a sibling call that did close to be dispatched", () => {
     const { turn } = run(
       [
@@ -299,7 +280,6 @@ describe("a tool call whose content_block_stop never arrived", () => {
     expect(turn.ended).toBe(true);
   });
 
-  // pi renders a call's arguments as they stream.
   it("parses the arguments streamed so far", () => {
     const { turn } = run(
       [
@@ -315,7 +295,6 @@ describe("a tool call whose content_block_stop never arrived", () => {
     ]);
   });
 
-  // Negative control: refusing to dispatch anything at all passes every case above.
   it("still dispatches a tool call that does close, with its full arguments", () => {
     const { turn, pi } = run(
       [
@@ -413,7 +392,6 @@ describe("completed tool-call arguments", () => {
       ).toMatchObject({
         toolCall: call,
       });
-      // Even a schema accepting {} must reject the malformed call before execution.
       expect(() => {
         validateToolArguments(
           {
@@ -472,8 +450,6 @@ describe("completed tool-call arguments", () => {
   });
 });
 
-// pi runs no tool call from a truncated response; a cut-off call's arguments are whatever
-// JSON survived, which would otherwise run as if complete.
 describe("a tool call cut off at the output limit", () => {
   it("ends the turn as truncated, not on the call", () => {
     const { turn, pi } = run(
@@ -526,7 +502,6 @@ const textOnly = (messages: readonly SDKMessage[]) => {
 };
 
 describe("a turn that must answer in text", () => {
-  // An empty summary would let compaction drop context with nothing in its place.
   it("fails without text", () => {
     expect(textOnly([successResult("  ")]).events.at(-1)).toMatchObject({
       type: "error",
@@ -551,11 +526,6 @@ const toolUseTurn = (name: string, id: string): SDKMessage[] => [
   messageStop(),
 ];
 
-// Claude sometimes calls a Claude Code builtin by its bare name. The query runs with
-// `tools: []`, so Claude Code rejects such a call itself and retries under a fresh
-// tool_use id without dispatching to our MCP server. Forwarding it ran a tool Claude
-// Code never asked for, and pi's result, keyed to the dead id, never released the
-// retry's handler.
 describe("tool_use for a tool we do not serve", () => {
   it("is skipped, and only the retry under the served name reaches pi", () => {
     const { turn } = run(
@@ -584,8 +554,6 @@ describe("tool_use for a tool we do not serve", () => {
     expect(pi.ended).toBe(false);
   });
 
-  // The assistant-message path has to make the same call, or the deadlock comes back
-  // through the other door.
   it("is skipped on the assistant-message path too", () => {
     const { turn } = run(
       [
@@ -613,8 +581,6 @@ describe("tool_use for a tool we do not serve", () => {
   });
 });
 
-// Claude Code reports API failures (429 capacity, overload, prompt-too-long) as a result
-// with is_error set while the subtype stays "success".
 const RATE_LIMITED =
   "API Error: Server is temporarily limiting requests (not your usage limit): Rate limited";
 
@@ -663,9 +629,6 @@ describe("a failed turn", () => {
     expect(text(turn)).toBe(RATE_LIMITED);
   });
 
-  // A consumer that fails over only before output commits, such as
-  // pi-model-fallback-alias, commits on anything but a start or thinking event. If
-  // Claude Code's own failure report counted as output, it could never fail over.
   it("keeps a synthetic report off the stream, so failover is still possible", () => {
     const { turn, pi } = run([
       syntheticReport(RATE_LIMITED),
@@ -680,15 +643,11 @@ describe("a failed turn", () => {
       )
     ).toStrictEqual([]);
     expect(pi.events.at(-1)?.type).toBe("error");
-    // The wording still reaches pi's transcript as the failed turn's content.
     expect(turn.output.content).toStrictEqual([
       { type: "text", text: RATE_LIMITED },
     ]);
   });
 
-  // A stalled stream whose non-streaming retry also failed: the report arrives while the
-  // dead stream's unsigned thinking and undispatched tool call are still open. Left in,
-  // pi would replay the abandoned call as one awaiting a result.
   it("drops the abandoned partial blocks of a stalled stream", () => {
     const { turn } = run([
       messageStart("msg_stalled"),
@@ -718,8 +677,6 @@ describe("a result's text", () => {
     expect(pi.events.at(-1)?.type).toBe("done");
   });
 
-  // Claude Code repeats the final text in the result after an assistant message that
-  // arrived without stream events already delivered it.
   it("is not delivered again after an assistant message carried it", () => {
     const { turn, pi } = run([
       assistantMessage("msg_1", [textBlock("Hello")]),
@@ -759,8 +716,6 @@ describe("a result's text", () => {
     expect(turn.output.content).toStrictEqual([]);
   });
 
-  // A response that arrived whole had no message_delta to say it was cut off; pi refuses
-  // to keep a truncated summary only if it learns so.
   it.each(["max_tokens", "model_context_window_exceeded"])(
     "reports a %s cut-off it carries for a response that arrived whole",
     (stopReason) => {
@@ -792,7 +747,6 @@ const replay = (
   toPi: ReadonlySet<string> = served("read")
 ) => run(recordedStream(name), toPi);
 
-/** Every thinking-token count in the stream's usage frames, in stream order. */
 const thinkingTokenCounts = (messages: readonly SDKMessage[]): number[] =>
   messages.flatMap((message) => {
     let count: number | null | undefined;
@@ -815,9 +769,6 @@ const thinkingTokenCounts = (messages: readonly SDKMessage[]): number[] =>
     return count === null || count === undefined ? [] : [count];
   });
 
-// The fixtures are verbatim message sequences from live Claude Code turns, so they cover
-// shapes nobody would hand-write, like `system/status` frames and the rate_limit_event
-// every turn carries. Re-record on an SDK bump and the diff is the contract change.
 describe("a recorded stream", () => {
   it("of a text-only turn produces its text and a clean stop", () => {
     const { turn, pi } = replay("text");
@@ -836,9 +787,6 @@ describe("a recorded stream", () => {
     expect(usage.input + usage.cacheRead + usage.cacheWrite).toBeGreaterThan(0);
   });
 
-  // The count this pi turn ends on is the first in the stream: a recording that ends on
-  // a tool call spans several cycles, and every cycle after the first tool-call boundary
-  // belongs to the next pi turn.
   it.each<RecordedStream>(["text", "single-tool", "parallel-tools"])(
     "of the %s turn surfaces its thinking tokens as usage.reasoning",
     (name) => {
@@ -847,7 +795,6 @@ describe("a recorded stream", () => {
 
       expect(expected).toBeGreaterThan(0);
       expect(turn.output.usage.reasoning).toBe(expected);
-      // The SDK documents thinking_tokens as a subset of output_tokens.
       expect(expected).toBeLessThanOrEqual(turn.output.usage.output);
     }
   );
@@ -884,7 +831,6 @@ describe("a recorded stream", () => {
     );
   });
 
-  // The names Claude Code really sends must be the ones the served map is keyed on.
   it("leaves nothing for pi when the served tool list is empty", () => {
     const { turn } = replay("parallel-tools", served());
 

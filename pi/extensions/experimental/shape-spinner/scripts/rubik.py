@@ -1,9 +1,3 @@
-"""Build-time Rubik's cube scene.
-
-Twenty-six cubies preserve 54 sticker identities through five quarter-turns
-and their exact inverse. This is original sticker artwork, not an Amp shape.
-All timing is sampled at integer 20ms ticks (50fps), retaining the 4.4s cycle.
-"""
 import io
 import math
 from itertools import product
@@ -19,8 +13,6 @@ DESCENT = -200
 SUPERSAMPLE = 4
 YAW = 0.58
 PITCH = -0.43
-# Right, left, top, bottom, back, front. Flat, saturated fills stay legible
-# at terminal sizes; narrow dark gutters separate each face's nine stickers.
 COLORS = (
     (0.94, 0.22, 0.20),
     (1.00, 0.49, 0.08),
@@ -34,8 +26,6 @@ SCRAMBLE = ((0, 1, 1), (1, 1, -1), (2, -1, 1), (0, 1, -1), (1, 1, 1))
 SOLVE = tuple(
     (axis, layer, -direction) for axis, layer, direction in reversed(SCRAMBLE)
 )
-# Scramble turns take 0.2 seconds; solving keeps its readable 0.5-second turns.
-# The two solved holds join into 0.7 seconds before the next quick scramble.
 TIMELINE = (
     ((None, 20),)
     + tuple((move, 10) for move in SCRAMBLE)
@@ -44,8 +34,6 @@ TIMELINE = (
     + ((None, 15),)
 )
 FRAME_COUNT = sum(length for _, length in TIMELINE)
-# Authoring stays solved-first so geometry, glyph order and PNGs remain stable.
-# Playback begins at the scrambled hold, then solves before scrambling again.
 PLAYBACK_START = sum(length for _, length in TIMELINE[: 1 + len(SCRAMBLE)])
 SOLVED_START = sum(length for _, length in TIMELINE[:-1])
 STILL = (SOLVED_START - PLAYBACK_START) % FRAME_COUNT
@@ -66,7 +54,6 @@ def quarter(point, axis, direction):
 
 
 def ease(t):
-    # Cosine acceleration over 16% at each end, constant velocity in between.
     ramp = 0.16
     velocity = 1 / (1 - ramp)
     if t < ramp:
@@ -81,7 +68,6 @@ def initial_cubies():
     for pos in product((-1, 0, 1), repeat=3):
         if pos == (0, 0, 0):
             continue
-        # Only sticker normals carry identity; body turns just permute NORMALS.
         stickers = tuple(
             (normal, color)
             for color, normal in enumerate(NORMALS)
@@ -123,7 +109,6 @@ def camera(point):
 
 
 def face(center, normal, half, plane):
-    # Construct local plane before partial turns; all completed normals remain integral.
     axis = next(i for i, v in enumerate(normal) if v)
     aa, bb = (axis + 1) % 3, (axis + 2) % 3
     points = []
@@ -150,7 +135,6 @@ def raw_scene(frame):
             normal_view = transform(normal)
             if normal_view[2] >= -1e-8:
                 continue
-            # Thin black gutters, no dot lattice, gloss, rounded stickers or wiremesh.
             vertices = [
                 transform(p)
                 for p in face(
@@ -167,15 +151,11 @@ def raw_scene(frame):
                 shade = 0.9 + 0.1 * light
                 rgb = tuple(v * shade for v in COLORS[color])
             out.append((vertices, rgb))
-    # Opaque faces are backface-culled above, then painted far to near. The
-    # sticker plane sits just outside its cubie's body so gutters stay dark.
     out.sort(key=lambda item: -sum(p[2] for p in item[0]) / 4)
     return out
 
 
 def scenes():
-    # Normalize the UNION of every pose once, never individual frame bounds.
-    # Mid-turn corners have room to swing without clipping or camera zooms.
     allscenes = [raw_scene(f) for f in range(FRAME_COUNT)]
     xs = [p[0] for sc in allscenes for vs, _ in sc for p in vs]
     ys = [p[1] for sc in allscenes for vs, _ in sc for p in vs]
@@ -234,7 +214,6 @@ def check_scene(rendered_scenes):
     for index, move in enumerate(SOLVE):
         cubies = apply_move(cubies, move)
         assert cubies == scrambled_states[-2 - index]
-    # Every cubie's position and identity-bearing sticker normals return exactly.
     assert cubies == original == pose(FRAME_COUNT - 1)[0] == pose(FRAME_COUNT)[0]
     assert pose((PLAYBACK_START + STILL) % FRAME_COUNT)[0] == original
     assert raw_scene(0) == raw_scene(FRAME_COUNT - 1) == raw_scene(FRAME_COUNT)

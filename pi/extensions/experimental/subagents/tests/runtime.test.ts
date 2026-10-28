@@ -12,7 +12,6 @@ import {
   isSubagentHostExtensionPath,
 } from "../runtime.js";
 
-/** A complete assistant message with the given content and stop details. */
 const assistant = (
   content: AssistantMessage["content"],
   details: Partial<
@@ -50,7 +49,6 @@ describe("child runtime results", () => {
       }),
       outcome: { error: "provider failed", status: "errored" },
     },
-    // An abort nobody requested, such as a child extension's, fails the turn.
     {
       message: assistant(text("partial"), { stopReason: "aborted" }),
       outcome: { error: "Turn was aborted", status: "errored" },

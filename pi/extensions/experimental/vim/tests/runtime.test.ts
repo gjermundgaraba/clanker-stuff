@@ -35,7 +35,6 @@ describe("runtime", () => {
       const { editor, keys, normal, mode } = setup("one two three");
       normal();
       keys("dw");
-      // InteractiveMode.showExtensionCustom does this whenever a non-overlay view closes.
       editor.setText(editor.getText());
       expect(mode()).toBe("normal");
       keys("u");

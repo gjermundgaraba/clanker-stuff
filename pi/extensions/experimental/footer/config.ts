@@ -57,7 +57,6 @@ export const DEFAULT_CONFIG: FooterConfig = {
   hidden: [],
 };
 
-/** Every placement in render order: rows left to right, then the editor border. */
 export const placedIds = (config: FooterConfig): string[] => [
   ...config.rows.flatMap((row) => [...row.left, ...row.right]),
   ...config.border,
@@ -89,14 +88,12 @@ export const parseFooterConfig = (text: string): FooterConfig => {
     seen.add(id);
   }
 
-  // Only native statuses reach `footer.statuses`, so only they can be hidden from it.
   const notStatus = value.hidden.find((id) => !id.startsWith(STATUS_PREFIX));
 
   if (notStatus !== undefined) {
     throw new Error(`hidden accepts only status:<key> IDs, not ${notStatus}`);
   }
 
-  // The border falls back to `footer.statuses` while another editor is installed.
   if (value.border.includes(STATUSES_ID)) {
     throw new Error(`${STATUSES_ID} can only be placed in a row`);
   }
@@ -109,7 +106,6 @@ export const formatFooterConfig = (config: FooterConfig): string =>
 
 export interface LoadedFooterConfig {
   config: FooterConfig;
-  /** The file's text, when it exists, so the editor reopens what the user wrote. */
   text?: string;
   error?: string;
 }
@@ -157,7 +153,6 @@ export const createFooterConfigStore = (
       }
     },
     async save(config) {
-      // A plain write follows a dotfiles symlink to its target instead of replacing the link.
       await withFileMutationQueue(target, async () => {
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, formatFooterConfig(config), "utf-8");

@@ -1,4 +1,3 @@
-/** Presentation only. Stored calls and results from retired tool shapes fall back to sanitized text. */
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import {
   displayText as clean,
@@ -26,7 +25,6 @@ import {
 } from "./ui/format.js";
 import type { DisplayStatus } from "./ui/format.js";
 
-// Open display contracts tolerate new wire fields without interpreting them.
 const StatusSchema = Type.Union([
   Type.String(),
   Type.Object({ completed: Type.Union([Type.String(), Type.Null()]) }),
@@ -70,7 +68,6 @@ type Renderers = Required<Pick<ToolDefinition, "renderCall" | "renderResult">>;
 
 const inline = (value: string | undefined) => inlineText(value ?? "");
 
-/** How a reported status looks; a string this version does not know looks stopped. */
 const displayStatus = (value: AgentStatus): DisplayStatus => {
   if (typeof value !== "string") {
     return "completed" in value ? "completed" : "errored";
@@ -96,7 +93,6 @@ const statusDetail = (value: AgentStatus): string => {
   return "completed" in value ? (value.completed ?? "") : value.errored;
 };
 
-/** The connectors that continue below a row, for lines that belong to it. */
 const continuation = (prefix: string): string =>
   prefix.replace(/[├└]─ $/u, (end) => (end.startsWith("├") ? "│  " : "   "));
 
@@ -109,7 +105,6 @@ const listing = (
     const prefix = theme.fg("dim", row.prefix);
     const name = inline(agentName(row.path));
 
-    // An ancestor outside a scoped listing only anchors the rows below it.
     if (row.item === undefined) {
       return [`${prefix}${theme.fg("muted", name)}`];
     }
@@ -215,7 +210,6 @@ export const agentRenderers = (name: string): Renderers => ({
       ? context.args
       : {};
 
-    // The call line already names the target in accent; a result row naming it again uses text.
     const target =
       args.target === undefined
         ? ""
@@ -268,7 +262,6 @@ export const agentRenderers = (name: string): Renderers => ({
         add(() => theme.fg("muted", settings.join(" · ")));
       }
     } else if (data.previous_status !== undefined) {
-      // The previous status is not the target's current state.
       const previous = data.previous_status;
 
       add(() =>
@@ -299,7 +292,6 @@ export const agentRenderers = (name: string): Renderers => ({
         path: agent.agent_name,
       }));
 
-      // The listing draws as the tree its canonical paths describe; anything else is shown as text.
       if (!agents.every((agent) => isAgentPath(agent.path))) {
         return raw();
       }
@@ -325,7 +317,6 @@ export const agentRenderers = (name: string): Renderers => ({
   },
 });
 
-/** Rows of a final answer or task a card shows before the expand hint; messages show fewer. */
 const PREVIEW_ROWS = { FINAL_ANSWER: 6, MESSAGE: 2, NEW_TASK: 6 } as const;
 
 /**

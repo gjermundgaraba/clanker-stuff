@@ -16,7 +16,6 @@ import {
   MAX_TEXT_BYTES,
 } from "../task.js";
 
-/** Fields in task_inspect's order; overrides keep their place. */
 const inspection = ({
   result,
   ...overrides
@@ -42,10 +41,8 @@ const inspection = ({
   ...overrides,
 });
 
-// The largest result a watcher can deliver: its escapes fill the record limit as rendered.
 const maxResult = "\u202E".repeat(Math.floor((MAX_RECORD_BYTES - 2) / 6));
 
-// A quote or backslash renders as two bytes. Invalid UTF-8, sanitized to U+FFFD, can render as three.
 const escapedLogs = (bytes: number) => ({
   ...inspection().logs,
   stdout: '"'.repeat(bytes),
@@ -113,7 +110,6 @@ describe("task contracts", () => {
     }
   );
 
-  // Valid inputs only: logs up to the maximum tail, and the largest result ahead of them.
   it.each<Partial<InspectOutput>>([
     { logs: { ...inspection().logs, stdout: "😀".repeat(LOG_BYTES / 4) } },
     { result: maxResult, logs: escapedLogs(LOG_BYTES) },
@@ -143,8 +139,6 @@ describe("task contracts", () => {
       MAX_RECORD_BYTES
     );
 
-    // U+2028 survives sanitizing and renders as a 6-byte escape. Retention keeps the newest
-    // event, a maximal record with the longest key, alone past its byte cap.
     const notices = new TaskNotices();
     notices.record("earlier");
     notices.record(maxResult, "\u2028".repeat(128));
@@ -162,7 +156,6 @@ describe("task contracts", () => {
     const largest = atCaps(escapedLogs(LOG_BYTES));
     const cut = toolResult(largest).content[0].text;
     expect(cut).toContain("Incomplete preview");
-    // Everything ahead of the logs parses whole.
     const { logs: _logs, ...head } = largest;
     expect(
       JSON.parse(`${cut.slice(0, cut.indexOf(',"logs":'))}}`)

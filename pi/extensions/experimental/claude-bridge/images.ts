@@ -1,7 +1,3 @@
-// The images Claude accepts. The API rejects any other media type, and data-less image
-// blocks do occur: either fails the request carrying it, and every later one once it is
-// in Claude Code's session. Both the prompt and the tool-result path check here.
-
 import type { ImageContent } from "@earendil-works/pi-ai";
 
 import { debug } from "./log.js";

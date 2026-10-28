@@ -3,7 +3,6 @@ const isRecord = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @param {unknown} trajectory @param {{model: string, thinking: string, directTools: string[]}} options */
-// Runtime validity is independent of task quality and successful completion.
 export const validateToolMode = (
   trajectory,
   { model, thinking, directTools }

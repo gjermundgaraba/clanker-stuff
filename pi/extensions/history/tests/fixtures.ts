@@ -88,7 +88,6 @@ export const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   return editor;
 };
 
-/** Runs one Ctrl+R search through Pi's custom UI, typing keys that must end the search. */
 export const search = async (
   host: ReturnType<typeof createExtensionHost>,
   keys: string[],

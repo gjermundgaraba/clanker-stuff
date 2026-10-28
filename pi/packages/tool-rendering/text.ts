@@ -1,6 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
 
-// C0 and C1 controls except tab and newline, plus bidi controls.
 const UNSAFE_DISPLAY_CHARACTERS =
   /[[\p{Cc}--[\t\n]]\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gv;
 
@@ -22,5 +21,4 @@ const unicodeEscape = (character: string): string =>
 export const jsonText = (value: unknown): string =>
   JSON.stringify(value)
     .replaceAll(UNSAFE_DISPLAY_CHARACTERS, unicodeEscape)
-    // JSON permits these literal separators, but transcript tokens should stay on one line.
     .replaceAll(/[\u2028\u2029]/gu, unicodeEscape);

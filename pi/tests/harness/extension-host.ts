@@ -123,7 +123,6 @@ const InputEventResultSchema = Type.Union([
   Type.Object({ action: Type.Literal("handled") }),
 ]);
 
-/** Complete prompt options in the shape Pi hands to before_agent_start handlers. */
 export const normalizedSystemPromptOptions = (
   input: BuildSystemPromptOptions
 ): NormalizedBuildSystemPromptOptions => ({
@@ -156,8 +155,6 @@ const notImplemented = (member: string) => (): never => {
   throw new Error(`${member} is not implemented in harness`);
 };
 
-// ModelRegistry is a class with private state, so the context's registry is a real instance whose
-// public members the harness replaces. Its runtime is never consulted.
 const contextModelRuntime = await ModelRuntime.create({
   credentials: new InMemoryCredentialStore(),
   modelsPath: null,
@@ -195,9 +192,6 @@ const createToolInfo = (name: string, external: boolean): ToolInfo => ({
     : createSyntheticSourceInfo(`builtin:${name}`, { source: "builtin" }),
 });
 
-// `strict: "prefer"` falls back silently, so a tool that asks for JSON-schema
-// sampling with a schema Pi cannot make strict would never actually get it.
-/** Pi carries tool-call arguments as JSON: plain objects, arrays and finite primitives. */
 const isJsonValue = (value: unknown): value is JsonValue => {
   if (
     value === null ||
@@ -539,10 +533,7 @@ export const createExtensionHost = (
       getSessionFile:
         sessionManagerOverrides?.getSessionFile?.bind(
           sessionManagerOverrides
-        ) ??
-        (() => {
-          // A test session has no file unless an override provides one.
-        }),
+        ) ?? (() => undefined),
       getSessionId:
         sessionManagerOverrides?.getSessionId?.bind(sessionManagerOverrides) ??
         (() => sessionId),
@@ -559,9 +550,9 @@ export const createExtensionHost = (
     const registryMembers: Pick<ModelRegistry, keyof ModelRegistry> = {
       find: vi.fn<ModelRegistry["find"]>(),
       getAvailable: vi.fn<ModelRegistry["getAvailable"]>(() => []),
-      getProviderAuth: vi.fn<ModelRegistry["getProviderAuth"]>(async () => {
-        // No provider has stored auth unless a test overrides the registry.
-      }),
+      getProviderAuth: vi.fn<ModelRegistry["getProviderAuth"]>(
+        async () => undefined
+      ),
       refresh: vi.fn<ModelRegistry["refresh"]>(async () => ({
         aborted: false,
         errors: new Map(),
@@ -898,7 +889,6 @@ export const createExtensionHost = (
     await command.handler(args, ctx);
   };
 
-  // Unit tests supply capability stubs explicitly; real nested execution needs AgentSession.
   const createToolContext = (overrides: ToolContextOverrides = {}) => {
     const {
       tools = [],
@@ -927,7 +917,6 @@ export const createExtensionHost = (
 
     assertStrictRepresentable(tool.definition);
 
-    // Pi's agent loop hands prepareArguments output to validation as the call's arguments.
     const preparedParams: unknown = tool.definition.prepareArguments
       ? tool.definition.prepareArguments(params)
       : params;

@@ -1,4 +1,3 @@
-"""Budget supervision and independent capture for fixed-time Frontier trials."""
 from __future__ import annotations
 
 import asyncio
@@ -21,8 +20,6 @@ class BudgetCapture:
         super().__init__(*args, **kwargs)
 
     async def _quiesce(self, environment):
-        # The supervisor is root, but every model/tool process is the dedicated
-        # task user. Kill detached tool children too, before touching submissions.
         if environment.default_user != 'agent':
             raise ValueError('budget capture requires the dedicated agent user')
         await self.exec_as_root(environment, timeout_sec=20, command=
@@ -31,7 +28,6 @@ class BudgetCapture:
             'pkill -KILL -u "$uid" || test "$?" = 1')
 
     async def _capture(self, environment):
-        # Download directly to host before Harbor attempts any trajectory conversion.
         await self.exec_as_root(environment, command=
             'python3 -I /opt/frontier-submission.py capture')
         await environment.download_file('/logs/agent/candidate.json', self.logs_dir/'candidate.json')
@@ -51,7 +47,6 @@ class BudgetCapture:
         task = asyncio.create_task(super().run(instruction, environment, context))
         try:
             done, _ = await asyncio.wait({task}, timeout=self.budget_seconds)
-            # Stop work at the deadline, not after the wrapped adapter's finally.
             await self._quiesce(environment)
             quiesced = True
             status['work_seconds'] = time.monotonic()-start
@@ -69,7 +64,6 @@ class BudgetCapture:
                 else:
                     status.update(outcome='supervisor_error', shutdown_error=str(error))
         except BaseException as error:
-            # In particular, an outer Harbor cancellation is not our work cutoff.
             status.update(outcome='supervisor_error', error=str(error))
             raise
         finally:
@@ -88,7 +82,7 @@ class BudgetCapture:
                     except (Exception, asyncio.CancelledError):
                         pass
                 if task.done() and not task.cancelled():
-                    task.exception()  # Retrieve failures even when supervision failed first.
+                    task.exception()
                 if quiesced:
                     try:
                         await self._capture(environment)
@@ -99,14 +93,12 @@ class BudgetCapture:
                         status.update(outcome='capture_failed', capture_error=str(error))
                         raise
             finally:
-                # Even cleanup failure must leave an explicit, non-success outcome.
                 (self.logs_dir/'run-status.json').write_text(json.dumps(status, indent=2)+'\n')
 
     def populate_context_post_run(self, context):
         try:
             super().populate_context_post_run(context)
         except Exception as error:
-            # Capture and grading must not depend on successful telemetry parsing.
             (self.logs_dir/'telemetry-error.json').write_text(json.dumps({'error':str(error)})+'\n')
 
 
@@ -118,7 +110,6 @@ class FrontierCodex(BudgetCapture, CodexEval):
     pass
 
 
-# Used only by the model-free Harbor failure-path preflight.
 class _CaptureProbe(NopAgent):
     async def exec_as_root(self, environment, **kwargs):
         result = await environment.exec(user='root', **kwargs)
@@ -140,6 +131,5 @@ time.sleep(300)
 
 class FrontierCaptureProbe(BudgetCapture, _CaptureProbe):
     async def _capture(self, environment):
-        # Give the detached writer time to escape if user-wide termination failed.
         await asyncio.sleep(9)
         await super()._capture(environment)

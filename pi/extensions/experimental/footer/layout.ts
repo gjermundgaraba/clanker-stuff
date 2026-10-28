@@ -13,7 +13,6 @@ import type { BuiltinWidget } from "./widgets.js";
 
 export type FooterTheme = Pick<Theme, "fg">;
 
-/** A widget rendered to one styled line, keyed by its config ID. */
 export interface LiveWidget {
   text: string;
   truncate?: "start";
@@ -24,7 +23,6 @@ export interface FooterLayout {
   truncated: string[];
 }
 
-/** Single-line status text as Pi's own footer shows it, with styling closed before the next widget. */
 export const cleanStatus = (text: string): string => {
   const clean = text
     .replaceAll(/[\r\n\t]/gu, " ")
@@ -39,7 +37,6 @@ export const renderBuiltin = (
   family: IconFamily,
   theme: FooterTheme
 ): string => {
-  // Session names, paths and model IDs come from saved sessions and providers; keep their controls off the screen.
   const spans = widget.content.map(({ text, tone }) => ({
     text: inlineText(text),
     tone,
@@ -55,7 +52,6 @@ export const renderBuiltin = (
   return icon + spans.map(({ text, tone }) => theme.fg(tone, text)).join("");
 };
 
-/** Statuses keyed `status:<key>`, ready to place. */
 export const statusWidgets = (
   statuses: ReadonlyMap<string, string>
 ): Map<string, LiveWidget> =>
@@ -94,7 +90,6 @@ interface Placed extends LiveWidget {
   side: "left" | "right";
 }
 
-/** Capped equal allocation: narrow widgets keep their width, wide ones share the rest. */
 const allocateWidths = (
   items: readonly Placed[],
   budget: number
@@ -201,7 +196,6 @@ export const layoutFooter = (
   theme: FooterTheme
 ): FooterLayout => {
   const safeWidth = Math.max(0, Math.floor(width));
-  // Hidden statuses can appear only here, so skipping them here hides them everywhere.
   const claimed = new Set([...placedIds(config), ...config.hidden]);
 
   const expand = (id: string): Array<[string, LiveWidget]> => {
@@ -242,10 +236,6 @@ export const layoutFooter = (
   return { lines, truncated };
 };
 
-/**
- * Replaces only trailing rule cells of Pi's editor top border, so labels, the working status
- * and the input width stay intact. Entries keep their order; one that does not fit is skipped.
- */
 export const renderBorder = (
   original: string,
   width: number,
@@ -263,7 +253,6 @@ export const renderBorder = (
     return original;
   }
 
-  // Keep two rule cells before the block and one after it, plus the spaces around it.
   const budget = (/─+$/u.exec(plain)?.[0].length ?? 0) - 5;
   const selected: string[] = [];
   let used = 0;

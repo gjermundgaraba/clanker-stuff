@@ -1,7 +1,3 @@
-// The bridge inside a real AgentSession, with a scripted query in place of Claude Code:
-// what pi does with the turns the bridge hands it. No Claude Code process, so it runs
-// without CLAUDE_BRIDGE_LIVE.
-
 import { rm } from "node:fs/promises";
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -48,8 +44,6 @@ describe("the bridge inside an AgentSession", () => {
     await rm(configDir, { recursive: true, force: true });
   });
 
-  // pi writes to the messages a turn hands it (it records the requested thinking level on the
-  // output) after the bridge has recorded them, so the conversation must not hold pi's objects.
   it("answers a turn that calls a tool, in one query", async () => {
     const fake = fakeQueryFunction();
 
@@ -130,10 +124,6 @@ describe("the bridge inside an AgentSession", () => {
     }
   });
 
-  // Claude ran out of output tokens inside a write: its arguments are whatever JSON
-  // survived. pi does not run a call from a truncated response: it answers the call with
-  // an error asking for it again, and continues. The bridge must not present the call as
-  // an ordinary one, and Claude Code must hear pi's answer, not go on from the cut alone.
   it("does not run a tool call Claude was cut off in the middle of", async () => {
     const fake = fakeQueryFunction();
     const written: unknown[] = [];
@@ -201,7 +191,6 @@ describe("the bridge inside an AgentSession", () => {
       const next = await started(1);
 
       expect(query.closed).toBe(true);
-      // pi's answer to the cut-off call reaches Claude Code in a session rebuilt from pi.
       expect(next.params.options.resume).toStrictEqual(expect.any(String));
       expect(next.params.options.resume).not.toBe("cc-1");
 

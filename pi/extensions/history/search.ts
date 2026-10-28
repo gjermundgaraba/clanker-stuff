@@ -18,13 +18,8 @@ const PASTE_END = "\u001B[201~";
 
 const PREVIEW_LINES = 8;
 
-/** Columns the query keeps on the search line; the key hint is cut to fit what remains. */
 const MIN_QUERY_WIDTH = 20;
 
-/**
- * Ctrl+R search over a history snapshot, shown in place of the editor until `done` receives the
- * accepted prompt or undefined. The draft stays untouched while searching.
- */
 export const createSearch = (
   history: readonly HistoryItem[],
   theme: Theme,
@@ -84,7 +79,6 @@ export const createSearch = (
       ...(hidden > 0 ? [`… ${hidden} more lines`] : []),
     ];
 
-    // Stored and imported history is arbitrary text; terminal controls in it must not reach the screen.
     return rows.map((row) =>
       theme.fg("dim", truncateToWidth(displayText(row), width))
     );
@@ -113,7 +107,6 @@ export const createSearch = (
       ];
     },
     handleInput: (data) => {
-      // Pi delivers each bracketed paste as one packet. Input keeps pasted control characters.
       if (data.startsWith(PASTE_START)) {
         const text = data.slice(PASTE_START.length, -PASTE_END.length);
         edit(PASTE_START + text.replaceAll(/\p{Cc}/gu, "") + PASTE_END);

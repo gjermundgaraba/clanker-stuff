@@ -8,10 +8,8 @@ import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
 
-// Pi matches ids exactly; a mistyped one fails its lookup with a visible recap error.
 const Id = Type.String({ minLength: 1 });
 
-/** The file exists only to configure recaps, so a model is required. */
 const RecapConfigSchema = Type.Object(
   {
     model: Type.Object({ id: Id, provider: Id }, STRICT),
@@ -30,7 +28,6 @@ const RecapConfigSchema = Type.Object(
   STRICT
 );
 
-/** Parsed configuration always has a thinking level; omission defaults to `off`. */
 export type RecapConfig = Required<Static<typeof RecapConfigSchema>>;
 
 export const getRecapConfigPath = (): string =>

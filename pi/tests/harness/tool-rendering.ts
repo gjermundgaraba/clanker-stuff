@@ -5,7 +5,6 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import type { TUnsafe } from "typebox";
 
-// Fixtures start with empty argument/state objects, not Pi's unchecked generic defaults.
 type Context = Omit<
   Parameters<
     NonNullable<ToolDefinition<TUnsafe, unknown, unknown>["renderCall"]>
@@ -20,9 +19,7 @@ export const toolRenderContext = (overrides: Partial<Context> = {}) => ({
   durationMs: undefined,
   executionStarted: true,
   expanded: false,
-  invalidate() {
-    /* noop */
-  },
+  invalidate: () => undefined,
   isError: false,
   isPartial: false,
   lastComponent: undefined,

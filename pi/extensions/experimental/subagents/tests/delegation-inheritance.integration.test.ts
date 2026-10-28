@@ -232,7 +232,6 @@ describe("caller delegation snapshots", () => {
       );
 
       try {
-        // Pi only dispatches reload session_start for sessions with native frontend bindings.
         await harness.session.bindExtensions({
           onError: (event) => {
             throw new Error(event.error);
@@ -242,7 +241,6 @@ describe("caller delegation snapshots", () => {
         await harness.prompt("/proactive");
         await harness.prompt("Delegate and wait.");
         expect(workerPolicies).toHaveLength(1);
-        // Native reload awaits tree shutdown, fencing retirement writes before editing a cold child.
         await harness.session.reload();
 
         const file = path.join(
@@ -259,7 +257,6 @@ describe("caller delegation snapshots", () => {
           throw new Error("Missing worker");
         }
 
-        // Seed an owned branch policy through native persistence after every child runtime has closed.
         const childSession = SessionManager.open(worker.sessionFile);
 
         childSession.appendCustomEntry("subagents-delegation", policy);

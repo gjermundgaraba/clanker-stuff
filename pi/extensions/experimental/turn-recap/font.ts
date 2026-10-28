@@ -20,8 +20,6 @@ export const ROLLING_PAIRS = [
   "50",
 ];
 
-// Decode the widget and preview contract. Builder metadata (family, metrics, licensing
-// provenance, install instructions) remains in the manifest but is not consumed.
 const Manifest = Type.Object({
   version: Type.Literal(1),
   steps: Type.Integer({ minimum: 1 }),
@@ -35,7 +33,6 @@ const Manifest = Type.Object({
 
 export interface RollingFont {
   stationary: (digit: string) => string;
-  /** Adjacent, differing digits; progress is in [0, 1). Settlement is the caller's job. */
   glyph: (before: string, after: string, progress: number) => string;
 }
 
@@ -82,7 +79,6 @@ export const parseRollingFont = (value: unknown): RollingFont => {
       const glyph =
         sequence?.[Math.round((forward ? progress : 1 - progress) * steps)];
 
-      // Unsupported digit pairs are a caller error, never invisible missing ink.
       if (glyph === undefined) {
         throw new Error(
           `Unsupported rolling-font transition ${before} → ${after}`
@@ -94,7 +90,6 @@ export const parseRollingFont = (value: unknown): RollingFont => {
   };
 };
 
-/** Building the font is the opt-in: no manifest means no animation. */
 export const loadRollingFont = async (): Promise<RollingFont | undefined> => {
   let text: string;
 

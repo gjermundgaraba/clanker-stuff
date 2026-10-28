@@ -4,7 +4,6 @@ import type { Answer, Interaction, Submission } from "./interaction.js";
 import { draftAnswer, revisedSubmission } from "./interaction.js";
 import type { Question } from "./request.js";
 
-/** One structured line of a reviewed submission, shared by the TUI, the transcript and tool results. */
 export type Row =
   | { kind: "changed"; headers: string[] }
   | { kind: "question"; index: number; header: string }
@@ -61,7 +60,6 @@ export const submissionRows = (
   return rows;
 };
 
-/** Headers of questions whose answers or notes differ from a previous submission. */
 export const changedHeaders = (
   questions: Question[],
   previous: Submission,
@@ -85,7 +83,6 @@ export const changedHeaders = (
   return changes;
 };
 
-/** Changes from the revision a submission supersedes; undefined for a first revision. */
 export const submissionChanges = (
   item: Interaction,
   submission: Submission
@@ -104,7 +101,6 @@ export const submissionChanges = (
     : undefined;
 };
 
-/** Rows for a submission, or for the current draft when no submission is given. */
 export const interactionRows = (
   item: Interaction,
   submission?: Submission
@@ -180,22 +176,18 @@ export const plainText = (rows: Row[]): string => {
         lines.push("", "Questionnaire note:", displayText(row.text));
         break;
       }
-
-      // no default
     }
   }
 
   return lines.join("\n");
 };
 
-/** Backslash-escape every ASCII punctuation character so user text never becomes Markdown structure. */
 export const escapeMarkdown = (text: string): string =>
   displayText(text).replaceAll(/[!-/:-@[-`{-~]/gu, "\\$&");
 
 const literal = (text: string) =>
   escapeMarkdown(text).split("\n").join("\\\n   ");
 
-/** Markdown with hard line breaks; user text stays literal and multi-line text keeps its lines. */
 export const markdownText = (heading: string, rows: Row[]): string => {
   const blocks: string[] = [heading];
   const items: string[] = [];
@@ -251,8 +243,6 @@ export const markdownText = (heading: string, rows: Row[]): string => {
         );
         break;
       }
-
-      // no default
     }
   }
 

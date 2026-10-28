@@ -170,7 +170,6 @@ export const createUsageController = (
   ): void => {
     generation += 1;
 
-    // `/usage` explains a target without quota reporting; the status line stays empty.
     if (!isSupportedProvider(provider)) {
       clear(ctx);
 
@@ -189,7 +188,6 @@ export const createUsageController = (
     void (async () => {
       const result = await getOrFetch(provider, ctx, force);
 
-      // Every target change and dispose starts a new generation.
       if (refreshGeneration !== generation) {
         return;
       }
@@ -249,7 +247,6 @@ export const createUsageController = (
         }))
       );
 
-      // Commands query accounts, not the selected model; only shutdown invalidates delivery.
       if (disposed) {
         return;
       }
@@ -262,7 +259,6 @@ export const createUsageController = (
         ({ provider }) => provider === target
       )?.result;
 
-      // The status line only says the target's usage is unavailable; name the reason here.
       let note: string | undefined;
 
       if (!isSupportedProvider(target)) {

@@ -56,38 +56,27 @@ import { Transcript } from "./transcript.js";
 import type { ToolDisplay } from "./transcript.js";
 import type { WidgetSource } from "./widget.js";
 
-/** Share of the terminal the viewer occupies; the overlay options derive from this too. */
 const VIEWER_HEIGHT_RATIO = 0.9;
 
-/** Narrowest viewer that shows the tree and transcript side by side. */
 const SPLIT_MIN_WIDTH = 80;
 
-/** Frame top, agent header, two pane rules, footer, and frame bottom. */
 const CHROME_ROWS = 6;
 
-/** The first body row, below the frame top, the agent header, and the pane rule. */
 const BODY_TOP = 3;
 
 const MIN_HEIGHT = CHROME_ROWS + 3;
 
 const RESET = "\u001B[0m";
 
-/** OSC and CSI sequences: the forms Pi's colours and links take, captured with the OSC body. */
 const ESCAPES =
   // oxlint-disable-next-line no-control-regex -- The pattern matches terminal control sequences.
   /\u001B\](?<osc>[^\u0007\u001B]*)(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~]/gu;
 
-/** SGR colours (no private marker or intermediate byte), and OSC 8 links whose body holds no controls. */
 const allowed = (sequence: string, osc: string | undefined): boolean =>
   osc === undefined
     ? sequence.endsWith("m") && /^[\d;:]*$/u.test(sequence.slice(2, -1))
     : osc.startsWith("8;") && safeText(osc) === osc;
 
-/**
- * Pi's chat components draw session text as given, so controls in it would reach the terminal; Pi
- * also marks prompts as shell-integration zones, which mean nothing inside an overlay. Transcript
- * lines keep only colours and links; everything else passes through the shared sanitizer.
- */
 const terminalSafe = (line: string): string => {
   let safe = "";
   let end = 0;
@@ -102,10 +91,6 @@ const terminalSafe = (line: string): string => {
   return safe + safeText(line.slice(end));
 };
 
-/**
- * Renderers learned from live children, by tool name, so a finished child's extension tools keep
- * their own display for the rest of the process.
- */
 const learned = new Map<string, ToolRenderers>();
 
 const builtIns = (cwd: string): Map<string, ToolDisplay> =>
@@ -128,7 +113,6 @@ export interface ViewerSource extends WidgetSource {
   ) => Pick<ChildRuntime, "snapshot" | "toolRenderers"> | undefined;
 }
 
-/** Events at which a session holds every message announced before them. */
 const REREAD_EVENTS: ReadonlySet<AgentSessionEvent["type"]> = new Set([
   "agent_end",
   "agent_start",
@@ -136,7 +120,6 @@ const REREAD_EVENTS: ReadonlySet<AgentSessionEvent["type"]> = new Set([
   "turn_start",
 ]);
 
-/** A stored session's current branch, read without the writes `SessionManager.open` may make. */
 const readBranch = (file: string, cwd: string) => {
   const entries = parseSessionEntries(readFileSync(file, "utf-8"));
 
@@ -147,13 +130,10 @@ const readBranch = (file: string, cwd: string) => {
   return SessionManager.inMemory(cwd, undefined, entries).getBranch();
 };
 
-/** One agent's transcript and where the user left it; kept while the viewer is open. */
 interface View {
   error: string | undefined;
   follow: boolean;
-  /** Whether the transcript must be read again before it can follow events. */
   stale: boolean;
-  /** The furthest scroll offset when this transcript was last drawn. */
   maxScroll: number;
   scroll: number;
   transcript: Transcript;
@@ -164,7 +144,6 @@ type Focus = "transcript" | "tree";
 
 interface Layout {
   bodyHeight: number;
-  /** Columns of the transcript pane, excluding its divider; the whole inner width when not split. */
   paneWidth: number;
   split: boolean;
   tooSmall: boolean;
@@ -266,8 +245,6 @@ export class AgentsViewer implements Component {
   #refreshRows(): void {
     this.#rows = treeRows(this.source.nodes());
 
-    // Select the first running agent, else the latest, once there is one and when a replaced tree
-    // no longer holds the selection.
     if (
       this.#selected === undefined ||
       !this.#rows.some((row) => row.path === this.#selected)
@@ -321,9 +298,7 @@ export class AgentsViewer implements Component {
       scroll: 0,
       stale: false,
       transcript,
-      unfollow: () => {
-        // Replaced once the agent's events are followed.
-      },
+      unfollow: () => undefined,
     };
 
     const fail = (error: unknown) => {
@@ -333,7 +308,6 @@ export class AgentsViewer implements Component {
 
     const live = this.source.live(node.path);
 
-    // A spawn is announced before its session runs or is written; it is read once it starts.
     if (live === undefined && node.status === "running") {
       view.stale = true;
     } else {
@@ -343,7 +317,6 @@ export class AgentsViewer implements Component {
         const branch =
           snapshot?.branch ?? readBranch(node.sessionFile, this.cwd);
 
-        // Unlike the model's context, the transcript keeps history that compaction summarized.
         transcript.load(
           branch.flatMap(sessionEntryToContextMessages),
           snapshot?.streaming,
@@ -354,7 +327,6 @@ export class AgentsViewer implements Component {
       }
     }
 
-    // Events follow the path, so the transcript continues across the agent's later turns.
     view.unfollow = this.source.monitor.follow(node.path, (event) => {
       if (!view.stale) {
         try {
@@ -363,8 +335,6 @@ export class AgentsViewer implements Component {
           fail(error);
         }
       } else if (REREAD_EVENTS.has(event.type)) {
-        // Pi records a message after announcing it, so only a turn boundary finds the session
-        // whole; until then the pane shows what failed.
         view.unfollow();
         transcript.dispose();
         this.#views.set(node.path, this.#open(node));
@@ -431,7 +401,6 @@ export class AgentsViewer implements Component {
       }
     };
 
-    // First matching binding wins; configured Pi actions come before fixed keys and vim aliases.
     const bindings: Array<[boolean, () => void]> = [
       [
         action("tui.select.cancel"),
@@ -543,7 +512,6 @@ export class AgentsViewer implements Component {
       (row) => row.path === this.#selected
     );
 
-    // Keep the selection in view.
     if (selectedIndex < this.#treeScroll) {
       this.#treeScroll = selectedIndex;
     } else if (selectedIndex >= this.#treeScroll + height) {
@@ -587,7 +555,6 @@ export class AgentsViewer implements Component {
 
         const line = `${fit(label, width - timeWidth - 2)} ${time} `;
 
-        // Truncation ends its text with full resets, which would also end the highlight.
         return selected
           ? line
               .split(RESET)
@@ -680,7 +647,6 @@ export class AgentsViewer implements Component {
       ["esc", inTranscript ? "back" : "close"],
     ];
 
-    // Key hints are chrome the user reads past (docs/color.md); bold picks out the key.
     const keys = hints
       .map(
         ([key, label]) =>

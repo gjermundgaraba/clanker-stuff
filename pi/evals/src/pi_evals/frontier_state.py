@@ -1,4 +1,3 @@
-"""Execution-relevant Frontier evidence: identity, eligibility and spending state."""
 import hashlib
 import json
 

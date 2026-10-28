@@ -2,8 +2,6 @@ import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 
-// Providers' strict sampling subsets disagree on value constraints, and some
-// reject a request that carries one. Shape keywords are portable everywhere.
 const Constraints = Type.Partial(
   Type.Object({
     exclusiveMaximum: Type.Number(),
@@ -39,8 +37,6 @@ const range = (
   return [min === max ? `exactly ${min}${unit}` : `${min}–${max}${unit}`];
 };
 
-// The model cannot see a stripped constraint, so its meaning moves into the
-// description: the limit is still enforced when the call executes.
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- JSON Schema nodes are open records; the constraint keywords are parsed before use.
 const limits = (node: Record<string, unknown>): string[] => {
   if (!Value.Check(Constraints, node)) {
@@ -70,43 +66,24 @@ const limits = (node: Record<string, unknown>): string[] => {
 const isSchemaNode = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- JSON Schema is an open tree; only schema-valued keywords are traversed.
-const strip = (node: unknown): unknown => {
+const strip = (node: unknown): void => {
   if (Array.isArray(node)) {
-    return node.map(strip);
+    for (const child of node) {
+      strip(child);
+    }
+
+    return;
   }
 
   if (!isSchemaNode(node)) {
-    return node;
+    return;
   }
 
-  const result = Object.fromEntries(
-    Object.entries(node)
-      .filter(([key]) => !VALUE_CONSTRAINTS.has(key))
-      .map(([key, value]) => {
-        // Property names are data: a property called `pattern` must survive.
-        if (key === "properties" && isSchemaNode(value)) {
-          return [
-            key,
-            Object.fromEntries(
-              Object.entries(value).map(([name, child]) => [name, strip(child)])
-            ),
-          ];
-        }
-
-        if (
-          key === "items" ||
-          key === "anyOf" ||
-          key === "additionalProperties"
-        ) {
-          return [key, strip(value)];
-        }
-
-        return [key, value];
-      })
-  );
-
   const summary = limits(node);
+
+  for (const key of VALUE_CONSTRAINTS) {
+    Reflect.deleteProperty(node, key);
+  }
 
   if (summary.length > 0) {
     const description =
@@ -114,19 +91,30 @@ const strip = (node: unknown): unknown => {
         ? `${node["description"].replace(/[.\s]*$/u, "")}. `
         : "";
 
-    result["description"] = `${description}Limits: ${summary.join("; ")}.`;
+    node["description"] = `${description}Limits: ${summary.join("; ")}.`;
   }
 
-  return result;
+  if (isSchemaNode(node["properties"])) {
+    for (const child of Object.values(node["properties"])) {
+      strip(child);
+    }
+  }
+
+  strip(node["items"]);
+  strip(node["anyOf"]);
+  strip(node["additionalProperties"]);
 };
 
 /**
- * The wire schema for a tool that requests strict sampling: the same shape as
+ * The wire schema for a tool that requests strict sampling: a copy of
  * `schema` with value constraints moved into descriptions. Check arguments against `schema` inside `execute`.
  */
-export const structuralSchema = <T extends TSchema>(schema: T): T =>
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: removing value constraints leaves every type, property and required list intact, so the static type is unchanged.
-  strip(schema) as T;
+export const structuralSchema = <T extends TSchema>(schema: T): T => {
+  const wire = Value.Clone(schema);
+  strip(wire);
+
+  return wire;
+};
 
 /** Why `input` fails the constrained schema, naming each violation. */
 export const invalidArguments = (

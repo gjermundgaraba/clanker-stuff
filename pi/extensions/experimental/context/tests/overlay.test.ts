@@ -190,7 +190,6 @@ describe("ContextOverlay", () => {
 
       t.render();
       t.press("j");
-      // Page size is the body height (10 rows here), so one press lands on tool-8, not tool-0.
       expect(t.render()).toMatch(/▌.*tool-8/u);
       t.press("k");
       expect(t.render()).toMatch(/▌.*tool-7/u);

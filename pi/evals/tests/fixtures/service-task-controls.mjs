@@ -24,10 +24,10 @@ const { readComparison } = await import("../../verifiers/comparison.mjs");
 
 const comparison = readComparison();
 
-/** @param {string} file Module path, relative to the working directory. */
+/** @param {string} file */
 const url = (file) => pathToFileURL(path.resolve(file)).href;
 
-/** @param {string} source Self-contained module source; a data: URL resolves no relative imports. */
+/** @param {string} source */
 const data = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 
 const typebox = import.meta.resolve("typebox");
@@ -57,37 +57,24 @@ registerHooks({
       };
     }
 
+    if (specifier.startsWith("/tests/") || specifier.startsWith("/solution/")) {
+      return { url: url(`${task}${specifier}`), shortCircuit: true };
+    }
+
     return next(specifier, context);
   },
 });
 
-// The task generator copies these exact owned modules into a temporary deployment.
-/* oxlint-disable typescript/no-unsafe-type-assertion -- Dynamic file URLs name the generator's byte-for-byte copies; reuse their source declarations, not a parallel test interface. */
 const { createServices, fixture, SETTINGS, SERVICE_NAMES, FIXTURE } =
-  /** @type {typeof import("../../suites/scaling/services.mjs")} */ (
-    await import(url(`${task}/environment/services.mjs`))
-  );
+  await import("/opt/pi-evals/services.mjs");
 
-const { solve } =
-  /** @type {typeof import("../../suites/scaling/solve.mjs")} */ (
-    await import(url(`${task}/solution/solve.mjs`))
-  );
+const { solve } = await import("/solution/solve.mjs");
 
-const { definitions } =
-  /** @type {typeof import("../../suites/scaling/pi-eval-tools.mjs")} */ (
-    await import(url(`${task}/environment/pi-eval-tools.mjs`))
-  );
+const { definitions } = await import("/opt/pi-evals/pi-eval-tools.mjs");
 
-const { score, oracle } =
-  /** @type {typeof import("../../suites/scaling/scoring.mjs")} */ (
-    await import(url(`${task}/tests/scoring.mjs`))
-  );
+const { score, oracle } = await import("/tests/scoring.mjs");
 
-const { validateNativeDiagnostic } =
-  /** @type {typeof import("../../suites/scaling/validity.mjs")} */ (
-    await import(url(`${task}/tests/validity.mjs`))
-  );
-/* oxlint-enable typescript/no-unsafe-type-assertion */
+const { validateNativeDiagnostic } = await import("/tests/validity.mjs");
 
 /** @type {import("../../suites/scaling/services.mjs").ServiceEvent[]} */
 const backendEvents = [];
@@ -107,13 +94,24 @@ for (const definition of defs) {
   assert.partialDeepStrictEqual(definition.parameters, { type: "object" });
 }
 
-// Same serialized, closure-free function used by real Code Mode preflights.
 const serializedSource = data(`export default ${solve.toString()}`);
 
-const { default: serializedSolve } = /** @type {SolveModule} */ (
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This data URL contains only the just-loaded owned solve function; the test verifies it has no undeclared closure dependencies.
-  await import(serializedSource)
-);
+/**
+ * @param {unknown} value
+ * @returns {value is SolveModule}
+ */
+const isSolveModule = (value) =>
+  typeof value === "object" &&
+  value !== null &&
+  "default" in value &&
+  typeof value.default === "function";
+
+/** @type {unknown} */
+const serializedModule = await import(serializedSource);
+
+assert.ok(isSolveModule(serializedModule), "serialized solve must load");
+
+const { default: serializedSolve } = serializedModule;
 
 const answer = await serializedSolve(async (name, args) => {
   const definition = defs.find((d) => d.name === name);
@@ -123,7 +121,6 @@ const answer = await serializedSolve(async (name, args) => {
   assert.ok(content);
   /** @type {unknown} */
   const decoded = JSON.parse(content.text);
-  // Solve receives the decoded JSON, as through the real tool transport; it must match the typed result.
   assert.deepEqual(decoded, result.structuredContent);
 
   return decoded;
@@ -267,7 +264,6 @@ for (const arm of ["pi-direct", "pi-code", "native"]) {
   }
 
   if (arm === "native") {
-    // Restore the catalog after the negative control.
     start.dynamicTools.pop();
     assert.equal(validateNativeDiagnostic(trajectory, events), true);
     start.response.thread.environments = [{ cwd: "/app" }];
@@ -283,7 +279,6 @@ for (const arm of ["pi-direct", "pi-code", "native"]) {
       ),
       false
     );
-    // Malformed containers must fail closed, not crash or erase valid task-quality evidence.
     assert.equal(validateNativeDiagnostic(null, events), false);
     assert.equal(
       validateNativeDiagnostic(trajectory, [...events, null]),

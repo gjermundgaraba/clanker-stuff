@@ -14,13 +14,11 @@ const EditDiffSchema = Type.Object(
     toolCallId: Type.String(),
     path: Type.String(),
     diff: Type.String(),
-    // Syntax is optional display metadata; malformed/newer metadata must not hide the diff.
     syntax: Type.Optional(Type.Unknown()),
   },
   { additionalProperties: false }
 );
 
-// Decode only the extension-owned part; Pi and other renderers own the remaining details.
 export const DiffDetailsSchema = Type.Object(
   {
     codemodeDiffs: Type.Array(EditDiffSchema),
@@ -30,7 +28,6 @@ export const DiffDetailsSchema = Type.Object(
 
 type EditDiff = Static<typeof EditDiffSchema>;
 
-// An extension can override edit, so its result must actually contain a display diff.
 const EditDetailsSchema = Type.Object(
   {
     diff: Type.String(),

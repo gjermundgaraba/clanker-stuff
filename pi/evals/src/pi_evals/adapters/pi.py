@@ -208,7 +208,6 @@ def convert_pi_events(
     fallback_session_id: str | None = None,
     pi_evals: Manifest,
 ) -> Trajectory:
-    """Convert Pi's JSON event stream into one ATIF trajectory."""
     manifest = validate_manifest(pi_evals)
     steps: list[Step] = []
     calls: dict[str, Step] = {}
@@ -341,7 +340,6 @@ def convert_pi_events(
     for event in events:
         event_type = event.get("type")
         if event_type == "harbor_instruction":
-            # A failed startup can append an instruction without any agent events.
             capture_gap |= invocation_seen and not capture_complete
             invocation_seen = True
             capture_started = capture_complete = False
@@ -355,7 +353,6 @@ def convert_pi_events(
             message = event.get("message")
             nested = message.get("nestedCalls") if isinstance(message, dict) else None
             if isinstance(nested, dict):
-                # Bounded summaries supply observations, never capture-completeness evidence.
                 for call in nested.get("calls") or []:
                     summary_ids.add(call["id"])
                     if call["id"] not in completed:
@@ -458,7 +455,6 @@ def load_pi_events(path: Path) -> list[dict[str, Any]]:
 
 
 class PiEval(Pi):
-    """An isolated Harbor Pi runner with raw JSON and ATIF output."""
 
     SUPPORTS_ATIF = True
     _OUTPUT_FILENAME = _REMOTE_EVENT_LOG.name

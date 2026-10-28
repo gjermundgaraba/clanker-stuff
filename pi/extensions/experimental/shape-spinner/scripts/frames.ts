@@ -1,13 +1,11 @@
 import { geometry, project, TAU } from "./geometry.ts";
 
-// Integer 20ms ticks preserve the 8s loop; Node truncates 1000/60 to 16ms.
 export const FPS = 50;
 
 export const SEED = "amp-orb";
 
 export const STRIKES = [32, 64];
 
-// Cached Amp web bright palette, not a claim about native callers' supplied Color.
 const HUES = {
   blue: 250,
   purple: 300,
@@ -30,8 +28,6 @@ export const INKS = Object.fromEntries(
   ])
 );
 
-// Fixed across every shape and pose. Keep perspective overflow without
-// fitting individual frames, which would introduce artificial scale changes.
 export const VIEWBOX = 32;
 
 export const frame = (shape: string, seconds: number, rest = false) => {
@@ -43,8 +39,7 @@ export const frame = (shape: string, seconds: number, rest = false) => {
   };
 };
 
-// Self-contained so the build can execute this exact function in Chromium.
-export const paint = (
+export const paintSelfContained = (
   canvas: Canvas,
   scene: ReturnType<typeof frame>,
   pixels: number,

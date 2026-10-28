@@ -76,7 +76,6 @@ const parseLimitEntry = (
 
   const seconds = windowSeconds(windowInfo);
 
-  // Without a usable length, the rolling limit is Kimi's five-hour window.
   const label =
     seconds !== undefined && Number.isFinite(seconds) && seconds > 0
       ? durationLabel(seconds)

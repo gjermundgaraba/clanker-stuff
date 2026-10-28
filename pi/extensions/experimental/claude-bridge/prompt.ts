@@ -1,9 +1,3 @@
-// What of pi's system prompt reaches Claude Code. Claude Code always runs its own
-// `claude_code` preset; the bridge appends pi's portable sections to it and never pi's own
-// harness text, which Anthropic reads as a third-party app (a 400, or Extra Usage
-// billing). Pi hands providers its prompt as named sections, so the forwarded text is
-// those sections minus the ones pi owns.
-
 import {
   contentText,
   getCurrentSystemMessage,
@@ -33,7 +27,6 @@ export const toBridgeContext = (
   const system = getCurrentSystemMessage(messages);
 
   return {
-    // Without the prompt-state system messages.
     messages: messages.filter((message) => message.role !== "system"),
     ...(system === undefined ? {} : { system }),
     tools: getCurrentTools(messages),
@@ -50,13 +43,8 @@ export const systemText = (
 export const PI_PREAMBLE =
   "You are an expert coding assistant operating inside pi";
 
-/** Sections pi renders from its own text: its tool list, its rules (whose tool
- *  guidelines travel in the MCP tool descriptions instead), its documentation routing,
- *  and the cwd Claude Code already runs in. */
 const PI_SECTIONS = new Set(["tools", "rules", "docs", "cwd"]);
 
-/** Both doc paths from pi's documentation-routing line. Anthropic's subscription gate
- *  rejects a system prompt carrying both, while either alone passes. */
 const ANTHROPIC_THIRD_PARTY_TRIGGERS = [
   "docs/custom-provider.md",
   "docs/packages.md",
@@ -84,8 +72,6 @@ const labelFor = (name: string): string => {
     : `the ${name} section`;
 };
 
-/** Offset of pi's preamble at the start of a line, or -1. Mid-line mentions are someone
- *  describing pi's prompt, not pi's prompt. */
 const preambleAtLineStart = (text: string): number => {
   for (
     let offset = text.indexOf(PI_PREAMBLE);
@@ -112,7 +98,6 @@ const assertSendable = (parts: readonly PromptPart[]): void => {
       );
     }
 
-    // The pair must co-occur in one part; phrases split across parts are not detected.
     if (
       ANTHROPIC_THIRD_PARTY_TRIGGERS.every((trigger) => text.includes(trigger))
     ) {

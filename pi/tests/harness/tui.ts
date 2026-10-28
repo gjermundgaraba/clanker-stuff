@@ -35,7 +35,6 @@ type CustomUiFactory<T> = (
 
 interface MockTuiOptions {
   rows?: number;
-  /** Receives every Program Status report written to the terminal. */
   programStatus?: ProgramStatus[];
 }
 
@@ -59,7 +58,6 @@ interface CustomUiRunResult<T> {
 
 type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
-// The handle of custom UI that is not shown as an overlay.
 const createOverlayHandle = (): OverlayHandle => {
   let focused = true;
   let hidden = false;
@@ -71,9 +69,7 @@ const createOverlayHandle = (): OverlayHandle => {
     hide() {
       focused = false;
     },
-    getBounds: () => {
-      // Custom UI outside an overlay is not laid out, so it has no bounds.
-    },
+    getBounds: () => undefined,
     isFocused: () => focused,
     isHidden: () => hidden,
     setHidden(nextHidden: boolean) {
@@ -91,8 +87,6 @@ const createOverlayHandle = (): OverlayHandle => {
 
 const identity = (text: string) => text;
 
-// Every required theme token set to the terminal default (""). The identity theme replaces Pi's
-// text formatters, so these colors reach only the members it leaves to Pi, such as `style()`.
 const TERMINAL_DEFAULT_FOREGROUNDS: ConstructorParameters<typeof Theme>[0] = {
   accent: "",
   bashMode: "",
@@ -150,7 +144,6 @@ const TERMINAL_DEFAULT_BACKGROUNDS: ConstructorParameters<typeof Theme>[1] = {
   userMessageBg: "",
 };
 
-/** Pi's theme with every text formatter returning its text unchanged, so tests compare plain text. */
 export const createIdentityTheme = (
   appearance: ThemeAppearance = "dark"
 ): Theme =>
@@ -172,19 +165,14 @@ export const createIdentityTheme = (
     }
   );
 
-const ignore = () => {
-  // The test terminal has no device: output, cursor and title changes go nowhere.
-};
+const ignore = () => undefined;
 
-/** A terminal without a device. It records Program Status reports for tests that ask for them. */
 const createTerminal = (options: MockTuiOptions): Terminal => ({
   clearFromCursor: ignore,
   clearLine: ignore,
   clearScreen: ignore,
   columns: 80,
-  drainInput: async () => {
-    // No input device, so nothing is buffered.
-  },
+  drainInput: async () => undefined,
   hideCursor: ignore,
   kittyProtocolActive: false,
   moveBy: ignore,
@@ -200,7 +188,6 @@ const createTerminal = (options: MockTuiOptions): Terminal => ({
   write: ignore,
 });
 
-/** Pi's TUI on a terminal without a device. It is stopped, so it never renders; components render when a test asks. */
 export const createMockTui = (options: MockTuiOptions = {}): TUI => {
   const tui = new TuiMainScreen(createTerminal(options));
 
@@ -209,7 +196,6 @@ export const createMockTui = (options: MockTuiOptions = {}): TUI => {
   return tui;
 };
 
-/** Pi's border status spinner: a Loader with a kind and border renderers, as Pi hands it to custom editors. */
 export const createStatusIndicator = (
   kind: StatusIndicator["kind"]
 ): StatusIndicator => {
@@ -236,7 +222,6 @@ export const createKeybindings = (
       ) ?? false,
   };
 
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Pi exports this nominal manager only as a type; the test double implements the keyboard contract consumed by components.
   return keybindings as KeybindingsManager;
 };
 

@@ -21,7 +21,6 @@ const getStorePath = (cwd: string) =>
     `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
   );
 
-/** A per-project stack of stashed drafts; the newest is restored after the next submitted prompt. */
 export const createStash = () => {
   let stack: string[] = [];
   let pendingSave = Promise.resolve();
@@ -30,7 +29,6 @@ export const createStash = () => {
     const filePath = getStorePath(ctx.cwd);
     const content = `${JSON.stringify({ entries: stack }, null, 2)}\n`;
 
-    // Atomic replacement: an interrupted write must not leave a truncated store.
     pendingSave = withFileMutationQueue(filePath, async () => {
       await mkdir(path.dirname(filePath), { recursive: true });
       const tempPath = `${filePath}.tmp-${randomUUID()}`;

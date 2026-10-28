@@ -36,9 +36,7 @@ interface Contributions {
 }
 
 class SharedEditor extends CustomEditor {
-  /** Undefined when Pi's private editor layout is unsupported: document features are skipped. */
   readonly document: DocumentAdapter | undefined;
-  /** Why Pi's private editor layout could not be connected, if it could not. */
   readonly unsupported: string | undefined;
   private kind: Kind = "input";
   private before: DocumentView | undefined;
@@ -62,13 +60,11 @@ class SharedEditor extends CustomEditor {
     try {
       this.document = connect(this);
     } catch (error) {
-      // Border, working status and history still use only public editor APIs.
       this.unsupported = error instanceof Error ? error.message : String(error);
     }
 
     let change: typeof this.onChange;
     let submit: typeof this.onSubmit;
-    // Pi assigns callbacks after the factory returns. Keep observation at that instance boundary.
     Object.defineProperty(this, "onChange", {
       configurable: true,
       get: () => (text: string) => {
@@ -97,7 +93,6 @@ class SharedEditor extends CustomEditor {
       },
     });
   }
-  /** The modal engine edits through the document adapter, so it is inactive without one. */
   private get editing() {
     return this.document && this.contributions.editing;
   }
@@ -118,7 +113,6 @@ class SharedEditor extends CustomEditor {
       this.before = before;
     }
   }
-  // Pi copies getText() alone when swapping editors. Never export orphaned paste markers.
   override getText() {
     return this.getExpandedText();
   }
@@ -126,7 +120,6 @@ class SharedEditor extends CustomEditor {
     super.handleInput(data);
   }
   override handleInput(data: string) {
-    // ProcessTerminal delivers complete packets, already framed by StdinBuffer.
     if (data.startsWith("\u001B[200~")) {
       this.withChange("insert", () => {
         super.handleInput(data);
@@ -136,8 +129,7 @@ class SharedEditor extends CustomEditor {
     }
   }
   override setText(text: string) {
-    // Pi round-trips getText() through setText(), e.g. when a custom view closes. Keep the
-    // cursor, folded payloads, native undo and modal state when nothing is being replaced.
+    // Pi round-trips getText() through setText() when a custom view closes: https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts#L2940-L2950
     if (text === this.getExpandedText()) {
       return;
     }
@@ -151,7 +143,6 @@ class SharedEditor extends CustomEditor {
       super.insertTextAtCursor(text);
     });
   }
-  // The modal engine is the only caller and is inactive without a document.
   private internalEdit(action: (document: DocumentAdapter) => void) {
     const { document } = this;
 
@@ -293,8 +284,6 @@ export class EditorHost {
   }
 }
 
-// The factory is Pi's existing shared ownership boundary, including across separate jiti loads.
-// The key versions the host's shape; a copy built for another shape sees a foreign editor.
 const owner = Symbol.for("clanker-stuff.editor/3");
 
 type OwnedFactory = NonNullable<
@@ -307,7 +296,6 @@ type OwnedFactory = NonNullable<
 export const currentEditorHost = (
   ctx: Pick<ExtensionContext, "ui">
 ): EditorHost | undefined => {
-  // The optional symbol property is set only on factories created by acquireEditorHost.
   const factory: OwnedFactory | undefined = ctx.ui.getEditorComponent();
 
   return factory?.[owner];
@@ -339,8 +327,7 @@ export const acquireEditorHost = (
     next[owner] = installed;
     const draft = ui.getEditorText();
     ui.setEditorComponent(next);
-    // Pi transfers only the previous editor's getText(), which can contain orphaned markers.
-    // Its public UI getter is expanded; repair that lossy initial handoff.
+    // Pi's editor swap copies the previous editor's getText(), not its expanded text: https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts#L2836-L2854
     installed.editor?.setText(draft);
   }
 

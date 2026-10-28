@@ -1,6 +1,6 @@
 # Lint policy evaluation
 
-Evaluated on 2026-09-18 against commit `8e62004`. The recommendations below were accepted; this document preserves the pre-migration measurements and rationale. The authoritative policy is [lint-policy.md](lint-policy.md); active enforcement is in `oxlint.config.ts` and `tsconfig.json`. Counts below are historical, not a current backlog or permission to retain exclusions. The vendored anti-slop plugin it evaluates was later replaced by Ultracite's presets.
+Evaluated on 2026-09-18 against commit `8e62004`. The recommendations below were accepted, except three that the shared preset later reversed for good: it turns off the unknown-parameter and unknown-return rules and the safety-comment requirement for type assertions (see [Unknown inputs](lint-policy.md#unknown-inputs)). This document preserves the pre-migration measurements and rationale. The authoritative policy is [lint-policy.md](lint-policy.md); active enforcement is in `oxlint.config.ts` and `tsconfig.json`. Counts below are historical, not a current backlog or permission to retain exclusions. The vendored anti-slop plugin it evaluates was later replaced by Ultracite's presets.
 
 ## Recommended end state
 
@@ -8,19 +8,19 @@ Strictness should protect contracts, ownership, runtime behavior, and meaningful
 
 | Area | Recommendation |
 | --- | --- |
-| Unknown parameters | Keep an error for internal APIs; remove the `cause` spelling exemption. Use narrow, explained exceptions at real boundaries, not naming-based exemptions. |
+| Unknown parameters | Keep an error for internal APIs; remove the `cause` spelling exemption. Use narrow, explained exceptions at real boundaries, not naming-based exemptions. Reversed: the shared preset turns the rule off. |
 | Runtime `typeof` | Retain the implemented `allowInTypeGuards: true` policy and narrow exceptions. A predicate signature is permission to validate, not proof of validation. |
 | Conditional empty-object spread | Disable the blanket ban. Preserve omission semantics; refactor complex construction when that improves the contract or control flow. |
 | Known-value widening | Keep enforcement of actual evidence loss, but fix inline-object and finite-key false positives and remove the unsupported inference that passing a typed value to a predicate necessarily loses evidence. |
 | Unsafe `any` flow | Adopt type-aware assignment, argument, call, member-access, and return rules for TypeScript after remediation. Track JavaScript evaluation tooling separately rather than silently treating it as covered. |
-| Unsafe type assertions | Adopt type-aware enforcement with audited narrow exceptions for real runtime evidence and deliberately malformed test inputs. Keep safety comments; neither comments nor casts establish correctness. |
+| Unsafe type assertions | Adopt type-aware enforcement with audited narrow exceptions for real runtime evidence and deliberately malformed test inputs. Keep safety comments; neither comments nor casts establish correctness. Safety comments reversed: the shared preset no longer requires them. |
 | Exact optional properties | Adopt as a compiler target after contract-aware migration. Absence and present-with-undefined are different contracts. |
 | Unchecked indexed access | Adopt as a compiler target after algorithm/data-model review. Do not repair diagnostics with blanket non-null assertions or invented defaults. |
 | Adjacent array filter/map | Disable the blanket ban. Prefer clear transformations; optimize measured or structurally important allocation/work without changing semantics. |
 | Accumulator copying | Keep both copy rules. Growing repeated copies are a real complexity problem; fixed-size snapshots and observable intermediate versions can justify exceptions. |
 | `shape` substring naming ban | Disable. Require meaningful domain names in review; a substring cannot establish domain ownership. |
 | Module mocking | Keep an error by default. Prefer real dependency seams; allow narrow exceptions for loader/runtime compatibility and failure-injection tests when injection would damage the thing being tested. |
-| Unknown returns/aliases, broad object parameters, unsafe dictionaries | Keep for internal contracts. Allow genuinely opaque or arbitrary-value boundaries without substituting fake schemas, aliases, or unconstrained generics. |
+| Unknown returns/aliases, broad object parameters, unsafe dictionaries | Keep for internal contracts. Allow genuinely opaque or arbitrary-value boundaries without substituting fake schemas, aliases, or unconstrained generics. Unknown returns reversed: the shared preset turns that rule off. |
 | Reflection and chained/widen-then assertions | Keep restrictions with concrete boundary exceptions. Do not replace reflection with an equally untyped descriptor lookup or change receiver/getter behavior solely to silence lint. |
 | Readable spacing and test-import conventions | Keep as maintainability conventions, not safety guarantees. |
 

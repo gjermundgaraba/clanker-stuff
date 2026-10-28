@@ -28,12 +28,6 @@ export type ResponseStep = (
   options: SimpleStreamOptions | undefined
 ) => AssistantMessage | Promise<AssistantMessage>;
 
-/**
- * Mocks registry streaming with queued responses, one per request. Recap only
- * awaits `.result()`, so each step settles the stream's result directly.
- * Preserves reported usage, converts thrown errors to error results, and ends
- * with an aborted result when the request's signal aborts, as Pi's providers do.
- */
 export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
   vi.fn<StreamModel>((_model, context, options) => {
     const stream = createAssistantMessageEventStream();
@@ -71,7 +65,6 @@ export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
     return stream;
   });
 
-/** A provider that ignores cancellation: its stream never ends, even after the signal aborts. */
 export const unresponsiveStream = (): Mock<StreamModel> =>
   vi.fn<StreamModel>(() => createAssistantMessageEventStream());
 
@@ -143,7 +136,6 @@ export const sampleUsage = () => ({
   },
 });
 
-/** A response reporting `prompt` uncached context tokens plus its output. */
 export const measuredResponse = (
   prompt: number,
   {
@@ -199,7 +191,6 @@ export const snapshot = (): Snapshot => ({
   },
 });
 
-/** Deliberately sparse test mappings: consumers must follow the manifest, not builder offsets. */
 export const fontManifest = (steps = 8) => ({
   version: 1,
   steps,

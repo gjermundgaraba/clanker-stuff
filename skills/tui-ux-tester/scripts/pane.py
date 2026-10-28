@@ -31,6 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ansi  # noqa: E402
 
 SPACER = "size-spacer"
+MIN_SPACER_CELLS = 3
+BORDER_SHIFT_PASSES = 3
 
 
 def herdr(*args):
@@ -84,8 +86,8 @@ def fit(pane, axis, target):
             return
         other = neighbour(pane, split)
         room = other and current < target and label(other) == SPACER and spacer_extent(pane, other, axis)
-        if room and (target - current >= room - 3 or current == previous):
-            herdr("pane", "close", other)  # the spacer would be squeezed away; the pane may fit without it
+        if room and (target - current >= room - MIN_SPACER_CELLS or current == previous):
+            herdr("pane", "close", other)
             settle()
             previous = None
             continue
@@ -122,7 +124,7 @@ def size(pane, args):
         rect = next(p["rect"] for p in view["panes"] if p["pane_id"] == pane)
         if rect["x"] != view["area"]["x"] or rect["y"] != view["area"]["y"]:
             sys.exit("pane.py: sizing needs the first (top-left) pane of a tab of its own")
-        for _ in range(3):  # closing a spacer on one axis can shift the other by a border
+        for _ in range(BORDER_SHIFT_PASSES):
             if args[0] != "-":
                 fit(pane, "cols", int(args[0]))
             if args[1] != "-":
@@ -216,5 +218,5 @@ def main(argv):
 if __name__ == "__main__":
     try:
         main(sys.argv[1:])
-    except OSError as error:  # a full disk, a missing directory
+    except OSError as error:
         sys.exit(f"pane.py: {error}")

@@ -38,7 +38,6 @@ const readTree = async (harness: AgentSessionHarness): Promise<Tree> => {
   return Value.Parse(TreeSchema, parsed);
 };
 
-/** Routes each provider request to the root or child script, since both share one faux provider. */
 const script = (
   harness: AgentSessionHarness,
   root: FauxResponseStep[],
@@ -507,7 +506,6 @@ describe("root delivery", () => {
       await vi.waitFor(() => {
         expect(mailEntries(harness)).toHaveLength(1);
       });
-      // Cross the wake batching window, with the child still running.
       await delay(150);
       expect(wakeEntries(harness)).toHaveLength(0);
       expect(requests.root).toBe(2);
@@ -780,7 +778,6 @@ describe("root delivery", () => {
     try {
       const requests = script(
         harness,
-        // The last root step is consumed only if delivery wrongly starts a turn.
         [
           spawnWorker,
           fauxAssistantMessage("root final"),
@@ -878,7 +875,6 @@ describe("root delivery", () => {
     try {
       first.setResponses([fauxAssistantMessage("hello")]);
       await first.prompt("Start a persisted session.");
-      // Simulates a crash after Pi transcribed this mail but before the outbox was acknowledged.
       await first.session.sendCustomMessage(
         {
           content: "already transcribed",

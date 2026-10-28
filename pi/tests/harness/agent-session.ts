@@ -74,8 +74,6 @@ interface AgentSessionHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
-// The captured payload is the provider transcript: the prompt and tool loadout
-// live in its system messages exactly where Pi placed them.
 const CapturedProviderPayloadSchema = Type.Object(
   {
     messages: Type.Optional(
@@ -87,15 +85,6 @@ const CapturedProviderPayloadSchema = Type.Object(
 
 type CapturedProviderPayload = Static<typeof CapturedProviderPayloadSchema>;
 
-/**
- * Test-only wrapper for the faux provider used by createAgentSessionHarness().
- *
- * createAgentSession() exposes before_provider_request through the provider's
- * onPayload callback, but the stock faux provider does not surface onPayload in
- * a way tests can observe. This wrapper forwards onPayload manually so real
- * AgentSession tests can assert provider-payload behavior without reaching into
- * private runtime APIs.
- */
 const wrapFauxProviderPayloadHooks = (
   provider: Provider,
   hookOptions?: {

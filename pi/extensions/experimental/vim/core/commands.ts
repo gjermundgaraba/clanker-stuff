@@ -12,8 +12,6 @@ export interface Register {
 
 export interface Edit extends Range {
   text: string;
-  /** Text from outside the document, such as a register. The host encodes it; text derived
-   * from the collapsed document already carries its paste markers. */
   foreign?: boolean;
 }
 
@@ -47,7 +45,6 @@ export const selection = (
     : { start, end: next(view, end) };
 };
 
-// Vim defines these as synonyms. In Visual the selection replaces the motion.
 const shorthand = new Map<string, [key: string, motion: string]>([
   ["x", ["d", "l"]],
   ["X", ["d", "h"]],
@@ -60,7 +57,6 @@ const shorthand = new Map<string, [key: string, motion: string]>([
 const lastCell = (insertion: string) =>
   previous({ text: insertion, cursor: 0, atoms: [] }, insertion.length);
 
-/** Commands produce a single edit. The adapter, not the core, owns mutation and history. */
 export const execute = (
   view: View,
   state: State,
@@ -69,7 +65,6 @@ export const execute = (
   const { text, cursor } = view;
   const row = line(text, cursor);
   const visual = state.mode === "visual" || state.mode === "visual-line";
-  // Visual X, D, C and S act on the selection's whole lines.
   const wholeLines = visual && "XDCS".includes(input.key);
   const synonym = shorthand.get(input.key);
 
@@ -86,7 +81,6 @@ export const execute = (
       throw new Error("Vim select command has no text object");
     }
 
-    // As in Vim, a word object typed over an existing forward selection extends it.
     const extend = visual && cursor > state.anchor && /[wW]/u.test(target);
 
     const range = objectRange(
@@ -158,7 +152,6 @@ export const execute = (
     let rest: number;
 
     if (state.mode === "visual-line") {
-      // The selection keeps its last line break, so every copy lands on a line of its own.
       ({ start } = line(text, Math.min(cursor, state.anchor)));
       ({ end } = line(text, Math.max(cursor, state.anchor)));
       insertion = Array.from({ length: command.count }, () =>
@@ -168,7 +161,6 @@ export const execute = (
     } else if (visual) {
       ({ start, end } = selection(view, state));
 
-      // Whole lines put over part of a line split it around them.
       if (lines) {
         insertion = `\n${insertion}`;
       }
@@ -193,7 +185,6 @@ export const execute = (
       edit: { start, end: end ?? start, text: insertion, foreign: true },
     };
 
-    // Visual p exchanges the selection with the register; P keeps the register.
     if (visual && key === "p") {
       result.yank = {
         ...selection(view, state),
@@ -205,7 +196,6 @@ export const execute = (
   }
 
   if (key === "J") {
-    // Visual joins the selected lines, and at least two; otherwise the count includes this line.
     const first = visual ? line(text, Math.min(cursor, state.anchor)) : row;
     let end = visual ? line(text, Math.max(cursor, state.anchor)).end : row.end;
 
@@ -251,7 +241,6 @@ export const execute = (
 
   let range: Range | undefined;
   let linewise = false;
-  // A yank rests at the start of what its motion or object covered.
   let rest = cursor;
 
   if (visual) {
@@ -284,7 +273,6 @@ export const execute = (
     range = objectRange(view, target, command.around ?? false, command.count);
     rest = range?.start ?? cursor;
   } else if (command.motion !== undefined && command.motion !== "") {
-    // Vim's cw changes through the current word, not its following whitespace.
     const changeWord =
       key === "c" &&
       /[wW]/u.test(command.motion) &&
@@ -363,7 +351,6 @@ export const execute = (
       return undefined;
     }
 
-    // Unlike ~, a counted r replaces exactly that many characters or none.
     if (key === "r" && !visual && portion.length < command.count) {
       return undefined;
     }
@@ -376,7 +363,6 @@ export const execute = (
         );
 
       return {
-        // ~ moves past the change.
         cursor: range.start + replacement.length,
         mode: "normal",
         edit: { ...range, text: replacement },
@@ -394,7 +380,6 @@ export const execute = (
       .join("");
 
     return {
-      // A counted r rests on its last replacement.
       cursor: visual
         ? range.start
         : range.start + replacement.length - target.length,

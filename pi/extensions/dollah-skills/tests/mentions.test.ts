@@ -46,7 +46,6 @@ const createSkillHost = () =>
     ],
   });
 
-/** Skill files on disk, registered in catalog order, plus any other commands Pi would know. */
 const writeSkills = async (
   entries: ReadonlyArray<readonly [name: string, body: string]>,
   commands: readonly SlashCommandInfo[] = []
@@ -103,7 +102,6 @@ const writeSkills = async (
   };
 };
 
-/** Loaded content from a provider, including its relative-path guidance. */
 const provided = (name: string): LoadedSkill => ({
   content: `References are relative to mcp://${name}.\n\nProvided ${name}.`,
   location: `mcp://${name}`,
@@ -145,7 +143,6 @@ describe("skill mentions", () => {
         ctx
       );
 
-      // alpha's body mentions beta, but only typed text loads skills. Images pass through.
       expect(result).toStrictEqual({
         action: "transform",
         images: [image],

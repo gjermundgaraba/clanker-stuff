@@ -1,4 +1,4 @@
-// Mailbox, tool, and completion text adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
+// Mailbox, tool, and completion text adapted for this package from OpenAI Codex (https://github.com/openai/codex) under the Apache License 2.0; see ./NOTICE and ./UPSTREAM.
 import type { RoleConfig, SubagentsConfig } from "./config.js";
 import type { DelegationPolicy } from "./delegation.js";
 

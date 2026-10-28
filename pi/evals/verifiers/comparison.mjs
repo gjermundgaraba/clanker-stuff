@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 
-/** Read the frozen expectations packaged with the task, never infer them from observed execution. */
 export const readComparison = (
   path = process.env["EVAL_COMPARISON"] ?? "/tests/comparison.json"
 ) => {

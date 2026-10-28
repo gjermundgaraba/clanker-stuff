@@ -1,4 +1,3 @@
-"""Opt-in Docker smoke: generated Frontier runtime copies, no network or inference."""
 import os
 import subprocess
 from unittest import TestCase, skipUnless

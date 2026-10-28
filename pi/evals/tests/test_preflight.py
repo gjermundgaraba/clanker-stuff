@@ -1,5 +1,3 @@
-"""A failed free control is retryable without changing inputs or model attempts."""
-
 import json
 from pathlib import Path
 import shutil

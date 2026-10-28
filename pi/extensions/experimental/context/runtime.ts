@@ -20,7 +20,6 @@ import { ContextViews } from "./views.js";
 export const createContextInspector = (
   pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools">
 ) => {
-  // Session start and tree navigation reset it, so it always belongs to the current branch.
   let captured: ObservedRequest | undefined;
 
   const reset = (): void => {
@@ -31,7 +30,6 @@ export const createContextInspector = (
     event: BeforeProviderRequestEvent,
     ctx: ExtensionContext
   ): void => {
-    // Only TUI mode can open the inspector; skip per-request serialization everywhere else.
     if (ctx.mode === "tui") {
       captured = observeRequest(event.payload);
     }

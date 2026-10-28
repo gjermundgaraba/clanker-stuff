@@ -20,7 +20,6 @@ class EvalJournalTest(TestCase):
               await Promise.all(Array.from({{length:40}},(_,i)=>(i%2?a:b).emit({{id:i,text:"y".repeat(80000)}})));
             """
             with subprocess.Popen(['node', '--input-type=module', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-                # Deliberately let the JSON stdout pipe fill before consuming it.
                 time.sleep(0.15)
                 stdout, stderr = process.communicate(timeout=30)
                 self.assertEqual(process.returncode, 0, stderr)

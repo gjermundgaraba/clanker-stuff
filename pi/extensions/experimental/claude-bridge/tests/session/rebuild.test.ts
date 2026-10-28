@@ -14,7 +14,6 @@ import { assistant, text, user } from "./messages.js";
 
 const MODEL = "claude-haiku-5-5";
 
-/** A Claude Code session file already on disk, as an earlier query would have left it. */
 const seedSession = (cwd: string, messages: SessionMessage[]): string => {
   const sessionId = randomUUID();
   const session = createSession({ sessionId, projectPath: cwd, model: MODEL });
@@ -65,7 +64,6 @@ describe(rebuildSession, () => {
     ]);
   });
 
-  // Nothing to resume: Claude Code mints its own session for the prompt.
   it("starts clean with no priors, deleting the session it replaces", () => {
     const previous = seedSession(cwd, [{ role: "user", content: "Hi" }]);
 
@@ -78,8 +76,6 @@ describe(rebuildSession, () => {
     expect(existsSync(oldFile)).toBe(false);
   });
 
-  // A killed Claude Code may still flush a late record into the old file, so the
-  // rebuild never writes there.
   it("writes a new session and deletes the one it replaces", () => {
     const previous = seedSession(cwd, [
       { role: "user", content: "Hi" },

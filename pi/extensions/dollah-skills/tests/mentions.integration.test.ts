@@ -58,7 +58,6 @@ const setup = async (options: AgentSessionHarnessOptions = {}) => {
     harness.cleanup();
   });
 
-  /** Conversation messages after the system prompt. */
   const conversation = () =>
     harness.messages().filter((message) => message.role !== "system");
 

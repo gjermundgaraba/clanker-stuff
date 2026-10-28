@@ -6,7 +6,6 @@ import { openSettings } from "./settings.js";
 export const createSpinner = () => {
   let config = defaultConfig();
 
-  // Pi has no theme-change event, so a light/dark switch shows from the next run.
   const apply = (ctx: ExtensionContext): void => {
     if (ctx.mode === "tui") {
       ctx.ui.setWorkingIndicator(styleFor(config, ctx.ui.theme.appearance));

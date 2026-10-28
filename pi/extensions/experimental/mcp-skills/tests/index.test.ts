@@ -46,7 +46,6 @@ let host: ExtensionHost;
 
 let providers: Map<string, SkillProvider>;
 
-/** Paths of the listed skills' `SKILL.md`, by name, as the model is given them. */
 let listed: Map<string, string>;
 
 const contextWith = (
@@ -120,7 +119,6 @@ describe("mcp-skills", () => {
     cwd = await mkdtemp(path.join(os.tmpdir(), "mcp-skills-"));
     skillsDir = path.join(cwd, "skills");
     await cp(path.join(SERVER_DIR, "skills"), skillsDir, { recursive: true });
-    // Over HTTP the server reads the skills on every request, so a test can change them mid-session.
     server = await serveHttp(createTestServer({ skillsDir }), {
       host: "127.0.0.1",
       port: 0,

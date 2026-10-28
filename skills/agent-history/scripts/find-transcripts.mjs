@@ -6,13 +6,13 @@ import path from "node:path";
 
 const HOME = os.homedir();
 
-/** @param {...string} locations Candidate transcript paths. */
+/** @param {...string} locations */
 const existing = (...locations) =>
   locations.filter((location) => fs.existsSync(location));
 
 /**
- * @param {string} name Environment variable that overrides the directory.
- * @param {string} fallback Directory used when the variable is unset or empty.
+ * @param {string} name
+ * @param {string} fallback
  */
 const configuredDirectory = (name, fallback) => {
   const configured = process.env[name];
@@ -20,10 +20,11 @@ const configuredDirectory = (name, fallback) => {
   return configured === undefined || configured === "" ? fallback : configured;
 };
 
-/** @param {string} root Directory to search; a missing one yields no matches.
- * @param {Set<string>} names Exact entry names that count as matches.
- * @param {number} maxDepth Deepest directory level to descend into.
- * @param {"file" | "directory"} type Whether to collect files or directories; symlinks to either are skipped.
+/**
+ * @param {string} root
+ * @param {Set<string>} names
+ * @param {number} maxDepth
+ * @param {"file" | "directory"} type
  */
 const findNamed = (root, names, maxDepth, type) => {
   if (!fs.existsSync(root)) {
@@ -113,7 +114,7 @@ const copilotLocations = () => {
   );
 };
 
-/** @param {string} name Display name or `--tool` value; case and punctuation do not matter. */
+/** @param {string} name */
 const keyFor = (name) => name.toLowerCase().replaceAll(/[^a-z0-9]/gu, "");
 
 const tools = new Map(
@@ -237,7 +238,7 @@ const tools = new Map(
   ].map((tool) => [keyFor(tool.name), tool])
 );
 
-/** @param {string[]} args Arguments after the script path: none, `--help`, or `--tool <name>`. */
+/** @param {string[]} args */
 const selectedTools = (args) => {
   const usage =
     "Usage: find-transcripts.mjs [--tool <name>]\nFind local transcript locations; omit --tool to search all supported agents.";
@@ -278,7 +279,6 @@ const selectedTools = (args) => {
   return new Map([[key, tool]]);
 };
 
-// Validate the complete request before running any filesystem detector.
 const selected = selectedTools(process.argv.slice(2));
 
 const results = [];

@@ -38,9 +38,7 @@ export type UsageAccounting =
 export interface UsageSnapshot {
   provider: SupportedProvider;
   planLabel?: string;
-  /** Main account windows in presentation order. */
   quotaWindows: UsageWindow[];
-  /** Supplementary feature windows, shown only in the detail view. */
   additionalQuotaWindows?: UsageWindow[];
   accounting?: UsageAccounting;
   fetchedAt: number;
@@ -65,7 +63,6 @@ export const usageFailure = (
   kind: UsageFetchError["kind"] = "failure"
 ): UsageFetchFailure => ({ error: { kind, message }, ok: false });
 
-/** A response without metrics is indistinguishable from an upstream shape change, so it fails. */
 export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
   snapshot.quotaWindows.length > 0 ||
   (snapshot.additionalQuotaWindows?.length ?? 0) > 0 ||
@@ -80,7 +77,6 @@ export const isSupportedProvider = (
 ): provider is SupportedProvider =>
   provider !== undefined && SUPPORTED_PROVIDER_IDS.has(provider);
 
-/** Physical selections target their account; virtual selections follow physical attempts. */
 export const resolveQuotaProvider = (
   ctx: Pick<ExtensionContext, "model" | "sessionManager">
 ): string | undefined => {
@@ -96,7 +92,6 @@ export const resolveQuotaProvider = (
     ?.provider;
 };
 
-/** Unsupported identity is retained until presentation/fetching, rather than mistaken for login failure. */
 export const quotaUnavailableMessage = (
   provider: string | undefined
 ): string =>

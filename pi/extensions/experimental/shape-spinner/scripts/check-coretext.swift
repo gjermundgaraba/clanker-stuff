@@ -1,5 +1,4 @@
 #!/usr/bin/env swift  // Run on macOS: swift scripts/check-coretext.swift [font.ttf [shapes.json]]
-// Checks real painted pixels, not just the bounding boxes reported by CoreText.
 import CoreGraphics
 import CoreText
 import Foundation

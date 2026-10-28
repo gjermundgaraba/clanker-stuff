@@ -5,7 +5,6 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createStoredTokenAuth } from "../auth.js";
-// Pi does not export its MCP credential store; this checks the file format auth.ts reads.
 import { McpOAuthCredentialStore } from "../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/oauth.js";
 
 const URL = "https://example.com/mcp";

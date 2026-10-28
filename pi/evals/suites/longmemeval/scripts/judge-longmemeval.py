@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Apply LongMemEval's answer rubric to a Harbor job."""
-
 from __future__ import annotations
 
 import hashlib

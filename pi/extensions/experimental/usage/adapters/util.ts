@@ -19,19 +19,12 @@ export interface AdapterDeps {
 export interface UsageRequest<S extends TSchema> {
   url: string;
   schema: S;
-  /** Subscription usage: API-key credentials are unavailable without a request. */
   oauth?: boolean;
   /** Authorization scheme; GitHub's Copilot endpoint uses `token`. */
   scheme?: "Bearer" | "token";
-  /** Extra request headers; some providers route by claims in the token. */
   headers?: (token: string) => Record<string, string>;
 }
 
-/**
- * GET an authenticated usage endpoint and map its checked payload. A 403
- * means the credential lacks this entitlement, so the provider is unavailable
- * rather than broken.
- */
 export const fetchUsage = async <S extends TSchema>(
   deps: AdapterDeps,
   provider: SupportedProvider,
@@ -85,7 +78,6 @@ export const makeUsageWindow = (
   return usageWindow;
 };
 
-/** Labels a positive duration in seconds using the largest exact whole unit. */
 export const durationLabel = (seconds: number): string => {
   if (seconds % 86_400 === 0) {
     return `${seconds / 86_400}d`;
@@ -102,7 +94,6 @@ export const durationLabel = (seconds: number): string => {
   return `${seconds}s`;
 };
 
-/** `undefined` for values outside `Date`'s range, which `toISOString()` would throw on. */
 export const isoFromEpochMs = (
   value: number | undefined
 ): string | undefined => {

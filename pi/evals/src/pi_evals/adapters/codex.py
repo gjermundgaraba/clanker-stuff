@@ -38,7 +38,6 @@ def runner_command(agent_dir: str, output_filename: str) -> str:
 def load_codex_journal(
     path: Path, *, output_log: bool = False
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Load exact response usage and terminal compaction attempts."""
 
     if not path.exists():
         raise ValueError(f"missing Codex event journal: {path}")
@@ -118,7 +117,6 @@ def load_codex_journal(
 
 
 def load_codex_compactions(session_dir: Path) -> list[dict[str, Any]]:
-    """Read persisted Codex replacement events, the durable success evidence."""
 
     completed_segment = -1
     compactions: list[dict[str, Any]] = []
@@ -146,7 +144,6 @@ def load_codex_compactions(session_dir: Path) -> list[dict[str, Any]]:
 
 
 def load_codex_turn_contexts(session_dir: Path) -> list[dict[str, Any]]:
-    """Extract observed model/effort from durable sessions, not requested config."""
     return [
         {"model": record.get("payload", {}).get("model"),
          "effort": record.get("payload", {}).get("effort")}
@@ -157,7 +154,6 @@ def load_codex_turn_contexts(session_dir: Path) -> list[dict[str, Any]]:
 
 
 class CodexEval(Codex):
-    """Pinned native Codex runner with exact request-level usage accounting."""
 
     SUPPORTS_LOAD_NATIVE_TRAJECTORY = False
     SUPPORTS_LOAD_ATIF_TRAJECTORY = False

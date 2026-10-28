@@ -6,7 +6,6 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
 const ENV_NAME_PREFIX = /^[A-Za-z_][A-Za-z0-9_]*/u;
 
-/** A command's trimmed output, run again on every connect like Pi does, so expiring tokens refresh. */
 const runCommand = (command: string): string | undefined => {
   try {
     return (
@@ -21,7 +20,6 @@ const runCommand = (command: string): string | undefined => {
   }
 };
 
-/** `$NAME` and `${NAME}` from the environment; `$$` and `$!` escape `$` and `!`. */
 const resolveTemplate = (value: string): string | undefined => {
   let resolved = "";
   let index = 0;

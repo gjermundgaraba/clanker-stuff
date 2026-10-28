@@ -224,7 +224,6 @@ describe("task presentation", () => {
       const rows = renderedRows(component, 2000);
       const [, displayed] = rows;
       assert.ok(displayed !== undefined && displayed !== "");
-      // Treat each displayed token as a JSON string, not as shell syntax.
       const tokens = displayed.match(/"(?:\\.|[^"\\])*"/gu) ?? [];
 
       const parsed = tokens.map((token) =>

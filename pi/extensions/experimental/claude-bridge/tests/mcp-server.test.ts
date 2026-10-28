@@ -1,7 +1,3 @@
-// What the bridge puts on the MCP wire, read back through a real MCP client: tool schemas
-// survive verbatim below the top level, and every call pairs with Claude's own
-// tool_use id.
-
 import type { JsonObject } from "@earendil-works/pi-ai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -75,7 +71,6 @@ const listOne = async (inputSchema: JsonObject) => {
   return listed;
 };
 
-/** Claude Code identifies the call it is making through `_meta` on every tools/call. */
 const callTool = async (
   client: Client,
   name: string,
@@ -90,8 +85,6 @@ const callTool = async (
 
 const plain = (schema: unknown): JsonObject => toJsonObject(schema) ?? {};
 
-// What TypeBox actually emits for a union or intersection: a bare anyOf/allOf with no
-// root type. One such tool must not fail every turn.
 describe("MCP tool schemas TypeBox builds without a root object", () => {
   it("flattens a TypeBox union into an object", async () => {
     const listed = await listOne(
@@ -128,7 +121,6 @@ describe("MCP tool schemas TypeBox builds without a root object", () => {
     });
   });
 
-  // As pi's own Anthropic provider serves one; pi still validates calls against it.
   it("serves a scalar schema as an object rather than failing", async () => {
     const listed = await listOne(plain(Type.String()));
 
@@ -168,10 +160,6 @@ describe("MCP tool schema advertisement", () => {
   });
 });
 
-// Claude Code drops a tool whose input schema has a top-level anyOf/oneOf/allOf, while the
-// bridge still maps it as served: a call reached pi and ran there while Claude Code
-// answered "No such tool available" and retried. Pi validates against the full schema
-// itself, so the bridge only advertises a flat object Claude Code accepts.
 describe("MCP tool schema with top-level combinators", () => {
   it("flattens a top-level anyOf, keeping root declarations and requirements", async () => {
     const listed = await listOne({
@@ -198,7 +186,6 @@ describe("MCP tool schema with top-level combinators", () => {
       ],
     });
 
-    // A branch-only requirement is not universal, and the root declaration wins.
     expect(listed.inputSchema).toStrictEqual({
       type: "object",
       additionalProperties: false,
@@ -257,7 +244,6 @@ describe("MCP tool schema with top-level combinators", () => {
     });
 
     expect(listed.inputSchema).not.toHaveProperty("oneOf");
-    // Each branch's requirement holds only for that branch.
     expect(listed.inputSchema).not.toHaveProperty("required");
     expect(listed.inputSchema.properties).toStrictEqual({
       id: { type: "string" },
@@ -270,7 +256,6 @@ describe("MCP tool schema with top-level combinators", () => {
   });
 });
 
-// Two tools, so a handler picked by position rather than by name shows.
 const twoTools = (calls: Array<[string, string]>): McpToolDef[] => [
   toolDef("alpha", { type: "object", properties: {} }, async (toolCallId) => {
     calls.push(["alpha", toolCallId]);
@@ -309,8 +294,6 @@ describe("MCP tool invocation", () => {
     });
   });
 
-  // Inferring the id from call order pairs a result with the wrong call whenever the
-  // order diverges, as with parallel tool calls.
   it("hands the handler Claude's tool_use id, not one inferred from call order", async () => {
     const calls: Array<[string, string]> = [];
     const client = await connect(twoTools(calls));
@@ -334,7 +317,6 @@ describe("MCP tool invocation", () => {
     expect(calls).toStrictEqual([]);
   });
 
-  // A schema rejection here would skip the handler and strand the call: pi validates.
   it("invokes the handler even when the arguments do not match the schema", async () => {
     let called = false;
 
@@ -382,7 +364,6 @@ describe("toolResultToMcpContent", () => {
     ]);
   });
 
-  // In Claude Code's session it would fail this request and every later one.
   it("sends Claude Code a marker for an image it cannot take", () => {
     expect(
       toolResultToMcpContent([

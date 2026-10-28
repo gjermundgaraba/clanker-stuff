@@ -1,12 +1,10 @@
-// The trajectory is external evidence. Validate containers before reading fields;
-// retain malformed field values so one failed metric cannot hide independent results.
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 const isRecord = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * @param {unknown} value Parsed `agent.extra.pi_evals` manifest.
- * @returns {value is {platform: string, compaction_mode: "on" | "off", expected_mechanism: string, expected_protocol: string | null}} Whether the manifest has exactly the expected fields.
+ * @param {unknown} value
+ * @returns {value is {platform: string, compaction_mode: "on" | "off", expected_mechanism: string, expected_protocol: string | null}}
  */
 const isManifest = (value) => {
   if (!isRecord(value)) {
@@ -119,7 +117,7 @@ export const validateCompaction = (trajectory, { expectedSegments }) => {
   const countMatches = attempts.length === expected.length;
   const noAttempts = attempts.length === 0;
 
-  /** @param {(attempt: typeof steps[number], index: number) => boolean} predicate Requirement on each compaction attempt, given its index into the expected boundaries; consulted only when compaction is on and the attempt count matches. */
+  /** @param {(attempt: typeof steps[number], index: number) => boolean} predicate */
   const attemptMetric = (predicate) =>
     Number(
       (off && noAttempts) || (on && countMatches && attempts.every(predicate))

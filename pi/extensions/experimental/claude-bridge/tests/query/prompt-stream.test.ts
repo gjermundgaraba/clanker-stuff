@@ -1,6 +1,3 @@
-// The consumer mirrors the SDK's pump, `for await (m of stream) await transport.write(m)`:
-// the ack contract holds only against that shape.
-
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -53,8 +50,6 @@ describe("makePromptStream", () => {
 
     await tick();
 
-    // The write is in flight: an ack now would let a caller release a tool result
-    // before the steer reached stdin.
     expect(written).toStrictEqual(["steer"]);
     expect(acked).toBe(false);
 
@@ -94,7 +89,6 @@ describe("makePromptStream", () => {
 
   it("settles queued and in-flight acks on failure", async () => {
     const ps = makePromptStream();
-    // A write that never finishes: the CLI died mid-write.
     const { promise: stalled } = Promise.withResolvers<undefined>();
 
     const pumping = pump(ps.stream, async () => {
@@ -129,10 +123,8 @@ describe("makePromptStream", () => {
     );
 
     await pulled;
-    // What `break` in the SDK's pump does.
     await ps.stream.return(undefined);
     await ack;
-    // Nothing is left to drain the queue, so a later push must reject, not park.
     await expect(ps.push(userMessage("later"))).rejects.toThrow(/closed/u);
   });
 
@@ -165,7 +157,6 @@ describe("makePromptStream", () => {
       /CLI exited with code 1/u
     );
 
-    // The provider reports the real cause, then its finally fails the stream again.
     ps.fail(new Error("CLI exited with code 1"));
     ps.fail(new Error("query ended"));
 
@@ -187,7 +178,6 @@ describe("userMessage", () => {
       parent_tool_use_id: null,
       priority: "next",
     });
-    // A uuid makes Claude Code's stdin loop look the message up in the session.
     expect(message).not.toHaveProperty("uuid");
   });
 });

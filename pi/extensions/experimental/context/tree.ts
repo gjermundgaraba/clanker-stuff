@@ -85,7 +85,6 @@ export interface FlatRow {
   readonly depth: number;
   readonly expanded: boolean;
   readonly last: boolean;
-  /** Share of the parent's tokens (top level: share of the whole snapshot), 0-1. */
   readonly share: number;
   readonly node: TreeNode;
 }

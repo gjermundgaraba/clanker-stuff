@@ -30,11 +30,6 @@ const envelopeRows = (envelope: AnswerEnvelope) =>
     envelope.revision > 1 ? envelope.changed : undefined
   );
 
-/**
- * Display only: an exact answer message renders as a readable summary, while its canonical
- * text stays in model context and history. Edited, quoted or combined text stays verbatim, so
- * arbitrary user text is never hidden just because it resembles an answer.
- */
 export const transformAnswerMarkdown: MarkdownTransformer = (
   markdown,
   context
@@ -77,7 +72,6 @@ const callHeading = (
   );
 };
 
-// Stored calls are rendered as written, so both renderers tolerate partial arguments.
 export const renderCall = (
   args: Parameters<CallRenderer>[0],
   theme: Parameters<CallRenderer>[1],
@@ -125,6 +119,29 @@ const STATUS_LABELS = new Map([
   ["pending", "Pending · not answered yet · /answers to answer"],
 ]);
 
+const resultSummary = (text: string): string => {
+  let details: unknown;
+
+  try {
+    details = JSON.parse(text);
+  } catch {
+    return text;
+  }
+
+  if (Value.Check(AnswerEnvelopeSchema, details)) {
+    return `Answered · revision ${details.revision}${supersedes(details.revision)}\n${plainText(envelopeRows(details))}`;
+  }
+
+  if (Value.Check(ReceiptDisplaySchema, details)) {
+    const status =
+      details.accepted === true ? "pending" : (details.status ?? "");
+
+    return STATUS_LABELS.get(status) ?? (status || text);
+  }
+
+  return text;
+};
+
 export const renderResult: NonNullable<
   ToolDefinition<
     typeof QuestionnaireSchema | typeof RevisionSchema
@@ -135,30 +152,8 @@ export const renderResult: NonNullable<
     .map((c) => c.text)
     .join("\n");
 
-  let summary = text;
-
-  try {
-    const details: unknown = JSON.parse(text);
-
-    if (
-      !context.isError &&
-      !options.isPartial &&
-      Value.Check(AnswerEnvelopeSchema, details)
-    ) {
-      summary = `Answered · revision ${details.revision}${supersedes(details.revision)}\n${plainText(envelopeRows(details))}`;
-    } else if (
-      !context.isError &&
-      !options.isPartial &&
-      Value.Check(ReceiptDisplaySchema, details)
-    ) {
-      const status =
-        details.accepted === true ? "pending" : (details.status ?? "");
-
-      summary = STATUS_LABELS.get(status) ?? (status || text);
-    }
-  } catch {
-    /* Tool execution errors are plain text. */
-  }
+  const summary =
+    context.isError || options.isPartial ? text : resultSummary(text);
 
   let color: ThemeColor = "toolOutput";
 

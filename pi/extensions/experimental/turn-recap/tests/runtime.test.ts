@@ -145,7 +145,6 @@ const setup = async (...responses: ResponseStep[]) => {
     get runtime() {
       return runtime;
     },
-    /** Pi's reload: the session's runtime shuts down and a new one starts over the same session. */
     reload: async () => {
       runtime.shutdown(ctx);
       runtime = createRuntime();
@@ -154,7 +153,6 @@ const setup = async (...responses: ResponseStep[]) => {
     snapshots,
     recaps,
     render: () => component?.render(100).join("\n") ?? "",
-    // The latest card as the transcript draws it, recap looked up live.
     card: (expanded = false) => {
       const latest = snapshots().at(-1);
 
@@ -171,7 +169,6 @@ const setup = async (...responses: ResponseStep[]) => {
   };
 };
 
-/** A runtime after Pi's session start, for tests that arrange nothing first. */
 const started = async (...responses: ResponseStep[]) => {
   const env = await setup(...responses);
   await env.runtime.start(env.ctx);
@@ -222,7 +219,6 @@ describe("turn recap runtime", () => {
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
 
-    // Same digit width, so carried-over history would roll 1s back down to 0s.
     env.runtime.begin(env.ctx);
     expect(env.render()).toContain("0s elapsed");
     vi.advanceTimersByTime(130);
@@ -465,7 +461,6 @@ describe("turn recap runtime", () => {
       const start = { tokens: 60, contextWindow: 1000, percent: 6 };
       const context = { tokens: 100, contextWindow: 1000, percent: 10 };
 
-      // Pi's real context accounting also projects history; only recap preparation is skipped.
       const contextUsage = vi
         .spyOn(env.ctx, "getContextUsage")
         .mockImplementation(() => {

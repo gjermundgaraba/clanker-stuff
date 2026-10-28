@@ -1,4 +1,3 @@
-/** vp exec jiti scripts/build-font.ts --source /path/to/font.ttf */
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";

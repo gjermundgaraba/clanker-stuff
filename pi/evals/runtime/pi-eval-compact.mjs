@@ -18,8 +18,8 @@ const ConfigSchema = Type.Object({
 });
 
 /**
- * @param {string} text JSON text.
- * @returns {import("typebox").Static<typeof ConfigSchema>} Validated config.
+ * @param {string} text
+ * @returns {import("typebox").Static<typeof ConfigSchema>}
  */
 const parseConfig = (text) => {
   try {
@@ -29,10 +29,9 @@ const parseConfig = (text) => {
   }
 };
 
-// Pi emits a present undefined result on failed/aborted compaction; malformed/missing terminal fields remain testable.
 /** @typedef {{aborted?: boolean, errorMessage?: string, result?: {usage?: unknown}|undefined, type: "compaction_end"}} CompactionTerminal */
 
-/** @param {CompactionTerminal} event Pi's compaction_end event. */
+/** @param {CompactionTerminal} event */
 const compactionState = (event) => {
   if (event.aborted !== true && event.aborted !== false) {
     return;
@@ -87,7 +86,7 @@ export const validateCompaction = (
   return state;
 };
 
-/** @param {string} configPath JSON file naming the Pi arguments, working directory, provider and model. */
+/** @param {string} configPath */
 const run = async (configPath) => {
   const config = parseConfig(await readFile(configPath, "utf-8"));
 
@@ -161,11 +160,11 @@ if (
 ) {
   const [configPath] = process.argv.slice(2);
 
-  // The image build runs this without arguments: the usage error proves the entry point and its
-  // deployed dependencies load.
   if (process.argv.length !== 3 || configPath === undefined) {
-    throw new Error("usage: pi-eval-compact CONFIG_JSON");
+    throw new Error("usage: pi-eval-compact CONFIG_JSON | --self-check");
   }
 
-  await run(configPath);
+  if (configPath !== "--self-check") {
+    await run(configPath);
+  }
 }

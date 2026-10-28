@@ -1,4 +1,3 @@
-/** Standalone preview of the real widget; synthetic metrics, no session or persistence. */
 import { parseArgs } from "node:util";
 
 import {

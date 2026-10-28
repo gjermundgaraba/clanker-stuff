@@ -1,7 +1,3 @@
-// Opt-in debug logging. CLAUDE_BRIDGE_DEBUG=1 writes the bridge's own trace and,
-// per query, Claude Code's CLI debug log beside it; nothing is written otherwise.
-// The log carries prompts and conversation text, so it is never on by default.
-
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -9,7 +5,6 @@ import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 
 const EXTENSION_ID = "claude-bridge";
 
-// Unique per module evaluation: shows whether subagents share module state.
 const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 
 const isDebugEnabled = (): boolean =>

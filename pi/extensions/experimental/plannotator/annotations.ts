@@ -11,7 +11,6 @@ const AnnotationOutcomeSchema = Type.Union([
   }),
 ]);
 
-/** Returns trimmed feedback to send, or notifies why there is none under the annotation's label. */
 export const readAnnotationFeedback = (
   stdout: string,
   ctx: ExtensionCommandContext,

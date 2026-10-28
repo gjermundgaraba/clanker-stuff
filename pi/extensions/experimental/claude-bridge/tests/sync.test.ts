@@ -1,6 +1,3 @@
-// The sync decision against the histories pi actually sends: ordinary turns, the tool
-// loop, another provider's turns, compaction, rewrites, retries, aborts and side calls.
-
 import type {
   AssistantMessage,
   Message,
@@ -82,7 +79,6 @@ const context = (
 
 const KEY = queryKey(context([]), model.id, undefined);
 
-/** A request for `messages` under the conversation's key. */
 const request = (
   messages: Message[],
   extra: { key?: string; aborted?: boolean } = {}
@@ -92,7 +88,6 @@ const request = (
   aborted: extra.aborted ?? false,
 });
 
-/** What a conversation records once Claude Code's session cc-1 holds `messages`. */
 const holding = (
   held: readonly Message[],
   extra: Partial<SyncState> = {}
@@ -127,7 +122,6 @@ describe("ordinary turns", () => {
     });
   });
 
-  // Not the same objects: pi reloading its session, say.
   it("resumes when pi hands back copies of the messages Claude Code holds", () => {
     const [u1, a1, u2] = [user("hi"), say("hello"), user("again")];
     const copies = structuredClone([u1, a1]);
@@ -153,7 +147,6 @@ describe("ordinary turns", () => {
     });
   });
 
-  // Claude Code's session gains no message pi lacks, so the next turn still resumes.
   it("resumes after a turn that continued from tool results without a user turn", () => {
     const history = [user("go"), call("t1"), result("t1")];
     const reply = say("done");
@@ -210,8 +203,6 @@ describe("the tool loop", () => {
     });
   });
 
-  // The parked query's model, prompt and MCP server are fixed, so it cannot take the
-  // change; the results are still the conversation's, not a side call's.
   it("rebuilds when what the query is fixed to changed while it was parked", () => {
     const [r1, steer] = [result("t1"), user("use b instead")];
 
@@ -292,7 +283,6 @@ describe("history Claude Code does not hold", () => {
     });
   });
 
-  // pi hides a failed attempt and resends the turn; its history must come along.
   it("rebuilds a retried turn with the history before it", () => {
     const [u1, a1, u2] = [user("one"), say("1"), user("two")];
 
@@ -319,8 +309,6 @@ describe("history Claude Code does not hold", () => {
 });
 
 describe("a request while a query runs", () => {
-  // pi compacted while the tool ran and queued a steer: still the conversation's next
-  // step. Taken for a side call, it would run without tools and leave the query parked.
   it("rebuilds the conversation's results and steer after its history was rewritten", () => {
     const [u1, a1, r1, steer] = [
       user("read a"),
@@ -360,7 +348,6 @@ describe("a request while a query runs", () => {
     });
   });
 
-  // pi's own retry after compacting mid-turn ends in the tool results, not a user turn.
   it("rebuilds pi's own continuation that no longer matches", () => {
     const [u1, a1, r1] = [user("read a"), call("t1"), result("t1")];
     const summary = user("<summary>read a</summary>");

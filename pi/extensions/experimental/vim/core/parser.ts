@@ -17,7 +17,6 @@ const standalone = "iIaAoOvVxXsSDCpPJu.~";
 
 const objects = /^[ia][wW"'`(){}[\]<>]$/u;
 
-/** A leading zero is the line-start motion, never a count. */
 const counted = (input: string): [digits: string, rest: string] => {
   const groups = /^(?<digits>\d*)(?<rest>.*)$/u.exec(input)?.groups;
 
@@ -30,7 +29,6 @@ const counted = (input: string): [digits: string, rest: string] => {
   return digits.startsWith("0") ? ["", digits + rest] : [digits, rest];
 };
 
-/** One grammar for bare moves, operator targets and Visual objects; undefined is invalid. */
 const target = (
   rest: string,
   object: boolean
@@ -64,7 +62,6 @@ const target = (
   return undefined;
 };
 
-/** A bounded grammar, not a key replay queue. Invalid sequences consume no later command. */
 export class Parser {
   private pending = "";
   reset() {
@@ -102,7 +99,6 @@ export class Parser {
         return undefined;
       }
 
-      // Counts before the operator and before its motion multiply; either makes the count explicit.
       base = {
         count: Math.min(MAX_COUNT, base.count * (Number(extra) || 1)),
         explicit: base.explicit || extra !== "",

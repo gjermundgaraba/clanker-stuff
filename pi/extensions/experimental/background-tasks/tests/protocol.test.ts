@@ -54,10 +54,8 @@ describe("WatchDecoder", () => {
   });
 
   it("bounds data as tool text renders it, as well as the line", () => {
-    // The longest plain string the line allows; plain text renders at its own size.
     const fits = record(JSON.stringify("x".repeat(MAX_RECORD_BYTES - 32)));
     const numbers = `[${Array.from({ length: 3200 }, () => "1e20").join(",")}]`;
-    // Under the limit even serialized again, but each bidi control renders as a 6-byte escape.
     const escapes = JSON.stringify("\u202E".repeat(5400));
     expect(fits).toHaveLength(MAX_RECORD_BYTES + 1);
     expect(Buffer.byteLength(JSON.stringify(JSON.parse(escapes)))).toBeLessThan(

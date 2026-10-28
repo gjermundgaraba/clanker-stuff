@@ -74,8 +74,6 @@ const subagents = async (pi: ExtensionAPI) => {
   });
   pi.on("session_shutdown", manager.shutdown.bind(manager));
   pi.on("session_start", (_event, ctx) => {
-    // Every extension has registered its commands by the time a session starts. The orbs need
-    // shape-spinner's font, which its command shows is in use.
     const spinnerFont = pi
       .getCommands()
       .some(

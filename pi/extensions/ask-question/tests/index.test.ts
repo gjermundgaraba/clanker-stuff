@@ -67,7 +67,6 @@ describe("questionnaire contract", () => {
     await expect.poll(() => driver.component).toBeDefined();
     await host.emitSessionTree(ctx);
 
-    // Its answer would belong to the branch it was asked on, not the one now active.
     await expect(asking).rejects.toThrow(
       "Questionnaire belongs to an inactive session branch"
     );

@@ -1,5 +1,4 @@
 #!/bin/bash
-# Self-check for resume-history.sh. Run: bash test.sh
 set -eu
 cd "$(dirname "$0")"
 

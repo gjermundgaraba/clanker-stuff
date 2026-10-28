@@ -1,5 +1,3 @@
-"""Shared trial artifact extraction; metrics are independent of task scoring."""
-
 from __future__ import annotations
 import json
 import math
@@ -166,8 +164,6 @@ def usage(
             continue
         cost = metrics.get("cost_usd")
         if cost is None:
-            # ATIF may omit a zero step cost. A known final total disambiguates
-            # that legacy representation; without it, missing pricing is unknown.
             if final_cost is None:
                 unknown_costs.add("compaction_cost" if compact else "ordinary_cost")
             cost = 0
@@ -306,11 +302,6 @@ def timings(result: dict[str, Any]) -> tuple[float | None, float | None]:
 
 
 def trial_rows(job: Path, *, export_reward: str) -> list[dict]:
-    """Read export-only trials without making captures depend on telemetry.
-
-    Malformed telemetry stays explicit and runtime-invalid. Artifact identity is
-    still verified by each driver's frozen inputs and captured-source hashes.
-    """
     result = []
     trial_dirs = sorted(
         {
@@ -366,7 +357,6 @@ def trial_rows(job: Path, *, export_reward: str) -> list[dict]:
 
 
 def require_terminal_result(row: dict) -> None:
-    """Task correctness is not a spending gate; runtime completion/validity is."""
     if row.get("status") != "completed" or row.get("valid") != 1:
         raise RuntimeError("runtime-invalid or incomplete current trial; stop spending")
 
@@ -480,8 +470,6 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
                 )
             except ValueError:
                 compaction_counts = {key: None for key in COMPACTION_KEYS}
-        # In tool-mode experiments validity and artifact quality remain observable
-        # even when the runtime failed. Completion is still required for success.
         if manifest.get("experiment") == "code-mode" and isinstance(
             result.get("verifier_result"), dict
         ):

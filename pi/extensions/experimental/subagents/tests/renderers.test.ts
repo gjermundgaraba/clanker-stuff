@@ -219,8 +219,10 @@ describe("subagent renderers", () => {
       expect(collapsed.length).toBeLessThanOrEqual(10);
       expect(collapsed.join("\n")).not.toContain("Detailed answer");
       const expandedRows = renderedRows(render("list_agents", value, true));
-      // Count, root, then one status and one answer per agent.
-      expect(expandedRows).toHaveLength(42);
+      expect(
+        expandedRows,
+        "count, root, then one status and one answer per agent"
+      ).toHaveLength(42);
       const expanded = expandedRows.join("\n");
       expect(expanded).toContain("worker_19");
       expect(expanded).toContain("Detailed answer");
@@ -481,8 +483,10 @@ describe("subagent renderers", () => {
       expect(card({ ...base, failed: true })[0]).toBe(
         "✗ docs failed · /root/docs"
       );
-      // An answer that merely quotes the failure wording finished.
-      expect(card(base)[0]).toBe("✓ docs finished · /root/docs");
+      expect(
+        card(base)[0],
+        "an answer that merely quotes the failure wording finished"
+      ).toBe("✓ docs finished · /root/docs");
       expect(
         card({
           content: "Halfway there",

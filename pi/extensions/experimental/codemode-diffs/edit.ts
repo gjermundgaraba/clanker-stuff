@@ -12,6 +12,16 @@ import { Value } from "typebox/value";
 import type { EditDiffs } from "./diffs.js";
 import { highlightDiff } from "./highlight.js";
 
+const tryHighlightDiff = async (
+  ...args: Parameters<typeof highlightDiff>
+): ReturnType<typeof highlightDiff> => {
+  try {
+    return await highlightDiff(...args);
+  } catch {
+    return undefined;
+  }
+};
+
 export const createHighlightedEdit = (diffs: EditDiffs) => {
   const original = createEditToolDefinition(process.cwd());
 
@@ -65,27 +75,22 @@ export const createHighlightedEdit = (diffs: EditDiffs) => {
         },
       });
 
-      // Native edit owns withFileMutationQueue() around these exact reads and writes.
-      // Do not acquire the same queue again here; the immutable snapshots remain valid afterward.
+      // Native edit already holds the non-reentrant withFileMutationQueue(): https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/core/tools/edit.ts#L163-L198
       const result = await native.execute(id, input, signal, onUpdate, ctx);
 
       if (before === undefined || after === undefined || !result.details) {
         return result;
       }
 
-      try {
-        const syntax = await highlightDiff(
-          input.path,
-          result.details.diff,
-          before,
-          after
-        );
+      const syntax = await tryHighlightDiff(
+        input.path,
+        result.details.diff,
+        before,
+        after
+      );
 
-        if (syntax) {
-          diffs.setSyntax(id, result.details.diff, syntax);
-        }
-      } catch {
-        // The edit already succeeded. Optional highlighting must never turn it into a failed edit.
+      if (syntax) {
+        diffs.setSyntax(id, result.details.diff, syntax);
       }
 
       return result;

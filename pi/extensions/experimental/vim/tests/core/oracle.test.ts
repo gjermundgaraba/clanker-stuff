@@ -141,15 +141,12 @@ const cases: Array<[string, string[]]> = [
   ["a b", ["cw", "new", "\u001B"]],
   ["👩‍💻 é two", ["x"]],
   ["é two", ["x"]],
-  // A count after the operator is as explicit as one before it.
   ...["d2G", "2dG", "y2GP", "Gd2gg", "Gy2ggP"].map(
     (keys): [string, string[]] => ["abc\ndef\nghi", [keys]]
   ),
-  // Rightward operators reach past the last character of the last line.
   ...["$dl", "$clZ\u001B", "ld3l", "l3~", "$x", "$~"].map(
     (keys): [string, string[]] => ["abcd", [keys]]
   ),
-  // Shorthand commands are their operator and motion, counts included.
   ...[
     "2D",
     "l2D",
@@ -172,7 +169,6 @@ const cases: Array<[string, string[]]> = [
     "abc",
     [keys],
   ]),
-  // Visual J joins the selection; uppercase Visual edits take whole lines.
   ...[
     "VjJ",
     "vJ",
@@ -187,17 +183,14 @@ const cases: Array<[string, string[]]> = [
     "vlSX\u001B",
     "VCX\u001B",
   ].map((keys): [string, string[]] => ["abc def\n  ghi\njkl", [keys]]),
-  // Visual p exchanges the selection with the register; P keeps it.
   ["abc def", ["yiwwviwp$p"]],
   ["abc def", ["yiwwviwP$p"]],
   ["abc\ndef\nghi", ["yyjVpGp"]],
-  // A yank rests at the start of what its motion covered.
   ["one two three", ["$ybP"]],
   ["one two three", ["wlyiwP"]],
   ["abc\n def\nghi", ["GykP"]],
   ["abc\n def\nghi", ["jlyjP"]],
   ["abc\n def\nghi", ["jlyyP"]],
-  // A vertical motion that cannot move fails, and so does its operator.
   ...[
     "dk",
     "Gdj",
@@ -213,7 +206,6 @@ const cases: Array<[string, string[]]> = [
   ].map((keys): [string, string[]] => ["one\ntwo\nthree", [keys]]),
   ["solo", ["dj"]],
   ["solo", ["dk"]],
-  // Counted inner words count the whitespace between them; counted "a word" does not.
   ...["one two three", "one  two three", "one, two three"].flatMap((text) =>
     [
       "d2iw",
@@ -236,7 +228,6 @@ const cases: Array<[string, string[]]> = [
       "lllvawd",
     ].map((keys): [string, string[]] => [text, [keys]])
   ),
-  // A Visual put reconciles the register's type with the selection's.
   ...[
     "yiwjVp",
     "yiwjVP",
@@ -297,7 +288,6 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
 
     const { editor, normal, keys } = setup(text);
     normal();
-    // Escape is its own terminal packet; everything else may arrive together.
     keys(
       ...inputs.flatMap((input) =>
         input

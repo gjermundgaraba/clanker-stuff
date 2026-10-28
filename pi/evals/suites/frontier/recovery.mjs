@@ -1,4 +1,3 @@
-// Model-free integration probe, executed in the frozen runtime with network disabled.
 import assert from "node:assert/strict";
 
 import {

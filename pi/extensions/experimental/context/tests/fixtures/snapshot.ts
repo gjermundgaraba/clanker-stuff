@@ -31,7 +31,6 @@ export const fixtureMessage = (
   sourceEntryId: label,
 });
 
-/** A branch whose first request recorded `prompt`, as Pi persists it. */
 export const recordedBranch = (prompt: string) => {
   const session = SessionManager.inMemory();
   session.appendMessage({ role: "system", content: prompt, timestamp: 0 });

@@ -50,7 +50,6 @@ export interface FormPort {
   report: (cause: unknown) => void;
 }
 
-/** The edited field, as the action that saves it without its text. */
 type Field =
   | { type: "custom"; question: string }
   | { type: "note"; question?: string; option?: string };
@@ -133,7 +132,6 @@ export class QuestionnaireView {
       this.editor.component.focused = value;
     }
   }
-  /** Saves an open editor; used by Stop, close and navigation. */
   flush(): void {
     this.saveField();
   }
@@ -171,9 +169,7 @@ export class QuestionnaireView {
 
     component.setText(value);
     component.focused = this.focused;
-    component.onSubmit = () => {
-      // Completion and newline are handled with the injected app manager, not Editor's global manager.
-    };
+    component.onSubmit = () => undefined;
 
     const limit = field.type === "custom" ? MAX_TEXT : MAX_NOTE;
     component.onChange = () => {
@@ -188,7 +184,6 @@ export class QuestionnaireView {
     this.hint = "";
     this.viewport.scroll = 0;
   }
-  /** Moves to a question (or Review) and highlights its current answer. */
   private go(index: number): void {
     const { questions } = this.item.request;
     this.question = Math.max(0, Math.min(index, questions.length));
@@ -268,7 +263,6 @@ export class QuestionnaireView {
         component.insertTextAtCursor("\n");
       } else if (this.keys.matches(data, "tui.input.submit")) {
         try {
-          // A written answer is selected by saving it, even when its text is unchanged.
           this.saveField(field.type === "custom");
         } catch (error) {
           this.hint = `${component.getText().length}/${limit} · ${error instanceof Error ? error.message : String(error)}`;
@@ -415,7 +409,6 @@ export class QuestionnaireView {
               this.port.send(submission.revision);
             }
           } catch (error) {
-            // The immutable submission remains available in the inbox.
             this.port.report(error);
           }
         }
@@ -501,7 +494,6 @@ export class QuestionnaireView {
       }
     }
   }
-  /** Saving a written answer completes the question; a blank one deselects itself. */
   private afterWritten(questionId: string): void {
     const index = this.item.request.questions.findIndex(
       (q) => q.id === questionId
@@ -616,7 +608,6 @@ export class QuestionnaireView {
       hint: this.hint,
     });
   }
-  /** Markdown components are kept per text so their own width cache survives re-renders. */
   private markdownLines(text: string, width: number): string[] {
     let component = this.markdown.get(text);
 
@@ -663,7 +654,6 @@ export class QuestionnaireView {
 
     return option ? `Note · ${option.label}` : "Written-answer note";
   }
-  /** Compact question and answer controls pinned below the context viewport. */
   private questionBody(
     q: Question,
     a: Draft["answers"][string],
@@ -693,7 +683,6 @@ export class QuestionnaireView {
     return lines;
   }
   invalidate(): void {
-    // Cached Markdown captured the previous theme.
     this.markdown.clear();
     this.editor?.component.invalidate();
   }
@@ -703,7 +692,6 @@ export class QuestionnaireView {
   }
 }
 
-/** Reports under Pi's own name (OSC 7501), so terminals such as Herdr attribute it to Pi's session. */
 const reportStatus = (
   terminal: Terminal,
   status: Omit<ProgramStatus, "app">
@@ -721,8 +709,6 @@ export const showQuestionnaire = async (
 
   try {
     return await ctx.ui.custom<FormOutcome>((tui, theme, keys, done) => {
-      // Pi reports blocked for its own dialogs but not for custom UI, so a blocking questionnaire
-      // reports it here. A rename while it is open makes Pi report working over it until it closes.
       if (port.blocking) {
         ({ terminal } = tui);
         reportStatus(terminal, {
@@ -735,9 +721,6 @@ export const showQuestionnaire = async (
       return new QuestionnaireView(tui, theme, keys, item, port, done, signal);
     });
   } finally {
-    // Pi never sees these reports and skips repeating its last one, so the terminal would stay
-    // blocked until the run settles: restore what Pi last reported for the continuing run. When
-    // it was aborted instead, Pi reports how it ended.
     if (terminal && !signal.aborted) {
       const name = ctx.sessionManager.getSessionName();
 

@@ -134,7 +134,6 @@ describe("history search", () => {
   it("renders terminal controls in stored history inert", () => {
     const { render, type } = open(["alpha\u001B[2J\u0007‮beta"]);
     type("alpha");
-    // Raw output: the screen helper would strip a leaked escape sequence before the assertion.
     expect(render()[1]).toBe("alphabeta");
   });
 });

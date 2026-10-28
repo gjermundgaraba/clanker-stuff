@@ -101,7 +101,6 @@ describe("context request observation", () => {
     const entries = harness.sessionManager.getEntries();
 
     await harness.prompt("/context");
-    // State replays the recorded declarations: loadout descriptions apply; hidden ones stay listed.
     expect(state.join("\n")).toContain("hidden-tool");
     expect(state.join("\n")).toContain("REQUEST DESCRIPTION");
     expect(state.join("\n")).not.toContain("STORED DESCRIPTION");

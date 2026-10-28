@@ -45,7 +45,6 @@ describe("prompt history", () => {
       `${skillBlock("pdf")}\n\nextract report.pdf`,
       "/skill:pdf extract report.pdf",
     ],
-    // Typed text that mentions every skill in its block reloads them itself (dollah-skills).
     [
       `${skillBlock("pdf")}\n\nextract it as $pdf says`,
       "extract it as $pdf says",

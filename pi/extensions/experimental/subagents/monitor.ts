@@ -16,7 +16,6 @@ export type Activity =
 
 export type AgentEventListener = (event: AgentSessionEvent) => void;
 
-/** Argument names that identify what a tool call acts on, in order of preference. */
 const TARGET_KEYS = [
   "path",
   "file_path",
@@ -82,7 +81,6 @@ export const nextTrack = (
     };
   }
 
-  // Pi also compacts before a prompt's run starts and after it ends, while the turn is still running.
   if (event.type === "compaction_start") {
     return {
       executing: track?.executing ?? new Map(),
@@ -94,7 +92,6 @@ export const nextTrack = (
     return { executing: track?.executing ?? new Map(), phase: WAITING };
   }
 
-  // A failed run Pi will retry keeps its turn running through the backoff.
   if (event.type === "agent_end") {
     return event.willRetry
       ? { executing: new Map(), phase: RETRYING }
@@ -140,7 +137,6 @@ export const nextTrack = (
       return track;
     }
 
-    // Calls nested in a Code Mode script belong to their parent's row.
     case "tool_execution_start": {
       return event.parentToolCallId === undefined
         ? {
@@ -181,7 +177,6 @@ export const nextTrack = (
     case "turn_end": {
       break;
     }
-    // no default
   }
 
   return track;
@@ -241,8 +236,9 @@ export class Monitor {
     const followers = this.#followers.get(path);
     const failures: unknown[] = [];
 
-    // A copy, since a follower may replace itself.
-    for (const listener of new Set(followers)) {
+    const followersBeforeReplacement = new Set(followers);
+
+    for (const listener of followersBeforeReplacement) {
       try {
         listener(event);
       } catch (error) {

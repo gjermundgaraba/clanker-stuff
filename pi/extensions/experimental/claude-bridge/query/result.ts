@@ -1,5 +1,3 @@
-// What a Claude Code query's result and rate-limit messages mean for the turn they end.
-
 import type {
   SDKRateLimitInfo,
   SDKResultMessage,
@@ -32,7 +30,6 @@ export const resultErrorText = (
   return `Claude Code failed: ${message.subtype}`;
 };
 
-// resetsAt is Unix seconds (observed; the SDK leaves the unit undocumented).
 const resetTime = (resetsAt: number): string =>
   new Date(resetsAt * 1000).toLocaleTimeString();
 
@@ -88,8 +85,6 @@ export const rateLimitNotice = (rejection: RateLimitRejection): string => {
   return `Claude subscription rate limit reached (${rejection.rateLimitType ?? "unknown"}); resets at ${resetsAt}`;
 };
 
-// The window Claude Code actually served, which can differ from the one pi registered
-// when the runtime entitlement does not match the docs.
 export const logServedContextWindow = (
   message: SDKResultMessage,
   model: Model<Api>

@@ -134,7 +134,6 @@ describe("Code Mode diff renderer", () => {
     expect(text).toContain("evilfile name");
     expect(text).toContain("+1 new   text");
     expect(text).not.toContain("\u202E");
-    // Inspect the unstripped output too: stripping terminal controls would hide an unsafe renderer.
     expect(component.render(80).join("\n")).not.toContain("\u001B[2J");
     component.invalidate();
     expect(renderedRows(component).join("\n")).toBe(text);

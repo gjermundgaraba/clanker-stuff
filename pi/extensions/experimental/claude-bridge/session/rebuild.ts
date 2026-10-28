@@ -1,9 +1,3 @@
-// Claude Code resumes from its own JSONL session file, so a conversation pi's history
-// moved away from (another provider's turns, compaction, tree navigation, an abort) is
-// written anew from that history before the next query resumes it. A full rewrite rather
-// than a patch: appended records form a branch Claude Code's --resume does not follow,
-// and it re-reads the file on every resume.
-
 import type { Message } from "@earendil-works/pi-ai";
 import { createSession, deleteSession, repairToolPairing } from "cc-session-io";
 import type { Session } from "cc-session-io";
@@ -13,8 +7,6 @@ import { convertPiMessages } from "./convert.js";
 
 const claudeDir = (): string | undefined => process.env["CLAUDE_CONFIG_DIR"];
 
-// Lossy: only text, image, thinking and toolCall blocks survive, and thinking only when
-// Claude Code minted its signature.
 const importMessages = (
   session: Session,
   messages: readonly Message[]
@@ -33,7 +25,6 @@ const importMessages = (
       .join(" ")
   );
 
-  // The roles line shows only what survived; name the losses.
   const droppedParts = [
     dropped.thinking > 0
       ? `${dropped.thinking} thinking (${[...dropped.providers].toSorted().join(", ")})`
@@ -57,7 +48,6 @@ const importMessages = (
     );
   }
 
-  // importMessages repairs too (idempotently); repaired here so the log shows what it did.
   const repaired = repairToolPairing(anthropicMessages);
 
   if (repaired.length !== anthropicMessages.length) {

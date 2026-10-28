@@ -1,4 +1,3 @@
-// Run the test server: `node cli.ts` serves stdio; `--http <port>` serves http://127.0.0.1:<port>/mcp.
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 

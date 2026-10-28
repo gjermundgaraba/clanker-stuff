@@ -33,7 +33,7 @@ const nativeVersion = execFileSync("codex", ["--version"], {
   encoding: "utf-8",
 }).trim();
 
-/** @param {unknown} event Persist native protocol evidence verbatim; its grader owns interpretation. */
+/** @param {unknown} event */
 const audit = (event) => {
   appendFileSync(
     "/logs/agent/native-audit.jsonl",
@@ -49,7 +49,6 @@ const StartedSchema = Type.Object({
   thread: Type.Object({ environments: Type.Array(Type.Unknown()) }),
 });
 
-// Recursive JSON validation matches the public SDK JsonValue contract, not a Code Mode protocol.
 /** @type {import("typebox").TUnsafe<import("@earendil-works/pi-ai").JsonValue>} */
 const JsonValueSchema = Type.Unsafe({
   $defs: {
@@ -106,7 +105,6 @@ const hooks = {
       throw new Error(`Unexpected native request: ${method}`);
     }
 
-    // A malformed tool call is recoverable model feedback, not a transport failure.
     if (!Value.Check(ToolCallSchema, params)) {
       return {
         success: false,

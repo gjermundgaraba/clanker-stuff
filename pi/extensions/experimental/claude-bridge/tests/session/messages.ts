@@ -1,6 +1,3 @@
-// Pi history builders for the session tests: complete pi messages with only the fields
-// conversion reads varying.
-
 import type {
   AssistantMessage,
   ImageContent,
@@ -45,7 +42,7 @@ export const toolCall = (
 
 /** A block an extension added outside pi's content types, as conversion meets it at runtime. */
 export const offTypeBlock = (type: string): TextContent =>
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Deliberately malformed fixture: pi's types cannot express the extension blocks conversion must tolerate.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Deliberately malformed fixture: pi's types cannot express the extension blocks conversion must tolerate.
   ({ type }) as TextContent;
 
 export const user = (content: UserMessage["content"]): UserMessage => ({

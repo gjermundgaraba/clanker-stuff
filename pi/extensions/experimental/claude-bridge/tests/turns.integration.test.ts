@@ -1,6 +1,3 @@
-// Live: conversations through real Claude Code. Each test bills the user's Claude
-// subscription; run with CLAUDE_BRIDGE_LIVE=1 (see live.ts).
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -24,7 +21,6 @@ import {
 } from "./live.js";
 import type { DebugLog, LiveSession } from "./live.js";
 
-// 32x32 solid crimson PNG: a colour the model can name unambiguously.
 const CRIMSON_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGO4I2JDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULADahsD1ndvqVAAAAAElFTkSuQmCC";
 
@@ -66,7 +62,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       const text = await live.ask("What is 2 + 2? Reply with just the number.");
 
       expect(text).toMatch(/4/u);
-      // Claude Code replaces pi's prompt with its own; only the custom part is appended.
       expect(text.trim()).toMatch(/BANANA\W*$/u);
     },
     LIVE_TIMEOUT
@@ -102,8 +97,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
         expect.arrayContaining(["write", "read"])
       );
 
-      // Consecutive same-provider turns resume the session. A rebuild would reset prompt
-      // caching.
       const written = log.since(mark);
       const syncs = syncLines(written);
 
@@ -115,8 +108,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       ).toBeGreaterThanOrEqual(2);
       expect(new Set(sessionIds(written)).size).toBe(1);
 
-      // From the third model call on, the system prompt and history are cache hits:
-      // cacheRead never drops, and it is at least 90% of the input.
       const usages = live.h
         .messages()
         .flatMap((m) => (m.role === "assistant" ? [m.usage] : []));
@@ -141,7 +132,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
   it(
     "rebuilds Claude Code's session under a new id after pi compacts",
     async () => {
-      // Three one-word exchanges fit in any realistic budget, leaving nothing to compact.
       const live = await open({
         settings: { compaction: { keepRecentTokens: 1 } },
       });
@@ -159,8 +149,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
         live.ask("Are you still there? Reply with just 'yes'.")
       ).resolves.toMatch(/yes/iu);
 
-      // Split at the summary calls: the turns before them used the pre-compact session;
-      // the next prompt after them must not resume it.
       const written = log.since(mark);
       const SUMMARY = "sync: side (cacheRetention none)";
       const first = written.indexOf(SUMMARY);
@@ -174,7 +162,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       const [next] = syncLines(written.slice(last + SUMMARY.length));
 
       expect(before).toBeDefined();
-      // A resume would answer off the pre-compact transcript.
       expect(next).toStrictEqual({ kind: "rebuild", reason: "diverged" });
       expect(sessionIds(written).at(-1)).not.toBe(before);
     },
@@ -203,7 +190,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       expect(second.toLowerCase()).toContain("quokka");
       expect(second.toLowerCase()).toContain("tamarind");
 
-      // The first bridge turn writes the faux turn into a new session as history.
       const [imported] = syncLines(log.since(mark));
       const importedSession = sessionIds(log.since(mark)).at(-1);
 
@@ -224,7 +210,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
       expect(third.toLowerCase()).toContain("tamarind");
       expect(third.toLowerCase()).toContain("zeppelin");
 
-      // Returning after turns Claude Code missed writes a new session from pi's history.
       const [resumed] = syncLines(log.since(mark));
 
       expect(resumed).toStrictEqual({ kind: "rebuild", reason: "tail" });
@@ -250,7 +235,6 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
         "What colour is the image I sent earlier? Answer with a single lowercase colour word."
       );
 
-      // Only the first word counts: "I can't see an image, it was an error" contains "red".
       expect(["red", "crimson"]).toContain(
         /[a-z]+/u.exec(answer.toLowerCase())?.[0]
       );

@@ -1,7 +1,6 @@
 import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-/** A `$name` mention. Names may contain `:` but never end with it, so prose like `$review:` names `review`. */
 export const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
 
 export const installSkillMentionEditor = (

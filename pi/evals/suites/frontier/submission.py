@@ -1,4 +1,3 @@
-"""Transport Python source only; never execute a submission during export/import."""
 import base64
 import json
 import os
@@ -28,7 +27,6 @@ def snapshot(workspace):
 
 
 def materialize(submission, workspace):
-    # Validate the entire submission before writing any file; disallow links and traversal.
     decoded = {}
     size = 0
     for name, encoded in submission['files'].items():

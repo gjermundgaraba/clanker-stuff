@@ -1,7 +1,3 @@
-// Tool names and descriptions between pi and Claude Code. The query runs with
-// `tools: []`, so every tool Claude can call is a pi tool served over MCP as
-// `mcp__custom-tools__<pi name>`.
-
 import type { Tool } from "@earendil-works/pi-ai";
 
 export const MCP_SERVER_NAME = "custom-tools";
@@ -19,8 +15,6 @@ export interface ServedTools {
   names: ReadonlySet<string>;
 }
 
-/** A tool's description followed by its prompt guidelines. Pi lists guidelines in its own
- *  system prompt, which is not forwarded, so they travel with the tool they describe. */
 const describeTool = (
   description: string,
   guidelines: readonly string[] = []
@@ -46,12 +40,6 @@ export const resolveServedTools = (
   return { tools: served, names: new Set(served.map((tool) => tool.name)) };
 };
 
-// Only pi tools served over MCP are legitimate, called by their exact served name. Any
-// other name is the model inventing a builtin (`bash`, `Edit`, an MCP server we don't
-// serve). Claude Code answers those itself with "No such tool available" and retries
-// under a fresh tool_use id without dispatching to our server, so such a call must not
-// reach pi: forwarding one ran a tool Claude Code never dispatched and left the retry's
-// handler with no result to release it, deadlocking both sides.
 export const piToolName = (
   name: string,
   served: ReadonlySet<string>

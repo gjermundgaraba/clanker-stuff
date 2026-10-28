@@ -20,7 +20,6 @@ export const generateRecap = async (
 ): Promise<Recap> => {
   const deadline = new AbortController();
   const signal = AbortSignal.any([parentSignal, deadline.signal]);
-  // Removes the abort listener below once the request settles either way.
   const settled = new AbortController();
 
   const timeout = setTimeout(() => {
@@ -49,9 +48,6 @@ export const generateRecap = async (
 
     const level = clampThinkingLevel(model, config.thinking);
 
-    // Stop waiting once aborted, even for a provider that ignores cancellation. This listener
-    // runs before the provider's, so an abort always reports its own cause. Promise.race handles
-    // this rejection, so an abort after the response is not an unhandled rejection.
     const aborted = Promise.withResolvers<never>();
 
     if (signal.aborted) {

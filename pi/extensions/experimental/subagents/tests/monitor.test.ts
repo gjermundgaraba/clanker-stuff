@@ -30,7 +30,6 @@ const toolEnd = (
   type: "tool_execution_end",
 });
 
-/** Activity after `events`; undefined once the run ends. */
 const activity = (
   events: readonly AgentSessionEvent[]
 ): Activity | undefined => {
@@ -43,7 +42,6 @@ const activity = (
   return track === undefined ? undefined : trackActivity(track);
 };
 
-/** Activity after a run that starts and then sees `events`; undefined once it ends. */
 const fold = (events: readonly AgentSessionEvent[]): Activity | undefined =>
   activity([START, ...events]);
 

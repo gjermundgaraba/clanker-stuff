@@ -7,10 +7,6 @@ import type {
 
 import type { McpSkills } from "./runtime.js";
 
-/**
- * Pi's `read_mcp_resource` while MCP skills are in use: a resource of another server than theirs
- * needs the user's approval for that call; without a UI it is blocked.
- */
 export const checkResourceRead = async (
   skills: McpSkills,
   event: ToolCallEvent,

@@ -1,6 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-/** Shows how many questionnaires await the user: a widget above the editor and a footer status. */
 export const showInboxCount = (ctx: ExtensionContext, count: number): void => {
   if (ctx.mode !== "tui") {
     return;

@@ -3,16 +3,15 @@ import path from "node:path";
 import { defineConfig } from "vite-plus";
 
 import fmt from "./oxfmt.config.ts";
-import lint from "./oxlint.config.ts";
+import lint, { thirdPartyEvalRuns } from "./oxlint.config.ts";
 
 const rootDir = import.meta.dirname;
 
-// Evaluation caches and raw runs contain third-party source, not workspace tests.
-const exclude = [
+const dependenciesBuildOutputAndEvalRuns = [
   "**/node_modules/**",
   "**/dist/**",
   "**/.cache/**",
-  "**/.harbor/**",
+  thirdPartyEvalRuns,
 ];
 
 export default defineConfig({
@@ -20,7 +19,6 @@ export default defineConfig({
   lint,
   run: {
     tasks: {
-      // Static checks cache on the files they read; `ready` fans them out, then tests.
       "check:packages": {
         command: "node ./scripts/check-package-readiness.ts",
       },
@@ -49,7 +47,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    exclude,
+    exclude: dependenciesBuildOutputAndEvalRuns,
     projects: [
       {
         test: {

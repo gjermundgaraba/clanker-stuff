@@ -1,17 +1,9 @@
-// What a provider request does with the Claude Code conversation behind its pi session.
-// Decided from message content: the conversation keeps every pi message Claude Code
-// holds, and a request either extends that record exactly or it does not. Counting
-// messages cannot tell a compaction, a context edit or a missed steer from an ordinary
-// turn; comparing them can.
-
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 
 import type { BridgeContext } from "./prompt.js";
 import { systemText } from "./prompt.js";
 import { turnStart } from "./turn.js";
 
-/** A pi message's identity for sync: its role and content, plus the tool call a result
- *  answers. Timestamps, usage, stop reason and model fields are not part of it. */
 const identity = (message: Message): string =>
   JSON.stringify([
     message.role,
@@ -107,10 +99,6 @@ export type Plan =
       turn: Message[];
     };
 
-/** The results a parked query waits on, read from the end of pi's history: tool results
- *  for its calls, then the user messages pi queued after them (a steer). Read from the end
- *  so a rewritten history (a compaction while the tool ran) is still recognised as the
- *  conversation's next step, not someone else's request. */
 const trailingDelivery = (
   history: readonly Message[],
   waiting: ReadonlySet<string>
@@ -153,8 +141,6 @@ export const plan = (state: SyncState, request: SyncRequest): Plan => {
     turn: history.slice(start),
   });
 
-  // The results the parked query waits on make this its conversation's next step; whether
-  // the query can take them is another matter.
   const { parked } = state;
 
   const delivered =

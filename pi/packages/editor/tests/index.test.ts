@@ -86,7 +86,6 @@ describe("editor host", () => {
         "insert",
         expect.anything()
       );
-      // The modal engine's own edits and restores are not reported back to it.
       editor.edit(0, 0, "x", 1);
       editor.restoreView(editor.document!.view());
       expect(changed).toHaveBeenCalledOnce();
@@ -105,7 +104,6 @@ describe("editor host", () => {
 
     it("keeps border contributions within the native rendering and clipping pipeline", () => {
       const { host, editor } = setup();
-      // The border contribution runs before the shared renderer's final width clipping.
       host.contribute("border", { render: (line) => `${line}oversized` });
       expect(stripTerminalSequences(editor.render(20)[0]!)).toBe(
         "─".repeat(20)
@@ -122,12 +120,10 @@ describe("editor host", () => {
     it("treats Pi's getText/setText round trip as no replacement", () => {
       const { editor } = setup();
       editor.handleInput(`\u001B[200~${"line\n".repeat(50)}\u001B[201~`);
-      // cursor to line start
       editor.handleInput("\u0001");
       const before = editor.document!.view();
       const changed = vi.fn<(text: string) => void>();
       editor.onChange = changed;
-      // InteractiveMode.showExtensionCustom restores exactly this string when a view closes.
       editor.setText(editor.getText());
       expect(editor.document!.view()).toStrictEqual(before);
       expect(changed).not.toHaveBeenCalled();
@@ -138,7 +134,6 @@ describe("editor host", () => {
     const { editor } = setup();
     const payload = "line\n".repeat(50);
     editor.handleInput(`\u001B[200~${payload}\u001B[201~`);
-    // InteractiveMode.setCustomEditorComponent transfers exactly this public string.
     const next = setup().editor;
     next.setText(editor.getText());
     expect(next.getExpandedText()).toBe(payload);
@@ -147,8 +142,8 @@ describe("editor host", () => {
 
   it("does not recursively expand marker-looking register payloads", () => {
     const { editor } = setup();
-    const first = editor.document!.encode("secret\tvalue");
-    const literal = editor.document!.encode(first);
+    const first = editor.document!.insertableOrMarker("secret\tvalue");
+    const literal = editor.document!.insertableOrMarker(first);
     editor.edit(0, 0, literal, 0);
     expect(editor.getExpandedText()).toBe(first);
   });
@@ -157,12 +152,10 @@ describe("editor host", () => {
     const { editor } = setup();
     const payload = "owned\n".repeat(50);
     editor.handleInput(`\u001B[200~${payload}\u001B[201~`);
-    // native kill to start
     editor.handleInput("\u0015");
     editor.setText("");
     editor.handleInput(`\u001B[200~${"different\n".repeat(50)}\u001B[201~`);
     editor.setText("");
-    // native yank, after marker IDs have been reused
     editor.handleInput("\u0019");
     expect(editor.getExpandedText()).toBe(payload);
   });
@@ -208,7 +201,6 @@ describe("editor host", () => {
     );
 
     editor.setText("this is a test");
-    // cursor on the final "t"
     editor.handleInput("\u001B[D");
     host.contribute("foreground", () => [
       { start: 10, end: 14, foreground: "accent" },
@@ -216,7 +208,6 @@ describe("editor host", () => {
     editor.focused = true;
     const row = editor.render(40)[1]!;
     expect(row).toContain(CURSOR_MARKER + renderFakeCursor("<t>"));
-    // Exactly the four spanned characters are decorated, including the one under the cursor.
     expect(row.match(/<[^>]*>/gu)).toHaveLength(4);
     expect(row.replaceAll(CURSOR_MARKER, "")).toMatch(
       /^this is a <t><e><s>.*<t>/u

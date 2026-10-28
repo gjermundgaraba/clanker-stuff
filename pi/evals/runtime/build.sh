@@ -10,9 +10,9 @@ docker run --rm --network none clanker-pi-evals:node26 sh -c \
   'test "$(node --version | cut -d. -f1)" = v26 \
     && test ! -e /repo \
     && test "$(readlink -f /usr/local/bin/codex-eval)" = /opt/pi-evals/codex-eval.mjs \
-    && ! codex-eval 2>/tmp/usage && grep -q "usage: codex-eval CONFIG_JSON" /tmp/usage \
+    && codex-eval --self-check \
     && test "$(readlink -f /usr/local/bin/pi-eval-compact)" = /opt/pi-evals/pi-eval-compact.mjs \
-    && ! pi-eval-compact 2>/tmp/usage && grep -q "usage: pi-eval-compact CONFIG_JSON" /tmp/usage \
+    && pi-eval-compact --self-check \
     && test "$(command -v pi)" = /opt/pi-evals/node_modules/.bin/pi \
     && test ! -e /usr/local/lib/node_modules/@earendil-works/pi-coding-agent \
     && cd /opt/pi-evals \
@@ -36,7 +36,6 @@ docker run --rm --network none clanker-pi-evals:node26 sh -c \
     " \
     && codex --version'
 
-# Exercise the actual native tool policy without network access or model calls.
 read -r model thinking direct_tools < <(
   cd "$repo_root/pi/evals"
   PYTHONDONTWRITEBYTECODE=1 uv run --frozen --offline python -c 'from pi_evals.comparison import comparison; c=comparison(); import json; print(c["model"], c["thinking"], json.dumps(c["directTools"],separators=(",",":")))'

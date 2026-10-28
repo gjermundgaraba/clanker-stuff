@@ -1,7 +1,3 @@
-// Shared setup for the live suites: a real AgentSession on a claude-bridge model, served
-// by the user's own Claude Code login through the Agent SDK. Every query bills the user's
-// Claude subscription, so the suites run only with CLAUDE_BRIDGE_LIVE=1.
-
 import {
   existsSync,
   mkdtempSync,
@@ -70,7 +66,6 @@ export const liveEnvironment = () => {
     CLAUDE_BRIDGE_DEBUG_PATH: logPath,
   });
 
-  // Marks are byte offsets, so the log is sliced as bytes before it is decoded.
   const log: DebugLog = {
     path: logPath,
     mark: () => (existsSync(logPath) ? statSync(logPath).size : 0),
@@ -130,7 +125,6 @@ export const createLiveSession = async (
     extensionFactories: [claudeBridge],
   });
 
-  // Resolved now: the hash follows the realpath, which is gone once cleanup removes it.
   const projectDir = getProjectDir(h.tempDir);
   const fauxModel = h.session.model;
 

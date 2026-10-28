@@ -164,7 +164,6 @@ describe("durable questionnaires in AgentSession", () => {
       await env.press("\u001B");
       expect(env.component?.render(80).join("\n")).not.toContain("ID:");
       expect(JSON.stringify(env.checkpoint())).toBe(beforeDetails);
-      // A fully answered draft reopens on Review.
       await env.press("r");
       await expect
         .poll(() => env.component?.render(80).join("\n"))
@@ -182,7 +181,6 @@ describe("durable questionnaires in AgentSession", () => {
         "Read-only · revision 1"
       );
       expect(env.component?.render(80).join("\n")).not.toContain("r Revise");
-      // Older revisions cannot overwrite the latest draft.
       await env.press("r");
       expect(env.component?.render(80).join("\n")).toContain(
         "Read-only · revision 1"
@@ -217,7 +215,6 @@ describe("durable questionnaires in AgentSession", () => {
       await expect.poll(() => !!env.component).toBe(true);
       await env.press("x");
       expect(env.component?.render(80).join("\n")).toContain("Press x again");
-      // Any other key disarms cancellation.
       await env.press("j");
       await env.press("x");
       expect(env.checkpoint()).toBeDefined();
@@ -256,7 +253,6 @@ describe("durable questionnaires in AgentSession", () => {
       expect(env.component?.render(80).join("\n")).toContain("Review");
       await env.press("\r");
       await running;
-      // Blocked while the form held the run, then working again as Pi reports it, with the session name.
       expect(env.statuses).toStrictEqual([
         {
           state: "blocked",
@@ -284,7 +280,6 @@ describe("durable questionnaires in AgentSession", () => {
       expect(
         env.harness.messages().filter((m) => m.role === "user")
       ).toHaveLength(1);
-      // The answer is recorded as sent before the tool result that delivers it.
       const branch = env.harness.sessionManager.getBranch();
 
       const sent = branch.findIndex((e) =>
@@ -332,7 +327,6 @@ describe("durable questionnaires in AgentSession", () => {
       await expect.poll(() => !!env.component).toBe(true);
       await env.press("2", "k");
       await answering;
-      // Selecting an item opens it directly.
       expect(env.select).toHaveBeenCalledOnce();
       expect(env.harness.getPendingResponseCount()).toBe(1);
       const sending = env.harness.prompt("/answers");
@@ -374,7 +368,6 @@ describe("durable questionnaires in AgentSession", () => {
       expect(transformer(wire, displayContext)).not.toContain(
         '"type":"questionnaire_answer"'
       );
-      // Reattached branch state must render the same answer, without rewriting history.
       await env.harness.session.extensionRunner.emit({
         type: "session_start",
         reason: "reload",
@@ -453,15 +446,12 @@ describe("durable questionnaires in AgentSession", () => {
         await answering;
         expect(answerMessages()).toHaveLength(0);
 
-        // With the inbox open, the background run and its wake happen while the submitted
-        // answer is on screen.
         const closeInbox = await openInbox(env);
         await harness.prompt("Do independent background work");
         await closeInbox();
 
         await expect.poll(() => wakeMessages().length).toBe(1);
         await expect.poll(() => harness.session.isIdle).toBe(true);
-        // An automatic continuation is not user approval: the saved answer stays unsent.
         expect(answerMessages()).toHaveLength(0);
         expect(JSON.stringify(env.checkpoint())).not.toContain('"sent_at"');
 
@@ -522,7 +512,6 @@ describe("durable questionnaires in AgentSession", () => {
         fauxAssistantMessage("Answer received"),
       ]);
       const running = env.harness.prompt("Independent work");
-      // Pi is busy during run preparation too; wait for the request before testing its queue.
       await providerStarted.promise;
       await env.harness.session.steer("Unrelated queued text");
       const answering = env.harness.prompt("/answers");
@@ -531,7 +520,6 @@ describe("durable questionnaires in AgentSession", () => {
       await answering;
       expect(env.harness.session.getSteeringMessages()).toHaveLength(2);
       expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
-      // The real TUI's abort handler restores Pi's queue to the editor; the answer is Pi's now.
       const restored = env.harness.session.clearQueue();
       expect(restored.steering[0]).toBe("Unrelated queued text");
       expect(restored.steering[1]).toContain('"type":"questionnaire_answer"');
@@ -617,7 +605,6 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       const revision = env.harness.prompt("Revise");
       await expect.poll(() => env.component !== oldView).toBe(true);
-      // Closed callbacks cannot edit a reopened revision.
       oldView?.handleInput?.("2");
       await env.press("1", "2", "d");
       expect(env.component?.render(80).join("\n")).toContain(

@@ -108,7 +108,6 @@ describe("usage controller", () => {
     const active = () => host.getStatus("usage");
     await host.emitSessionStart(ctx);
 
-    // turn_end runs after Pi has appended the response.
     session.appendMessage({
       ...fauxAssistantMessage("done"),
       provider: "anthropic",
@@ -150,7 +149,6 @@ describe("usage controller", () => {
       "radius",
     ]);
 
-    // A physical selection changes quota immediately, even after a different routed attempt.
     const physical = host.createContext({
       sessionManager: session,
       model: claudeModel,

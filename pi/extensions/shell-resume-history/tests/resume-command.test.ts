@@ -87,7 +87,6 @@ describe("resume command", () => {
     const command = formatResumeCommand(sessionManager);
     assert.ok(command !== undefined && command !== "");
 
-    // The shell must hand Pi exactly the session file; Pi then takes the cwd from its header.
     const args = execFileSync(
       "sh",
       ["-c", `pi() { printf '%s\\n' "$@"; }; ${command}`],
@@ -132,6 +131,22 @@ describe("resume command", () => {
     );
 
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
+  });
+
+  it("lets pi quit when the inbox cannot be written", async () => {
+    const { cwd, inbox } = await setup();
+    await rm(inbox, { recursive: true });
+
+    const sessionManager = SessionManager.create(cwd, undefined, {
+      id: "full-session-id",
+    });
+
+    sessionManager.appendMessage(fauxAssistantMessage("test"));
+    const host = createExtensionHost(() => {});
+
+    await expect(
+      recordResumeCommand("quit", host.createContext({ cwd, sessionManager }))
+    ).resolves.toBe("inbox-unwritable");
   });
 
   it("does not queue in-memory sessions", async () => {

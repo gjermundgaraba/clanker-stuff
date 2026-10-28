@@ -4,19 +4,16 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-/** Files and total bytes every conforming host must accept for one skill. */
 const MAX_SKILL_FILES = 512;
 
-const MAX_SKILL_BYTES = 16 * 1024 * 1024;
+export const MAX_SKILL_BYTES = 16 * 1024 * 1024;
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
 const SKILL_FILE = "SKILL.md";
 
-/** URI characters a skill may use: RFC 3986 unreserved, sub-delims, ":", "@", "%", and "/". */
 const URI_CHARACTERS = /^[A-Za-z0-9\-._~!$&'()*+,;=:@%/]+$/u;
 
-/** Percent-encodings that would make a path segment mean something else once decoded. */
 const ENCODED_SEPARATORS = /%(?:2f|5c|2e|00)/iu;
 
 const URI = /^(?<scheme>[A-Za-z][A-Za-z0-9+.-]*):\/\/(?<path>.+)$/u;
@@ -33,29 +30,20 @@ const EntrySchema = Type.Object({
   uri: Type.String(),
 });
 
-/** One file of a skill, as its entry lists it. */
 export type SkillFile = Static<typeof SkillFileSchema>;
 
-/** A skill entry from `skills/list` or `skills/get` that may be loaded. */
 export interface SkillEntry {
-  /** URI of the skill's `SKILL.md`. */
   uri: string;
-  /** The skill's root directory URI: `uri` without `/SKILL.md`. */
   root: string;
-  /** The root's scheme and path segments, which its stored folder mirrors. */
   rootSegments: string[];
-  /** The `SKILL.md` frontmatter as the server rendered it, in canonical JSON. Compared with the file when it is read. */
   frontmatterJson: string;
   name: string;
   description: string;
   disableModelInvocation: boolean;
-  /** Every file of the skill, `SKILL.md` included. */
   files: SkillFile[];
-  /** Digest of the file list. Approvals and loads are bound to it. */
   revision: string;
 }
 
-/** A listed skill this host does not load, with the reason shown to the user. */
 export interface DeclinedSkill {
   uri: string;
   reason: string;
@@ -63,7 +51,6 @@ export interface DeclinedSkill {
 
 export type DecodedEntry = { skill: SkillEntry } | { declined: DeclinedSkill };
 
-/** The scheme and the `/`-separated path after `scheme://` of a URI that is safe to map to a path. */
 const splitSkillUri = (
   uri: string
 ): { scheme: string; segments: string[] } | undefined => {
@@ -92,7 +79,6 @@ const splitSkillUri = (
   return { scheme, segments };
 };
 
-/** Digest of a file list, independent of its order. A changed, added, or removed file changes it. */
 const skillRevision = (files: readonly SkillFile[]): string =>
   createHash("sha256")
     .update(
@@ -103,7 +89,6 @@ const skillRevision = (files: readonly SkillFile[]): string =>
     )
     .digest("hex");
 
-/** JSON text with object keys sorted, so equal values compare equal whatever their key order. */
 export const canonicalJson = (value: unknown): string =>
   JSON.stringify(value, (_key, nested: unknown) =>
     typeof nested === "object" && nested !== null && !Array.isArray(nested)
@@ -123,7 +108,6 @@ const declined = (uri: string, reason: string): DecodedEntry => ({
   declined: { reason, uri },
 });
 
-/** Problems with a file list, or undefined when every file belongs to the skill exactly once. */
 const fileListProblem = (entry: {
   uri: string;
   root: string;
@@ -167,10 +151,6 @@ const fileListProblem = (entry: {
   return undefined;
 };
 
-/**
- * Decode one entry of a `skills/list` or `skills/get` result. Entries that break the extension's
- * rules, and dynamic skills, whose content cannot be verified, are declined with a reason.
- */
 export const decodeSkillEntry = (raw: unknown): DecodedEntry => {
   if (!Value.Check(EntrySchema, raw)) {
     const uri =

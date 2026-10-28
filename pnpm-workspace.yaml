@@ -1,5 +1,6 @@
 packages:
   - "."
+  - "packages/*"
   - "pi/packages/*"
   - "pi/extensions/*"
   - "pi/extensions/experimental/*"
@@ -50,7 +51,6 @@ allowBuilds:
   "@google/genai": true
   esbuild: true
   protobufjs: true
-# Registry releases wait one day unless explicitly approved below.
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - vite-plus
@@ -70,8 +70,6 @@ minimumReleaseAgeExclude:
 permissions:
   ultracite:
     skills: true
-# Name the directories pnpm links Ultracite's skill into: without one it auto-detects an agent,
-# and where none is installed, as in a Docker build, the install fails.
 skills:
   dirs:
     - .agents/skills

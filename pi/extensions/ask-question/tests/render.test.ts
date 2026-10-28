@@ -64,7 +64,6 @@ describe("questionnaire presentation", () => {
     expect(text).toContain("  (•) 2. Cloud");
     expect(text).toContain("Note: Keep the local data …");
     expect(text).not.toContain("Second line");
-    // Descriptions live in Details.
     expect(text).not.toContain("No hosting required");
     expect(
       optionLines({ ...q, multi_select: true }, a, 1, 60, theme).join("\n")

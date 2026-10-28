@@ -1,4 +1,3 @@
-/** Display-only snapshots: never consult live tasks or change the model-facing JSON. */
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import {
   displayText,
@@ -18,7 +17,6 @@ import type { InspectInput, StartInput } from "./task.js";
 
 type CallArgs = Partial<StartInput & InspectInput>;
 
-// Persisted results can predate the current schema; unsupported details use their stored text.
 type Renderers = Required<
   Pick<ToolDefinition<TUnsafe<CallArgs>>, "renderCall" | "renderResult">
 >;
@@ -74,7 +72,6 @@ export const taskRenderers = (name: string): Renderers => ({
         if (name === "task_start" && data.command !== undefined) {
           const argv = data.args ?? [];
 
-          // This is an executable + argv, not a shell command. Quote arguments to preserve boundaries.
           lines.push(
             theme.fg(
               "toolOutput",
@@ -146,7 +143,6 @@ export const taskRenderers = (name: string): Renderers => ({
       return output;
     }
 
-    // The warning itself is never collapsed, even when names or IDs consume the preview.
     const warn = (warning: string) => {
       output.addChild(
         preview(() => new Text(theme.fg("error", warning), 0, 0), true)

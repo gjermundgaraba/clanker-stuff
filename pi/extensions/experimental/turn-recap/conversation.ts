@@ -9,13 +9,11 @@ export const RECAP_MAX_CHARS = 320;
 export const sanitizeRecapText = (value: string): string =>
   safeText(value).replaceAll(/\s+/gu, " ").trim();
 
-/** Bounds by code points, so a clipped surrogate pair never leaves half a character. */
 const clip = (text: string, max: number): string =>
   Array.from(text).slice(0, max).join("");
 
 const ERROR_MAX_CHARS = 1000;
 
-/** Sanitized and bounded, since recap failures are persisted and shown in cards. */
 export const errorText = (error: unknown): string =>
   clip(
     sanitizeRecapText(error instanceof Error ? error.message : String(error)),
@@ -34,7 +32,6 @@ export const RECAP_PROMPT_PREFIX =
   "of inventing more work. Use the user's language; omit greetings, " +
   "markdown, lists, and tool chatter.\n\nRecent conversation:\n";
 
-/** A bounded excerpt, not a complete history or an exact token-fit guarantee. */
 export const buildRecapPrompt = (
   entries: readonly ProjectedSessionEntry[],
   outcome: Snapshot["outcome"]
@@ -46,7 +43,6 @@ export const buildRecapPrompt = (
   let remaining =
     RECAP_PROMPT_MAX_CHARS - RECAP_PROMPT_PREFIX.length - suffix.length;
 
-  // Ignore synthetic compaction/branch summaries.
   const messages = entries
     .toReversed()
     .flatMap(({ sourceEntry, messages: projected }) =>

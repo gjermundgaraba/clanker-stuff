@@ -101,7 +101,6 @@ const start = async (options: StartOptions = {}) => {
   });
 
   await host.emitSessionStart(ctx);
-  // Let the asynchronous Git scan settle.
   await Promise.resolve();
 
   const editor = () => {
@@ -154,7 +153,6 @@ describe("footer host", () => {
       totalTokens: 50_001,
     };
 
-    // Idle appends such as cache warming emit no extension event.
     session.appendUsage("cache_warm", "anthropic", "test", usage);
     expect(footer.render()).toContain("cache 50k/0 $0.01");
 
@@ -219,8 +217,10 @@ describe("footer host", () => {
     await footer.host.emitSessionShutdown(footer.ctx);
 
     expect(footer.border()).not.toContain("NORMAL");
-    // Pi removes the custom footer itself after shutdown handlers.
-    expect(footer.setFooter).not.toHaveBeenCalledWith(undefined);
+    expect(
+      footer.setFooter,
+      "Pi removes the custom footer itself after shutdown handlers"
+    ).not.toHaveBeenCalledWith(undefined);
   });
 
   it("lists border statuses in footer.statuses while another editor owns the border", async () => {

@@ -17,15 +17,10 @@ export const SERVER_NAME = /^[A-Za-z0-9_-]+$/u;
 
 const EXPOSURES = ["codemode", "deferred", "direct", "hidden"];
 
-/** Older exposure names Pi still accepts. */
 const EXPOSURE_ALIASES = new Map([["codemode-deferred", "codemode"]]);
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/**
- * Keys a project entry may set to override a global server of the same name. Skills ignore
- * `toolExposure`, but an override that also sets it must still apply.
- */
 const OVERRIDE_KEYS = new Set(["enabled", "exposure", "toolExposure"]);
 
 const Entry = Type.Record(Type.String(), Type.Unknown());
@@ -69,7 +64,6 @@ interface Settings {
   transport: SkillServerTransport;
 }
 
-/** An accepted server entry: as written, for project overrides to merge into, and as settings. */
 interface Accepted {
   raw: Entry;
   settings: Settings;
@@ -82,13 +76,11 @@ export const mcpNamespace = (name: string): string =>
 const isEntry = (value: unknown): value is Entry =>
   !Array.isArray(value) && Value.Check(Entry, value);
 
-/** An exposure by its current name, if the value is a string. */
 const exposureName = (value: unknown): string | undefined =>
   typeof value === "string"
     ? (EXPOSURE_ALIASES.get(value) ?? value)
     : undefined;
 
-/** Pi's checks of the settings skills use: connection settings or a rejection reason. */
 const validateServer = (name: string, raw: unknown): Settings | string => {
   if (!SERVER_NAME.test(name)) {
     return `invalid server name "${name}"`;
@@ -201,11 +193,6 @@ const validateServer = (name: string, raw: unknown): Settings | string => {
   return `server "${name}" needs either "command" (stdio) or "url" (streamable HTTP)`;
 };
 
-/**
- * Read one mcp.json into `servers` as Pi does. A project entry with none of `command`, `url`, and
- * `type` overrides only `enabled`, `exposure`, and `toolExposure` of the global server it names.
- * Invalid connection entries are left out.
- */
 const readConfigFile = (
   file: string,
   project: boolean,
@@ -218,7 +205,6 @@ const readConfigFile = (
   let parsed: unknown;
 
   try {
-    // Like Pi, accept the UTF-8 BOM that Windows PowerShell 5.1 writes.
     parsed = JSON.parse(readFileSync(file, "utf-8").replace(/^\uFEFF/u, ""));
   } catch {
     return;
@@ -264,7 +250,6 @@ const readConfigFile = (
       (other) => other !== name && mcpNamespace(other) === mcpNamespace(name)
     );
 
-    // A repository cannot pick where a provider's credential goes.
     const projectAuth =
       project &&
       settings.transport.kind === "http" &&

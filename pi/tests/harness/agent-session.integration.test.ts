@@ -55,7 +55,6 @@ const createPayloadExtension =
     pi.on("before_provider_request", (event) => {
       const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
 
-      // The prompt travels in the transcript's system messages; replace them wholesale.
       return {
         ...payload,
         messages: payload.messages.map((message) =>

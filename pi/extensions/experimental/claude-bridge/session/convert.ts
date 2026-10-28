@@ -1,5 +1,3 @@
-// Pi history → the Anthropic message shape Claude Code's session files hold.
-
 import type {
   ImageContent,
   Message as PiMessage,
@@ -28,7 +26,6 @@ const sanitizeToolId = (id: string, cache: Map<string, string>): string => {
   return clean;
 };
 
-/** Any content block, including ones extensions add outside pi's types. */
 interface LooseBlock {
   type: string;
   text?: string;
@@ -62,7 +59,6 @@ export type UserBlock =
       source: { type: "base64"; media_type: ImageMediaType; data: string };
     };
 
-/** An image Claude accepts, or a marker where one was. */
 const imageBlock = (block: ImageContent): UserBlock => {
   const mediaType = acceptedImageType(block);
 
@@ -83,7 +79,6 @@ export const userBlocks = (content: UserMessage["content"]): UserBlock[] => {
   }
 
   return content.flatMap((block): UserBlock[] => {
-    // Widened first: an extension's off-type block still gets its marker.
     const blockType: string = block.type;
 
     if (block.type === "text") {
@@ -98,9 +93,6 @@ export const userBlocks = (content: UserMessage["content"]): UserBlock[] => {
   });
 };
 
-// Tool results are flattened to text, which is how Claude Code stores most of them.
-// Images have no text form, so a result carrying one keeps the block array shape (what
-// Claude Code writes for screenshots).
 const toolResultContent = (
   content: ReadonlyArray<TextContent | ImageContent>
 ): string | ContentBlock[] =>
@@ -138,14 +130,11 @@ export const convertPiMessages = (
     other: new Map(),
   };
 
-  // The user message collecting this assistant turn's tool results, and the index of
-  // the assistant message it belongs to. See the toolResult branch.
   let turnResults: ToolResultsMessage | undefined;
   let turnAssistantIndex: number | undefined;
 
   for (const message of messages) {
     if (message.role === "user") {
-      // A string stays a string: that is how Claude Code stores a typed prompt.
       if (typeof message.content === "string") {
         anthropicMessages.push({
           role: "user",
@@ -163,7 +152,6 @@ export const convertPiMessages = (
       const blocks: ContentBlock[] = [];
 
       for (const block of message.content) {
-        // Widened first so a block outside pi's types is still counted below.
         const blockType: string = block.type;
 
         if (block.type === "text") {
@@ -171,9 +159,6 @@ export const convertPiMessages = (
             blocks.push({ type: "text", text: block.text });
           }
         } else if (block.type === "thinking") {
-          // Only thinking Claude Code itself produced is replayed. A signature minted by
-          // any other provider, pi's own Anthropic provider included, is not ours to hand
-          // back, and Anthropic rejects ones it cannot verify.
           const signature = block.thinkingSignature;
 
           if (
@@ -202,22 +187,11 @@ export const convertPiMessages = (
         }
       }
 
-      // A turn aborted before anything streamed has no content. A placeholder would
-      // invent a reply the assistant never made, early in the prefix, costing the whole
-      // downstream prompt cache on every rebuild. Session.importMessages imposes no
-      // alternation, and an empty turn has no tool_use ids needing a result.
-      //
-      // turnResults/turnAssistantIndex are deliberately not cleared: an abort between
-      // two parallel results (assistant[X,Y], R_X, aborted turn, R_Y) would otherwise
-      // start a second results message for R_Y, and repairToolPairing would stub Y at
-      // the first one and drop the real R_Y.
       if (message.content.length === 0) {
         dropped.abortedTurns += 1;
         continue;
       }
 
-      // Blocks were present but all were filtered: keep the slot and say so. Empty
-      // content is rejected by the API, and dropping the message breaks tool pairing.
       if (blocks.length === 0) {
         blocks.push({ type: "text", text: "[incompatible content omitted]" });
       }
@@ -226,14 +200,9 @@ export const convertPiMessages = (
       turnAssistantIndex = anthropicMessages.length;
       anthropicMessages.push({ role: "assistant", content: blocks });
     } else if (message.role === "toolResult") {
-      // Pi records one message per tool result, but repairToolPairing only pairs results
-      // that share the user message directly after their assistant message: split
-      // across messages, every result past the first was replaced with "[no tool result
-      // recorded]". Session.importMessages applies that repair itself, so the turn's
-      // results are collected into one message placed directly after the assistant
-      // message. That also keeps a steer landing mid-execution (which pi records between
-      // results) from taking the stubs. Claude Code normalizes to the same order: it
-      // re-inserts a mid-turn steer after the nearest tool_result.
+      /* repairToolPairing pairs only the results in the user message directly after their
+       * assistant message, so a turn's results share one message:
+       * https://github.com/elidickinson/cc-session-io/blob/v0.4.0/src/repair.ts */
       const block: ContentBlock = {
         type: "tool_result",
         tool_use_id: sanitizeToolId(message.toolCallId, sanitizedIds),
@@ -243,8 +212,6 @@ export const convertPiMessages = (
 
       if (turnResults === undefined) {
         turnResults = { role: "user", content: [block] };
-        // A result with no assistant message before it is malformed; appending keeps it
-        // in order for repairToolPairing to discard.
         anthropicMessages.splice(
           turnAssistantIndex === undefined
             ? anthropicMessages.length

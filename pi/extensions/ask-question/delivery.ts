@@ -19,7 +19,6 @@ export const AnswerEnvelopeSchema = Type.Object(
 
 export type AnswerEnvelope = Static<typeof AnswerEnvelopeSchema>;
 
-/** The model-facing answer: the immutable submission, never its delivery bookkeeping. */
 export const answerEnvelope = (
   item: Interaction,
   submission: Submission
@@ -54,11 +53,9 @@ export const answerSummary = (envelope: AnswerEnvelope): string => {
     : summary;
 };
 
-/** The user message that sends an answer: a readable summary, then the complete envelope. */
 export const answerMessage = (envelope: AnswerEnvelope): string =>
   `${answerSummary(envelope)}\n\n${JSON.stringify(envelope)}`;
 
-/** The envelope of an exact answer message; edited, quoted or combined text is not one. */
 export const parseAnswerMessage = (
   text: string
 ): AnswerEnvelope | undefined => {
@@ -82,7 +79,6 @@ export const parseAnswerMessage = (
     : undefined;
 };
 
-/** A tool result whose text is its details as JSON. */
 export const jsonResult = <T>(details: T) => ({
   content: [{ type: "text" as const, text: JSON.stringify(details) }],
   details,

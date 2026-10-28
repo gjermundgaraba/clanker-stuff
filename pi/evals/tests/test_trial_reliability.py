@@ -1,5 +1,3 @@
-"""Regression tests for diagnostic availability and spending boundaries."""
-
 from copy import deepcopy
 import json
 from pathlib import Path

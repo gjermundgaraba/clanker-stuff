@@ -59,7 +59,6 @@ export interface Delta {
   text: string;
 }
 
-/** Accumulate one semantic replacement, anchored by each native mutation's cursor. */
 export class Insertion {
   private start: number | undefined;
   private oldEnd = 0;
@@ -79,7 +78,6 @@ export class Insertion {
       return;
     }
 
-    // A prefix may not skip past the edit cursor just because adjacent content is identical.
     const limit = Math.min(
       a.filter((u) => u.start < before.cursor).length,
       b.filter((u) => u.start < after.cursor).length

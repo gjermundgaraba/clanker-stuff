@@ -225,7 +225,6 @@ describe("package readiness", () => {
     const developmentOnly = validateFixture(fixture);
     expect(developmentOnly.status, developmentOnly.stderr).toBe(0);
 
-    // Directory name alone must not exempt a script that is actually published.
     writeFileSync(
       fixture.packageJsonPath,
       JSON.stringify({
@@ -288,6 +287,35 @@ describe("package readiness", () => {
     );
     expect(validateFixture(fixture).stderr).toContain(
       "must point to a published TypeScript source file"
+    );
+  });
+
+  it("accepts a built package before its build and requires dist in its files", () => {
+    const fixture = createFixture(true, {
+      extension: false,
+      packagePrivate: false,
+    });
+
+    const { packageJsonPath, packageJson: pkg } = fixture;
+
+    const builtPackage = {
+      ...pkg,
+      exports: { ".": "./index.ts" },
+      files: ["dist", "README.md", "LICENSE"],
+      publishConfig: {
+        access: "public",
+        exports: { ".": { default: "./dist/index.mjs" } },
+      },
+    };
+
+    writeFileSync(packageJsonPath, JSON.stringify(builtPackage));
+    expect(validateFixture(fixture)).toMatchObject({ status: 0, stderr: "" });
+    writeFileSync(
+      packageJsonPath,
+      JSON.stringify({ ...builtPackage, files: ["README.md", "LICENSE"] })
+    );
+    expect(validateFixture(fixture).stderr).toContain(
+      "must list dist in files"
     );
   });
 

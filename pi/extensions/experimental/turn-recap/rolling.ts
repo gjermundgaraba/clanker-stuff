@@ -7,12 +7,10 @@ const STEP_MS = 260;
 
 const MAX_ROLL_MS = 900;
 
-/** Format changes snap; only differing decimal digits may become font frames. */
 export const canRoll = (before: string, text: string): boolean =>
   before !== text &&
   before.replaceAll(/\d/gu, "#") === text.replaceAll(/\d/gu, "#");
 
-/** Each wheel travels at one cell per step, accelerated only by the duration cap. */
 export const digitTransition = (
   before: string,
   text: string,
@@ -27,7 +25,6 @@ export const digitTransition = (
   }
 
   const direction = text > before ? 1 : -1;
-  // Tens-of-seconds and tens-of-minutes wheels wrap at six, not ten (1:59:59 → 2:00:00).
   const radix = text[index - 1] === ":" ? 6 : 10;
   const distance = ((Number(to) - Number(from)) * direction + radix) % radix;
   const duration = Math.min(distance * STEP_MS, MAX_ROLL_MS);
@@ -55,7 +52,6 @@ interface CounterState {
   startedAt: number;
 }
 
-/** Font frames replace only marked numeric cells; all layout stays native text. */
 export class RollingNumbers {
   readonly #counters = new Map<string, CounterState>();
 

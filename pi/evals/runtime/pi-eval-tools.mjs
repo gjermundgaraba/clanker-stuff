@@ -1,4 +1,3 @@
-// Evaluation policy only; execution is Pi's unmodified built-in Code Mode.
 import { createHash } from "node:crypto";
 
 import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
@@ -55,9 +54,7 @@ export default async function evaluationExtension(pi) {
 
   pi.registerCommand("eval-preflight", {
     description: "Check evaluation startup without making a model request",
-    handler: async () => {
-      // Loading the extension is the check; the command itself has nothing to do.
-    },
+    handler: async () => undefined,
   });
 
   let compacted = false;

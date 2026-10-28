@@ -4,22 +4,24 @@ import { readComparison } from "./comparison.mjs";
 import { validateNativeCodex } from "./native-codex.mjs";
 import { validateToolMode } from "./tool-mode-core.mjs";
 
-/** @type {unknown} */
-let trajectory;
+const readTrajectory = () => {
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(
+      readFileSync(
+        process.env["EVAL_TRAJECTORY"] ?? "/logs/agent/trajectory.json",
+        "utf-8"
+      )
+    );
 
-try {
-  trajectory = JSON.parse(
-    readFileSync(
-      process.env["EVAL_TRAJECTORY"] ?? "/logs/agent/trajectory.json",
-      "utf-8"
-    )
-  );
-} catch {
-  // Oracle and baseline checks have no runtime evidence.
-}
+    return parsed;
+  } catch {
+    return undefined;
+  }
+};
 
-// The two platform manifests are disjoint. Both validators fail closed for malformed
-// containers, so classification does not need a second partial manifest decoder.
+const trajectory = readTrajectory();
+
 const comparison = readComparison();
 
 const native = validateNativeCodex(trajectory, comparison);

@@ -1,4 +1,3 @@
-// Real native app-server + Code Mode host, scripted local model: no paid requests.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -80,14 +79,13 @@ writeFileSync(
 const requests = [];
 
 const snippets = [
-  // Same inputs are checked inside native V8, with actual guessed-call rejection.
   `let invalid; try {invalid=await tools.list_records({collection:"ledger"});} catch(e) {invalid=String(e);} if(!JSON.stringify(invalid).includes("Validation failed"))throw Error("Missing argument-error feedback"); text({invalidArguments:invalid}); const names=ALL_TOOLS.map(t=>t.name).sort(); if(JSON.stringify(names)!==${JSON.stringify(JSON.stringify(["clock__curr_time", ...SERVICE_NAMES].toSorted((a, b) => a.localeCompare(b))))})throw Error('Unexpected capabilities '+names); text({names,process:typeof process,fetch:typeof fetch}); for(const name of ['exec_command','apply_patch','view_image','read_file']){try{await tools[name]({cmd:'cat /opt/pi-evals/services.mjs',path:'/opt/pi-evals/services.mjs'});throw Error('BYPASS '+name)}catch(e){if(String(e).includes('BYPASS'))throw e;}}`,
   `const solve=${solve.toString()};text(await solve(async(name,args)=>{const r=await tools[name](args);text({native_result_type:typeof r,name});return typeof r==='string'?JSON.parse(r):r}));`,
 ];
 
 /**
- * @param {import("node:http").IncomingMessage} req Request from the native runner.
- * @param {import("node:http").ServerResponse} res Scripted model response stream.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
  */
 const respond = async (req, res) => {
   /** @type {Buffer[]} */
@@ -199,7 +197,7 @@ assert.equal(code, 0, stderr);
 const records = stdout
   .trim()
   .split("\n")
-  .map(/** @returns {unknown} Unchecked record. */ (line) => JSON.parse(line));
+  .map(/** @returns {unknown} */ (line) => JSON.parse(line));
 
 assert.equal(records.length, 3);
 
@@ -253,7 +251,7 @@ assert.deepEqual(topTools, [
 const events = readFileSync("/logs/agent/service-events.jsonl", "utf-8")
   .trim()
   .split("\n")
-  .map(/** @returns {unknown} Unchecked record. */ (line) => JSON.parse(line));
+  .map(/** @returns {unknown} */ (line) => JSON.parse(line));
 
 const submission = events
   .filter(isRecord)

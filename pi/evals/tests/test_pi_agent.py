@@ -65,10 +65,8 @@ class PiTrajectoryTest(TestCase):
         self.assertEqual(trajectory.final_metrics.extra["tool_calls"], 1)
         self.assertEqual(trajectory.final_metrics.extra["underlying_operations"], 1)
         self.assertTrue(trajectory.final_metrics.extra["underlying_operations_complete"])
-        # Summary call clipping is not an operation-count loss when complete events exist.
         events[4]["message"]["nestedCalls"]["calls"] = []
         self.assertEqual(convert(events).final_metrics.extra["underlying_operations"], 1)
-        # No successful capture boundary, or a missing terminal event, remains unknown.
         self.assertIsNone(convert(events[:-1]).final_metrics.extra["underlying_operations"])
         self.assertIsNone(convert(events[1:]).final_metrics.extra["underlying_operations"])
         self.assertIsNone(convert([*events, {"type": "agent_start"}]).final_metrics.extra["underlying_operations"])
@@ -83,7 +81,6 @@ class PiTrajectoryTest(TestCase):
         def metrics(events):
             return convert_pi_events(events, [], agent_version="0.99.2", model_name="test", pi_evals=PI_VANILLA_OFF).final_metrics.extra
 
-        # Native exec/wait names and arbitrary details are not retired V8 wrappers.
         for name in ("exec", "wait", "probe"):
             for details in ({}, {"traces": []}, {"cellId": "old", "droppedTraceCount": 42, "traces": [{"id": "legacy", "name": "read", "status": "done"}]}):
                 with self.subTest(name=name, details=details):
@@ -93,18 +90,17 @@ class PiTrajectoryTest(TestCase):
                     self.assertIsNone(partial["underlying_operations"])
                     self.assertEqual(partial["observed_underlying_operations"], 1)
                     self.assertFalse(partial["underlying_operations_complete"])
-        # Duplicate event/summary observations retain one operation, even when it failed.
         self.assertEqual(metrics([*closed[:-1], end, closed[-1]])["underlying_operations"], 1)
         second = [{"type": "harbor_instruction", "index": 1}, {"type": "agent_start"}, {"type": "agent_settled"}]
         first = [{"type": "harbor_instruction", "index": 0}, *closed]
         self.assertEqual(metrics([*first, *second])["underlying_operations"], 1)
         for events in (
-            [*first, second[0]],  # New invocation failed before agent startup.
+            [*first, second[0]],
             [*first, *second[:-1]],
-            [first[0], *closed[:-1], *second],  # A later closed invocation cannot erase a gap.
-            [first[0], *second],  # An invocation with no startup was skipped.
-            [closed[0], end, closed[-1]],  # Lost start record.
-            [closed[0], start, closed[-1]],  # Unfinished operation.
+            [first[0], *closed[:-1], *second],
+            [first[0], *second],
+            [closed[0], end, closed[-1]],
+            [closed[0], start, closed[-1]],
         ):
             with self.subTest(events=events):
                 self.assertIsNone(metrics(events)["underlying_operations"])

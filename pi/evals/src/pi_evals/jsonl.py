@@ -1,5 +1,3 @@
-"""Strict object records separated by literal LF, with physical-line diagnostics."""
-
 from __future__ import annotations
 
 import json

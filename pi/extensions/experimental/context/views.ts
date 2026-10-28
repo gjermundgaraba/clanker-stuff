@@ -20,7 +20,6 @@ import type {
 } from "./snapshot.js";
 import type { ToolsSnapshot } from "./tools.js";
 
-/** Independent pane/search/scroll state per view, within one Pi-owned overlay interaction. */
 export class ContextViews implements Component, Focusable {
   private readonly views: readonly ContextOverlay[];
   private active = 0;
@@ -44,7 +43,6 @@ export class ContextViews implements Component, Focusable {
 
     this.views = snapshots.map((snapshot, index) => {
       const next = (index + 1) % snapshots.length;
-      // Both lookups use indexes bounded by this fixed, nonempty collection.
       const destination = snapshots[next];
 
       if (!destination) {
@@ -73,7 +71,6 @@ export class ContextViews implements Component, Focusable {
   }
 
   private get current(): ContextOverlay {
-    // active is initialized to zero and only assigned an index from views' construction.
     const view = this.views[this.active];
 
     if (!view) {

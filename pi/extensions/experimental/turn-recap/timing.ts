@@ -1,4 +1,3 @@
-/** Monotonic run timing; the wall-clock start is only for the displayed clock. */
 export const createTiming = () => {
   const startedAt = Date.now();
   const started = performance.now();

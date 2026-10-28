@@ -1,7 +1,6 @@
-// Reference receives only the public tool interface; never fixture internals.
 /** @param {ReturnType<typeof import("./services.mjs").createServices>["call"]} call Public service call of the backend under test. */
 export const solve = async (call) => {
-  /** @param {string} name @param {unknown} args Public service arguments are validated by the backend. */
+  /** @param {string} name @param {unknown} args */
   const invoke = async (name, args) => {
     const result = await call(name, args);
 
@@ -12,7 +11,7 @@ export const solve = async (call) => {
     return result;
   };
 
-  /** @param {string} collection Collection to page through. */
+  /** @param {string} collection */
   const list = async (collection) => {
     /** @type {string|null} */
     let cursor = null;

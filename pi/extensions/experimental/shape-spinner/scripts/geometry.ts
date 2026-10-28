@@ -30,7 +30,6 @@ interface Geometry {
   planeDistance: number;
 }
 
-// Build-time reconstruction; provenance and fidelity limits: ../docs/font.md.
 const TAU = Math.PI * 2;
 
 const CAMERA = 2.6;
@@ -100,12 +99,18 @@ const upright = (up: Vector3, frontInput: Vector3) => {
   return qm(axisQ([0, 1, 0], -Math.atan2(f[0], f[2])), q);
 };
 
-const randomUnit = (seed: string) => {
+const fnv1aUtf16Units = (text: string): number => {
   let h = 0x81_1c_9d_c5;
 
-  for (let i = 0; i < seed.length; i += 1) {
-    h = Math.imul(h ^ seed.charCodeAt(i), 0x01_00_01_93) >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    h = Math.imul(h ^ text.charCodeAt(i), 0x01_00_01_93) >>> 0;
   }
+
+  return h;
+};
+
+const randomUnit = (seed: string) => {
+  let h = fnv1aUtf16Units(seed);
 
   if (!h) {
     h = 0x9e_37_79_b9;
@@ -120,7 +125,6 @@ const randomUnit = (seed: string) => {
   };
 };
 
-/** Geometry owns its index tables, so a missing entry is a construction bug. */
 const at = <T>(items: readonly T[], index: number): T => {
   const item = items[index];
 
@@ -228,7 +232,6 @@ const geometry = (seed: string, shape = "orb") => {
     g.rings.push({ normal: [0, 0, 1], axis: [0, 1, 0], rate: 0, radius: 1 });
 
     for (const [i, rate] of [1, 2, 1].entries()) {
-      // Native build 308: 55–85°, NOT the cached web renderer's 55–80°.
       const theta =
         (55 * Math.PI) / 180 +
         random() * ((85 * Math.PI) / 180 - (55 * Math.PI) / 180);

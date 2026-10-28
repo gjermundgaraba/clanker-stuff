@@ -26,7 +26,6 @@ import {
   snapshot,
 } from "./fixtures.js";
 
-/** Builds a saved entry's component through the renderer the extension registered. */
 const cardComponent = (
   host: ReturnType<typeof createExtensionHost>,
   entry: SessionEntry | undefined,
@@ -41,7 +40,6 @@ const cardComponent = (
   return renderer(entry, { expanded }, createIdentityTheme());
 };
 
-/** Draws a saved entry as the transcript would. */
 const renderEntry = (
   host: ReturnType<typeof createExtensionHost>,
   entry: SessionEntry | undefined,
@@ -165,7 +163,6 @@ describe("turn-recap registrations", () => {
         ? card.data.runId
         : "none";
 
-    // The transcript keeps one component per card and redraws it.
     const component = cardComponent(host, card);
     const draw = (width = 100) => component?.render(width).join("\n");
     expect(host.getAppendedEntries()).toHaveLength(1);
@@ -209,14 +206,12 @@ describe("turn-recap registrations", () => {
     expect(render(snapshot())).toContain("Completed in 1.5s");
     expect(render(snapshot())).not.toContain("Reported cost");
     expect(render(snapshot(), true)).toContain("Reported cost");
-    // Cards from before active time was dropped still render, with their wall time.
     expect(render({ ...snapshot(), activeMs: 900 })).toContain(
       "Completed in 1.5s"
     );
 
     const { runId: _runId, ...withoutRunId } = snapshot();
 
-    // Cards from before Pi timed responses and tools.
     const {
       modelMs: _modelMs,
       toolMs: _toolMs,
@@ -262,7 +257,6 @@ describe("turn-recap registrations", () => {
         streamSimple: queuedStream(async () => await response.promise),
       },
       ui: {
-        // Like Pi, replacing or clearing a widget disposes the previous one.
         setWidget: (_key, content) => {
           component?.dispose?.();
           component =

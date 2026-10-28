@@ -127,7 +127,6 @@ export class SubagentManager {
     await this.#reconcile();
 
     for (const mail of this.#controller.rootMail()) {
-      // Recovery supplies context for an explicit task, not permission to restart old work.
       this.#deliverRoot(mail, false);
     }
   }
@@ -154,8 +153,6 @@ export class SubagentManager {
   request(ctx: ExtensionContext): void {
     const received = mailIds(ctx.sessionManager.getBranch());
 
-    // Retire the opportunity even if compaction or a context transform omits its mail;
-    // notification handling must not fight projections or loop trying to force it into a request.
     for (const id of received) {
       this.#pendingFinals.delete(id);
     }
@@ -231,7 +228,6 @@ export class SubagentManager {
       return;
     }
 
-    // Manual compaction and dialogs need readiness rechecks without agent_settled.
     if (this.#prompting || !ctx.isIdle()) {
       this.#check.request(1000);
 

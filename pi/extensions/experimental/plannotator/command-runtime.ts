@@ -114,7 +114,6 @@ export const parseArguments = (
 export const createCommandRuntime = (
   starter: CliStarter = startPlannotatorCli
 ): CommandRuntime => {
-  /** Aborted at shutdown, which ends every run; Pi builds a new runtime for the next session. */
   const lifetime = new AbortController();
   const activeRuns = new Set<Promise<void>>();
 

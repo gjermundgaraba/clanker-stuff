@@ -14,11 +14,6 @@ export interface HttpServer {
   close: () => Promise<void>;
 }
 
-/**
- * Serve MCP over streamable HTTP at `/mcp` on a loopback address, for both the 2026-07-28
- * revision and 2025-era clients. Requests from other hosts or origins are refused. Port 0 picks
- * a free port.
- */
 export const serveHttp = async (
   factory: McpServerFactory,
   options: { host: string; port: number }

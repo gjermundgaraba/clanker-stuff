@@ -34,8 +34,6 @@ describe("unsupported editor layout", () => {
       ui: { theme: marking },
     });
 
-    // Pi invokes the factory while installing it. The editor it builds belongs to a Pi release
-    // whose editor lacks a private member the document adapter needs.
     vi.mocked(ctx.ui.setEditorComponent).mockImplementationOnce((factory) => {
       const member = "cancelAutocomplete";
       const native = Object.getOwnPropertyDescriptor(Editor.prototype, member);
@@ -85,7 +83,6 @@ describe("unsupported editor layout", () => {
 
     editor.handleInput("\u001B[A");
     expect(editor.getText()).toBe("recalled");
-    // Decorations and the modal engine need the document adapter.
     expect(editing.input).not.toHaveBeenCalled();
     expect(editing.changed).not.toHaveBeenCalled();
     expect(stripTerminalSequences(editor.render(30)[1]!).trimEnd()).toBe(
@@ -95,7 +92,6 @@ describe("unsupported editor layout", () => {
       "shared-editor",
       "Unsupported Pi editor layout: required document/undo APIs are unavailable"
     );
-    // Cooperating extensions that load later join the same host without reinstalling.
     expect(acquireEditorHost(ctx)).toBe(host);
     expect(ctx.ui.setEditorComponent).toHaveBeenCalledOnce();
   });

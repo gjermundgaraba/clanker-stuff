@@ -1,6 +1,5 @@
 import { FRAME_INTERVAL_MS, wireframe } from "@clanker-stuff/pi-shape-glyphs";
 import type { Tone } from "@clanker-stuff/pi-tones";
-/** The shared visual language of the widget, the viewer, and the tool and mail renderers. */
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -22,7 +21,6 @@ const spinner = (now: number): string =>
 /** Statuses presentation shows; tools also report agents that do not exist. */
 export type DisplayStatus = AgentStatus | "not_found";
 
-/** Lifecycle tones from docs/color.md: live is accent, finished is success or error, stopped is muted. */
 const STATUS_LOOK: Record<
   DisplayStatus,
   {
@@ -58,7 +56,6 @@ export const BRAILLE_MARKS: Marks = {
   width: 1,
 };
 
-/** Wireframe inks for top-level agents, in spawn order; red and gray would read as a status. */
 const ORB_COLORS = [
   "cyan",
   "purple",
@@ -83,7 +80,6 @@ export const orbMarks = (nodes: () => readonly AgentNode[]): Marks => ({
       (top) => path === top.path || path.startsWith(`${top.path}/`)
     );
 
-    // Root and paths outside the tree find no top-level agent (-1), which indexes no ink: gray.
     const color = ORB_COLORS[index % ORB_COLORS.length] ?? "gray";
 
     const { frames } = wireframe("orb", color, theme.appearance);
@@ -333,7 +329,6 @@ export const frameTop = (
 
   const inner = width - 2;
   const tail = right === "" ? "" : ` ${right} ─`;
-  // "─ " and the space after the title frame it inside the corners.
   const fill = inner - 2 - visibleWidth(title) - 1 - visibleWidth(tail);
 
   if (fill < 1 && right !== "") {

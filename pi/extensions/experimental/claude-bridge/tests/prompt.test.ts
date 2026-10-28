@@ -3,8 +3,6 @@ import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
 import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-// pi does not export its prompt builder; these tests run against the renderer pi runs, so
-// a pi upgrade that moves its own text into a forwarded section fails here.
 import { buildSystemPromptState } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt.js";
 import {
   forwardedPrompt,
@@ -14,7 +12,6 @@ import {
 } from "../prompt.js";
 import { transcript } from "./helpers.js";
 
-/** The system message pi sends providers for these options. */
 const piSystem = (
   options: Omit<BuildSystemPromptOptions, "cwd">
 ): SystemMessage => {
@@ -62,7 +59,6 @@ describe(forwardedPrompt, () => {
 
     expect(forwarded).not.toContain(PI_PREAMBLE);
     expect(forwarded).not.toContain("<tools>");
-    // Rules carry pi's own bullets; tool guidelines travel in MCP descriptions instead.
     expect(forwarded).not.toContain("Prefer rg over grep");
     expect(forwarded).not.toContain("Be concise in your responses");
     expect(forwarded).not.toContain("docs/custom-provider.md");
@@ -126,7 +122,6 @@ describe("the third-party gate", () => {
     ).toThrow(/refusing to send this prompt/u);
   });
 
-  // Either file alone passes, so the pair split across two files still trips the gate.
   it("refuses the doc-path pair in context files and names the files", () => {
     const system = piSystem({
       contextFiles: [
@@ -159,8 +154,6 @@ describe("the third-party gate", () => {
   it("pins its markers to pi's own rendered prompt", () => {
     const sections = buildSystemPromptState({ cwd: "/repo" }).sections ?? {};
 
-    // A reworded preamble or moved doc paths leave the gate matching nothing: update
-    // PI_PREAMBLE or the trigger pair in prompt.ts.
     expect(sections["preamble"]).toContain(PI_PREAMBLE);
     expect(sections["docs"]).toContain("docs/custom-provider.md");
     expect(sections["docs"]).toContain("docs/packages.md");

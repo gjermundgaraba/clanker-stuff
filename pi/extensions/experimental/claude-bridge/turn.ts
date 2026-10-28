@@ -1,9 +1,3 @@
-// The current user turn: the trailing run of user messages not yet written into the
-// Claude Code session. Everything before it is replayed as session history and
-// everything from it on becomes the prompt; deriving both halves from one index keeps a
-// message from landing in both (an extension can append a display-only user message
-// after the real one, making the turn longer than one message).
-
 import type { Message } from "@earendil-works/pi-ai";
 
 import { userBlocks } from "./session/convert.js";

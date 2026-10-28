@@ -18,7 +18,6 @@ import { mountVim } from "../runtime.js";
 const identity = (s: string) => s;
 
 describe("composition", () => {
-  // Either decorator may acquire the shared editor first; a border contributor joins afterwards.
   it.each([
     ["vim", "skills"],
     ["skills", "vim"],

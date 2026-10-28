@@ -31,14 +31,8 @@ const EntryWireSchema = Type.Object({
   timestamp: Type.Optional(Type.String()),
 });
 
-/** A `$name` mention, the syntax dollah-skills loads skills from. */
 const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
 
-/**
- * Sessions store skill invocations expanded. Recover a re-runnable prompt. Typed text that mentions
- * every skill its block names reloads them itself, so it is the prompt as written; any other block
- * came from Pi's `/skill:name args`. A dollah-skills block names several skills as `a, b`.
- */
 export const typedPrompt = (text: string): string => {
   const skill = parseSkillBlock(text);
 
@@ -61,7 +55,6 @@ export const typedPrompt = (text: string): string => {
     : `/skill:${skill.name} ${typed}`;
 };
 
-/** A user `!command`, or `!!command` when its output was excluded from the model's context. */
 export const bashPrompt = (
   command: string,
   excludeFromContext: boolean | undefined

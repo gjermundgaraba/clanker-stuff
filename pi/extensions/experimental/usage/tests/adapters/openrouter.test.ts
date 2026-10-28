@@ -7,7 +7,6 @@ import {
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuth } from "./helpers.js";
 
-// Live shape returned by https://openrouter.ai/api/v1/credits.
 const creditsPayload = {
   data: {
     total_credits: 25.5,

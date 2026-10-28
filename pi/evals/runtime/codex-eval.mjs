@@ -34,8 +34,6 @@ const RpcTurnSchema = Type.Object({
   status: NonEmptyStringSchema,
 });
 
-// Unknown fields are deliberately allowed: native service hooks consume additional params,
-// item and turn fields, and result/usage payloads are validated by their own consumers.
 const RpcParamsSchema = Type.Object({
   item: Type.Optional(RpcItemSchema),
   responseId: Type.Optional(NonEmptyStringSchema),
@@ -89,10 +87,10 @@ const TurnStartSchema = Type.Object({
 
 /**
  * @template {import("typebox").TSchema} Schema
- * @param {Schema} schema Expected structure.
- * @param {unknown} value Value to validate without coercion or removal of extra fields.
- * @param {string} source Human-readable source.
- * @returns {import("typebox").Static<Schema>} Validated value.
+ * @param {Schema} schema
+ * @param {unknown} value
+ * @param {string} source
+ * @returns {import("typebox").Static<Schema>}
  */
 const schemaValue = (schema, value, source) => {
   if (!Value.Check(schema, value)) {
@@ -103,9 +101,9 @@ const schemaValue = (schema, value, source) => {
 };
 
 /**
- * @param {unknown} value Value to validate.
- * @param {string} source Human-readable source.
- * @returns {string} Validated string.
+ * @param {unknown} value
+ * @param {string} source
+ * @returns {string}
  */
 const stringValue = (value, source) => {
   if (!Value.Check(NonEmptyStringSchema, value)) {
@@ -194,8 +192,8 @@ export const createCapture = (onRecord) => {
   const terminals = new Map();
 
   /**
-   * @param {string} turnId Compaction turn id.
-   * @param {RpcTurn} turn Terminal turn.
+   * @param {string} turnId
+   * @param {RpcTurn} turn
    */
   const settle = (turnId, turn) => {
     const compaction = compactions.get(turnId);
@@ -232,7 +230,7 @@ export const createCapture = (onRecord) => {
     compaction.settled = { state, timestamp: new Date().toISOString() };
   };
 
-  /** @param {string} turnId Explicit compaction turn id. */
+  /** @param {string} turnId */
   const beginCompaction = (turnId) => {
     const existing = compactions.get(turnId);
 
@@ -250,7 +248,7 @@ export const createCapture = (onRecord) => {
     }
   };
 
-  /** @param {RpcMessage} message JSON-RPC message. */
+  /** @param {RpcMessage} message */
   const accept = (message) => {
     const { method, params } = message;
 
@@ -381,13 +379,13 @@ export const createCapture = (onRecord) => {
 /** @typedef {ReturnType<typeof createCapture>} Capture */
 
 const openSocket = async () => {
-  /** @type {PromiseWithResolvers<WebSocket>} */
+  /** @type {PromiseWithResolvers<WebSocket | Error>} */
   const connection = Promise.withResolvers();
   const socket = new WebSocket(SERVER_URL);
 
   const timeout = setTimeout(() => {
     socket.close();
-    connection.reject(new Error("timed out connecting to Codex app-server"));
+    connection.resolve(new Error("timed out connecting to Codex app-server"));
   }, 1000);
 
   socket.addEventListener("open", () => {
@@ -396,15 +394,15 @@ const openSocket = async () => {
   });
   socket.addEventListener("error", () => {
     clearTimeout(timeout);
-    connection.reject(new Error("Codex app-server is unavailable"));
+    connection.resolve(new Error("Codex app-server is unavailable"));
   });
 
   return await connection.promise;
 };
 
 /**
- * @param {number} deadline Retry deadline.
- * @returns {Promise<WebSocket | undefined>} Connected socket, if ready.
+ * @param {number} deadline
+ * @returns {Promise<WebSocket | undefined>}
  */
 const waitForSocket = async (deadline) => {
   /** @type {WebSocket | undefined} */
@@ -412,11 +410,10 @@ const waitForSocket = async (deadline) => {
 
   while (socket === undefined && Date.now() < deadline) {
     await delay(100);
+    const attempt = await openSocket();
 
-    try {
-      socket = await openSocket();
-    } catch {
-      // The spawned app-server may not be listening yet.
+    if (!(attempt instanceof Error)) {
+      socket = attempt;
     }
   }
 
@@ -424,24 +421,26 @@ const waitForSocket = async (deadline) => {
 };
 
 const connect = async () => {
-  try {
-    return await openSocket();
-  } catch (error) {
-    const server = spawn("codex", ["app-server", "--listen", SERVER_URL], {
-      detached: true,
-      env: process.env,
-      stdio: "ignore",
-    });
+  const first = await openSocket();
 
-    server.unref();
-    const socket = await waitForSocket(Date.now() + SERVER_WAIT_MS);
-
-    if (socket !== undefined) {
-      return socket;
-    }
-
-    throw error;
+  if (!(first instanceof Error)) {
+    return first;
   }
+
+  const server = spawn("codex", ["app-server", "--listen", SERVER_URL], {
+    detached: true,
+    env: process.env,
+    stdio: "ignore",
+  });
+
+  server.unref();
+  const socket = await waitForSocket(Date.now() + SERVER_WAIT_MS);
+
+  if (socket !== undefined) {
+    return socket;
+  }
+
+  throw first;
 };
 
 /**
@@ -452,7 +451,7 @@ const connect = async () => {
  *   turnParams?: object,
  *   threadStarted?: (response: unknown, config: EvalConfig) => Promise<void>,
  *   finished?: () => Promise<void>,
- * }} RunnerHooks Hooks consume heterogeneous server payloads and own their decoders.
+ * }} RunnerHooks
  */
 class RpcClient {
   /** @type {Error | undefined} */
@@ -470,9 +469,9 @@ class RpcClient {
   turnStartWaiters = [];
 
   /**
-   * @param {WebSocket} socket Connected socket.
-   * @param {Capture} capture Event collector.
-   * @param {RunnerHooks} hooks Native service integration.
+   * @param {WebSocket} socket
+   * @param {Capture} capture
+   * @param {RunnerHooks} hooks
    */
   constructor(socket, capture, hooks = {}) {
     this.hooks = hooks;
@@ -494,9 +493,9 @@ class RpcClient {
   }
 
   /**
-   * @param {string} method JSON-RPC method.
-   * @param {unknown} params JSON-RPC parameters.
-   * @returns {Promise<unknown>} JSON-RPC result.
+   * @param {string} method
+   * @param {unknown} params
+   * @returns {Promise<unknown>}
    */
   async request(method, params) {
     if (this.failure !== undefined) {
@@ -514,8 +513,8 @@ class RpcClient {
   }
 
   /**
-   * @param {string} method JSON-RPC method.
-   * @param {unknown} params JSON-RPC parameters.
+   * @param {string} method
+   * @param {unknown} params
    */
   notify(method, params = {}) {
     this.socket.send(JSON.stringify({ method, params }));
@@ -528,8 +527,8 @@ class RpcClient {
   }
 
   /**
-   * @param {string} turnId Turn id.
-   * @returns {Promise<RpcTurn>} Completed turn.
+   * @param {string} turnId
+   * @returns {Promise<RpcTurn>}
    */
   async waitForTurn(turnId) {
     if (this.failure !== undefined) {
@@ -550,8 +549,8 @@ class RpcClient {
   }
 
   /**
-   * @param {string} threadId Expected thread id.
-   * @returns {Promise<RpcTurn>} Next started turn.
+   * @param {string} threadId
+   * @returns {Promise<RpcTurn>}
    */
   async waitForTurnStart(threadId) {
     if (this.failure !== undefined) {
@@ -577,7 +576,7 @@ class RpcClient {
     return await waiter.promise;
   }
 
-  /** @param {Error} error Fatal transport or protocol error. */
+  /** @param {Error} error */
   #fail(error) {
     if (this.failure !== undefined) {
       return;
@@ -603,8 +602,8 @@ class RpcClient {
   }
 
   /**
-   * @param {number | string} id JSON-RPC id of the app-server request, echoed in the reply.
-   * @param {Promise<unknown>} response The request hook's pending result; a rejection is answered as an internal error and fails every pending call.
+   * @param {number | string} id
+   * @param {Promise<unknown>} response
    */
   async #answer(id, response) {
     /** @type {unknown} */
@@ -627,7 +626,7 @@ class RpcClient {
     this.socket.send(JSON.stringify({ id, result }));
   }
 
-  /** @param {RpcMessage} message JSON-RPC message. */
+  /** @param {RpcMessage} message */
   #accept(message) {
     if (message.id !== undefined && (message.hasResult || message.hasError)) {
       const pending = this.pending.get(message.id);
@@ -727,10 +726,9 @@ export const run = async (configPath, hooks = {}) => {
   const eventsPath = `${codexHome}/eval-events.jsonl`;
   const instruction = await readFile(config.instructionPath, "utf-8");
   const socket = await connect();
-  // Persist before turn completion, including when the supervisor kills us.
   appendFileSync(eventsPath, "", { mode: 0o600 });
 
-  /** @param {UsageRecord | CompactionAttempt} record Journal and stream one runner event. */
+  /** @param {UsageRecord | CompactionAttempt} record */
   const publish = (record) => {
     appendFileSync(eventsPath, `${JSON.stringify(record)}\n`);
     process.stdout.write(
@@ -834,11 +832,11 @@ if (
 ) {
   const [configPath] = process.argv.slice(2);
 
-  // The image build runs this without arguments: the usage error proves the entry point and its
-  // deployed dependencies load.
   if (process.argv.length !== 3 || configPath === undefined) {
-    throw new Error("usage: codex-eval CONFIG_JSON");
+    throw new Error("usage: codex-eval CONFIG_JSON | --self-check");
   }
 
-  await run(configPath);
+  if (configPath !== "--self-check") {
+    await run(configPath);
+  }
 }

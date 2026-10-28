@@ -18,13 +18,11 @@ const quoteShellArgument = (value: string): string => {
   return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 };
 
-/** Pi opens a session file in the session's own working directory, from any shell directory. */
 export const formatResumeCommand = (
   sessionManager: ExtensionContext["sessionManager"]
 ): string | undefined => {
   const sessionFile = sessionManager.getSessionFile();
 
-  // Pi creates the file with the first user message; until then there is nothing to resume.
   if (sessionFile === undefined || !existsSync(sessionFile)) {
     return undefined;
   }
@@ -48,10 +46,12 @@ export const enqueueResumeCommand = async (
   await rename(temporaryPath, finalPath);
 };
 
+export type ResumeRecording = "queued" | "skipped" | "inbox-unwritable";
+
 export const recordResumeCommand = async (
   reason: SessionShutdownEvent["reason"],
   ctx: ExtensionContext
-): Promise<void> => {
+): Promise<ResumeRecording> => {
   const inbox = process.env[INBOX_ENV];
 
   if (
@@ -60,18 +60,20 @@ export const recordResumeCommand = async (
     inbox === undefined ||
     inbox.length === 0
   ) {
-    return;
+    return "skipped";
   }
 
   const command = formatResumeCommand(ctx.sessionManager);
 
   if (command === undefined) {
-    return;
+    return "skipped";
   }
 
   try {
     await enqueueResumeCommand(inbox, command);
   } catch {
-    // History integration must never block pi from shutting down.
+    return "inbox-unwritable";
   }
+
+  return "queued";
 };

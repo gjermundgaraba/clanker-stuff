@@ -1,6 +1,3 @@
-// Shared setup: a bridge model, transcript contexts, and a controllable stand-in for the
-// Agent SDK's query().
-
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import type {

@@ -1,8 +1,3 @@
-// The conversation machine against a scripted query: the query's lifetime follows the
-// `active` state, tool results meet their handlers in either order, a steer reaches
-// stdin before the results it rides with, and nothing a stopped query sends reaches the
-// conversation.
-
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -79,15 +74,12 @@ const textOf = (result: McpResult): string =>
     .map((block) => (block.type === "text" ? block.text : "[image]"))
     .join("");
 
-/** A provider call's pi stream, as the turn it is answered through. */
 const turn = () => {
   const pi = recordingStream();
 
   return { turn: new Turn(model, pi.stream, served), pi };
 };
 
-/** `ignoresClose` models a query whose output is still in flight after it was told to
- *  stop, which only XState's drop of a stopped child's events can contain. */
 const conversation = (ignoresClose = false) => {
   const fake = fakeQueryFunction();
 
@@ -128,12 +120,10 @@ const conversation = (ignoresClose = false) => {
     });
   };
 
-  /** Start a query for `prompt`, the way the provider does. */
   const start = (signal?: AbortSignal) => {
     const opened = turn();
     const promptStream = makePromptStream();
 
-    // Nothing reads this stdin unless a test does, so ending the query rejects the push.
     promptStream.push(userMessage("read a")).catch(() => {});
     actor.send({
       type: "pi.start",
@@ -172,7 +162,6 @@ const conversation = (ignoresClose = false) => {
   return { actor, notices, clock, query, settle, start, deliver, held };
 };
 
-/** An MCP handler's side of a tool call: the promise Claude Code's tools/call awaits. */
 const handler = (id: string) => {
   const answered = Promise.withResolvers<McpResult>();
 
@@ -186,7 +175,6 @@ const handler = (id: string) => {
   };
 };
 
-/** Read the query's stdin as the SDK's pump does: each read acks the message before. */
 const stdin = (query: FakeQuery): AsyncIterator<SDKUserMessage> => {
   const { prompt: input } = query.params;
 
@@ -199,7 +187,6 @@ const stdin = (query: FakeQuery): AsyncIterator<SDKUserMessage> => {
 
 const lastEvent = (pi: RecordingStream) => pi.events.at(-1);
 
-/** The assistant message a stream finished with. */
 const lastDone = (pi: RecordingStream) => {
   const event = lastEvent(pi);
 
@@ -210,8 +197,6 @@ const lastDone = (pi: RecordingStream) => {
   return event.message;
 };
 
-// Claude Code words a spent subscription with none of the vocabulary anyone matches
-// on, and sends the rejection as its own message just before the failure it caused.
 const rejection = () =>
   rateLimitEvent({
     status: "rejected",
@@ -232,20 +217,17 @@ describe("the conversation machine", () => {
 
       expect(pi.ended).toBe(true);
       expect(lastEvent(pi)).toMatchObject({ type: "done", reason: "stop" });
-      // Claude Code is still writing its session file.
       expect(query().closed).toBe(false);
 
       query().end();
       await settle("idle");
 
       expect(query().closed).toBe(true);
-      // The turn's final content, in a copy: pi goes on writing to the message it was handed.
       expect(held()).toStrictEqual([prompt, lastDone(pi)]);
       expect(held()[1]).not.toBe(lastDone(pi));
       expect(syncState(actor.getSnapshot()).session).toBe("cc-session");
     });
 
-    // Killed before it finished writing, its session may be short of what pi holds.
     it("kills a Claude Code that does not exit after its result, and forgets what it holds", async () => {
       const { actor, clock, query, settle, start, held } = conversation();
 
@@ -288,7 +270,6 @@ describe("the conversation machine", () => {
     });
   });
 
-  // The SDK throws from query() itself when it cannot find Claude Code.
   it("fails the turn when the query cannot start", async () => {
     const pi = recordingStream();
 
@@ -435,7 +416,6 @@ describe("the conversation machine", () => {
       expect(written.value).toMatchObject({ priority: "next" });
       expect(order).toStrictEqual(["steer written"]);
 
-      // The SDK's pump reads again only once the write completed: that is the ack.
       void input.next();
       await settle({ active: "streaming" });
       await call.answer;
@@ -546,7 +526,6 @@ describe("the conversation machine", () => {
     });
   });
 
-  // Claude Code may continue from the cut on its own, into a session pi never sees.
   it("stops the query when its tool calls were cut off at the output limit", async () => {
     const { query, settle, start, held } = conversation();
     const { pi } = start();
@@ -578,9 +557,6 @@ describe("the conversation machine", () => {
     expect(held()).toStrictEqual([]);
   });
 
-  // pi carries a failure only as errorMessage text, so whatever reacts to a rate limit
-  // pattern-matches it. These mirror pi-subagents' fallback gate: one pattern from its
-  // retryable list, and the tool-failure shape it refuses to retry.
   const RATE_LIMIT = /rate\s*limit/iu;
 
   const TOOL_FAILURE_PREFIX =
@@ -608,10 +584,8 @@ describe("the conversation machine", () => {
 
       expect(event.error.errorMessage).toMatch(RATE_LIMIT);
       expect(event.error.errorMessage).not.toMatch(TOOL_FAILURE_PREFIX);
-      // Claude Code's own wording, and which window ran out.
       expect(event.error.errorMessage).toContain(OUT_OF_USAGE);
       expect(event.error.errorMessage).toContain("five_hour");
-      // A rejected window resets in hours: not retried as transient.
       expect(isRetryableAssistantError(event.error)).toBe(false);
     });
 

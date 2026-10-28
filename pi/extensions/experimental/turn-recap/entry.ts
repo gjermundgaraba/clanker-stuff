@@ -4,15 +4,12 @@ import type { Static } from "typebox";
 import { RECAP_MAX_CHARS } from "./conversation.js";
 import { MetricsSchema, UsageSchema } from "./metrics.js";
 
-/** The transcript card, written as soon as its run settles. */
 export const ENTRY_TYPE = "@clanker-stuff/turn-recap";
 
-/** A run's recap, written when it arrives; it renders inside its run's card. */
 export const RECAP_ENTRY_TYPE = "@clanker-stuff/turn-recap/recap";
 
 const closed = { additionalProperties: false } as const;
 
-// Open, so cards written before a field was removed still render.
 export const SnapshotSchema = Type.Object({
   runId: Type.String({ minLength: 1 }),
   startedAt: Type.Number({ minimum: 0 }),

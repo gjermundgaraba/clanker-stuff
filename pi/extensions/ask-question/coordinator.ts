@@ -18,7 +18,6 @@ import { showInbox } from "./tui/inbox.js";
 export class Coordinator {
   private ctx: ExtensionContext | undefined;
   private items = new Map<string, Interaction>();
-  /** Aborted when the branch changes or the session ends; captured signals fence earlier views. */
   private lifetime = new AbortController();
   private readonly listeners = new Set<() => void>();
   private readonly blocking = new Set<string>();
@@ -58,7 +57,6 @@ export class Coordinator {
 
     return item;
   }
-  /** Read-only lookup for renderers; never throws. */
   peek(id: string): Interaction | undefined {
     return this.items.get(id);
   }
@@ -132,7 +130,6 @@ export class Coordinator {
   ) {
     signal?.throwIfAborted();
 
-    // Without an explicit mode, the revision reopens the questionnaire the way it was last asked.
     const item = this.mutate(revision.interaction_id, {
       type: "reopen",
       base: revision.base_revision,
@@ -188,7 +185,6 @@ export class Coordinator {
         }
 
         const { revision } = latest;
-        // Recorded before returning: the tool result is the answer's only delivery.
         const sent = this.mutate(item.id, { type: "sent", revision }, lifetime);
         const submission = sent.submissions.at(-1);
 
@@ -251,7 +247,6 @@ export class Coordinator {
       }
     });
   }
-  /** Explicitly hands a submission to Pi as a user message; Pi owns it from then on. */
   send(
     id: string,
     revision: number,
@@ -289,7 +284,6 @@ export class Coordinator {
       this.inboxOpen = false;
     }
   }
-  /** Saves an open editor while its branch is still current; a failure is reported, not blocking. */
   flush(): void {
     try {
       this.flushView?.();

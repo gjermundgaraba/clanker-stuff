@@ -1,4 +1,3 @@
-"""Shared process/container operations and comparison arm identity."""
 import json
 import subprocess
 

@@ -24,7 +24,6 @@ const AgentPathSchema = Type.String({ pattern: PATH_PATTERN.source });
 const MailSchema = Type.Object(
   {
     content: Type.String(),
-    /** Set on the final answer of a failed turn, for presentation; the content says so to the model. */
     failed: Type.Optional(Type.Literal(true)),
     from: AgentPathSchema,
     id: Type.String({ minLength: 1 }),
@@ -38,7 +37,6 @@ const TimestampSchema = Type.Integer({ minimum: 0 });
 
 const AmountSchema = Type.Number({ minimum: 0 });
 
-/** Usage summed over every assistant response of the agent, across all its turns. */
 const UsageSchema = Type.Object(
   {
     cacheRead: AmountSchema,
@@ -53,14 +51,12 @@ const UsageSchema = Type.Object(
 const NodeSchema = Type.Object(
   {
     agentType: Type.Optional(Type.String({ minLength: 1 })),
-    /** When the latest turn settled; absent while it runs, or when it was cut short by a restart. */
     endedAt: Type.Optional(TimestampSchema),
     error: Type.Optional(Type.String()),
     lastAnswer: Type.Optional(Type.String()),
     model: Type.String({ minLength: 1 }),
     path: AgentPathSchema,
     sessionFile: Type.String({ minLength: 1 }),
-    /** When the latest turn started. */
     startedAt: TimestampSchema,
     status: Type.Union([
       Type.Literal("running"),
@@ -99,7 +95,6 @@ export type AgentUsage = Static<typeof UsageSchema>;
 
 export type Tree = Static<typeof TreeSchema>;
 
-/** Every envelope kind; `readEnvelope` recognizes exactly these. */
 const ENVELOPE_KINDS = {
   FINAL_ANSWER: true,
   MESSAGE: true,
@@ -169,7 +164,6 @@ export const mailMessage = (mail: Mail) => ({
     kind: mail.kind,
     to: mail.to,
   },
-  // The root transcript shows mail as a card; child sessions run without a UI.
   display: true,
 });
 
@@ -204,7 +198,6 @@ export const childAgentPath = (caller: string, taskName: string): string => {
     throw new Error("task_name root is reserved");
   }
 
-  // The caller is a canonical agent path, so a valid segment yields one too.
   return `${caller}/${taskName}`;
 };
 

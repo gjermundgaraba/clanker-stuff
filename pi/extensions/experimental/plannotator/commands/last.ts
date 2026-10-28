@@ -7,7 +7,6 @@ import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
 
-/** Names this command in its failure and outcome notices. */
 const LABEL = "Plannotator message annotation";
 
 const getLastAssistantText = (
@@ -32,8 +31,6 @@ const getLastAssistantText = (
   return undefined;
 };
 
-// The review can outlive later turns, so feedback always names the response it is about.
-// `message` is the trimmed text getLastAssistantText returned.
 const anchorFeedback = (feedback: string, message: string): string => {
   const excerpt =
     message.length <= 1000 ? message : `${message.slice(0, 1000).trimEnd()}...`;

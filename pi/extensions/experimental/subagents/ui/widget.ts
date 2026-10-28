@@ -23,10 +23,8 @@ import {
 } from "./format.js";
 import type { Marks, TreeRow } from "./format.js";
 
-/** Rows of agents the widget lists before it summarizes the rest. */
 const MAX_ROWS = 10;
 
-/** The model column is the first to go when the widget gets narrow. */
 const MODEL_MIN_WIDTH = 72;
 
 const NAME_MAX_WIDTH = 32;
@@ -88,7 +86,6 @@ export class AgentsWidget implements Component {
     const burst = nodes.filter(inBurst);
     let rows = treeRows(nodes, inBurst);
 
-    // Past the limit, keep live work and the branches it hangs from.
     if (rows.length > MAX_ROWS + 1) {
       rows = treeRows(nodes, (node) => node.status === "running");
     }
@@ -204,9 +201,7 @@ export class AgentsWidget implements Component {
     ];
   }
 
-  invalidate(): void {
-    // Every render reads live state and the current theme.
-  }
+  readonly invalidate = (): void => undefined;
 
   dispose(): void {
     clearInterval(this.#timer);

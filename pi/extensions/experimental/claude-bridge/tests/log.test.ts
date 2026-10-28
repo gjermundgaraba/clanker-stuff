@@ -41,7 +41,6 @@ describe("the debug log", () => {
       );
     });
 
-    // Resolved per call: an import-time constant would keep returning the first value.
     it("follows environment changes made after import", () => {
       const agentDir = path.join(dir, "agent");
       const restore = patchEnv({ PI_CODING_AGENT_DIR: agentDir });
@@ -67,7 +66,6 @@ describe("the debug log", () => {
   });
 
   describe("debug", () => {
-    // The log carries prompts and conversation text.
     it("writes nothing unless CLAUDE_BRIDGE_DEBUG=1", () => {
       const logFile = path.join(dir, "debug.log");
 

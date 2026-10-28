@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import type { UsageSnapshot } from "../providers.js";
 import { statusText } from "../status.js";
 
-/** Renders `fg` as `<tone:text>` so assertions can check meaning without real colors. */
 const tones: Pick<Theme, "fg"> = {
   fg: (tone, text) => (text ? `<${tone}:${text}>` : ""),
 };

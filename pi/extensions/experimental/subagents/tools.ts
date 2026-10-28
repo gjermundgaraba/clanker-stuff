@@ -1,4 +1,4 @@
-// Tool names, schemas, and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
+// Tool names, schemas, and descriptions in this file were adapted for this package from OpenAI Codex (https://github.com/openai/codex) under the Apache License 2.0; see ./NOTICE and ./UPSTREAM.
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -59,7 +59,6 @@ const SPAWN_PROPERTIES = {
   }),
 };
 
-/** `agent_type` is offered only when roles are configured. */
 const spawnParameters = (config: SubagentsConfig) =>
   Object.keys(config.roles).length === 0
     ? Type.Object(SPAWN_PROPERTIES, STRICT)
@@ -81,7 +80,6 @@ const spawnParameters = (config: SubagentsConfig) =>
         STRICT
       );
 
-/** Message text shares the spawn task and final-answer limit: the tree or child session keeps it. */
 const TargetMessageParameters = (target: string, message: string) =>
   Type.Object(
     {
@@ -119,7 +117,6 @@ interface ToolScope {
   pi: ExtensionAPI;
 }
 
-/** The collaboration tools by name, in registration order; each defines its tool for one agent. */
 const TOOLS = {
   spawn_agent: ({ caller, config, controller, pi }: ToolScope, name: string) =>
     defineTool({

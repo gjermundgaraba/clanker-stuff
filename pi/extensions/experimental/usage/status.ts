@@ -32,11 +32,9 @@ export const presentationProvider = (
 
 const METER_CELLS = 10;
 
-/** `makeUsageWindow` clamps `remainingPercent` to 0–100, which keeps the meter in range. */
 const usedPercent = (window: UsageWindow): number =>
   100 - window.remainingPercent;
 
-/** Summarize the main account windows, not independent feature limits. */
 const selectQuotaWindow = (
   snapshot: UsageSnapshot
 ): UsageWindow | undefined => {
@@ -76,7 +74,6 @@ const metricText = (
 
   const { accounting } = snapshot;
 
-  // `usageResult` admits a snapshot without main windows or accounting only for feature quotas.
   if (accounting === undefined) {
     return theme.fg("muted", "account quota not reported");
   }
@@ -89,7 +86,6 @@ const metricText = (
       );
 };
 
-/** The native `usage` status line: quiet unless a quota is filling or data is stale. */
 export const statusText = (
   presentation: UsagePresentation,
   now: number,
@@ -118,6 +114,5 @@ export const statusText = (
         presentation.kind === "stale" ? theme.fg("warning", " !") : "",
       ].join("");
     }
-    // no default
   }
 };

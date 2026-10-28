@@ -1,13 +1,10 @@
 #!/bin/bash
-# Claude Code SessionEnd hook: enqueue a resume command into the invoking
-# shell's history inbox (see pi/extensions/shell-resume-history/shell/).
 set -u
 
 inbox="${PI_SHELL_RESUME_HISTORY_DIR:-}"
 [ -d "$inbox" ] || exit 0
 
 sid=$(jq -r '.session_id // empty')
-# sid lands verbatim in shell history; reject anything but a plain id.
 [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
 name="$(date +%s)-$$-${RANDOM}.command"

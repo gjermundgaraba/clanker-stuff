@@ -57,7 +57,6 @@ const alive = (pid: number | undefined) => {
   }
 };
 
-/** Matches the supervisor: only ESRCH proves a process group is gone. */
 const groupGone = (pid: number | undefined) => {
   try {
     process.kill(-(pid ?? 0), 0);
@@ -105,7 +104,6 @@ describe("Supervisor (real subprocesses)", () => {
       spec(code, { ...(protocol ? { protocol } : {}), timeoutMs: 300 })
     );
 
-    // Running tasks never announce an outcome before cleanup finishes.
     expect(unread(task)?.outcome).toBeUndefined();
     await finished(task);
     expect(task.outcome).toBe(outcome);
@@ -239,7 +237,6 @@ describe("Supervisor (real subprocesses)", () => {
   });
 
   it("checks a failed cleanup again when the task is stopped again", async () => {
-    // Zero deadlines fail cleanup before Node can reap the killed group.
     const supervisor = setup({ concurrency: 1, graceMs: 0, killMs: 0 });
     const task = await supervisor.start(spec("setInterval(()=>{},1000)"));
     await supervisor.stop(task.id);
@@ -258,7 +255,6 @@ describe("Supervisor (real subprocesses)", () => {
   });
 
   it("makes a stop during a failing cleanup wait for it instead of retrying it", async () => {
-    // A descendant outside the group keeps stdout open, so the pipe drain runs its full 100 ms.
     const supervisor = setup({ graceMs: 0, killMs: 0 });
 
     const task = await supervisor.start(

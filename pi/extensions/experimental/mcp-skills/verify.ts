@@ -6,7 +6,6 @@ import type { ReadResourceResult } from "@earendil-works/pi-mcp";
 import { canonicalJson } from "./entry.js";
 import type { SkillEntry, SkillFile } from "./entry.js";
 
-/** Why bytes are not the file the entry lists, checking the raw length and then the SHA-256 digest. */
 export const checkBytes = (
   bytes: Buffer,
   file: SkillFile
@@ -22,10 +21,6 @@ export const checkBytes = (
     : `${file.uri} does not match its digest`;
 };
 
-/**
- * The verified bytes of a `resources/read` result: the content item for exactly this URI, its text
- * as UTF-8 bytes or its decoded blob, checked against the file's entry.
- */
 export const verifyFile = (
   result: ReadResourceResult,
   file: SkillFile
@@ -46,7 +41,6 @@ export const verifyFile = (
   return failure === undefined ? { bytes } : { failure };
 };
 
-/** Whether a fetched `SKILL.md` has exactly the frontmatter its entry promised, field by field. */
 export const frontmatterMatches = (
   bytes: Buffer,
   entry: SkillEntry

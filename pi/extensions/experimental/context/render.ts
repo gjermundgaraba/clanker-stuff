@@ -6,27 +6,20 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ContextSnapshot, InspectorSnapshot } from "./snapshot.js";
 import type { FlatRow } from "./tree.js";
 
-/** Smallest width where the title corners "╭─ " and " ╮" fit around an empty title. */
 const MIN_WIDTH = 5;
 
 const MIN_HEIGHT = 10;
 
-/** Overlays shorter than this drop the legend line so the body keeps usable rows. */
 const LEGEND_MIN_HEIGHT = 14;
 
-/** Overlays shorter than this drop the blank spacing rows around the header and body. */
 const ROOMY_MIN_HEIGHT = 20;
 
-/** Header (title, usage, bar, rule) plus footer (rule, help, bottom), excluding legend and spacing. */
 const CHROME_ROWS = 7;
 
-/** Horizontal padding inside the frame for header, footer and preview text. */
 export const PAD = "  ";
 
-/** Share of the terminal the overlay occupies; the runtime's overlay option derives from this too. */
 export const OVERLAY_HEIGHT_RATIO = 0.9;
 
-/** Narrowest overlay that shows the tree and preview side by side. */
 const SPLIT_MIN_WIDTH = 80;
 
 const ROW_BAR_WIDTH = 8;
@@ -38,7 +31,6 @@ export const fit = (text: string, width: number): string =>
 
 const count = (value: number): string => value.toLocaleString("en-US");
 
-/** Breakdown figures are estimates everywhere they appear: tree rows, legend and preview header. */
 export const estimate = (value: number): string => `~${count(value)}`;
 
 export const overlayHeight = (terminalRows: number): number =>
@@ -66,11 +58,9 @@ export const layoutOverlay = (
     treeWidth,
     previewWidth: split ? innerWidth - treeWidth - 1 : 0,
     showLegend,
-    /** Blank rows below the title, above the pane rule, and at the top of the panes. */
     roomy,
     bodyTop: 4 + (showLegend ? 1 : 0) + (roomy ? 3 : 0),
     bodyHeight,
-    /** Preview label row plus its rule; the rule is dropped when it would leave no content row. */
     previewHeaderRows: bodyHeight > 3 ? 2 : 1,
     tooSmall: width < MIN_WIDTH || height < MIN_HEIGHT,
   };
@@ -78,13 +68,11 @@ export const layoutOverlay = (
 
 export type Layout = ReturnType<typeof layoutOverlay>;
 
-/** Measured context usage as a share of the window, or undefined when Pi does not know it. */
 const usedPercent = (usage: ContextUsage | undefined): number | undefined =>
   usage === undefined || usage.tokens === null || usage.contextWindow <= 0
     ? undefined
     : (usage.tokens / usage.contextWindow) * 100;
 
-/** Pi's measured usage only; estimates belong to the legend, not the bar. */
 export const renderUsageBar = (
   theme: Theme,
   usage: ContextUsage | undefined,
@@ -169,7 +157,6 @@ const renderRowBar = (theme: Theme, share: number): string => {
   );
 };
 
-/** Width of the token column, computed over all rows so it does not shift while scrolling. */
 export const countColumnWidth = (rows: readonly FlatRow[]): number =>
   Math.max(6, ...rows.map((row) => estimate(row.node.estimatedTokens).length));
 
@@ -286,7 +273,6 @@ export const renderFooter = (
   return `${left}${" ".repeat(gap)}${rightText}`;
 };
 
-/** The title subtitle and the three header rows that describe each view's snapshot. */
 const renderHeader = (
   theme: Theme,
   snapshot: InspectorSnapshot,
@@ -333,7 +319,6 @@ const renderHeader = (
         ),
       };
     }
-    // no default
   }
 };
 
@@ -375,12 +360,10 @@ export const renderOverlay = (
 
   const blank = line("");
 
-  // Keep the pane divider continuous through the spacing row above the body.
   const bodyPad =
     previewWidth > 0 ? line(`${" ".repeat(treeWidth)}${divider("│")}`) : blank;
 
   return [
-    // "╭─ " + title + " " + dashes + "╮" must span the full width.
     border(`╭─ `) +
       title +
       border(

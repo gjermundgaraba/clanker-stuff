@@ -32,10 +32,6 @@ export const contextAuth =
     return await ctx.modelRegistry.getProviderAuth(provider);
   };
 
-/**
- * The credential to send to a usage endpoint. Subscription endpoints (`oauth`) are unavailable
- * with API keys rather than failing, so API-key users are not shown a failure on every refresh.
- */
 export const accessToken = async (
   getAuth: GetAuth,
   provider: SupportedProvider,
@@ -46,7 +42,6 @@ export const accessToken = async (
   try {
     auth = await getAuth(provider);
   } catch {
-    // An expired OAuth login whose refresh fails is not logged in for usage purposes.
     auth = undefined;
   }
 

@@ -17,9 +17,7 @@ describe("claude-bridge package", () => {
       const ids = models.map((model) => model.id);
 
       expect(ids).toContain("claude-opus-5-5");
-      // Dated snapshot aliases stay out of the picker.
       expect(ids.some((id) => /-20\d{6}$/u.test(id))).toBe(false);
-      // Measured 1M models are registered at the window the bridge requests.
       expect(
         models.find((model) => model.id === "claude-opus-5-5")?.contextWindow
       ).toBe(1_000_000);

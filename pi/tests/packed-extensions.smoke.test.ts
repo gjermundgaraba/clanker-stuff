@@ -85,8 +85,10 @@ const EXTENSION_PACKAGES = PUBLISHABLE_PACKAGES.flatMap(
   }
 );
 
-const SHARED_PACKAGES = PUBLISHABLE_PACKAGES.filter(
-  ({ dir }) => !EXTENSION_PACKAGE_DIR.test(dir)
+const SHARED_PACKAGE_DIR = /^pi[\\/]packages[\\/]/u;
+
+const SHARED_PACKAGES = PUBLISHABLE_PACKAGES.filter(({ dir }) =>
+  SHARED_PACKAGE_DIR.test(dir)
 );
 
 const packPackage = (tempRoot: string, packageName: string, dir: string) => {

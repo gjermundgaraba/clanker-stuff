@@ -13,21 +13,26 @@ const answer =
 const isRecord = (value) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** @type {unknown[]} */
-let steps = [];
+const readSteps = () => {
+  try {
+    /** @type {unknown} */
+    const value = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
 
-try {
-  /** @type {unknown} */
-  const value = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
-  steps =
-    isRecord(value) && Array.isArray(value["steps"]) ? value["steps"] : [];
-} catch {
-  // A missing or unreadable trajectory leaves no tool-call evidence.
-}
+    /** @type {unknown[]} */
+    const steps =
+      isRecord(value) && Array.isArray(value["steps"]) ? value["steps"] : [];
+
+    return steps;
+  } catch {
+    return [];
+  }
+};
+
+const steps = readSteps();
 
 /** @type {unknown[]} */
 const evidence = steps.flatMap(
-  /** @returns {unknown[]} The step's tool calls, if any. */ (step) =>
+  /** @returns {unknown[]} */ (step) =>
     isRecord(step) && Array.isArray(step["tool_calls"])
       ? step["tool_calls"]
       : []

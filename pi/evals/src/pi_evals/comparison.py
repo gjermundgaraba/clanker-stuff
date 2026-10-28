@@ -1,4 +1,3 @@
-"""One matched model/effort selection for a newly prepared three-arm series."""
 from copy import deepcopy
 import yaml
 from pi_evals.artifacts import EVALS

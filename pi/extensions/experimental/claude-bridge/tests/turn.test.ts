@@ -66,7 +66,6 @@ describe("userTurnBlocks", () => {
     ]);
   });
 
-  // Data-less image blocks occur in the wild, and the API rejects other media types.
   it("marks an image Claude cannot take instead of sending it", () => {
     expect(
       userTurnBlocks([

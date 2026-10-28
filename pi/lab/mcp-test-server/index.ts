@@ -7,14 +7,9 @@ export { serveHttp } from "./http.ts";
 export type { HttpServer } from "./http.ts";
 
 export interface TestServerOptions {
-  /** Folder of skills to serve. Without it the server does not offer the skills extension. */
   skillsDir?: string;
 }
 
-/**
- * A fresh server for each connection or request, with the features the options turn on. Skills are
- * read when the server is made: once per stdio connection, and on every HTTP request.
- */
 export const createTestServer =
   (options: TestServerOptions): McpServerFactory =>
   async () => {

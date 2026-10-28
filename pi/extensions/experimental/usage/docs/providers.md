@@ -51,3 +51,7 @@ Radius reads the effective `radius` provider's live `/v1/billing` summary with e
 The integration accepts one unambiguous HTTP(S) gateway from the provider's model catalog. It sends no billing request when the gateway cannot be determined safely. Providers registered under IDs other than `radius` are not discovered. Radius usage does not query delayed analytics exports or turn organization budgets into percentage quotas.
 
 `/usage` queries available accounts and survives model changes and routine status refreshes. Controller shutdown suppresses late command delivery. Status updates remain fenced against obsolete refreshes.
+
+## Z.ai
+
+Z.ai quota windows are `TOKENS_LIMIT` or `CREDIT_LIMIT` entries with `unit` 3 for the 5-hour window and 6 for the weekly one ([CodexBar issue #2724](https://github.com/steipete/CodexBar/issues/2724)); `TIME_LIMIT` is the monthly web-search count. Other types are dropped, `number` is ignored because its meaning changed between plan generations, and `percentage` is the used share.

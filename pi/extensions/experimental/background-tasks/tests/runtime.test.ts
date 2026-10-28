@@ -93,7 +93,6 @@ describe("TaskRuntime", () => {
         item(watch, "lint watch"),
         item(build, "build"),
       ]);
-      // Hex characters in the other task's ID must not match.
       expect(runtime.completions("b")).toStrictEqual([item(build, "build")]);
       expect(runtime.completions("watch")).toStrictEqual([
         item(watch, "lint watch"),
@@ -138,7 +137,6 @@ describe("TaskRuntime", () => {
       await delay(250);
       expect(host.getSentMessages()).toHaveLength(1);
 
-      // Settlement delivers synchronously; Pi defers the triggered prompt until settle handlers end.
       state.idle = false;
       const next = await start(RESULT);
       await expect.poll(() => unread(next)?.outcome).toBe("result");

@@ -1,9 +1,3 @@
-// The model picker follows pi-ai's Anthropic catalog: models appear and disappear
-// with it, with no per-model code here. Context windows follow measured Claude
-// Code behavior instead of the catalog, because the registered window must match
-// what the bridge actually requests or pi's status bar and compaction threshold
-// misreport.
-
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
@@ -19,11 +13,8 @@ const TWO_HUNDRED_K_CONTEXT = 200_000;
 
 const ONE_M_CONTEXT = 1_000_000;
 
-// pi-ai ships dated snapshot ids (claude-opus-4-5-20251101, ...) beside the bare
-// ids. They are never exposed.
 const isDatedAlias = (id: string): boolean => /-20\d{6}$/u.test(id);
 
-// Flagship families first; unknown families sink below all known ones.
 const FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
 
 interface VersionRank {
@@ -32,7 +23,6 @@ interface VersionRank {
   minor: number;
 }
 
-// claude-opus-4-7 → opus 4.7.
 const versionRank = (id: string): VersionRank => {
   const [, family = "", major, minor] = id.split("-");
 
@@ -79,7 +69,6 @@ export const buildModels = (
       input: model.input,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
-      // Forwarded so pi-ai's per-model overrides reach the effort lookup.
       ...(model.thinkingLevelMap === undefined
         ? {}
         : { thinkingLevelMap: model.thinkingLevelMap }),
@@ -94,13 +83,6 @@ interface ClaudeCodeRuntimeModel {
   contextWindow: number;
 }
 
-// Measured Claude Agent SDK behavior:
-// - The `[1m]` suffix is the only reliable way to request 1M context; bare ids serve 200K.
-// - An unentitled `[1m]` id is rejected outright (400/429) and fails every turn, which is
-//   worse than 200K, so only measured-good ids get it. A new model serves 200K until
-//   someone measures it and adds it here.
-// - Opus 4.6 and Sonnet 4.6 serve 1M only on Max or with metered Extra Usage, so they
-//   stay at 200K.
 const MEASURED_ONE_M = new Set([
   "claude-fable-5",
   "claude-fable-5-1",

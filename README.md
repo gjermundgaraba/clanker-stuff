@@ -52,7 +52,19 @@ Experimental extensions are not published to npm and are not stable daily driver
 
 ## Development
 
-Requires Vite+, Node.js 26.12 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. Linting and formatting use [Ultracite](https://www.ultracite.ai/)'s presets through `vp check`; `vp check --fix` applies fixes. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
+Requires Vite+, Node.js 26.12 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. Linting and formatting use [Ultracite](https://www.ultracite.ai/)'s presets through `vp check`, with the shared Oxlint config from [`@clanker-stuff/oxlint-config`](packages/oxlint-config); `vp check --fix` applies fixes. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
+
+## Releasing
+
+Every package with `"private": false` publishes to npm through [`.github/workflows/npm.yml`](.github/workflows/npm.yml), which uses npm trusted publishing with provenance:
+
+1. Bump the `version` of each package to release, commit, then tag and push: `git tag v<version> && git push origin v<version>`.
+2. The workflow publishes every publishable package whose version npm does not have yet and skips the rest. `vp pm publish -r --dry-run --access public --no-git-checks` shows locally what it would publish.
+
+A new package's first version goes out by hand, because npm can only trust a workflow for a package that exists:
+
+1. `vp pm publish --filter <package> --access public`, logged in to npm.
+2. `npm trust github <package> --repo gjermundgaraba/clanker-stuff --file npm.yml`.
 
 ## License
 

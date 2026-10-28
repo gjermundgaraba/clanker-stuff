@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { manifest as metadata } from "@clanker-stuff/pi-shape-glyphs";
 import { describe, expect, it } from "vite-plus/test";
 
-import { frame, FPS, INKS, paint, VIEWBOX } from "../scripts/frames.ts";
+import {
+  frame,
+  FPS,
+  INKS,
+  paintSelfContained,
+  VIEWBOX,
+} from "../scripts/frames.ts";
 import { geometry, project, SHAPES, TAU } from "../scripts/geometry.ts";
 import fixtures from "./fixtures/projections.json" with { type: "json" };
 
@@ -166,7 +172,7 @@ describe("reconstructed geometry", () => {
 
     const canvas = { width: 0, height: 0, getContext: () => context };
     const scene = frame("orb", 1);
-    paint(canvas, scene, 64, "#fff", VIEWBOX);
+    paintSelfContained(canvas, scene, 64, "#fff", VIEWBOX);
     expect(strokes).toStrictEqual(scene.lines.map((line) => line.opacity));
     expect(segments).toBe(80);
     expect(context.lineCap).toBe("round");

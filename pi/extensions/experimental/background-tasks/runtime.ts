@@ -39,7 +39,6 @@ const row = (task: Task) =>
     task.id,
   ].join(" · ");
 
-/** Pi coalesces status renders, so unchanged statuses are simply set again. */
 const setStatus = (
   ctx: ExtensionContext,
   active: string | undefined,
@@ -75,7 +74,6 @@ export class TaskRuntime {
     this.ctx = ctx;
     this.schedule();
   }
-  /** Pi defers a prompt triggered during settlement until every settled handler has run. */
   settled(): void {
     this.check.clear();
     this.tick();
@@ -111,7 +109,6 @@ export class TaskRuntime {
       return;
     }
 
-    // Recheck: an open extension prompt or manual compaction ends without agent_settled.
     if (this.prompting || !ctx.isIdle()) {
       this.schedule(1000);
 
@@ -185,7 +182,6 @@ export class TaskRuntime {
         .map((task) => taskRow(taskSummary(task), Boolean(unread(task)))),
     });
   }
-  /** A successful agent read clears the task's notice; failed reads change nothing. */
   inspect(params: InspectInput) {
     if (!Value.Check(inspectSchema, params)) {
       throw invalidArguments(inspectSchema, params, "task_inspect");
@@ -193,8 +189,6 @@ export class TaskRuntime {
 
     const task = this.supervisor.get(params.id);
 
-    // Logs come last: tailBytes sizes only them, so a cut text preview keeps everything else.
-    // Result hooks may mutate responses; keep retained captures private.
     const result = toolResult({
       task: taskSummary(task),
       ...(task.diagnostic === undefined ? {} : { diagnostic: task.diagnostic }),
@@ -224,7 +218,6 @@ export class TaskRuntime {
     await this.supervisor.discard((task) => !ancestors.has(task.spec.origin));
     this.schedule();
   }
-  /** Retained tasks for `/tasks <id>`, matched by name since nobody recalls an ID; the ID is inserted. */
   completions(prefix: string) {
     return fuzzyFilter(
       this.supervisor.list(),
@@ -236,7 +229,6 @@ export class TaskRuntime {
       description: `${task.outcome ?? "running"} · ${task.id}`,
     }));
   }
-  /** Observational: human reads never clear agent notices. */
   async command(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const id = args.trim();
 

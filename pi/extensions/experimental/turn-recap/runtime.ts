@@ -40,15 +40,10 @@ interface ActiveRun {
 export class TurnRecapRuntime {
   readonly #pi: ExtensionAPI;
   readonly #configPath: string;
-  /**
-   * Aborted when the session ends, cancelling its pending loads and recap requests. Pi builds a new
-   * runtime for the next session.
-   */
   readonly #lifetime = new AbortController();
   #config: RecapConfig | undefined;
   #rollingFont: RollingFont | undefined;
   #active: ActiveRun | undefined;
-  /** Recaps by run ID, from saved entries plus those being generated. */
   readonly #recaps = new Map<string, RecapView>();
   #requestRender: (() => void) | undefined;
 
@@ -58,7 +53,6 @@ export class TurnRecapRuntime {
   }
 
   async start(ctx: ExtensionContext): Promise<void> {
-    // Keyed by run ID, so recaps on other branches are harmless and navigation needs no rebuild.
     for (const entry of ctx.sessionManager.getEntries()) {
       if (
         entry.type === "custom" &&
@@ -71,7 +65,6 @@ export class TurnRecapRuntime {
 
     const lifetime = this.#lifetime.signal;
 
-    // Independent loads: a broken config never disables animation, or vice versa.
     const [config, font] = await Promise.allSettled([
       loadRecapConfig(this.#configPath),
       ctx.mode === "tui" ? loadRollingFont() : undefined,
@@ -105,7 +98,6 @@ export class TurnRecapRuntime {
   }
 
   begin(ctx: ExtensionContext): void {
-    // Retries and queued continuations can emit multiple starts before settling.
     if (this.#active) {
       return;
     }
@@ -117,7 +109,6 @@ export class TurnRecapRuntime {
       metrics: collectMetrics([]),
     };
 
-    // The first frame already reads +0 and shows the window.
     this.refresh(ctx);
     this.#mount(ctx);
   }
@@ -137,7 +128,6 @@ export class TurnRecapRuntime {
         ? -1
         : branch.findIndex((entry) => entry.id === baseline);
 
-    // A replaced branch must never be charged to the abandoned run.
     if (baseline !== null && index === -1) {
       return;
     }
@@ -153,7 +143,6 @@ export class TurnRecapRuntime {
     this.#requestRender?.();
   }
 
-  /** Pi reports each turn's outcome; the last one before settling is the run's. */
   boundary(event: Pick<TurnEndEvent, "outcome">, ctx: ExtensionContext): void {
     if (!this.#active) {
       return;
@@ -181,7 +170,6 @@ export class TurnRecapRuntime {
       runId: randomUUID(),
       ...active.timing.read(),
       finishedAt: Date.now(),
-      // Pi's flag also covers aborts that leave the last turn "completed", such as during tools.
       outcome: event.aborted ? "aborted" : active.outcome,
       metrics: active.metrics,
     };
@@ -211,12 +199,10 @@ export class TurnRecapRuntime {
       return;
     }
 
-    // Pi draws the new card on a later frame, so it already sees this.
     this.#recaps.set(snapshot.runId, { status: "generating" });
     const lifetime = this.#lifetime.signal;
     const recap = await generateRecap(ctx, config, prompt, lifetime);
 
-    // Only shutdown aborts; later runs and tree navigation let the recap finish.
     if (!lifetime.aborted) {
       this.#save(snapshot.runId, recap);
     }
@@ -227,22 +213,16 @@ export class TurnRecapRuntime {
     unmount(ctx);
   }
 
-  /** Writing any entry makes Pi redraw the transcript, so the card picks up its recap. */
   #save(runId: string, recap: Recap): void {
     this.#recaps.set(runId, recap);
     this.#pi.appendEntry(RECAP_ENTRY_TYPE, { runId, recap });
   }
 
-  /**
-   * A fresh widget per run, so rolling history never spans runs. A run that starts
-   * while the font is still loading keeps ordinary digits.
-   */
   #mount(ctx: ExtensionContext): void {
     if (ctx.mode !== "tui") {
       return;
     }
 
-    // Pi disposes a replaced widget before building its successor.
     ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
       this.#requestRender = () => {
         tui.requestRender();

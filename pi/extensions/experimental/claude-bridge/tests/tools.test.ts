@@ -24,8 +24,6 @@ describe("served tool names", () => {
     expect(piToolName("mcp__custom-tools__WebFetch", names)).toBe("WebFetch");
   });
 
-  // Claude Code answers an invented builtin, or a name in the wrong case, itself;
-  // forwarding it would run a tool Claude Code never dispatched.
   it("does not resolve a name the bridge does not serve exactly", () => {
     const { names } = resolveServedTools([tool("read")]);
 
@@ -36,7 +34,6 @@ describe("served tool names", () => {
   });
 });
 
-// Pi lists tool guidelines in the system prompt the bridge does not forward.
 describe("served tool descriptions", () => {
   it("carry each tool's prompt guidelines", () => {
     const served = resolveServedTools(

@@ -54,7 +54,6 @@ const wakes = (h: AgentSessionHarness) =>
       m.role === "custom" && m.customType === WAKE_TYPE ? [m] : []
     );
 
-/** The task most recently started by a model-issued task_start call. */
 const started = (h: AgentSessionHarness) => {
   const result = h
     .messages()
@@ -110,7 +109,6 @@ const listed = async (h: AgentSessionHarness) =>
     await callTool(h, "task_list", {})
   ).tasks;
 
-/** Runs every task tool from one Code Mode call, with `task_start` blocked by Pi or not. */
 const runNativeTasks = async (blocked: boolean) => {
   const h = await createAgentSessionHarness({
     mode: "rpc",
@@ -301,7 +299,6 @@ describe("background tasks in a real AgentSession", () => {
               unread: true,
             }),
           ]);
-        // Cross the debounce while the run is still busy.
         await delay(150);
         expect(wakes(h)).toHaveLength(0);
 
@@ -365,7 +362,6 @@ describe("background tasks in a real AgentSession", () => {
           });
         },
         (context) => {
-          // The wake run must retain hook sections after its first tool call, not reset the prompt.
           expect(getCurrentSystemPrompt(context.messages)).toContain(
             "wake-custom"
           );
@@ -374,7 +370,6 @@ describe("background tasks in a real AgentSession", () => {
         },
       ]);
       await h.prompt("Start a synthetic watcher");
-      // Complete only after the user run settled, even on a busy host.
       await writeFile(releaseWatcher, "");
       await expect.poll(() => wakes(h).length).toBe(1);
       await expect.poll(() => h.session.isIdle).toBe(true);
@@ -449,8 +444,6 @@ describe("background tasks in a real AgentSession", () => {
     expect(inspected.logs.stderrOmittedBytes).toBe(12_000);
     expect(inspected.logs.stderr).toBe("�".repeat(12_000));
 
-    // The native adapter must select structuredContent, not parse the text preview these log
-    // tails cut.
     const code = `const {result, events, logs} = await tools.task_inspect({id:${JSON.stringify(id)}, tailBytes:12000});
       if (!Array.isArray(result) || result.length !== 2500) throw Error("Incomplete result");
       text({count:result.length,events:events.map(event => event.data.length),stderr:logs.stderr.length});`;
@@ -510,7 +503,6 @@ describe("background tasks in a real AgentSession", () => {
     await expect
       .poll(async () => await listed(h))
       .toEqual([expect.objectContaining({ cleanup: "clean", unread: true })]);
-    // Cross a readiness recheck while the prompt stays open.
     await delay(1200);
     expect(wakes(h)).toHaveLength(0);
     h.setResponses([fauxAssistantMessage("Notification received")]);
@@ -602,7 +594,6 @@ describe("background tasks in a real AgentSession", () => {
           .toEqual([
             expect.objectContaining({ status: "completed", cleanup: "clean" }),
           ]);
-        // Let the notification timer encounter the busy session.
         await delay(150);
         expect(h.session.isIdle).toBe(false);
         expect(wakes(h)).toHaveLength(0);
@@ -635,7 +626,6 @@ describe("background tasks in a real AgentSession", () => {
       ),
       async () => {
         const { id } = started(h);
-        // TERM is ignored, so cleanup stays pending until the KILL escalation.
         await expect
           .poll(async () => await listed(h))
           .toEqual([
@@ -769,7 +759,6 @@ describe("background tasks in a real AgentSession", () => {
     ]);
     await h.prompt("Start server");
     const task = started(h);
-    // Bound hosts receive session_start on reload, as the interactive application does.
     await h.session.bindExtensions({
       uiContext: h.session.extensionRunner.createToolContext("test", undefined)
         .ui,

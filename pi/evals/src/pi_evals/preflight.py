@@ -1,5 +1,3 @@
-"""Repeatable no-model checks, independent of immutable model attempts."""
-
 from pathlib import Path
 import json
 

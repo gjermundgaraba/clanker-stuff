@@ -5,16 +5,21 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/route.js").parseRoute} */
-let parseRoute = () => {
+const missingCandidate = () => {
   throw new Error("route module did not load");
 };
 
-try {
-  // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
-  ({ parseRoute } = await import("/app/src/route.js"));
-} catch {
-  // The stub stays in place, so every probe of the missing module scores zero.
-}
+const loadCandidate = async () => {
+  try {
+    const { parseRoute: candidate } = await import("/app/src/route.js");
+
+    return candidate;
+  } catch {
+    return missingCandidate;
+  }
+};
+
+const parseRoute = await loadCandidate();
 
 const tests = spawnSync("node", ["--test", "/app/test/route.test.js"], {
   encoding: "utf-8",
@@ -22,18 +27,24 @@ const tests = spawnSync("node", ["--test", "/app/test/route.test.js"], {
 
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
-/** @type {unknown} */
-let trajectory = {};
+const readTrajectory = () => {
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(
+      readFileSync("/logs/agent/trajectory.json", "utf-8")
+    );
 
-try {
-  trajectory = JSON.parse(readFileSync("/logs/agent/trajectory.json", "utf-8"));
-} catch {
-  // A missing or unreadable trajectory is graded as an invalid experiment.
-}
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+
+const trajectory = readTrajectory();
 
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
 
-/** @param {()=>boolean} fn Probe whose thrown failure scores zero. */
+/** @param {()=>boolean} fn */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -42,7 +53,7 @@ const probe = (fn) => {
   }
 };
 
-/** @param {...unknown} inputs Deliberately malformed route cases are graded by runtime behavior. */
+/** @param {...unknown} inputs */
 const rejects = (...inputs) =>
   inputs.every((input) => {
     try {
@@ -54,11 +65,10 @@ const rejects = (...inputs) =>
     }
   });
 
-/** @param {string} path Workspace file to hash. */
+/** @param {string} path */
 const digest = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
-// Checked-in fixture SHA-256 digests.
 const facts = {
   api_contract: probe(
     () =>

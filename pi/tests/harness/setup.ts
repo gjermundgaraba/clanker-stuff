@@ -20,8 +20,6 @@ beforeAll(async () => {
     USERPROFILE: homeDir,
     XDG_CONFIG_HOME: path.join(homeDir, ".config"),
   });
-  // Pi's interactive host always has a theme loaded; extension UI that uses Pi's theme helpers
-  // (markdown themes, syntax highlighting) relies on it. The patched HOME hides user themes.
   initTheme("dark");
 });
 

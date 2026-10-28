@@ -36,7 +36,6 @@ export const motion = (view: View, command: Command): Motion | undefined => {
     }
 
     case "l": {
-      // An operator's exclusive end may follow the last character; plain moves are normalized.
       at = Math.min(row.end, cells[index + count]?.start ?? text.length);
       break;
     }
@@ -75,7 +74,6 @@ export const motion = (view: View, command: Command): Motion | undefined => {
         Math.min(rows.length - 1, current + (key === "j" ? count : -count))
       );
 
-      // A count may be cut short by the document, but a motion that cannot move at all fails.
       if (target === current) {
         return undefined;
       }
@@ -349,8 +347,6 @@ export const objectRange = (
       }
 
       run();
-      // "Inner" counts whitespace as an object. "A word" pairs each word with whitespace:
-      // what follows it, or what precedes it when the object starts on whitespace.
       const paired = blank || (n + 1 < count && type(i + 1) === 0);
 
       if (around && paired && i + 1 < cells.length) {

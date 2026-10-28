@@ -11,7 +11,7 @@ const logs = process.env["EVAL_LOGS"] ?? "/logs/verifier";
 
 mkdirSync(logs, { recursive: true });
 
-/** @param {string} path Eval log the agent may not have written. @param {string} fallback Contents to use when the log is missing. */
+/** @param {string} path @param {string} fallback */
 const read = (path, fallback) => {
   try {
     return readFileSync(path, "utf-8");
@@ -31,7 +31,7 @@ const events = read(
 )
   .split("\n")
   .filter(Boolean)
-  .map(/** @returns {unknown} Unchecked record. */ (line) => JSON.parse(line));
+  .map(/** @returns {unknown} */ (line) => JSON.parse(line));
 
 /** @type {unknown} */
 const trajectory = JSON.parse(

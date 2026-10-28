@@ -637,7 +637,6 @@ describe("child runtime", () => {
   });
 });
 
-/** A child tool that blocks until released, so the turn is streaming while mail arrives. */
 const blockingTool = () => {
   const started = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
@@ -854,7 +853,6 @@ describe("child mail", () => {
       );
       expect(request.indexOf("initial task")).toBeGreaterThan(-1);
 
-      // Once the turn has settled, there is nothing to queue a task for.
       await tick();
       expect(runtime.steer(task)).toBeUndefined();
     } finally {
@@ -910,7 +908,6 @@ describe("child mail", () => {
           execute: async (_id, _params, _signal, _update, ctx) => {
             ctx.abort();
 
-            // Ending the run here leaves the tool-use response as the last assistant message.
             return {
               content: [{ text: "stopped", type: "text" }],
               details: {},
@@ -966,7 +963,6 @@ describe("child mail", () => {
           parameters: Type.Object({}),
         });
 
-        // An aborted run skips the settle hook; its settled handlers still run inside the turn.
         pi.on("agent_settled", () => {
           read = steer?.({
             content: "late",
@@ -1081,7 +1077,6 @@ const compactingHarness = async (
   return harness;
 };
 
-/** History whose last response overflowed, so the next prompt compacts first. */
 const overflowedHistory = (
   harness: AgentSessionHarness
 ): ChildRuntimeRequest["history"] => {
@@ -1173,7 +1168,6 @@ describe("child cancellation", () => {
         await preflightStarted.promise;
 
         runtime.abort();
-        // The turn settles without waiting for the suspended handler.
         await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
         releasePreflight.resolve(undefined);
 
@@ -1271,7 +1265,6 @@ describe("child cancellation", () => {
           disposed = true;
         })();
 
-        // Shutdown reaches handlers while the suspended preflight still runs.
         await shutdownStarted.promise;
         await tick();
         expect({ disposed, preflightFinished }).toStrictEqual({
@@ -1370,7 +1363,6 @@ describe("child cancellation", () => {
     const checkAuth = apiKeyAuth.check.bind(apiKeyAuth);
     let blockAuth = false;
 
-    // Pi checks configured auth during preflight, before pre-prompt compaction.
     const authSpy = vi
       .spyOn(apiKeyAuth, "check")
       .mockImplementation(async (input) => {
@@ -1659,7 +1651,6 @@ describe("child cancellation", () => {
       releaseRetryContext.resolve(undefined);
 
       await expect(turn).resolves.toStrictEqual({ status: "interrupted" });
-      // The retry reaches the provider only with an aborted signal, so no request is built.
       expect(
         harness.providerPayloads(
           Type.Object({}, { additionalProperties: true })

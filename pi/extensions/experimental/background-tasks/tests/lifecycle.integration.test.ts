@@ -133,7 +133,6 @@ describe("session replacement through the real SDK runtime", () => {
 
       const first = await start();
       const originalFile = runtime.session.sessionManager.getSessionFile()!;
-      // /clone forks at the current leaf, including it.
       await runtime.fork(runtime.session.sessionManager.getLeafId()!, {
         position: "at",
       });

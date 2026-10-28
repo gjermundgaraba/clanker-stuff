@@ -22,10 +22,10 @@ export const definitions = (backend) =>
     parameters,
     outputSchema: Type.Unknown(),
     /**
-     * @param {string} _id Tool call id, unused.
-     * @param {unknown} args Each public service call validates its own request contract.
-     * @param {AbortSignal} [signal] Cancels the service call.
-     * @returns {Promise<{content: {type: "text", text: string}[], details: object, structuredContent: import("./services.mjs").ServiceResult}>} Service result as text and structured content.
+     * @param {string} _id
+     * @param {unknown} args
+     * @param {AbortSignal} [signal]
+     * @returns {Promise<{content: {type: "text", text: string}[], details: object, structuredContent: import("./services.mjs").ServiceResult}>}
      */
     async execute(_id, args, signal) {
       const result = await backend.call(name, args, signal);

@@ -1,5 +1,3 @@
-"""Manifest-driven reporting for Harbor evaluation jobs."""
-
 from __future__ import annotations
 
 import math

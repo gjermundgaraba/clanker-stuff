@@ -134,12 +134,9 @@ export const finalFromMessages = (
   );
 
   if (candidate === undefined) {
-    // Compaction can summarize away a truncated response before a cancelled run ends.
     return cancelled ? { status: "interrupted" } : { status: "completed" };
   }
 
-  // A request failing after cancellation reports the abort, not an agent error. An abort nobody
-  // requested, such as a child extension's, is a failure the parent must hear about.
   if (
     !cancelled &&
     (candidate.stopReason === "error" || candidate.stopReason === "aborted")
@@ -154,8 +151,6 @@ export const finalFromMessages = (
     };
   }
 
-  // Cancellation can stop overflow recovery or an explicit unfinished-turn continuation;
-  // neither intermediate response is a completed answer.
   if (
     cancelled &&
     (candidate.stopReason === "aborted" ||
@@ -228,10 +223,8 @@ export const cloneModelRuntime = async (
 
 interface Turn {
   cancelled: boolean;
-  /** Settles a turn cancelled before Pi starts its run, where `session.abort()` has nothing to stop. */
   readonly preflightCancelled: PromiseWithResolvers<undefined>;
   preflight: boolean;
-  /** The latest run's signal; an abort nobody requested can leave a complete-looking response. */
   run?: AbortSignal | undefined;
 }
 
@@ -270,7 +263,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   }
 
   const { promptOptions } = request;
-  /** The current prompt, from submission until it settles, including after cancellation. */
   let turn: Turn | undefined;
 
   const settingsManager = SettingsManager.create(request.cwd, agentDir, {
@@ -287,7 +279,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       request.prompt,
     ].filter((value): value is string => value !== undefined && value !== ""),
     cwd: request.cwd,
-    // Built-in entries follow the user's `-builtin:<name>` settings and yield to replacements.
     extensionFactories: [
       {
         builtin: true,
@@ -309,7 +300,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       },
       {
         factory: async (pi) => {
-          // abort() cannot stop a pre-prompt compaction that only starts after preflight cancellation.
           pi.on("session_before_compact", () =>
             turn?.cancelled === true ? { cancel: true } : undefined
           );
@@ -319,7 +309,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         name: "subagents-child",
       },
     ],
-    // The bridge replaces the root's own subagents extension inside children.
     extensionsOverride: (base) => ({
       ...base,
       extensions: base.extensions.filter(
@@ -341,7 +330,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   });
 
   await resourceLoader.reload();
-  // Reload re-reads settings, so inherited activation is applied afterwards.
   settingsManager.applyOverrides({ defaultTools: [...request.tools] });
   const extensions = resourceLoader.getExtensions();
 
@@ -374,7 +362,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
   let running: Promise<void> = Promise.resolve();
   let disposal: Promise<void> | undefined;
-  /** Steered tasks the transcript has not shown yet, by message id. */
   const steered = new Map<string, (read: boolean) => void>();
 
   const unsubscribe = session.subscribe((event) => {
@@ -399,7 +386,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       }
     }
 
-    // Pi's session does not catch its listeners: a presentation failure would abort the child's run.
     try {
       request.onEvent(event);
     } catch (error) {
@@ -431,7 +417,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
     const prompt = session.prompt(text, {
       expandPromptTemplates: false,
-      // Throwing here keeps a turn cancelled during preflight from starting its run.
       preflightResult: (disposition) => {
         if (current.cancelled) {
           throw new Error("Child turn was aborted");
@@ -446,22 +431,17 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       source: "extension",
     });
 
-    running = (async () => {
-      try {
-        await prompt;
-      } catch {
-        // The outcome below reports the failure.
-      } finally {
-        turn = undefined;
+    const settle = (): void => {
+      turn = undefined;
 
-        // Pi reads no more steering once the prompt settles, whatever the timing of the steer.
-        for (const read of steered.values()) {
-          read(false);
-        }
-
-        steered.clear();
+      for (const read of steered.values()) {
+        read(false);
       }
-    })();
+
+      steered.clear();
+    };
+
+    running = prompt.then(settle, settle);
 
     try {
       await Promise.race([prompt, current.preflightCancelled.promise]);
@@ -486,7 +466,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       current.cancelled
     );
 
-    // A tool aborting the run, for example, leaves its preliminary response as the last message.
     return outcome.status === "completed" &&
       !current.cancelled &&
       current.run?.aborted === true
@@ -519,7 +498,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         abort();
 
         try {
-          // Shutdown runs alongside the stopping run so handlers blocking preflight can release it.
           const [shutdown] = await Promise.allSettled([
             session.extensionRunner.emit({
               reason: "quit",
@@ -540,8 +518,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       await disposal;
     },
     get model() {
-      // Selection stays readable after disposal for the controller's retirement snapshot.
-      // Pi's type allows no model at all.
       const current = session.model ?? model;
 
       return `${current.provider}/${current.id}`;
@@ -554,8 +530,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     }),
     startTurn,
     steer(task): Promise<boolean> | undefined {
-      // Pi delivers queued steering after the prompt when the run starts, or at the next turn
-      // boundary while it runs; the transcript, not Pi's state, shows whether it did.
       if (turn === undefined) {
         return;
       }
@@ -564,7 +538,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       const read = Promise.withResolvers<boolean>();
       steered.set(id, read.resolve);
 
-      // sendCustomMessage would append the task at once before the run starts, ahead of the prompt.
       session.agent.steer({
         content: envelopeText(task),
         customType: SUBAGENT_MESSAGE_TYPE,

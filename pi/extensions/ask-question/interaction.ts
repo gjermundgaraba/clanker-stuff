@@ -65,7 +65,6 @@ const AnswerSchema = Type.Object(
   { additionalProperties: false }
 );
 
-/** The immutable answer the user submitted; delivery bookkeeping is kept beside it. */
 export const submittedFields = {
   revision: Type.Integer({ minimum: 1 }),
   timestamp: Type.String(),
@@ -82,7 +81,6 @@ const SubmissionSchema = Type.Object(
   { additionalProperties: false }
 );
 
-/** Written once when the agent asks: the authored questions never change. */
 export const RequestRecordSchema = Type.Object(
   {
     id: Id,
@@ -93,7 +91,6 @@ export const RequestRecordSchema = Type.Object(
   { additionalProperties: false }
 );
 
-/** Written on every change: the user's draft, submissions and their delivery. */
 export const StateRecordSchema = Type.Object(
   {
     id: Id,
@@ -137,7 +134,6 @@ export type Action =
   | { type: "cancel" }
   | { type: "sent"; revision: number };
 
-/** Validates the authored request; tools pass their arguments straight through. */
 export const createInteraction = (
   id: string,
   input: unknown,
@@ -181,7 +177,6 @@ export const answered = (a: Draft["answers"][string] | undefined): boolean =>
   (a.selected.length > 0 || a.custom_selected) &&
   (!a.custom_selected || !!displayText(a.custom).trim());
 
-/** The draft's current answer in submission shape. */
 export const draftAnswer = (item: Interaction, q: Question): Answer => {
   const answer: Answer = {
     question: q.question,
@@ -272,7 +267,6 @@ export const collectAnswers = (item: Interaction): Submission["answers"] => {
   return answers;
 };
 
-/** Applies one user or agent action to a copy; the original is never mutated. */
 export const transition = (
   item: Interaction,
   action: Action,
@@ -477,8 +471,6 @@ export const transition = (
       submission.sent_at = now;
       break;
     }
-
-    // no default
   }
 
   next.updated_at = now;
@@ -486,11 +478,9 @@ export const transition = (
   return next;
 };
 
-/** The submission a draft revises, when it revises one. */
 export const revisedSubmission = (item: Interaction): Submission | undefined =>
   item.draft ? item.submissions.at(-1) : undefined;
 
-/** Open drafts and answers never sent to Pi still need the user; sent and cancelled ones do not. */
 export const awaitingUser = (item: Interaction): boolean =>
   !item.cancelled &&
   (!!item.draft ||

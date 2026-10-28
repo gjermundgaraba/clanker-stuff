@@ -33,7 +33,6 @@ export const preview = (
           : [...rows.slice(0, limit), hint];
       }
 
-      // A wide glyph can exceed a one-column Text layout. Guard only emitted rows.
       cache = {
         width,
         rows: rows.map((row) => truncateToWidth(row, width, "")),

@@ -44,9 +44,7 @@ export interface Task {
 
 export interface ProcessLimits {
   concurrency: number;
-  /** Finished, cleaned and fully read tasks kept for inspection. */
   history: number;
-  /** Finished tasks whose notice is still unread; bounds memory while delivery waits. */
   unread: number;
   graceMs: number;
   killMs: number;
@@ -60,7 +58,6 @@ export const DEFAULT_LIMITS: ProcessLimits = {
   killMs: 1000,
 };
 
-/** A finished task announces its outcome only after cleanup, when its logs are complete. */
 export const unread = (task: Task): Unread | undefined =>
   task.notices.unread(task.cleanup === "pending" ? undefined : task.outcome);
 
@@ -70,7 +67,6 @@ const describe = (error: unknown) =>
     500
   );
 
-/** Owns processes, never Pi contexts. */
 export class Supervisor {
   private readonly tasks = new Map<string, Task>();
   private closing = false;
@@ -131,7 +127,6 @@ export class Supervisor {
       task.outcome === "cancelled"
     ) {
       await this.stop(task.id);
-      // A failed start leaves nothing to inspect unless its process may still be alive.
       const kept = task.cleanup !== "clean";
 
       if (!kept) {
@@ -231,7 +226,6 @@ export class Supervisor {
 
       child.on("close", exited);
       child.on("exit", (code, exitSignal) => {
-        // Descendants can keep inherited pipes open after the direct child exits.
         drainTimer = setTimeout(() => {
           exited(code, exitSignal);
         }, 100);
@@ -286,11 +280,9 @@ export class Supervisor {
     this.reap(task);
   }
 
-  /** Runs process cleanup; stop() also uses it to retry a cleanup that failed. */
   private reap(task: Task): void {
     task.cleanup = "pending";
     task.cleanupPromise = (async () => {
-      // Defer until launch has returned, avoiding a ready/cleanup promise cycle.
       await Promise.resolve();
 
       try {
@@ -333,7 +325,6 @@ export class Supervisor {
       }
     };
 
-    // macOS can transiently refuse to signal a group of exiting processes.
     let refusal: string | undefined;
 
     const kill = (signal: NodeJS.Signals) => {
@@ -372,7 +363,6 @@ export class Supervisor {
       task.diagnostic ??= refusal;
     }
 
-    // Allow close/data callbacks to drain. Never wait forever for inherited pipes.
     if (!child.stdout.destroyed || !child.stderr.destroyed) {
       const closed = Promise.withResolvers<undefined>();
       child.once("close", () => {
@@ -383,7 +373,6 @@ export class Supervisor {
 
     child.stdout.destroy();
     child.stderr.destroy();
-    // Published once cleanup is over: a stop that sees "failed" retries a finished cleanup.
     task.cleanup = verdict;
   }
 
@@ -414,7 +403,6 @@ export class Supervisor {
     const task = this.get(id);
     this.finish(task, "cancelled");
 
-    // A failed cleanup may be stale: the group can exit after cleanup gives up.
     if (task.cleanup === "failed") {
       this.reap(task);
     }
@@ -423,11 +411,9 @@ export class Supervisor {
 
     return task;
   }
-  /** Stops tasks a branch change orphaned and forgets those whose process group is gone. */
   async discard(orphaned: (task: Task) => boolean): Promise<void> {
     const tasks = this.list().filter(orphaned);
 
-    // Forget them before awaiting cleanup, so no notice announces them meanwhile.
     for (const task of tasks) {
       this.tasks.delete(task.id);
     }

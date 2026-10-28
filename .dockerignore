@@ -3,5 +3,4 @@
 **/.venv
 **/node_modules
 
-# Local eval dataset checkouts are not runtime build inputs.
 pi/evals/.cache

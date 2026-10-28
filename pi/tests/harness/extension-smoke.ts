@@ -18,9 +18,7 @@ export interface ExtensionSmokeHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
-const noopRestore = () => {
-  /* noop */
-};
+const noopRestore = (): void => undefined;
 
 export const createExtensionSmokeHarness = async (
   options: ExtensionSmokeHarnessOptions

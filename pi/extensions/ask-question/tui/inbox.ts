@@ -16,7 +16,6 @@ import {
 
 type ReviewAction = { type: "reopen" | "send"; revision: number } | undefined;
 
-/** Read-only submitted answers, with explicit Revise and Send actions. */
 const inspectSubmission = async (
   ctx: ExtensionContext,
   coordinator: Coordinator,
@@ -121,9 +120,7 @@ const inspectSubmission = async (
 
             tui.requestRender();
           },
-          invalidate() {
-            // Every render reads the current state; there is no cache to drop.
-          },
+          invalidate: () => undefined,
           dispose() {
             active.removeEventListener("abort", close);
           },
@@ -144,7 +141,6 @@ export const showInbox = async (
     return;
   }
 
-  // Awaiting you first; sent and cancelled ones follow under a separator row.
   const awaiting = all.filter(awaitingUser);
   const rest = all.filter((i) => !awaitingUser(i));
   const items = [...awaiting, ...rest];

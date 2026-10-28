@@ -174,8 +174,7 @@ void describe("Codex JSON-RPC validation", () => {
     ...invalidObjects,
     ...[null, true, [], {}, Number.NaN, 1.5].map((id) => ({ id })),
     ...["1e400", "-1e400"].map(
-      /** @returns {unknown} Message whose id is out of range. */ (literal) =>
-        JSON.parse(`{"id":${literal}}`)
+      /** @returns {unknown} */ (literal) => JSON.parse(`{"id":${literal}}`)
     ),
     ...invalidStrings.map((method) => ({ method })),
     ...invalidObjects.map((params) => ({ params })),
@@ -235,8 +234,8 @@ void describe("Codex usage and compaction capture", () => {
     const capture = createCapture();
 
     /**
-     * @param {string} method App-server notification method the capture dispatches on, such as `item/started`.
-     * @param {import("../runtime/codex-eval.mjs").RpcParams} params Payload shaped as the app server sends it for that method.
+     * @param {string} method
+     * @param {import("../runtime/codex-eval.mjs").RpcParams} params
      */
     const accept = (method, params) => {
       capture.accept({ hasError: false, hasResult: false, method, params });
@@ -292,7 +291,6 @@ void describe("Codex usage and compaction capture", () => {
     accept("turn/completed", {
       turn: { id: "aborted", status: "interrupted" },
     });
-    // The terminal turn may arrive before the runner registers the compaction.
     accept("turn/completed", {
       turn: { id: "pre-hook", status: "interrupted" },
     });
@@ -342,7 +340,7 @@ void describe("Codex usage and compaction capture", () => {
 });
 
 for (const name of ["codex-eval", "pi-eval-compact"]) {
-  void it(`runs ${name} through a symlink beside dependencies without losing entrypoint detection`, () => {
+  void it(`self-checks ${name} through a symlink beside dependencies without losing entrypoint detection`, () => {
     const directory = mkdtempSync(path.join(tmpdir(), `${name}-test-`));
     const executable = path.join(directory, name);
 
@@ -352,14 +350,13 @@ for (const name of ["codex-eval", "pi-eval-compact"]) {
         executable
       );
 
-      const result = spawnSync(process.execPath, [executable], {
+      const result = spawnSync(process.execPath, [executable, "--self-check"], {
         encoding: "utf-8",
       });
 
-      assert.notStrictEqual(result.status, 0);
-      assert.match(
-        result.stderr,
-        new RegExp(`usage: ${name} CONFIG_JSON`, "u")
+      assert.deepStrictEqual(
+        { status: result.status, stderr: result.stderr },
+        { status: 0, stderr: "" }
       );
     } finally {
       rmSync(directory, { recursive: true, force: true });

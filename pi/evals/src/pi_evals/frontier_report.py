@@ -1,4 +1,3 @@
-"""Frontier presentation only; never used to authorize model execution."""
 import json
 import statistics
 

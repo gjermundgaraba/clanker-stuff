@@ -60,7 +60,6 @@ const setup = (mode: ExtensionContext["mode"] = "tui") => {
 
   const driver = createCustomUiDriver({});
 
-  // Pi's ctx.ui.theme is live, so each context stands for the theme at the time of its event.
   const context = (appearance: ThemeAppearance = "dark") =>
     host.createContext({
       hasUI: mode === "tui" || mode === "rpc",
@@ -213,7 +212,6 @@ describe("shape spinner", () => {
     await host.emitSessionStart(ctx);
     const dialog = await openDialog(host, driver, ctx);
 
-    // Motion is the first row; the shape is the row below it.
     dialog.press(space);
     expect(setWorkingIndicator).toHaveBeenLastCalledWith(
       resting(wireframe("orb", "cyan", "dark"))
@@ -242,7 +240,6 @@ describe("shape spinner", () => {
     const line = rendered.split("\n").find((row) => row.includes("Working"));
 
     expect(line).toContain("orb · cyan");
-    // Previews animate, so any frame of the loop may be showing.
     expect(
       wireframe("orb", "cyan", "dark").frames.some(
         (frame) => line?.includes(frame) === true
@@ -254,7 +251,6 @@ describe("shape spinner", () => {
         "u"
       )
     );
-    // The footer wraps the long font path; whitespace is the only difference.
     expect(rendered.replaceAll(/\s+/gu, "")).toContain(
       fileURLToPath(new URL("../assets/ShapeSpinner.ttf", import.meta.url))
     );
@@ -291,7 +287,6 @@ describe("shape spinner", () => {
     expect(Number.isInteger(1000 / manifest.fps)).toBe(true);
     expect(manifest.seed).toBe("amp-orb");
     expect(manifest.rubik.frames).toContainEqual(manifest.rubik.still);
-    // Manifest order drives settings cycling, with the uncolored puzzle first.
     expect(shapes).toStrictEqual([
       "rubik",
       "orb",

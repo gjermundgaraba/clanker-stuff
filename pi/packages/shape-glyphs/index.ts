@@ -1,7 +1,3 @@
-/**
- * Shape Spinner's artwork as text. Every frame is a codepoint of its font, so it draws only where that
- * font is installed and mapped; the shape-spinner extension owns the font, its build, and its setup.
- */
 import manifest from "./shapes.json" with { type: "json" };
 
 export { default as manifest } from "./shapes.json" with { type: "json" };
@@ -23,9 +19,10 @@ export interface Animation {
   readonly still: string;
 }
 
-// The unmapped space reserves a second terminal column for the square artwork.
-const glyph = (codepoint: number): string =>
-  `${String.fromCodePoint(codepoint)} `;
+const SECOND_COLUMN_PAD = " ";
+
+const twoColumnGlyph = (codepoint: number): string =>
+  `${String.fromCodePoint(codepoint)}${SECOND_COLUMN_PAD}`;
 
 const animation = ({
   frames,
@@ -34,8 +31,8 @@ const animation = ({
   frames: number[];
   still: number;
 }): Animation => ({
-  frames: frames.map(glyph),
-  still: glyph(still),
+  frames: frames.map(twoColumnGlyph),
+  still: twoColumnGlyph(still),
 });
 
 const wireframes = new Map<string, Animation>();

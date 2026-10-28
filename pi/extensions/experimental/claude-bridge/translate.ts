@@ -1,11 +1,3 @@
-// Claude Code's messages → pi's assistant-message events, one provider call at a time.
-//
-// A `Turn` is the output of one provider call: the assistant message being built and the
-// pi stream it is pushed to. Claude Code streams each API response as events and then
-// repeats it as one complete `assistant` message; either can carry the content first.
-// A tool call ends the turn with `toolUse` so pi can run the tool, and the next provider
-// call opens a new turn.
-
 import type {
   SDKAssistantMessage,
   SDKPartialAssistantMessage,
@@ -31,8 +23,6 @@ import { piToolName } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
 
-/** A block whose content_block_stop has not arrived: Anthropic's block index, and for a
- *  tool call the raw argument JSON so far. */
 interface OpenBlock {
   index: number;
   partialJson: string;
@@ -68,7 +58,6 @@ export const mapStopReason = (
       return "toolUse";
     }
 
-    // Both cut the response off; pi must know a response was truncated.
     case "max_tokens":
     case "model_context_window_exceeded": {
       return "length";
@@ -83,19 +72,15 @@ export const mapStopReason = (
       return "stop";
     }
 
-    // Claude Code relays the API's stop reason as it arrives, so a reason newer than
-    // these SDK types can still reach here at runtime.
     default: {
       return "stop";
     }
   }
 };
 
-/** A tool call's arguments from the JSON streamed so far, partial objects included. */
 const streamedArguments = (json: string, fallback: JsonObject): JsonObject =>
   json === "" ? fallback : (toJsonObject(parseStreamingJson(json)) ?? fallback);
 
-/** The event that opens each kind of block. */
 const START_EVENT = {
   text: "text_start",
   thinking: "thinking_start",
@@ -303,8 +288,6 @@ export class Turn {
 
     switch (event.type) {
       case "message_start": {
-        // Still open from an earlier message_start: Claude Code gave up on that stream and
-        // is retrying it, and its blocks never completed.
         if (this.streamOpen) {
           this.dropAbandoned(`restreamed as ${event.message.id}`);
         }
@@ -482,7 +465,6 @@ export class Turn {
           this.finish();
         }
       }
-      // no default
     }
   }
 
@@ -497,12 +479,7 @@ export class Turn {
     const assistant = message.message;
     const { output } = this;
 
-    // Claude Code reports API failures and its own quota or context notices as a
-    // `<synthetic>` assistant message: a report, not model output. Streaming it would
-    // commit output before the failure it describes, so its text stays on the turn
-    // (the error event carries it) without events.
     if (assistant.model === "<synthetic>") {
-      // It can follow a stalled stream whose non-streaming retry also failed.
       if (this.sawStreamEvent && this.streamOpen) {
         this.dropAbandoned("synthetic failure report");
       }
@@ -519,7 +496,6 @@ export class Turn {
     }
 
     if (this.sawStreamEvent) {
-      // The same id was already delivered; a new id is the non-streaming fallback.
       if (
         this.streamMessageId === undefined ||
         assistant.id === this.streamMessageId
@@ -601,8 +577,6 @@ export class Turn {
 
     recordUsage(output, assistant.usage, this.model);
 
-    // Claude Code writes a stop reason only on a message's last block; a cut-off one says
-    // so here, with no message_delta to carry it.
     if (mapStopReason(assistant.stop_reason) === "length") {
       output.stopReason = "length";
     }
@@ -619,8 +593,6 @@ export class Turn {
       return;
     }
 
-    // A response that arrived whole (the non-streaming fallback) had no message_delta
-    // to carry its stop reason; a token or context-window limit shows here.
     if (
       message.stop_reason === "max_tokens" ||
       message.stop_reason === "model_context_window_exceeded"

@@ -87,7 +87,6 @@ describe(AgentsWidget, () => {
   });
 
   it("counts only this burst and says when the row limit hides live work", () => {
-    // Ten agents finished long ago, each the parent of the next; the deepest one is running.
     const chain = Array.from({ length: 11 }, (_, depth) =>
       node(
         `/root${"/a".repeat(depth + 1)}`,

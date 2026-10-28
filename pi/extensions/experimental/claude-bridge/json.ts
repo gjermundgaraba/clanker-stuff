@@ -1,6 +1,3 @@
-// JSON at the bridge's boundaries: pi's TypeBox tool schemas going out over MCP, and
-// tool arguments coming back from Claude Code's stream.
-
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 
 export const isJsonObject = (

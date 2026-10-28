@@ -1,5 +1,3 @@
-"""Scaling trial evidence used by execution gates and reports."""
-
 import json
 from pathlib import Path
 from pi_evals.trials import rows

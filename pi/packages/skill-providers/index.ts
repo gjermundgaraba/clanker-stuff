@@ -42,7 +42,6 @@ export interface SkillProvider {
   ): Promise<ProvidedSkill | { error: string }>;
 }
 
-/** Skill-block attribute values. Pi's parser reads each up to the next double quote. */
 const attribute = (values: readonly string[]): string =>
   values.join(", ").replaceAll('"', "%22");
 
@@ -64,7 +63,6 @@ export const skillBlock = (skills: readonly LoadedSkill[]): string => {
 
 const LoadErrorSchema = Type.Object({ error: Type.String() });
 
-/** Pi's skill blocks need a location. */
 const ProvidedSkillSchema = Type.Object({
   content: Type.String(),
   location: Type.String({ minLength: 1 }),
@@ -74,7 +72,6 @@ const MentionableSkillsSchema = Type.Array(
   Type.Object({ name: Type.String(), description: Type.String() })
 );
 
-/** Decode results from extensions on the untyped event bus before consumers format them. */
 const decodeProvidedSkill = (
   result: unknown
 ): ProvidedSkill | { error: string } => {
@@ -82,7 +79,6 @@ const decodeProvidedSkill = (
     return { error: result.error };
   }
 
-  // A result that reports an error, even malformed, loads nothing.
   if (Value.Check(ProvidedSkillSchema, result) && !("error" in result)) {
     return { content: result.content, location: result.location };
   }
@@ -112,8 +108,6 @@ export const collectSkillProviders = (
 
     const { id, skills, load } = announced;
 
-    // Called on the announcement, so a provider's methods keep their `this`; what they return is
-    // decoded here, since the bus carries untyped values.
     providers.set(id, {
       id,
       skills: () => {

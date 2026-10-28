@@ -33,13 +33,9 @@ export const MetricsSchema = Type.Object(
     responses: count,
     compactions: count,
     models: Type.Array(Type.String()),
-    /** Context the run added, from reported sizes. */
     contextGrowth: count,
-    /** Time the run's responses took, end to end. */
     modelMs: amount,
-    /** Time at least one tool was running; parallel calls count once. */
     toolMs: amount,
-    /** Pi's current context estimate, for the window details. */
     context: Type.Optional(
       Type.Object(
         {
@@ -84,11 +80,9 @@ export const addUsage = (total: ReportedUsage, usage: Usage): void => {
 export const totalTokens = (usage: ReportedUsage): number =>
   usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 
-/** The context a response was sent. Provider totals are not summed alike, so parts are used. */
 const prompt = (usage: Usage): number =>
   usage.input + usage.cacheRead + usage.cacheWrite;
 
-/** Usage whose parts report a context; failed responses and empty prompts do not. */
 const measured = (entry: SessionEntry): Usage | undefined => {
   if (entry.type !== "message" || entry.message.role !== "assistant") {
     return undefined;
@@ -101,15 +95,9 @@ const measured = (entry: SessionEntry): Usage | undefined => {
     : undefined;
 };
 
-/** Output a later prompt carries: providers drop reasoning once a new user prompt arrives. */
 const kept = (usage: Usage): number =>
   Math.max(0, usage.output - (usage.reasoning ?? 0));
 
-/**
- * Adds up every rise in the prompt size the run's responses report, from the last reported size
- * before the run (zero without one) to the last response's kept output. Compaction and edits
- * shrink the next prompt; a shrink adds nothing.
- */
 const contextGrowth = (
   branch: readonly SessionEntry[],
   runStart: number
@@ -138,12 +126,6 @@ const contextGrowth = (
   return growth + output;
 };
 
-/**
- * Merges each tool's execution, placed to end at its result's timestamp, into the time any tool
- * ran. Pi stamps a parallel batch's results once the whole batch ends, and its calls start
- * together, so this counts each parallel batch's longest call and adds up calls run one at a
- * time. Results Pi did not time add nothing.
- */
 const toolTime = (results: readonly ToolResultMessage[]): number => {
   const spans = results
     .flatMap(({ durationMs, timestamp }) =>
@@ -164,12 +146,6 @@ const toolTime = (results: readonly ToolResultMessage[]): number => {
   return total;
 };
 
-/**
- * Counts the run from `runStart` in raw branch entries, not projected context: edits/compaction
- * cannot erase spent usage. Earlier entries only supply the context the run started from.
- * Tool counts include calls a tool made itself, such as Code Mode's: Pi records them at every
- * depth on the model-issued call's result. Pi keeps at most 256 per result, so more is a floor.
- */
 export const collectMetrics = (
   branch: readonly SessionEntry[],
   runStart = 0

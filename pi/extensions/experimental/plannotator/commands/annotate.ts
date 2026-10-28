@@ -7,7 +7,6 @@ import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
 
-/** Names this command in its failure and outcome notices. */
 const LABEL = "Plannotator annotation";
 
 export const createAnnotateHandler =
@@ -19,7 +18,6 @@ export const createAnnotateHandler =
       return;
     }
 
-    // Plannotator validates its own options; the header shows the arguments as typed.
     const target = args.trim();
 
     if (!tokens.some((token) => token !== "" && !token.startsWith("-"))) {

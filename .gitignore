@@ -1,4 +1,3 @@
-# Dependencies and build output
 node_modules/
 .venv/
 __pycache__/
@@ -7,20 +6,17 @@ dist/
 coverage/
 *.tsbuildinfo
 
-# Logs and local environment
 *.log
 .env
 .env.*
 !.env.example
 
-# Editors and operating systems
 .DS_Store
 .idea/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 
-# Local AI tooling
 .agents/*
 !.agents/skills/
 .agents/skills/*

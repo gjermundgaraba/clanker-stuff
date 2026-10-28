@@ -7,7 +7,6 @@ import { Value } from "typebox/value";
 import { parseDiffLine, SyntaxSchema } from "./highlight.js";
 import type { DiffSyntax, SyntaxRole } from "./highlight.js";
 
-// This replaces native code rendering: keep its syntax roles, not a separate RGB palette.
 const colors = {
   text: "text",
   comment: "syntaxComment",
@@ -142,7 +141,6 @@ export const renderHighlightedDiff = (
 
   const changes = new Map<number, Range[]>();
 
-  // Like Pi's native renderer, emphasize words only for one removed/one added line.
   for (let i = 0; i < rows.length - 1; i += 1) {
     const old = lines[i];
     const next = lines[i + 1];

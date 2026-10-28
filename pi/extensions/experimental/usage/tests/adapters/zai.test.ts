@@ -4,7 +4,6 @@ import { fetchZaiUsage, mapZaiQuotaPayload } from "../../adapters/zai.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuth } from "./helpers.js";
 
-// Live shape observed on a GLM Coding Pro (credit-based) account.
 const creditPayload = {
   code: 200,
   data: {
@@ -36,7 +35,6 @@ const creditPayload = {
   success: true,
 };
 
-// Token-based plans report TOKENS_LIMIT and a monthly web-search TIME_LIMIT.
 const tokenPayload = {
   code: 200,
   data: {

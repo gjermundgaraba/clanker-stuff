@@ -40,7 +40,6 @@ const setup = async (
 
   await host.ready;
   runtimes.push(runtime);
-  // Keep delivery out of these tool-boundary tests, without disabling capture.
   const ctx = host.createToolContext({ mode: "tui", isIdle: () => false });
   runtime.startSession(ctx);
 
@@ -154,8 +153,6 @@ describe("registerTaskTools", () => {
   });
 
   it("keeps a watcher's result and retained events whole in direct text, cutting only log tails", async () => {
-    // Keys and data of U+2028 and U+202E render as 6-byte escapes: retention keeps the newest
-    // few of these events, and the result reaches the rendered record limit.
     const { host, task, ctx } = await setup(
       "const key=(i)=>'\\u2028'.repeat(124)+String(i).padStart(4,'0');" +
         "for(let i=0;i<20;i++)console.log(JSON.stringify({v:1,type:'event',key:key(i),data:'\\u202e'.repeat(600)}));" +
@@ -183,7 +180,6 @@ describe("registerTaskTools", () => {
     expect(text.text).toContain("Incomplete preview");
     expect(details.omittedEvents).toBeGreaterThan(0);
     expect(details.events.at(-1)?.key).toMatch(/0019$/u);
-    // Everything ahead of the logs parses whole.
     const { logs: _logs, ...head } = details;
     expect(
       JSON.parse(`${text.text.slice(0, text.text.indexOf(',"logs":'))}}`)
@@ -242,7 +238,6 @@ describe("registerTaskTools", () => {
       );
 
       const value = response[channel];
-      // Check the actual returned reference: parsing/cloning here would conceal aliasing.
       assert.ok(Value.Check(schema, value));
       value.result.nested.value = "redacted";
       value.result.items.push("added by caller");
@@ -305,7 +300,6 @@ describe("registerTaskTools", () => {
       await expect.poll(() => unread(task)).toEqual({ events: 1 });
       await host.runTool("task_inspect", { id: task.id }, { ctx });
       expect(unread(task)).toBeUndefined();
-      // Stop through the supervisor, not the clearing agent tool.
       await runtime.supervisor.stop(task.id);
       expect(unread(task)).toStrictEqual({ events: 0, outcome: "cancelled" });
     });

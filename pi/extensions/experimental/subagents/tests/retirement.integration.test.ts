@@ -164,8 +164,6 @@ describe("retired child selections", () => {
         await controller.open(saved.store, saved.tree);
         await controller.followUp("/root", "worker", "Cold reuse", ctx);
 
-        // The explicit cold-start arguments are the critical contract: native saved entries
-        // cannot repair stale overrides, and the mutation is never reapplied at startup.
         expect(requests[1]?.model.id).toBe("final");
         expect(requests[1]?.thinkingLevel).toBe("high");
         expect(runtimes[1]?.model).toBe(`${finalModel.provider}/final`);

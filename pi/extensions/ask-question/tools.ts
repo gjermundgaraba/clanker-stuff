@@ -14,7 +14,6 @@ import { renderCall, renderResult, renderReviseCall } from "./transcript.js";
 
 const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
 
-/** Questionnaires ask the user, so the tools are declared to the model but never script-callable. */
 export const registerQuestionTools = (
   pi: ExtensionAPI,
   coordinator: Coordinator,
@@ -85,7 +84,6 @@ export const registerQuestionTools = (
   });
 };
 
-/** Without a terminal there is no one to ask: withdraw the tools so nothing can activate them. */
 export const withdrawOutsideTui = (
   pi: ExtensionAPI,
   coordinator: Coordinator,

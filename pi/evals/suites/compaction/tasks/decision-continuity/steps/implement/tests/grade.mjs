@@ -5,16 +5,21 @@ import { isDeepStrictEqual } from "node:util";
 import { validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/release.js").normalizeRelease} */
-let normalizeRelease = () => {
+const missingCandidate = () => {
   throw new Error("release module did not load");
 };
 
-try {
-  // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
-  ({ normalizeRelease } = await import("/app/src/release.js"));
-} catch {
-  // The stub stays in place, so every probe of the missing module scores zero.
-}
+const loadCandidate = async () => {
+  try {
+    const { normalizeRelease: candidate } = await import("/app/src/release.js");
+
+    return candidate;
+  } catch {
+    return missingCandidate;
+  }
+};
+
+const normalizeRelease = await loadCandidate();
 
 const tests = spawnSync("node", ["--test", "/app/test/release.test.js"], {
   encoding: "utf-8",
@@ -24,18 +29,22 @@ writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
 const trajectoryPath = "/logs/agent/trajectory.json";
 
-/** @type {unknown} */
-let trajectory = {};
+const readTrajectory = () => {
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
 
-try {
-  trajectory = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
-} catch {
-  // A missing or unreadable trajectory is graded as an invalid experiment.
-}
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+
+const trajectory = readTrajectory();
 
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
 
-/** @param {()=>boolean} fn Probe whose thrown failure scores zero. */
+/** @param {()=>boolean} fn */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -120,19 +129,21 @@ const facts = {
   ),
 };
 
-let combined;
+const tryCombined = () => {
+  try {
+    return normalizeRelease({
+      artifacts: [" App.zip ", "app.ZIP", "symbols.tgz", ""],
+      channel: " BETA ",
+      ignored: true,
+      regions: ["APAC", " us ", "eu"],
+      rolloutPercent: "25",
+    });
+  } catch {
+    return undefined;
+  }
+};
 
-try {
-  combined = normalizeRelease({
-    artifacts: [" App.zip ", "app.ZIP", "symbols.tgz", ""],
-    channel: " BETA ",
-    ignored: true,
-    regions: ["APAC", " us ", "eu"],
-    rolloutPercent: "25",
-  });
-} catch {
-  // A throwing candidate leaves `combined` unset; the check below scores that case.
-}
+const combined = tryCombined();
 
 if (combined) {
   facts.artifacts &&= Number(

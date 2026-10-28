@@ -46,7 +46,6 @@ const USAGE = `Usage: /footer [${ARGS.map((arg) => arg.value).join("|")}]`;
 interface Runtime {
   ctx: ExtensionContext;
   config: FooterConfig;
-  /** Why the file's layout was not used; cleared once a layout is saved. */
   loadError: string | undefined;
   footerData: ReadonlyFooterDataProvider | undefined;
   requestRender: () => void;
@@ -83,7 +82,6 @@ const placement = (config: FooterConfig, id: string): string => {
     : "not placed";
 };
 
-/** The layout as drawn: unless Pi still shows the shared editor, border statuses fall back to `footer.statuses`. */
 const drawn = (active: Runtime): FooterConfig =>
   active.border !== undefined &&
   currentEditorHost(active.ctx) === active.border.host
@@ -112,14 +110,12 @@ export const createFooterHost = (
     }
   };
 
-  /** Recomputed only when what they show can have changed, like Pi's own footer. */
   const builtins = (active: Runtime): Map<string, BuiltinWidget> => {
     const { ctx } = active;
     const branch = active.footerData?.getGitBranch() ?? null;
     const thinkingLevel = ctx.thinkingLevel ?? pi.getThinkingLevel();
     const now = Date.now();
 
-    // Every session append moves the leaf; the minute drives the elapsed-time display.
     const key = JSON.stringify([
       ctx.sessionManager.getSessionId(),
       ctx.sessionManager.getLeafId(),
@@ -146,7 +142,6 @@ export const createFooterHost = (
     return active.builtins.widgets;
   };
 
-  /** Every built-in is always in the map, empty or not, so it names the known IDs. */
   const configWarnings = (active: Runtime): string[] => {
     const { config, loadError } = active;
     const known = builtins(active);
@@ -195,7 +190,6 @@ export const createFooterHost = (
     active.gitGeneration += 1;
     const current = active.gitGeneration;
 
-    // Pi's footer data names the branch; only the change counts need a repository scan.
     if (
       !placedIds(active.config).includes("footer.git.details") ||
       (active.footerData?.getGitBranch() ?? null) === null
@@ -249,9 +243,7 @@ export const createFooterHost = (
 
       return {
         dispose: unsubscribe,
-        invalidate() {
-          // Nothing is cached: every render lays the footer out again.
-        },
+        invalidate: () => undefined,
         render(width: number): string[] {
           if (runtime !== active) {
             return [];
@@ -278,7 +270,6 @@ export const createFooterHost = (
     });
   };
 
-  /** Border widgets render into Pi's editor top border through the shared editor. */
   const syncBorder = (active: Runtime): void => {
     if (active.config.border.length === 0) {
       active.border?.release();
@@ -412,7 +403,6 @@ export const createFooterHost = (
       return;
     }
 
-    // Pi removes the custom footer itself after session_shutdown handlers run.
     runtime = undefined;
     clearInterval(active.timer);
     active.border?.release();
@@ -497,9 +487,7 @@ export const createFooterHost = (
         gitGeneration: 0,
         loadError: loaded.error,
         border: undefined,
-        requestRender: () => {
-          // Pi has not installed the footer yet; install() replaces this.
-        },
+        requestRender: () => undefined,
         timer: setInterval(() => {
           active.requestRender();
         }, TICK_MS),

@@ -33,7 +33,6 @@ const SCHEMA_SQL = `
   ON history(last_used_at DESC, id DESC);
 `;
 
-/** The persistent store shared by every Pi process. */
 export const openHistoryDatabase = (): DatabaseSync => {
   const { dataDir } = getExtensionStoragePaths("history");
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -54,7 +53,6 @@ export const openHistoryDatabase = (): DatabaseSync => {
   }
 };
 
-/** A private store for sessions that must not read or write persistent history. */
 export const openMemoryDatabase = (): DatabaseSync => {
   const database = new DatabaseSync(":memory:");
   database.exec(SCHEMA_SQL);

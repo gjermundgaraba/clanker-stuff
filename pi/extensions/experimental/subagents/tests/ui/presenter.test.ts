@@ -46,7 +46,6 @@ const setup = (mode: ExtensionContext["mode"] = "tui") => {
     monitor.changed();
   };
 
-  /** Whether the latest widget call showed or removed it. */
   const shown = () => typeof setWidget.mock.calls.at(-1)?.[1] === "function";
 
   return { ctx, presenter, set, setWidget, shown };

@@ -4,12 +4,19 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-// Build-time only. No npm/browser dependency is needed to load the extension.
 import { Type } from "typebox";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 
-import { frame, FPS, INKS, paint, SEED, STRIKES, VIEWBOX } from "./frames.ts";
+import {
+  frame,
+  FPS,
+  INKS,
+  paintSelfContained,
+  SEED,
+  STRIKES,
+  VIEWBOX,
+} from "./frames.ts";
 import { SHAPES } from "./geometry.ts";
 
 const destination = process.argv.at(2);
@@ -138,7 +145,6 @@ try {
     );
 
     if (message.id === undefined) {
-      // Unsolicited CDP event, not a reply.
       return;
     }
 
@@ -164,7 +170,6 @@ try {
     pending.clear();
   });
 
-  /** Sends one CDP command and decodes its result with the schema the caller expects. */
   const call = async <T extends TSchema>(
     resultSchema: T,
     method: "Runtime.evaluate" | "Browser.getVersion",
@@ -181,7 +186,6 @@ try {
     return Value.Parse(resultSchema, await request.promise);
   };
 
-  /** Evaluates remote JavaScript and decodes the value it returns with the given schema. */
   const evaluate = async <T extends TSchema>(
     valueSchema: T,
     expression: string
@@ -207,8 +211,10 @@ try {
     "Browser.getVersion"
   );
 
-  // The assignment's value is the installed function, which the render ignores.
-  await evaluate(Type.Unknown(), `globalThis.paint = ${paint.toString()}`);
+  await evaluate(
+    Type.Unknown(),
+    `globalThis.paintSelfContained = ${paintSelfContained.toString()}`
+  );
 
   const animations: Record<
     string,
@@ -240,7 +246,7 @@ try {
               `(${JSON.stringify(batch)}).map(scene => {
           const canvas = document.createElement('canvas');
           return ${JSON.stringify(STRIKES)}.map(pixels => {
-            paint(canvas, scene, pixels, ${JSON.stringify(color)}, ${VIEWBOX});
+            paintSelfContained(canvas, scene, pixels, ${JSON.stringify(color)}, ${VIEWBOX});
             return canvas.toDataURL('image/png').split(',')[1];
           });
         })`

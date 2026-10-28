@@ -1,10 +1,3 @@
-// The `claude-bridge` provider: Claude Code models served through the Agent SDK.
-//
-// Each call finds its pi session's conversation, decides from pi's history what the call
-// is (sync.ts), and hands it to the conversation machine: tool results to the query
-// parked on them, or a new query that resumes or rebuilds Claude Code's session. A
-// request that is no session's conversation runs as a one-off.
-
 import type {
   McpSdkServerConfigWithInstance,
   Options,
@@ -68,10 +61,7 @@ interface Request {
   context: BridgeContext;
   options: SimpleStreamOptions | undefined;
   served: ServedTools;
-  /** What a query started for this call is fixed to (`queryKey`). */
   key: string;
-  /** This call's answer, once it is known which tools Claude Code may call in it:
-   *  everything reaches pi through it. */
   answer: (tools: ServedTools, options?: { requireText?: boolean }) => Turn;
 }
 
@@ -83,17 +73,12 @@ const describePlan = (decision: Plan): string =>
 type SystemPrompt = NonNullable<Options["systemPrompt"]>;
 
 interface QueryStart {
-  /** Claude Code's system prompt; none leaves the SDK's empty default. */
   systemPrompt: SystemPrompt | undefined;
   cwd: string;
-  /** The Claude Code session to resume, or none for a clean start. */
   resume: string | undefined;
-  /** The messages the query sends as its prompt. */
   turn: readonly Message[];
 }
 
-// pi's tools over MCP. A handler holds Claude Code's tools/call until the conversation
-// answers it with pi's result for the call.
 const toolServers = (
   served: ServedTools,
   conversation: Conversation
@@ -121,7 +106,6 @@ const toolServers = (
   return { [MCP_SERVER_NAME]: server };
 };
 
-/** The query's prompt: the user turn, or word of why the turn goes on without one. */
 const firstMessage = (
   context: BridgeContext,
   start: QueryStart
@@ -144,7 +128,6 @@ const firstMessage = (
       .join(" "),
   });
 
-  // So the SDK does not send an empty text block.
   return userMessage([{ type: "text", text: "[continue]" }]);
 };
 
@@ -157,8 +140,6 @@ const startQuery = (
   const { model, context, options, served } = request;
   const cliModel = claudeCodeModelId(model.id);
   const effort = effortForReasoning(model, options?.reasoning);
-  // Always streamed rather than passed as a string: a parked input generator is what
-  // lets steers reach stdin mid-turn. The machine closes it on the result.
   const promptStream = makePromptStream();
 
   promptStream.push(firstMessage(context, start)).catch((error: unknown) => {
@@ -174,30 +155,17 @@ const startQuery = (
     tools: [],
     permissionMode: "bypassPermissions",
     includePartialMessages: true,
-    // Pi owns context files, skills and settings. No filesystem settings means no
-    // CLAUDE.md, rules, hooks or permissions of the user's own Claude Code setup; the
-    // login lives outside them.
     settingSources: [],
     skills: [],
-    // Claude Code would otherwise load MCP servers from ~/.claude.json and .mcp.json;
-    // pi executes tools, so they are pure token overhead.
     strictMcpConfig: true,
-    // Pi's text as written: no `@file` expansion, which would hand Claude Code context pi
-    // never sees, and no slash-command dispatch of a message that starts with "/".
     verbatimPrompts: true,
     settings: {
       autoMemoryEnabled: false,
-      // The git-status block is the trailing suffix of the cached system block, so any
-      // git transition (new file, staging, commit) would bust the prompt cache for the
-      // whole conversation. It costs nothing here: the provider path runs no native tools.
       includeGitInstructions: false,
     },
     ...(start.systemPrompt === undefined
       ? {}
       : { systemPrompt: start.systemPrompt }),
-    // Some models default thinking display to "omitted" (empty thinking text in the
-    // stream). A raw flag: the typed option exists only inside a thinking mode, which
-    // would force one on every model.
     ...(effort === undefined
       ? {}
       : { effort, extraArgs: { "thinking-display": "summarized" } }),
@@ -220,17 +188,10 @@ const startQuery = (
     key: request.key,
     model,
     signal: options?.signal,
-    // Claude Code holds pi's whole history once it reads the prompt: the session has
-    // everything before the turn, and the prompt is the turn.
     held: context.messages,
   });
 };
 
-/** A request that is no session's conversation: a summary, an extension's one-off, or a
- *  call made beside a running query. It runs in a conversation of its own over a session
- *  written from its history and deleted afterwards, under its own system prompt rather
- *  than Claude Code's. Its tools are not served: no later call could deliver their
- *  results to it. */
 const runOneOff = async (request: Request): Promise<void> => {
   const { context, options } = request;
   const system = forwardedPrompt(context.system);
@@ -262,7 +223,6 @@ const runOneOff = async (request: Request): Promise<void> => {
 
   conversation.stop();
 
-  // The session written for it, and the one Claude Code reported (the same on a resume).
   for (const sessionId of new Set([resume, done.context.ccSessionId])) {
     if (sessionId !== undefined) {
       discardSession(sessionId, cwd);
@@ -274,10 +234,6 @@ const serve = async (request: Request): Promise<void> => {
   const { context, options } = request;
   const piSession = options?.sessionId;
 
-  // pi passes its session id on every agent turn, so a call without one is an
-  // extension's one-off. Compaction, branch and bug-report summaries come with a session
-  // id pi minted for the call, and cacheRetention "none". Neither continues a
-  // conversation.
   if (piSession === undefined || options?.cacheRetention === "none") {
     debug(
       `sync: side (${piSession === undefined ? "no pi session" : "cacheRetention none"})`
@@ -313,8 +269,6 @@ const serve = async (request: Request): Promise<void> => {
     return;
   }
 
-  // The session's conversation serves the request's tools: a parked query takes results
-  // only under the key it started with, and the key covers its tools.
   const turn = request.answer(request.served);
 
   if (decision.kind === "deliver") {
@@ -329,19 +283,14 @@ const serve = async (request: Request): Promise<void> => {
     return;
   }
 
-  // After an abort during a tool call, pi calls back with the run's aborted signal and
-  // the tool's result: end the turn, so pi waits for the next real message.
   if (decision.kind === "finish") {
     turn.finish();
 
     return;
   }
 
-  // Refused before anything is touched: a parked query stays for pi's next request.
   const append = forwardedPrompt(context.system);
 
-  // Pi owns the prompt: rendered fresh on every request rather than recorded in the
-  // session, where a resume would keep the old one.
   const systemPrompt: SystemPrompt = {
     type: "preset",
     preset: "claude_code",

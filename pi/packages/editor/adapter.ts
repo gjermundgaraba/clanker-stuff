@@ -63,9 +63,6 @@ const isPosition = (value: unknown): value is Position =>
 const isNumberOrNull = (value: unknown): value is number | null =>
   value === null || typeof value === "number";
 
-// Pi exposes no public document/undo adapter, so every private member the adapter reads, writes or
-// calls is checked here. Method signatures cannot be checked at runtime; native editor contract
-// tests cover them.
 const isNativeEditor = (value: unknown): value is NativeEditor =>
   typeof value === "object" &&
   value !== null &&
@@ -175,7 +172,6 @@ export const connect = (editor: CustomEditor) => {
       (marker, id: string) => native.pastes.get(Number(id)) ?? marker
     );
 
-  // Native retrieval and submission share nonrecursive payload ownership.
   native.expandPasteMarkers = expand;
 
   const replace = (
@@ -197,7 +193,6 @@ export const connect = (editor: CustomEditor) => {
     move(target);
   };
 
-  // Views own immutable strings, including payloads, so they also serve as modal checkpoints.
   const restoreView = (checkpoint: DocumentView) => {
     native.pastes = new Map();
     native.pasteCounter = 0;
@@ -222,8 +217,7 @@ export const connect = (editor: CustomEditor) => {
     native.scrollOffset = 0;
   };
 
-  // Payload text never becomes terminal control input. Complex register content uses native markers.
-  const encode = (payload: string) => {
+  const insertableOrMarker = (payload: string) => {
     if (
       !/\p{Cc}/u.test(payload.replaceAll("\n", "")) &&
       !payload.includes("[paste #") &&
@@ -239,8 +233,6 @@ export const connect = (editor: CustomEditor) => {
     return `[paste #${id} +${payload.split("\n").length} lines]`;
   };
 
-  // Native kill-ring entries otherwise retain marker IDs after their payload map is cleared.
-  // Keep its accumulation/rotation semantics, but own payloads at this per-instance boundary.
   const ring = native.killRing;
   let cached: { raw: string; encoded: string } | undefined;
   native.killRing = {
@@ -255,7 +247,7 @@ export const connect = (editor: CustomEditor) => {
       }
 
       if (!cached || cached.raw !== raw || expand(cached.encoded) !== raw) {
-        cached = { raw, encoded: encode(raw) };
+        cached = { raw, encoded: insertableOrMarker(raw) };
       }
 
       return cached.encoded;
@@ -277,7 +269,7 @@ export const connect = (editor: CustomEditor) => {
     view,
     restoreView,
     historyIndex: () => native.historyIndex,
-    encode,
+    insertableOrMarker,
     cancelCompletion: () => {
       native.cancelAutocomplete();
     },

@@ -9,7 +9,6 @@ export interface ToolsSnapshot {
   readonly tools: readonly ContextPart[];
 }
 
-/** Registration and activation at open time, not declarations or measured model context. */
 export const buildToolsSnapshot = (
   tools: readonly ToolInfo[],
   activeTools: readonly string[]
@@ -36,7 +35,6 @@ export const buildToolsSnapshot = (
                 tool.exposure === "codemode" ||
                 tool.exposure === "deferred" ||
                 (tool.exposure === "direct" && activated),
-              // This is a capability flag: evaluating the hook requires a real call's input.
               reachesTools: reachesTools !== undefined,
             },
             null,

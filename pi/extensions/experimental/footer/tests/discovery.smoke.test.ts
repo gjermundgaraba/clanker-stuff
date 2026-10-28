@@ -26,7 +26,6 @@ const WORKSPACE_ROOT = path.resolve(FOOTER_ROOT, "../../../..");
 
 const MANIFEST = readJson(path.join(FOOTER_ROOT, "package.json"));
 
-/** The footer's workspace dependencies and theirs, so staging follows the manifest. */
 const workspaceDependencyDirs = (): string[] => {
   const workspace = new Map(
     readWorkspacePackages(WORKSPACE_ROOT).map((pkg) => [pkg.name, pkg])
@@ -68,7 +67,6 @@ describe("footer discovery", () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), "footer-package-smoke-"));
     const stagingRoot = path.join(tempRoot, "workspace");
 
-    // Legacy deploy can prune its source workspace; give it disposable sources and no links.
     for (const entry of [
       "package.json",
       "pnpm-workspace.yaml",
@@ -107,7 +105,6 @@ describe("footer discovery", () => {
     execFileSync("tar", ["-xzf", tarball, "-C", extracted]);
     const packageRoot = realpathSync(path.join(extracted, "package"));
     const modulesRoot = path.join(packageRoot, "node_modules");
-    // Keep only deployed dependencies so unpacked source omissions cannot be masked.
     renameSync(path.join(deployed, "node_modules"), modulesRoot);
     rmSync(deployed, { recursive: true, force: true });
     rmSync(stagingRoot, { recursive: true, force: true });
@@ -123,7 +120,6 @@ describe("footer discovery", () => {
       ).toBe(true);
     }
 
-    // Peers are host-provided: Pi supplies them to the loaded extension.
     for (const dependency of Object.keys(MANIFEST.dependencies ?? {})) {
       expect(
         realpathSync(path.join(modulesRoot, dependency)).startsWith(

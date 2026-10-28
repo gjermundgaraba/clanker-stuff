@@ -186,7 +186,6 @@ describe("snapshot", () => {
       "1. user",
     ]);
 
-    // Compaction checkpoints the declarations; retained system messages are not replayed again.
     const kept = session.appendMessage(user("retained message"));
     session.appendCompaction("COMPACTED SUMMARY", kept, 1000);
     session.appendMessage(user("latest message"));

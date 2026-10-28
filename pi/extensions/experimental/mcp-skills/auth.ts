@@ -14,25 +14,16 @@ const StoredStates = Type.Record(
   })
 );
 
-/**
- * Bearer tokens from the OAuth sign-ins Pi stores for its own MCP connections. The token is read
- * again for every request and never refreshed here: Pi refreshes it on its own calls, and a second
- * refresh with the same refresh token could lose the grant. After a 401 the transport retries once
- * with whatever the store holds then.
- */
 export const createStoredTokenAuth = (
   agentDir: string,
   name: string,
   url: string
 ): AuthProvider => {
   const normalizedUrl = String(new URL(url));
-  // Pi looks up OAuth state by namespace and URL, then by URL alone for older sign-ins.
   const keys = [`${mcpNamespace(name)}|${normalizedUrl}`, normalizedUrl];
 
   return {
-    async onUnauthorized() {
-      // The retry reads the store again.
-    },
+    onUnauthorized: async () => undefined,
     async token(): Promise<string | undefined> {
       try {
         const states: unknown = JSON.parse(
@@ -53,7 +44,6 @@ export const createStoredTokenAuth = (
   };
 };
 
-/** Whether a server's headers already carry credentials, so stored OAuth tokens must not be sent. */
 export const hasAuthorizationHeader = (
   headers: Readonly<Record<string, string>>
 ): boolean =>

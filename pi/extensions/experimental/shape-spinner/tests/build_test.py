@@ -2,7 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["fonttools==4.64.0", "pillow==12.2.0"]
 # ///
-"""Font-builder unit tests without Chrome; uv run tests/build_test.py."""
 import base64
 import copy
 import io

@@ -35,14 +35,12 @@ interface Pending {
 
 interface Repeat {
   command: Command;
-  /** What the command's Insert session typed; undefined for commands that stay in Normal. */
   delta: Delta | undefined;
   selection: SelectionExtent | undefined;
 }
 
 interface Edits {
   observed: View;
-  /** An open Insert session: one transaction and one dot-repeatable change. */
   pending: Pending | undefined;
   repeat: Repeat | undefined;
 }
@@ -56,7 +54,6 @@ export const mountVim = (
   const unmount = host.onMount((editor) => {
     const { document } = editor;
 
-    // The modal engine edits through the document adapter; without it Pi's editor stays native.
     if (!document) {
       return;
     }
@@ -96,7 +93,7 @@ export const mountVim = (
 
     const insertDelta = (delta: Delta) => {
       const edit = applyDelta(view(), delta);
-      const encoded = document.encode(edit.text);
+      const encoded = document.insertableOrMarker(edit.text);
       editor.edit(edit.start, edit.end, encoded, edit.start + encoded.length);
     };
 
@@ -132,7 +129,10 @@ export const mountVim = (
 
       if (result.edit) {
         const { start, end, text, foreign } = result.edit;
-        const encoded = foreign === true ? document.encode(text) : text;
+
+        const encoded =
+          foreign === true ? document.insertableOrMarker(text) : text;
+
         editor.edit(
           start,
           end,
@@ -268,7 +268,6 @@ export const mountVim = (
       editor.refresh();
     };
 
-    // The host reports only changes made outside this engine.
     const changed = (kind: Change, before = edits.observed) => {
       const recalled =
         kind === "input" &&
@@ -315,7 +314,6 @@ export const mountVim = (
         bindings.matches(data, "tui.editor.cursorDown");
 
       if (bindings.matches(data, "tui.editor.undo")) {
-        // A key Pi users already know keeps typing; only Vim's own `u` implies Normal.
         undo(false, state.mode === "insert");
 
         return true;
@@ -341,8 +339,6 @@ export const mountVim = (
           document.move(exitInsert(view()));
           mode("normal");
 
-          // On blank drafts, Pi owns Escape: cancel running work or count it
-          // toward the native double-Escape action after leaving Insert.
           return editor.getText().trim().length > 0;
         }
 
@@ -361,8 +357,6 @@ export const mountVim = (
         return false;
       }
 
-      // Native moves (arrows, Ctrl/Alt bindings, mouse clicks) can leave the cursor past the end
-      // of a line, where no Normal or Visual command may start.
       document.move(normalCursor(view(), document.cursor()));
       edits.observed = view();
 
@@ -424,7 +418,6 @@ export const mountVim = (
       }
 
       for (const { segment } of segmenter.segment(printable)) {
-        // A preceding command in this packet may have entered Insert.
         if (inserting()) {
           editor.nativeInput(segment);
           continue;

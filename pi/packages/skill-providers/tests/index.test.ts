@@ -32,7 +32,6 @@ describe("skill blocks", () => {
     expect(skillBlock([alpha, beta])).toBe(
       '<skill name="alpha, beta" location="/skills/alpha/SKILL.md, /skills/beta/SKILL.md">\n## alpha\n\nReferences are relative to /skills/alpha.\n\nAlpha instructions.\n\n## beta\n\nReferences are relative to /skills/beta.\n\nBeta instructions.\n</skill>'
     );
-    // Pi's parser drives its collapsed rendering and must read the merged block as one.
     expect(
       parseSkillBlock(`${skillBlock([alpha, beta])}\n\nUse $alpha and $beta`)
     ).toMatchObject({
@@ -58,7 +57,6 @@ describe("skill blocks", () => {
   });
 });
 
-/** What a provider loads for a skill, without the name it was requested by. */
 const provided = ({ content, location }: LoadedSkill): ProvidedSkill => ({
   content,
   location,

@@ -1,7 +1,4 @@
-/**
- * Mirrors a child session the way Pi's own chat draws one, from stored branch entries and then from
- * live events. The event handling follows Pi's interactive mode.
- */
+// Event handling follows Pi's interactive mode: https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { contentText } from "@earendil-works/pi-ai";
 import {
@@ -26,7 +23,6 @@ import { agentName } from "./format.js";
 
 type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
 
-/** Tool results arrive untyped on session events; draw only what has the shape Pi's chat draws. */
 const ToolResultSchema = Type.Object({
   content: Type.Array(
     Type.Object({
@@ -143,7 +139,6 @@ export class Transcript extends Container {
       }
 
       case "tool_execution_start": {
-        // Nested calls from Code Mode scripts are shown inside their parent's row.
         if (event.parentToolCallId === undefined) {
           this.#tool(
             event.toolCallId,
@@ -222,7 +217,6 @@ export class Transcript extends Container {
       case "turn_start": {
         break;
       }
-      // no default
     }
   }
 
@@ -246,7 +240,6 @@ export class Transcript extends Container {
 
     const { cwd, renderers, tui } = this.#options;
 
-    // Image protocols cannot draw inside an overlay; Pi then describes the image in text.
     const component = new ToolExecutionComponent(
       name,
       id,
@@ -342,8 +335,6 @@ export class Transcript extends Container {
 
   #message(message: Exclude<AgentMessage, AssistantMessage>): void {
     switch (message.role) {
-      // A result arrives as a message once its whole parallel batch has finished; a viewer opened
-      // mid-batch has missed the earlier calls' execution events.
       case "toolResult": {
         this.#pending.get(message.toolCallId)?.updateResult(message);
         this.#pending.delete(message.toolCallId);
@@ -363,7 +354,6 @@ export class Transcript extends Container {
           break;
         }
 
-        // A task arrives as an envelope; show who sent it, then the task as the user's prompt.
         const { theme } = this.#options;
         this.#add(
           new Text(
@@ -379,7 +369,6 @@ export class Transcript extends Container {
       }
 
       case "custom": {
-        // Steered tasks are stored hidden, but mail is what a viewer most wants to see.
         const isMail = message.customType === SUBAGENT_MESSAGE_TYPE;
 
         if (isMail || message.display) {
@@ -423,7 +412,6 @@ export class Transcript extends Container {
       case "system": {
         break;
       }
-      // no default
     }
   }
 }

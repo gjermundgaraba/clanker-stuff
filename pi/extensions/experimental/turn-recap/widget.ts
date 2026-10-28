@@ -6,10 +6,6 @@ import type { LiveState } from "./card.js";
 import type { RollingFont } from "./font.js";
 import { ROLL_FRAME_MS, RollingNumbers } from "./rolling.js";
 
-/**
- * One widget per run. It owns the only redraw timer: rolling frames while digits move,
- * otherwise the next displayed second.
- */
 export const createLiveWidget = (
   tui: TUI,
   theme: Pick<Theme, "fg">,
@@ -28,7 +24,6 @@ export const createLiveWidget = (
         return [];
       }
 
-      // Running time shows whole seconds; wake just after the next one.
       const nextSecond = 1001 - (state.elapsedMs % 1000);
 
       const { lines, animated } = font
@@ -37,7 +32,6 @@ export const createLiveWidget = (
           )
         : { lines: renderLive(state, width, theme), animated: false };
 
-      // A quantized frame can be ASCII at a step boundary and still be moving.
       timer = setTimeout(
         () => {
           tui.requestRender();
@@ -47,9 +41,7 @@ export const createLiveWidget = (
 
       return lines;
     },
-    invalidate() {
-      // Theme and layout are recomputed on every render; no styled cache to clear.
-    },
+    invalidate: () => undefined,
     dispose() {
       clearTimeout(timer);
     },

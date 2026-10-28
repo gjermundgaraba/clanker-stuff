@@ -46,7 +46,6 @@ const logsSchema = Type.Object(
 
 export type LogSummary = Static<typeof logsSchema>;
 
-// Watcher data was decoded from JSON at capture; its application-specific shape is opaque.
 const dataSchema = Type.Unsafe<JsonValue>(Type.Unknown());
 
 const { id, name, status, cleanup } = taskSummarySchema.properties;

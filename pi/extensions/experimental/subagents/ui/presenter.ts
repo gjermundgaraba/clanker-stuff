@@ -74,7 +74,6 @@ export class Presenter {
       .some((node) => node.status === "running");
 
     if (running && !this.#shown) {
-      // Agents that finished before the widget appeared are not part of this burst.
       const since = Date.now();
       this.#shown = true;
       ctx.ui.setWidget(

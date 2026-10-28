@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
-/** How the CLI closed: an exit code, or the signal that ended it. */
 export interface CliCompletion {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -10,9 +9,7 @@ export interface CliCompletion {
 
 export interface CliStartOptions {
   cwd: string;
-  /** Each stderr line as it arrives, including an unterminated last line. */
   onStderrLine: (line: string) => void;
-  /** Aborting sends SIGTERM; completion still waits for the CLI to close. */
   signal: AbortSignal;
   stdin?: string | undefined;
 }

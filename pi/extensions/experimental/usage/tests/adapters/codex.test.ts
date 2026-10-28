@@ -32,7 +32,6 @@ describe("Codex usage", () => {
       additional_rate_limits: [
         {
           limit_name: "Spark",
-          // Unused metered_feature metadata is not needed to display this bucket.
           rate_limit: {
             primary_window: window(18_000, 100),
             secondary_window: window(604_800, 80),

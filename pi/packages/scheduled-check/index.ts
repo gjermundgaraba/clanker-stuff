@@ -1,4 +1,3 @@
-/** One pending check: coalesce work without postponing an earlier deadline. */
 export const createScheduledCheck = (check: () => void) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let due = 0;

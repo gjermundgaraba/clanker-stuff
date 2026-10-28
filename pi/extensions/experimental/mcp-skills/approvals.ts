@@ -27,23 +27,14 @@ const formatBytes = (bytes: number): string => {
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-/** Long descriptions are cut so the choices stay on screen. */
 const excerpt = (text: string): string =>
   text.length > 240 ? `${text.slice(0, 239)}…` : text;
 
-/** Files whose names suggest they are meant to be run, shown in the approval dialog. */
 const SCRIPT_FILE =
   /\/scripts\/|\.(?:sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1|bat|cmd)$/iu;
 
-/**
- * The one approval an MCP skill needs: to be loaded, which also covers the commands it has run
- * while it is in use. Approvals are bound to the server's identity and the skill's file list.
- * "Always allow" is remembered in the extension's data directory, the other approval until Pi
- * exits; both end when any file of the skill changes.
- */
 export class SkillApprovals {
   private readonly path: string;
-  /** Approvals that last until Pi exits, by server identity, URI, and revision. */
   private readonly untilExit = new Set<string>();
 
   constructor(dataDir: string) {
@@ -69,7 +60,6 @@ export class SkillApprovals {
     });
   }
 
-  /** Forget every approval. */
   async clear(): Promise<void> {
     this.untilExit.clear();
     await withFileMutationQueue(this.path, async () => {
@@ -78,12 +68,6 @@ export class SkillApprovals {
     });
   }
 
-  /**
-   * Whether the user allows loading this version of the skill: an earlier approval, or an answer to
-   * a dialog naming the server. While skills from other servers are in use, loading reads from
-   * another server than theirs, so the dialog always asks and names them. Without a dialog-capable
-   * UI only earlier approvals count.
-   */
   async allow(
     ctx: ExtensionContext,
     origin: string,

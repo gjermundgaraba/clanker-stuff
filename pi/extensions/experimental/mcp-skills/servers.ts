@@ -19,18 +19,18 @@ import { createStoredTokenAuth, hasAuthorizationHeader } from "./auth.js";
 import { resolveConfigValues } from "./config-value.js";
 import { serverOrigin } from "./config.js";
 import type { SkillServerConfig } from "./config.js";
-import { decodeSkillEntry } from "./entry.js";
+import { decodeSkillEntry, MAX_SKILL_BYTES } from "./entry.js";
 import type { DeclinedSkill, DecodedEntry, SkillEntry } from "./entry.js";
 import { expandHome } from "./mount.js";
 
 const SKILLS_EXTENSION = "io.modelcontextprotocol/skills";
 
-/** Room for a 16 MiB file sent as base64 inside a JSON-RPC message. */
-const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
+const BASE64_JSON_RPC_HEADROOM = 2;
+
+const MAX_MESSAGE_BYTES = MAX_SKILL_BYTES * BASE64_JSON_RPC_HEADROOM;
 
 const MAX_LIST_PAGES = 100;
 
-/** How long a server that failed to connect or needs sign-in is left alone before it is tried again. */
 const RETRY_MS = 60 * 1000;
 
 const ListPage = Type.Object({
@@ -40,7 +40,6 @@ const ListPage = Type.Object({
 
 const GetResult = Type.Object({ skill: Type.Unknown() });
 
-/** Server capabilities that declare the skills extension. */
 const DeclaresSkills = Type.Object({
   extensions: Type.Object({ [SKILLS_EXTENSION]: Type.Object({}) }),
 });
@@ -60,19 +59,12 @@ export interface ServerStatus {
   declined: DeclinedSkill[];
 }
 
-/** What connections need from the session: where they run, and Pi's provider tokens. */
 export interface ServerContext {
   agentDir: string;
   cwd: string;
-  /** The current token of a Pi provider (`/login`), for servers with `auth.provider`. */
   providerToken: (provider: string) => Promise<string | undefined>;
 }
 
-/**
- * Credentials for an HTTP server, as Pi sends them: the configured `Authorization` header, else the
- * token of the provider `auth.provider` names, read for every request so Pi's refreshes apply,
- * else the OAuth token Pi stored at `/mcp` sign-in.
- */
 const httpAuth = (
   name: string,
   transport: Extract<SkillServerConfig["transport"], { kind: "http" }>,
@@ -92,7 +84,6 @@ const httpAuth = (
   return createStoredTokenAuth(context.agentDir, name, url);
 };
 
-/** Stdio and streamable HTTP transports, built like Pi builds them, with a larger message limit. */
 const createTransport = (
   server: SkillServerConfig,
   context: ServerContext
@@ -130,17 +121,13 @@ export const describeError = (error: unknown): string =>
 
 interface Connection {
   config: SkillServerConfig;
-  /** The session the connection was asked for; a changed working directory makes a new connection. */
   context: ServerContext;
   status: ServerStatus;
   client: McpClient | undefined;
-  /** The connect in progress, shared by everyone waiting for this server. */
   opening: Promise<McpClient | undefined> | undefined;
-  /** When the last connect started, in milliseconds since the epoch. */
   attemptedAt: number;
 }
 
-/** How to sign in to a server again, for a status that needs it. */
 const signInHint = (config: SkillServerConfig): string =>
   config.transport.kind === "http" &&
   config.transport.authProvider !== undefined
@@ -183,23 +170,11 @@ const listSkills = async (client: McpClient): Promise<DecodedEntry[]> => {
   );
 };
 
-/**
- * One MCP connection per configured server, separate from Pi's own, that declares the skills
- * extension. Servers that declare it are listed; the others are closed again. A connection that
- * drops is reopened by the next request, and one that failed by `retryFailed`; both list the
- * server's skills again.
- */
 export class SkillServers {
   private connections = new Map<string, Connection>();
-  /** The servers and working directory connected last, to skip changes that change nothing. */
   private applied = "";
-  /** The change being applied; each waits for the one before it. */
   private applying = Promise.resolve();
 
-  /**
-   * Connect these servers in the background, closing the current connections first, unless they
-   * are the servers already connected. Changes apply in the order they were asked for.
-   */
   async apply(
     servers: readonly SkillServerConfig[],
     context: ServerContext
@@ -245,7 +220,6 @@ export class SkillServers {
     }
   }
 
-  /** Connect again, in the background, servers that failed or needed sign-in a while ago. */
   retryFailed(): void {
     for (const connection of this.connections.values()) {
       const { state } = connection.status;
@@ -259,7 +233,6 @@ export class SkillServers {
     }
   }
 
-  /** Wait until no server is still connecting, or until the timeout. */
   async settled(timeoutMs: number): Promise<void> {
     const opening = [...this.connections.values()].flatMap((connection) =>
       connection.opening ? [connection.opening] : []
@@ -285,14 +258,12 @@ export class SkillServers {
     );
   }
 
-  /** Host identity of a connected server, which approvals are bound to. */
   origin(server: string): string | undefined {
     const connection = this.connections.get(server);
 
     return connection && serverOrigin(connection.config);
   }
 
-  /** Replace one skill's listed entry with a fresher one, or drop it when it is no longer loadable. */
   replaceSkill(server: string, uri: string, decoded: DecodedEntry): void {
     const connection = this.connections.get(server);
 
@@ -315,7 +286,6 @@ export class SkillServers {
     });
   }
 
-  /** Read a resource from the server that serves it. Throws when the server is not reachable. */
   async readResource(
     server: string,
     uri: string,
@@ -326,7 +296,6 @@ export class SkillServers {
     return await client.readResource(uri, signal ? { signal } : {});
   }
 
-  /** The server's current entry for one skill, by the URI of its `SKILL.md`. */
   async getSkill(
     server: string,
     uri: string,
@@ -360,7 +329,6 @@ export class SkillServers {
     return decoded;
   }
 
-  /** Close every connection, after any change still being applied. */
   async stop(): Promise<void> {
     const previous = this.applying;
 
@@ -435,7 +403,6 @@ export class SkillServers {
 
     connection.attemptedAt = Date.now();
 
-    // Pi's client types predate extension negotiation (SEP-2133) but send unknown capabilities as given.
     const capabilities: ClientCapabilities & {
       extensions: { [SKILLS_EXTENSION]: object };
     } = {

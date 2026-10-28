@@ -73,9 +73,7 @@ const setupHost = () =>
             }, 0);
 
             return {
-              invalidate() {
-                /* noop */
-              },
+              invalidate: () => undefined,
               render() {
                 return ["custom-flow"];
               },
@@ -677,9 +675,7 @@ describe("extension-host harness", () => {
         action: "transform",
         text: await ctx.ui.custom<string>(
           (_tui, _theme, _keybindings, _done) => ({
-            invalidate() {
-              /* noop */
-            },
+            invalidate: () => undefined,
             render() {
               return ["picker"];
             },

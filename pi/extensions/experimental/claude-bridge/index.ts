@@ -14,7 +14,6 @@ export const createClaudeBridge =
   (pi) => {
     const sessions = new Sessions(runQuery);
 
-    // The `claude-bridge` provider: Claude Code models served through the Agent SDK.
     const config = providerConfig({
       sessions,
       toolGuidelines: () =>
@@ -45,8 +44,6 @@ export const createClaudeBridge =
     });
   };
 
-/** CLAUDE_BRIDGE_RECORD_STREAM=<path> appends every SDK message as a JSON line, for
- *  capturing replay fixtures of what Claude Code really emits. */
 const recording =
   (run: QueryFunction, recordPath: string): QueryFunction =>
   (params) => {

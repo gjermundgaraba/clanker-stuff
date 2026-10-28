@@ -32,7 +32,6 @@ describe("rolling-font manifest", () => {
     expect(font.glyph("5", "0", 0.5)).toBe(String.fromCodePoint(0xf_1a_04));
     expect(font.glyph("0", "5", 0.5)).toBe(font.glyph("5", "0", 0.5));
     expect(visibleWidth(font.glyph("0", "1", 0.5))).toBe(1);
-    // Supplementary codepoint, one cell.
     expect(font.glyph("0", "1", 0.5)).toHaveLength(2);
     expect(() => font.glyph("1", "3", 0.5)).toThrow("Unsupported");
   });

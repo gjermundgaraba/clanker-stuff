@@ -1,7 +1,3 @@
-// The provider against scripted queries: which query each of pi's calls reaches, what it
-// resumes, and what the rebuilt session holds. The sync decision itself is covered in
-// sync.test.ts and the query's life in machine/conversation.test.ts.
-
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 
@@ -108,8 +104,6 @@ const bridge = () => {
 
   const deps = { sessions, toolGuidelines: () => new Map<string, string[]>() };
 
-  /** One provider call, as pi makes it for this session. The messages are copies, as
-   *  pi's are once it has stored them: the bridge may not rely on its own objects. */
   const call = (
     messages: Message[],
     options: SimpleStreamOptions = {},
@@ -132,7 +126,6 @@ const bridge = () => {
       { sessionId: SESSION, ...options }
     );
 
-  /** The query a call started, once it has. */
   const query = async (index: number): Promise<FakeQuery> =>
     await vi.waitFor(() => {
       const started = fake.queries[index];
@@ -147,7 +140,6 @@ const bridge = () => {
   return { fake, call, query };
 };
 
-/** The first message a query reads from its stdin: its prompt. */
 const promptOf = async (
   query: FakeQuery
 ): Promise<SDKUserMessage["message"]["content"]> => {
@@ -166,7 +158,6 @@ const promptOf = async (
   return first.value.message.content;
 };
 
-/** Answer a query with text, and let Claude Code exit. */
 const answer = (query: FakeQuery, text: string, sessionId = "cc-1"): void => {
   query.push(init(sessionId));
   query.push(assistantMessage(`msg_${text}`, [textBlock(text)]));
@@ -231,8 +222,6 @@ describe("streamClaudeCode", () => {
       expect(fake.queries).toHaveLength(2);
     });
 
-    // A queued follow-up arrives the moment pi has its answer, while Claude Code is still
-    // writing its session file: it must resume that session, not run beside it.
     it("resumes a turn sent while the previous query is still exiting", async () => {
       const { call, query } = bridge();
       const u1 = user("hi");
@@ -252,8 +241,6 @@ describe("streamClaudeCode", () => {
       expect(q2.params.options.resume).toBe("cc-1");
     });
 
-    // Claude Code repeats a turn's final text in its result, and only there when the turn
-    // streamed none: the record must hold that text, not the empty turn before it.
     it("resumes after a turn whose text arrived only in the result", async () => {
       const { call, query } = bridge();
       const u1 = user("hi");
@@ -323,11 +310,9 @@ describe("streamClaudeCode", () => {
       const a2 = await second.result();
 
       expect(a2.content).toStrictEqual([{ type: "text", text: "read it" }]);
-      // One query served the whole turn.
       expect(fake.queries).toHaveLength(1);
     });
 
-    // The parked query runs the model it started with.
     it("continues a turn switched to another model in a new query", async () => {
       const { call, query, fake } = bridge();
       const u1 = user("read a");
@@ -376,8 +361,6 @@ describe("streamClaudeCode", () => {
       expect(fake.queries).toHaveLength(1);
     });
 
-    // A side call (an extension's one-shot under the live session id) must not disturb the
-    // query parked on pi's tool, and cannot be handed tool results later.
     it("runs a side call beside a parked query, with no tools and no session left behind", async () => {
       const { call, query } = bridge();
       const u1 = user("read a");
@@ -444,8 +427,6 @@ describe("streamClaudeCode", () => {
       ]);
     });
 
-    // Delivering the result to the parked query would answer off the context pi just
-    // compacted away.
     it("discards a parked query after compaction and continues the turn in a new session", async () => {
       const { call, query } = bridge();
       const u1 = user("read a");
@@ -463,7 +444,6 @@ describe("streamClaudeCode", () => {
       const q2 = await query(1);
 
       expect(q1.closed).toBe(true);
-      // The killed process may still write to cc-1.
       expect(q2.params.options.resume).toStrictEqual(expect.any(String));
       expect(q2.params.options.resume).not.toBe("cc-1");
       await expect(promptOf(q2)).resolves.toStrictEqual([
@@ -486,9 +466,6 @@ describe("streamClaudeCode", () => {
     expect(fake.queries).toHaveLength(0);
   });
 
-  // A steer pi queued while the tool ran, after a compaction: the conversation's next step,
-  // not a side call. As a side call it ran without tools and left the query parked, and so
-  // did every request after it.
   it("continues a compacted turn with its steer, its tools and no parked query", async () => {
     const { call, query } = bridge();
     const u1 = user("read a");
@@ -520,8 +497,6 @@ describe("streamClaudeCode", () => {
   describe("a one-off request", () => {
     const SUMMARY_PROMPT = "You are a summarization assistant.";
 
-    // pi's compaction and branch summaries: a session id pi minted for the call, and
-    // cacheRetention "none".
     it("runs a summary under the caller's prompt, leaving the session's conversation alone", async () => {
       const { call, query } = bridge();
 
@@ -548,7 +523,6 @@ describe("streamClaudeCode", () => {
       ]);
     });
 
-    // No later call could deliver a tool's result to it.
     it("carries the history it was given without tools, and leaves no session behind", async () => {
       const { call, query } = bridge();
 
@@ -576,7 +550,6 @@ describe("streamClaudeCode", () => {
       });
     });
 
-    // Claude Code has no server for it and answers the call itself; pi must not run it.
     it("hands pi no call for a tool it listed but the one-off does not serve", async () => {
       const { call, query } = bridge();
       const reply = call([user("Summarize.")], { cacheRetention: "none" });
@@ -607,7 +580,6 @@ describe("streamClaudeCode", () => {
     it("passes the caller's reasoning level to Claude Code", async () => {
       const { call, query } = bridge();
 
-      // Fable 5.1's pi-ai thinking map names only xhigh and max.
       const fable = {
         ...testModel("claude-fable-5-1"),
         thinkingLevelMap: { off: null, xhigh: "xhigh", max: "max" },

@@ -17,12 +17,14 @@ import { Value } from "typebox/value";
 
 export const shapes = [
   "rubik",
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: This imported JSON owns exactly the wireframe keys; Object.keys erases their literal types.
-  ...(Object.keys(manifest.animations) as Wireframe[]),
+  ...Object.keys(manifest.animations).filter((key): key is Wireframe =>
+    Object.hasOwn(manifest.animations, key)
+  ),
 ] as const;
 
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: This imported JSON owns exactly the ink keys; Object.keys erases their literal types.
-export const colors = Object.keys(manifest.inks) as readonly Ink[];
+export const colors: readonly Ink[] = Object.keys(manifest.inks).filter(
+  (key): key is Ink => Object.hasOwn(manifest.inks, key)
+);
 
 export const motions = ["animated", "static"] as const;
 
@@ -43,7 +45,6 @@ export const defaultConfig = (): Config => ({
   shape: "orb",
 });
 
-/** Pi's working indicator for a look, with wireframe ink for the theme's background. */
 export const styleFor = (config: Config, appearance: ThemeAppearance) => {
   const animation =
     config.shape === "rubik"

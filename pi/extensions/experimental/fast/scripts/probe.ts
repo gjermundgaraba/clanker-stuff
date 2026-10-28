@@ -122,7 +122,6 @@ export const probeTier = async (
           reasoning: body.reasoning?.effort,
         };
 
-        // Observe the serialized request without changing native auth, headers or transport.
         const result = await fetchResponse(input, init);
         ({ status } = result);
         requestId = result.headers.get("x-request-id") ?? undefined;

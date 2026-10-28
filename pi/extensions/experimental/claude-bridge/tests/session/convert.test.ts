@@ -194,8 +194,6 @@ describe("thinking block filtering", () => {
     ]);
   });
 
-  // A signature minted by another provider isn't ours to replay into Claude Code's
-  // session, so it is dropped even though the message is Anthropic's.
   it("drops signed thinking from pi's own Anthropic provider", () => {
     expect(
       convert([
@@ -239,8 +237,6 @@ describe("message structure", () => {
     ]);
   });
 
-  // Claude Code puts every result for one assistant turn in a single user message; see
-  // the repairToolPairing tests below for why it matters.
   it("merges the results of a parallel tool call into one user message", () => {
     expect(
       convert([
@@ -336,7 +332,6 @@ describe("message structure", () => {
     ]);
   });
 
-  // The same blocks a prompt gets: an image the API rejects would fail every later turn.
   it("marks a user image Claude cannot take", () => {
     expect(
       convert([user([text("look"), image("BASE64DATA", "image/tiff")])])
@@ -351,9 +346,6 @@ describe("message structure", () => {
     ]);
   });
 
-  // The query runs with `tools: []`, so no name in the transcript may look like a Claude
-  // Code builtin: that is what makes the model call one it cannot call. A tool pi ran
-  // that is no longer served is still a pi tool.
   it("names every call in the MCP namespace, never after a Claude Code builtin", () => {
     const [message] = convert([
       assistant([
@@ -378,8 +370,6 @@ describe("message structure", () => {
     ]);
   });
 
-  // Claude Code stores screenshots as image blocks inside tool_result.content;
-  // flattening to text would drop them from a rebuilt session.
   it("keeps image blocks in a tool result instead of flattening to text", () => {
     expect(
       convert([
@@ -398,8 +388,6 @@ describe("message structure", () => {
     ]);
   });
 
-  // The string shape is what Claude Code writes for text-only results; switching to
-  // blocks unconditionally would diverge from it and perturb the cache key.
   it("keeps a text-only tool result a flat string", () => {
     expect(convert([toolResult("x", [text("just text")])])).toStrictEqual([
       { role: "user", content: [resultBlock("x", "just text")] },
@@ -449,11 +437,6 @@ const parallelCall = (n: number): Message[] => {
   ];
 };
 
-// Every rebuild runs the conversion through repairToolPairing, once in the rebuild and
-// once more inside Session.importMessages. It only pairs results in the user message
-// directly after their assistant message, replacing anything later with a synthetic
-// "[no tool result recorded]" error: that once destroyed the output of every parallel
-// tool call in a rebuilt session.
 describe("conversion survives repairToolPairing", () => {
   it("keeps every result of a parallel tool call", () => {
     const converted = convert(parallelCall(3));
@@ -465,9 +448,6 @@ describe("conversion survives repairToolPairing", () => {
     ).toStrictEqual(["body of t0", "body of t1", "body of t2"]);
   });
 
-  // Mid-turn steering puts a user message between the results, so adjacency alone does
-  // not keep a parallel call together. Claude Code writes the same turn as
-  // results-then-steer.
   it("collects results a steer interleaved, keeping the steer after them", () => {
     const repaired = repairToolPairing(
       convert([
@@ -489,9 +469,6 @@ describe("conversion survives repairToolPairing", () => {
     expect(repaired[2]?.content).toBe("actually, also check X");
   });
 
-  // A steer sent while the first tool is still running lands in pi's history before any
-  // result. repairToolPairing hands the turn's stubs to the first user message after the
-  // assistant, so the results have to be inserted ahead of it.
   it("collects results a steer preceded", () => {
     const repaired = repairToolPairing(
       convert([
@@ -540,9 +517,6 @@ describe("aborted assistant turns", () => {
     ]);
   });
 
-  // The prompt cache is keyed on exact prefix bytes, so a rebuild must reproduce the
-  // sequence Claude Code already cached. An aborted turn contributed nothing live, so a
-  // placeholder for it would diverge at that index and cost every downstream cached token.
   it("preserves the cached prefix when rebuilding across an aborted turn", () => {
     const live = convert([
       user([text("first ask")]),
@@ -603,17 +577,6 @@ describe("dropped-content accounting", () => {
   });
 });
 
-// Two invariants on the session write path (convertPiMessages → repairToolPairing →
-// Session.importMessages):
-//   1. Determinism. The same pi history always produces the same transcript content;
-//      only identity and clock fields may differ between builds.
-//   2. Prefix stability. A transcript built from a longer history is a strict
-//      content-extension of the one built from a shorter history. Anthropic's prompt
-//      cache is keyed on exact prompt-prefix bytes, so any mid-history mutation
-//      re-caches everything after it on the next rebuild.
-
-/** Record fields that legitimately differ between two builds of the same history:
- *  identity and clock, none of which reaches the Anthropic prompt. */
 const VOLATILE = new Set([
   "uuid",
   "parentUuid",
@@ -637,7 +600,6 @@ const stableRecord = (record: JsonlRecord): string => {
   );
 };
 
-/** The whole write path reduced to the record content the prompt cache is keyed on. */
 const transcript = (messages: readonly Message[]): string[] => {
   const repaired = repairToolPairing(
     convertPiMessages(messages).anthropicMessages
@@ -652,9 +614,6 @@ const transcript = (messages: readonly Message[]): string[] => {
   return session.records.map(stableRecord);
 };
 
-/** Prefix lengths at which every tool call issued so far has its result. Truncating
- *  mid-turn leaves repairToolPairing no choice but to stub the results that have not
- *  arrived, so only settled prefixes can be expected to extend cleanly. */
 const settledPrefixes = (messages: readonly Message[]): number[] => {
   const lengths: number[] = [];
   const pending = new Set<string>();
@@ -761,10 +720,6 @@ const decodeFixtureLine = (line: string): Message => {
   );
 };
 
-// A real 310-message pi session with its content scrubbed: text bodies became
-// `t<n>:<length>` placeholders and tool arguments `a<n>:<length>` ones. Structure
-// (roles, block types, tool ids, providers, thinking signatures, parallel calls) is
-// verbatim, and structure is all these invariants read.
 const corpus = readFileSync(
   new URL("../fixtures/pi-history-310.jsonl", import.meta.url),
   "utf-8"
@@ -773,9 +728,6 @@ const corpus = readFileSync(
   .filter((line) => line !== "")
   .map(decodeFixtureLine);
 
-// Parallel calls, a steer landing between their results, an image result, an error
-// result, empty content, exotic tool ids, thinking with and without a signature, and
-// thinking from providers whose signatures may not be replayed.
 const exotic: Message[] = [
   user("start"),
   assistant([
@@ -812,8 +764,6 @@ describe("conversion is deterministic", () => {
 });
 
 describe("rebuilds extend the transcript instead of rewriting it", () => {
-  // Comparing every settled prefix against the full transcript also settles the pairwise
-  // claim: two prefixes of the same sequence are prefixes of each other.
   it("keeps every settled prefix of a real session a prefix of the full rebuild", () => {
     const full = transcript(corpus);
     const lengths = settledPrefixes(corpus);
@@ -841,18 +791,12 @@ describe("rebuilds extend the transcript instead of rewriting it", () => {
 });
 
 describe("convertPiMessages", () => {
-  // The rebuild repairs before calling importMessages, which repairs again, so a second
-  // pass has to be a no-op or every rebuild would differ from the transcript the debug
-  // log reports.
   it("repairToolPairing is idempotent over a converted session", () => {
     const once = repairToolPairing(convertPiMessages(corpus).anthropicMessages);
 
     expect(repairToolPairing(once)).toStrictEqual(once);
   });
 
-  // Prefix stability is satisfiable by a conversion that loses content consistently, so
-  // pin the content too: a conversion that dropped every parallel result past the first
-  // passed both invariants above.
   it("round-trips a real session with every tool result intact", () => {
     const blocks = toolResultBlocks(
       repairToolPairing(convertPiMessages(corpus).anthropicMessages)

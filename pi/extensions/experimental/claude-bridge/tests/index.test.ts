@@ -1,6 +1,3 @@
-// The entrypoint's wiring: registration and the session lifecycle, observed through the
-// provider it registers.
-
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -21,7 +18,6 @@ const loaded = async () => {
 
   const config = host.getRegisteredProviderConfigs().get("claude-bridge");
 
-  /** A provider call for `sessionId`, and the query it starts. */
   const ask = async (sessionId: string): Promise<FakeQuery> => {
     const count = fake.queries.length;
 

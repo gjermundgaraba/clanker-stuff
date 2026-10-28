@@ -117,7 +117,6 @@ const setup = (
     get item() {
       return item;
     },
-    /** Checkpointed changes: viewing, scrolling and discarded editors make none. */
     get mutations() {
       return mutations;
     },
@@ -267,7 +266,6 @@ describe("bounded questionnaire TUI", () => {
         "> [ ] 2. Second"
       );
 
-      // The two smaller sizes show the resize notice in place of the questionnaire.
       for (const [width, rows, shown] of [
         [40, 20, "> [ ] 2. Second"],
         [24, 14, "Terminal too small"],
@@ -586,7 +584,6 @@ describe("bounded questionnaire TUI", () => {
       expect(displayText(e.view.render(80).join("\n"))).toContain(
         "const value"
       );
-      // No preview on this option: nothing opens.
       e.press("\u001B", "\u001B[B", "p");
       expect(displayText(e.view.render(80).join("\n"))).toContain(
         "> ( ) 2. Second"
@@ -744,11 +741,9 @@ describe("bounded questionnaire TUI", () => {
         configurable: true,
       });
       expect(e.view.render(80).join("\n")).toContain("1001/1000");
-      // Over-limit text cannot be saved, so the editor stays open.
       e.press("\r");
       expect(e.view.render(80).join("\n")).toContain("1001/1000");
       expect(e.view.render(80).join("\n")).toContain("limit");
-      // Discarding is always possible.
       e.press("\u001B");
       expect(e.view.render(80).join("\n")).not.toContain("1001/1000");
       expect(e.item.draft?.note).toBe("");

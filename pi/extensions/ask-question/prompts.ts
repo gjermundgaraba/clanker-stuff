@@ -26,7 +26,6 @@ export const createPromptQueue = () => {
 
     try {
       signal.throwIfAborted();
-      // A waiting prompt stops waiting when its signal aborts; later prompts still wait their turn.
       await Promise.race([previous, aborted.promise]);
 
       return await show(signal);

@@ -20,7 +20,6 @@ export default function footerExtension(
   pi.on("session_start", async (_event, ctx) => {
     await host.start(ctx);
   });
-  // Built-in widgets are computed while rendering; these only cover what Pi does not re-render.
   pi.on("model_select", host.requestRender);
   pi.on("turn_end", host.refreshGit);
   pi.on("session_shutdown", host.shutdown);

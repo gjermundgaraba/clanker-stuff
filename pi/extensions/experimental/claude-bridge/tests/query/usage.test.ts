@@ -7,8 +7,6 @@ import { testModel } from "../helpers.js";
 
 const model = testModel();
 
-// pi-ai bills per million tokens, so these rates make one input token cost 1 and one
-// output token cost 2.
 const pricedModel: Model<Api> = {
   ...testModel(),
   cost: { input: 1_000_000, output: 2_000_000, cacheRead: 0, cacheWrite: 0 },
@@ -52,7 +50,6 @@ describe("updateUsage", () => {
     expect(output.usage.reasoning).toBe(40);
   });
 
-  // Claude Code's usage arrives untyped; these are the shapes earlier code misread.
   it("ignores a flat thinking_tokens or a reasoning_tokens field", () => {
     const flat = { output_tokens: 100, thinking_tokens: 40 };
     const renamed = { output_tokens: 100, reasoning_tokens: 40 };
@@ -91,8 +88,6 @@ describe("updateUsage", () => {
       pricedModel
     );
 
-    // 10 input at 1 plus 100 output at 2. Folding the 40 reasoning tokens into output
-    // would bill 290, which a zero-rate model cannot catch.
     expect(output.usage.cost.total).toBe(210);
   });
 
@@ -109,7 +104,6 @@ describe("updateUsage", () => {
     ).toBe(0);
   });
 
-  // message_start, message_delta and the complete message each carry a different subset.
   it("only overwrites counters the frame carries", () => {
     const output = emptyOutput();
 
@@ -136,7 +130,6 @@ describe("updateUsage", () => {
     const second = updateUsage(output, { output_tokens: 120 }, model);
 
     expect(first.reasoning).toBe(40);
-    // usage.reasoning keeps the earlier count; the report must not reprint it.
     expect(second).not.toHaveProperty("reasoning");
     expect(output.usage.reasoning).toBe(40);
   });

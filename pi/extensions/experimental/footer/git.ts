@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** Working-tree counts; the branch name comes from Pi's footer data. */
 export interface GitDetails {
   staged: number;
   unstaged: number;

@@ -110,12 +110,10 @@ describe(AgentsViewer, () => {
     liveText = "Looking into it",
     theme = createIdentityTheme()
   ) => {
-    // A finished agent is read from its session file.
     const stored = SessionManager.create(dir, dir);
     stored.appendMessage(task("/root/done", "Summarize the docs"));
     stored.appendMessage(assistant("Stored final answer"));
 
-    // A running agent is read from its live session, then followed through events.
     const live = SessionManager.inMemory(dir);
     live.appendMessage(task("/root/worker", "Investigate the flaky test"));
     live.appendMessage(assistant(liveText));
@@ -182,7 +180,6 @@ describe(AgentsViewer, () => {
   it("follows live events of the selected agent into its transcript", () => {
     const { monitor, render, viewer } = setup();
     render();
-    // Only the transcript draws messages; the header shows activity, never message text.
     monitor.record("/root/worker", {
       message: {
         content: "Also check the CI logs",
@@ -211,10 +208,8 @@ describe(AgentsViewer, () => {
     expect(text).not.toContain("\u001B]52");
     expect(text).not.toContain("\u202E");
     expect(text).not.toContain("\u001B[2J");
-    // Controls inside a link's target do not ride through with the link.
     expect(text).not.toContain("\u009B");
     expect(text).toContain("link");
-    // Keyboard-mode commands end in `m` like colours do.
     expect(text).not.toContain("\u001B[>4;2m");
     expect(text).not.toContain("\u001B[?4m");
   });
@@ -231,7 +226,6 @@ describe(AgentsViewer, () => {
       }),
     ]);
 
-    // Down.
     viewer.handleInput("\u001B[B");
     expect(render()).toContain("holds no session");
     viewer.handleInput("\u001B[B");
@@ -251,11 +245,9 @@ describe(AgentsViewer, () => {
       }),
     ]);
 
-    // Down.
     viewer.handleInput("\u001B[B");
     expect(render()).toContain("ENOENT");
 
-    // A follow-up gives the agent a live session again.
     lives.set("/root/missing", runtime);
     monitor.record("/root/missing", { type: "agent_start" });
     const text = render();
@@ -284,7 +276,6 @@ describe(AgentsViewer, () => {
       const { monitor, render, viewer } = setup([], undefined, theme);
       render();
 
-      // A running shell row redraws every second until it settles.
       const args = { command: "sleep 9" };
       monitor.record("/root/worker", {
         args,
@@ -315,7 +306,6 @@ describe(AgentsViewer, () => {
       broken = false;
       expect(render()).toContain("theme broke");
 
-      // Mid-turn, the session may not hold every message drawn so far.
       monitor.record("/root/worker", messageStart("Not yet"));
       expect(render()).toContain("theme broke");
 
@@ -332,18 +322,15 @@ describe(AgentsViewer, () => {
   });
 
   it("selects agents by clicking tree rows and ignores clicks below the tree body", () => {
-    // More agents than the 30 body rows of a 40-row terminal, so rows exist below the body.
     const extra = Array.from({ length: 40 }, (_, index) =>
       node(`/root/extra_${index}`, { endedAt: 3000 })
     );
 
     const { render, viewer } = setup(extra);
     render();
-    // The footer row, inside the tree column.
     viewer.handleMouse(press(5, 34));
     expect(render()).toContain("⠋ worker · /root/worker");
 
-    // The body's second row: the first agent under root.
     viewer.handleMouse(press(5, 4));
     const text = render();
     viewer.dispose();
@@ -362,7 +349,6 @@ describe(AgentsViewer, () => {
       theme
     );
 
-    // Down, to the long name.
     viewer.handleInput("\u001B[B");
 
     const row = render()
@@ -372,7 +358,6 @@ describe(AgentsViewer, () => {
     viewer.dispose();
 
     expect(row).toContain("…");
-    // Every reset that truncation adds is followed by the highlight again.
     expect(
       row
         ?.split("\u001B[0m")
@@ -414,13 +399,11 @@ describe(AgentsViewer, () => {
     viewer.dispose();
 
     expect(text).toContain("⠋ late · /root/late");
-    // Its session is neither running nor written yet.
     expect(text).not.toContain("ENOENT");
   });
 
   it("reads a finished agent's transcript from its session file", () => {
     const { render, viewer } = setup();
-    // Up.
     viewer.handleInput("\u001B[A");
     const text = render();
     viewer.dispose();
@@ -459,7 +442,6 @@ describe(AgentsViewer, () => {
       toolName: "spawn_agent",
     });
 
-    // No live session is left to ask for its renderers.
     const { render, viewer } = setup([
       node("/root/lead", {
         endedAt: 3000,
@@ -467,7 +449,6 @@ describe(AgentsViewer, () => {
       }),
     ]);
 
-    // Down, to the lead.
     viewer.handleInput("\u001B[B");
     const text = stripVTControlCharacters(render());
     viewer.dispose();

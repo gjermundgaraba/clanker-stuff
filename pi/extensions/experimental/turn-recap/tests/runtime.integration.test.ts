@@ -89,7 +89,6 @@ const setup = async (
           : []
       );
 
-  // Renders the latest card through the renderer Pi registered, as the transcript would.
   const card = () => {
     const entry = harness.sessionManager
       .getBranch()

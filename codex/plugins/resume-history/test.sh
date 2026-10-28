@@ -1,5 +1,4 @@
 #!/bin/bash
-# Self-check for the SessionEnd hook. Run: bash test.sh
 set -eu
 cd "$(dirname "$0")"
 

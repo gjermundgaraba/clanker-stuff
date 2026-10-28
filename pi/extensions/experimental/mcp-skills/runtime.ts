@@ -20,7 +20,6 @@ import { checkBytes, frontmatterMatches, verifyFile } from "./verify.js";
 
 export type Loaded = { bytes: Buffer } | { error: string };
 
-/** Text of the messages loaded skills leave their folder path in: user messages and `read` results. */
 const messageText = (entry: SessionEntry): string => {
   if (entry.type !== "message") {
     return "";
@@ -43,7 +42,6 @@ const messageText = (entry: SessionEntry): string => {
         .join("\n");
 };
 
-/** Whether the skill's folder holds every file it lists, unchanged. */
 const storedCopyMatches = async (skill: CatalogSkill): Promise<boolean> => {
   const { dir, entry } = skill;
 
@@ -69,10 +67,6 @@ const storedCopyMatches = async (skill: CatalogSkill): Promise<boolean> => {
   );
 };
 
-/**
- * MCP skills for one session: the connections, the catalog the model and user see, and the one
- * loading path every route goes through: approval, then every file fetched, checked, and stored.
- */
 export class McpSkills {
   readonly servers = new SkillServers();
   readonly approvals: SkillApprovals;
@@ -91,7 +85,6 @@ export class McpSkills {
     this.approvals = new SkillApprovals(options.dataDir);
   }
 
-  /** Read the configured servers again and connect them in the background if they changed. */
   async refresh(ctx: ExtensionContext): Promise<void> {
     const registry = ctx.modelRegistry;
 
@@ -110,23 +103,17 @@ export class McpSkills {
     });
   }
 
-  /**
-   * Before a run: pick up config changes, give servers that are connecting a moment to list their
-   * skills, then try failed servers again in the background for the next run.
-   */
   async prepareRun(ctx: ExtensionContext, timeoutMs: number): Promise<void> {
     await this.refresh(ctx);
     await this.servers.settled(timeoutMs);
     this.servers.retryFailed();
   }
 
-  /** Forget every approval and delete every stored skill. */
   async forget(): Promise<void> {
     await this.approvals.clear();
     await rm(this.mountRoot, { force: true, recursive: true });
   }
 
-  /** Every loadable MCP skill, named so that none shares a name with a local skill or another one. */
   catalog(): CatalogSkill[] {
     const local = new Set(
       this.pi
@@ -138,11 +125,6 @@ export class McpSkills {
     return buildCatalog(this.mountRoot, this.servers.statuses(), local);
   }
 
-  /**
-   * Servers whose skills are in use: a loaded skill leaves its folder path in the user message or
-   * `read` result that brought it into context, so this holds for as long as that stays on the
-   * branch, also after a resume.
-   */
   serversInUse(ctx: ExtensionContext): Set<string> {
     const servers = new Set<string>();
 
@@ -161,10 +143,6 @@ export class McpSkills {
     return servers;
   }
 
-  /**
-   * Load a skill: ask for approval unless this version is approved, then make its folder hold its
-   * checked files and return its `SKILL.md`. Nothing unchecked is stored or returned.
-   */
   async load(
     ctx: ExtensionContext,
     skill: CatalogSkill,
@@ -203,11 +181,6 @@ export class McpSkills {
     }
   }
 
-  /**
-   * Make the skill's folder hold its files. A complete, unchanged copy is kept; otherwise every file
-   * is fetched and checked, written to a new folder, and moved into place in one rename. Returns why
-   * the server's content failed its checks; throws when it could not be fetched or stored.
-   */
   private async store(
     skill: CatalogSkill,
     signal?: AbortSignal
@@ -275,8 +248,9 @@ export class McpSkills {
         } catch (error) {
           await rm(partial, { force: true, recursive: true });
 
-          // Another Pi may have stored the same version meanwhile.
-          if (await storedCopyMatches(skill)) {
+          const storedConcurrently = await storedCopyMatches(skill);
+
+          if (storedConcurrently) {
             return undefined;
           }
 
@@ -293,10 +267,6 @@ export class McpSkills {
     );
   }
 
-  /**
-   * After content failed its checks, ask the server for the skill's current entry, which the
-   * catalog uses from then on. A changed skill is at a new path and must be approved again.
-   */
   private async refreshSkill(
     skill: CatalogSkill,
     failure: string,

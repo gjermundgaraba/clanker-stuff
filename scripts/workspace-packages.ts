@@ -35,7 +35,6 @@ const PackageJsonSchema = Type.Object(
         { additionalProperties: true }
       )
     ),
-    // The readiness checker owns the supported export formats.
     exports: Type.Optional(Type.Unknown()),
     files: Type.Optional(Type.Array(Type.String())),
     homepage: Type.Optional(Type.String()),
@@ -52,7 +51,10 @@ const PackageJsonSchema = Type.Object(
     private: Type.Optional(Type.Boolean()),
     publishConfig: Type.Optional(
       Type.Object(
-        { access: Type.Optional(Type.String()) },
+        {
+          access: Type.Optional(Type.String()),
+          exports: Type.Optional(Type.Unknown()),
+        },
         { additionalProperties: true }
       )
     ),

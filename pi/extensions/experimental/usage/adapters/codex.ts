@@ -61,7 +61,6 @@ const CodexUsageSchema = Type.Object({
 
 type CodexUsage = Static<typeof CodexUsageSchema>;
 
-/** Codex routes requests by the account claim in Pi's resolved token. */
 const accountHeaders = (token: string): Record<string, string> => {
   try {
     const claims: unknown = JSON.parse(
@@ -101,7 +100,6 @@ const parseWindows = (
     ];
   });
 
-/** Like Codex itself, show a balance only for metered credits and ignore one that does not parse. */
 const creditBalance = (credits: CodexUsage["credits"]): number | undefined => {
   if (credits?.has_credits !== true || credits.unlimited === true) {
     return undefined;

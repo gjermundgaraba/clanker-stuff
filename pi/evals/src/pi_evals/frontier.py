@@ -26,8 +26,6 @@ ASSETS = EVALS/'suites/frontier'
 SOURCE = '9e3f71cac38ef3d7e14a41b361c7b2b54c59899b'
 TASK = 'qubit-routing'
 
-# Reuse Pi's built-in session recovery, not whole-trial reruns. The deadline
-# includes retries/backoff, and successful tool calls are not replayed.
 PI_SETTINGS = {
     'compaction': {'enabled': False},
     'retry': {'enabled': True, 'maxRetries': 3, 'baseDelayMs': 2000,
@@ -36,7 +34,6 @@ PI_SETTINGS = {
 
 
 def sources():
-    """Freeze execution inputs, not unrelated suites or analysis implementations."""
     selected = {
         'src': ('pi_evals/frontier.py', 'pi_evals/frontier_state.py', 'pi_evals/trials.py', 'pi_evals/runtime.py', 'pi_evals/artifacts.py', 'pi_evals/preflight.py',
                 'pi_evals/adapters/pi.py', 'pi_evals/adapters/codex.py', 'pi_evals/jsonl.py',
@@ -94,7 +91,6 @@ def make_schedule(output, image, version, seconds=1800, rounds=1, order_offset=0
 def agent_dockerfile(runtime, grader, version, seconds):
     return f'''FROM {runtime} AS runtime
 FROM {grader}
-# The agent cannot access the held-out corpus, scorer, baselines, or targets.
 RUN rm -rf /root/tests && apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/*
 COPY --from=runtime /usr/local/ /usr/local/
 COPY --from=runtime /opt/pi-evals/ /opt/pi-evals/
@@ -193,7 +189,6 @@ def verify(output):
 
 
 def grade(output, candidate, destination):
-    """Retry postprocessing only; each attempt retains its inputs, logs and status."""
     if candidate is not None and not candidate.is_file():
         raise ValueError('candidate must be an existing file')
     series = json.loads((output/'series.json').read_text())
@@ -242,8 +237,6 @@ def grade(output, candidate, destination):
         write_json(attempt/'status.json', {'state': 'failed', 'error': str(error), **identity})
         raise
     write_json(attempt/'status.json', {'state': 'succeeded', **identity})
-    # Publish only complete, valid postprocessing. Failed attempts never occupy
-    # the successful result path and can never silently replace an earlier grade.
     if (attempt/'details.json').exists():
         shutil.copyfile(attempt/'details.json', destination/'details.json')
     write_json(reward, score)
@@ -272,8 +265,6 @@ def _preflight(output, logs):
                         series['agent']['image_id'], '/opt/pi-evals/frontier-recovery.mjs',
                         json.dumps(PI_SETTINGS)])
     (logs/'recovery.log').write_text(recovery)
-    # A nop agent cannot detect unreadable runtime extensions. Exercise actual Pi
-    # startup as the task user with synthetic auth and no possible network access.
     direct_tools = json.loads((output/'task/tests/comparison.json').read_text())['directTools']
     for mode in ('direct', 'code_mode_only'):
         expected = sorted(direct_tools + ([] if mode == 'direct' else ['codemode']))
@@ -295,7 +286,6 @@ def _preflight(output, logs):
         setup = [event for event in events if event.get('type') == 'pi_eval_setup']
         if len(setup) != 1 or setup[0]['activeTools'] != expected or setup[0]['model'] != model or setup[0]['thinking'] != thinking or 'Failed to load extension' in probe:
             raise RuntimeError(f'non-root offline runtime startup failed: {mode}')
-    # Exercise real Harbor discovery, non-root agent setup, and runtime/export boundary without models.
     direct = next(e for e in json.loads((output/'schedule.json').read_text()) if e['arm'] == 'pi-direct')
     config = yaml.safe_load(Path(direct['config']).read_text())
     config.update(job_name='nop', jobs_dir=str(logs/'harbor'), agents=[{'name': 'nop'}])
@@ -308,8 +298,6 @@ def _preflight(output, logs):
     raw = json.loads(results[0].read_text())
     if raw.get('exception_info') or (raw.get('verifier_result') or {}).get('rewards') != {'valid_experiment': 0.0, 'submission_exported': 1.0}:
         raise RuntimeError('Harbor export smoke failed')
-    # Prove cutoff kills detached tools and preserves source even when telemetry
-    # conversion fails. This probe cannot make model calls.
     config.update(job_name='capture-cutoff', agents=[{
         'import_path': 'pi_evals.adapters.frontier:FrontierCaptureProbe',
         'kwargs': {'budget_seconds': 3}}])
@@ -337,7 +325,6 @@ def _preflight(output, logs):
     baseline_score = grade(output, payload, logs/'baseline')
     if baseline_score.get('n_instances', 0) < 100 or baseline_score.get('n_solved') != baseline_score['n_instances']:
         raise RuntimeError('greedy baseline did not solve full test pool')
-    # Real source export from the exact agent image, no hidden test files present.
     exported = logs/'export'; exported.mkdir()
     docker('run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--cpus', '4', '--memory', '16g',
            '--entrypoint', 'bash', '-v', f'{output/"task/tests"}:/tests:ro',
@@ -351,7 +338,6 @@ def _preflight(output, logs):
     b = json.loads((logs/'roundtrip/details.json').read_text())['additional_data']['instances']
     if a != b or baseline_score['reward'] != roundtrip['reward']:
         raise RuntimeError('baseline export roundtrip changed results')
-    # Empty interface produces a valid scored zero; edited simulator is rejected, not trusted.
     (reference/'router.py').write_text('def route_instance(instance):\n    return []\n')
     write_json(logs/'wrong.json', transport.snapshot(reference))
     wrong = grade(output, logs/'wrong.json', logs/'wrong')
@@ -363,7 +349,6 @@ def _preflight(output, logs):
     tampered = grade(output, logs/'tampered.json', logs/'tampered')
     if tampered['reward'] != 0 or 'modifies pristine' not in (logs/'tampered/details.json').read_text():
         raise RuntimeError('tamper control failed')
-    # Pure scoring anchor controls, using the frozen original scorer in its container.
     docker('run', '--rm', '--platform', 'linux/amd64', '--network', 'none', '--entrypoint', 'python3',
            series['grader']['image_id'], '-c',
            'import sys; sys.path.insert(0,"/root/tests"); from verifier_common import score_instance; '
@@ -389,8 +374,6 @@ def run(output, resume=False, cost_checkpoint=20):
         marker = started/entry['job_name']
         completed = None
         if marker.exists():
-            # A model attempt is immutable, but an independently captured failed
-            # attempt may still be graded diagnostically, without another model call.
             if not row.get('capture', {}).get('captured'):
                 raise RuntimeError('started invalid/incomplete trial cannot be retried')
         else:
@@ -408,8 +391,6 @@ def run(output, resume=False, cost_checkpoint=20):
             grade(output, candidates[0], output/'grading'/entry['job_name'])
         elif row['frontier'].get('valid') != 1:
             raise RuntimeError('invalid existing grade; inspect before continuing')
-        # Record grading before refusing further spending on any failed model or
-        # runtime attempt. Completion eligibility never follows from grading alone.
         row = frontier_state.read_slot(output, entry)
         if completed is not None:
             completed.check_returncode()

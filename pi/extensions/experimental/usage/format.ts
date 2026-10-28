@@ -16,7 +16,6 @@ const CREDIT_FORMAT = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-/** Reset times are normalized ISO strings from the adapters. */
 export const formatResetDuration = (
   resetsAt: string,
   nowMs: number

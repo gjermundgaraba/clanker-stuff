@@ -45,7 +45,6 @@ export const createLazySingleton = <T extends object>(
     }
   };
 
-  // Every call waits on the first call's stop, so dispose runs once.
   const stop = async (
     dispose?: (value: T) => Promise<void> | void
   ): Promise<void> => {

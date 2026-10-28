@@ -9,10 +9,7 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { toString } from "mdast-util-to-string";
 import { gfm } from "micromark-extension-gfm";
 
-/** @param {import("mdast").Nodes} node Root of the tree to walk.
- * @returns {Generator<import("mdast").Nodes>} A lazy pre-order traversal of the tree.
- * @yields {import("mdast").Nodes} The root, then each descendant in document order.
- */
+/** @type {(node: import("mdast").Nodes) => Generator<import("mdast").Nodes>} */
 const walk = function* (node) {
   yield node;
 
@@ -23,10 +20,7 @@ const walk = function* (node) {
   }
 };
 
-/** @param {string} directory Directory to search recursively.
- * @returns {Generator<string>} A lazy depth-first listing that skips dot entries and `node_modules`.
- * @yields {string} Path of each `.md` file, in directory-listing order; callers sort them.
- */
+/** @type {(directory: string) => Generator<string>} */
 const markdownFiles = function* (directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || entry.name === "node_modules") {
@@ -43,13 +37,13 @@ const markdownFiles = function* (directory) {
   }
 };
 
-/** @param {string} root Description repository to check. */
+/** @param {string} root */
 const checkLinks = (root) => {
   const files = [...markdownFiles(root)].toSorted();
   /** @type {Map<string, { nodes: import("mdast").Nodes[], anchors: Set<string> }>} */
   const documents = new Map();
 
-  /** @param {string} file Markdown file to parse once. */
+  /** @param {string} file */
   const document = (file) => {
     const cached = documents.get(file);
 
@@ -92,7 +86,7 @@ const checkLinks = (root) => {
     /** @type {Map<string, string>} */
     const definitions = new Map();
 
-    // CommonMark resolves duplicate reference definitions to the first one.
+    // The first matching definition takes precedence: https://spec.commonmark.org/0.31.2/#link-reference-definitions
     for (const node of nodes) {
       if (node.type === "definition" && !definitions.has(node.identifier)) {
         definitions.set(node.identifier, node.url);

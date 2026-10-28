@@ -38,7 +38,6 @@ def main():
         result.alpha_composite(sprite, ((result.width - size) // 2, 0))
         return result.convert("RGB")
 
-    # All colors on the actual two backgrounds, decoded from the shipped font.
     for theme, (background, foreground) in THEMES.items():
         sheet = Image.new("RGB", (950, 950), background)
         draw = ImageDraw.Draw(sheet)
@@ -63,7 +62,6 @@ def main():
         for theme, animation in backgrounds.items():
             background, foreground = THEMES[theme]
             count = len(animation["frames"])
-            # Include the seam and the solved hold even for the shorter puzzle loop.
             samples = [round((count - 1) * i / 8) for i in range(9)]
             sheet = Image.new("RGB", (1100, 660), background)
             draw = ImageDraw.Draw(sheet)

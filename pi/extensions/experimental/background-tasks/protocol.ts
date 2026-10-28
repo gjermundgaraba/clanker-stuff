@@ -4,7 +4,6 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-/** Custom message type of automatic task notifications. */
 export const WAKE_TYPE = "background-tasks:wake";
 
 export const MAX_RECORD_BYTES = 16 * 1024;
@@ -32,7 +31,6 @@ const recordSchema = Type.Union([eventSchema, resultSchema]);
 
 type WatchRecord = Static<typeof recordSchema>;
 
-/** Strict byte framing: Unicode separators are data, and a final LF is required. A result ends the stream. */
 export class WatchDecoder {
   private pending = Buffer.alloc(0);
   private ended = false;
@@ -74,8 +72,6 @@ export class WatchDecoder {
         throw new Error("stdout record violates events-v1");
       }
 
-      // Parsed values can render larger than their source (1e20 becomes 21 digits, U+202E a
-      // 6-byte escape); bound the JSON tool text carries, so a result leaves room for logs.
       if (Buffer.byteLength(jsonText(record.data)) > MAX_RECORD_BYTES) {
         throw new Error(
           `stdout record data exceeds ${MAX_RECORD_BYTES} bytes as rendered JSON`

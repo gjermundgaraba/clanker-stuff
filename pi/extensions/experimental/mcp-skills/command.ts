@@ -13,7 +13,6 @@ const STATE_LABELS: Record<ServerStatus["state"], string> = {
   ready: "ready",
 };
 
-/** The servers, their skills with the names they go by, and the skills that are not loaded and why. */
 const statusReport = (skills: McpSkills): string => {
   const catalog = skills.catalog();
 
@@ -35,14 +34,9 @@ const statusReport = (skills: McpSkills): string => {
   return lines.length > 0 ? lines.join("\n") : "No MCP servers are configured.";
 };
 
-/** Completions for the command's one argument. */
 export const completeSkillsCommand = (prefix: string): AutocompleteItem[] =>
   "forget".startsWith(prefix) ? [{ label: "forget", value: "forget" }] : [];
 
-/**
- * `/mcp-skills` shows the servers and their skills; `/mcp-skills forget` drops every approval and
- * deletes the stored skills.
- */
 export const runSkillsCommand = async (
   skills: McpSkills,
   args: string,

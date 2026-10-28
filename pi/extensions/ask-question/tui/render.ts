@@ -77,7 +77,6 @@ export const inboxLabel = (item: Interaction, index: number): string => {
     status = `Revision ${latest.revision} · ${deliveryLabel(latest)}`;
   }
 
-  // The request decoder requires at least one question, including during journal replay.
   const title = item.request.title ?? item.request.questions[0]?.header;
 
   if (title === undefined) {
@@ -128,7 +127,6 @@ export const diffText = (item: Interaction): string => {
   return lines.join("\n").trimEnd() || "No answer changes";
 };
 
-/** Wrapped, unpadded lines. */
 export const textLines = (text: string, width: number): string[] =>
   wrapTextWithAnsi(displayText(text), Math.max(1, width));
 
@@ -142,7 +140,6 @@ const excerpt = (label: string, text: string, width: number): string => {
   );
 };
 
-/** Full auxiliary content for the highlighted option, if it has any. */
 export const optionDetailText = (
   q: Question,
   highlight: number
@@ -170,7 +167,6 @@ export const optionDetailText = (
   return sections.join("\n\n") || undefined;
 };
 
-/** Appended to options with auxiliary details, so `p` is discoverable. */
 const DETAILS_MARK = "  ▸ details (p)";
 
 export const optionLines = (
@@ -337,7 +333,6 @@ const finishFrame = (
   ].map((line) => truncateToWidth(line, options.width)),
 });
 
-/** Render scrollable context above compact, always-visible answer controls. */
 export const renderQuestionView = (
   options: FrameOptions & { context: string[]; answers: string[] }
 ): FrameResult => {
@@ -403,7 +398,6 @@ export const renderQuestionView = (
   );
 };
 
-/** Render Review, editors, previews and metadata as conventional scrolling pages. */
 export const renderScrollablePage = (
   options: FrameOptions & { body: string[]; focusLine?: number }
 ): FrameResult => {
@@ -440,7 +434,6 @@ export const renderScrollablePage = (
   return finishFrame(options, chrome, visible, scroll, viewportRows, hint);
 };
 
-/** Horizontal padding for full-width questionnaire screens. */
 export const padded = (
   availableWidth: number,
   draw: (width: number) => string[]
@@ -452,12 +445,10 @@ export const padded = (
   );
 };
 
-/** Scroll state of the frame's viewport, driven by keys and fullscreen wheel events. */
 export class Viewport {
   scroll = 0;
   private page = 1;
   private area = { top: 0, rows: 0 };
-  /** Adopts a rendered frame's clamped scroll position and viewport bounds. */
   show(frame: FrameResult): string[] {
     this.scroll = frame.scroll;
     this.page = Math.max(1, frame.viewport.rows - 1);

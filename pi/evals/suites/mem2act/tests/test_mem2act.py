@@ -153,8 +153,6 @@ class Mem2ActTest(TestCase):
                     "tool": "secret.tool",
                 }
             )
-            # Only the float, empty containers, and shared string overlap. Escaped
-            # keys do not collide with nested paths, and booleans differ from numbers.
             for contents, exact_score, f1_score in (
                 (f"{exact}\n", 1, 1),
                 (f"{partial}\n", 0, 1 / 2),

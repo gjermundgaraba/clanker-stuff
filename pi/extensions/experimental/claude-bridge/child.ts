@@ -1,5 +1,3 @@
-// What every Claude Code subprocess the bridge spawns runs with.
-
 import type {
   Options,
   Query,
@@ -18,14 +16,6 @@ export interface QueryParams {
 
 export type QueryFunction = (params: QueryParams) => BridgeQuery;
 
-/** Applied to every Claude Code child.
- *  - ENABLE_CLAUDEAI_MCP_SERVERS=0: keep claude.ai-connected MCP servers out; pi serves
- *    its own tools, and these are not blocked by --strict-mcp-config.
- *  - DISABLE_AUTO_COMPACT=1: pi owns compaction. Claude Code compacting its own copy
- *    would diverge from pi's history, the source of truth for every rebuild, and race
- *    pi's threshold.
- *  - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1: no update checks, MCP registry or
- *    telemetry from a child that only serves inference. */
 const CHILD_ENV = {
   ENABLE_CLAUDEAI_MCP_SERVERS: "0",
   DISABLE_AUTO_COMPACT: "1",
@@ -45,13 +35,11 @@ export const stopQuery = (query: BridgeQuery | undefined): void => {
     return;
   }
 
-  void query.interrupt().catch(() => {
-    // A query that already ended refuses the interrupt.
-  });
+  void query.interrupt().catch(() => undefined);
 
   try {
     query.close();
   } catch {
-    // Already gone.
+    return;
   }
 };

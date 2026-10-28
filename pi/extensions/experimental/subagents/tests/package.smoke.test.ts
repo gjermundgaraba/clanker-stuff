@@ -34,7 +34,6 @@ describe("subagents package", () => {
       .trim()
       .split("\n");
 
-    // Loading the packed extension below covers its modules; these files are not imported.
     expect(entries).toContain("package/docs/protocols.md");
     expect(entries).toContain("package/docs/delegation.md");
     expect(entries).toContain("package/LICENSE.openai");

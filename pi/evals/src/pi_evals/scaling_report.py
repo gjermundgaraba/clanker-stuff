@@ -1,5 +1,3 @@
-"""Scaling presentation; never consulted to authorize model spending."""
-
 import json
 from pathlib import Path
 from statistics import fmean

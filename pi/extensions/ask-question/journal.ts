@@ -13,7 +13,6 @@ export const STATE_TYPE = "questionnaire.state";
 
 type Writer = Pick<ExtensionAPI, "appendEntry">;
 
-/** Persist the authored request once, when the interaction is created. */
 export const recordRequest = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(REQUEST_TYPE, {
     id: item.id,
@@ -23,7 +22,6 @@ export const recordRequest = (pi: Writer, item: Interaction): void => {
   });
 };
 
-/** Persist the interaction's current state. Pi writes custom entries synchronously. */
 export const recordState = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(STATE_TYPE, {
     id: item.id,
@@ -34,7 +32,6 @@ export const recordState = (pi: Writer, item: Interaction): void => {
   });
 };
 
-/** Rebuild this branch's interactions; the last state of each request wins. */
 export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
   const requests = new Map<string, RequestRecord>();
   const items = new Map<string, Interaction>();
@@ -44,7 +41,6 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
       continue;
     }
 
-    // Unreadable entries, including retired formats, are skipped rather than blocking the session.
     if (
       entry.customType === REQUEST_TYPE &&
       Value.Check(RequestRecordSchema, entry.data)

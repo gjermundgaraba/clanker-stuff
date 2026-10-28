@@ -15,8 +15,7 @@ import { envelopeText, SUBAGENT_MESSAGE_TYPE } from "../../protocol.js";
 import type { AgentMessage } from "../../runtime.js";
 import { Transcript } from "../../ui/transcript.js";
 
-/** A 1×1 PNG. */
-const PIXEL =
+const ONE_PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 const calls: AgentMessage = {
@@ -135,7 +134,6 @@ describe(Transcript, () => {
   );
 
   it("shows results of calls that finished before it was opened mid-batch", () => {
-    // The fast call has finished; Pi emits its result message only when the whole batch ends.
     const component = transcript();
     component.load([calls], undefined, new Set(["slow"]));
 
@@ -235,7 +233,9 @@ describe(Transcript, () => {
     component.load(
       [
         calls,
-        result("fast", [{ data: PIXEL, mimeType: "image/png", type: "image" }]),
+        result("fast", [
+          { data: ONE_PIXEL_PNG, mimeType: "image/png", type: "image" },
+        ]),
       ],
       undefined
     );

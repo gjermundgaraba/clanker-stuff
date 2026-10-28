@@ -27,7 +27,6 @@ import rubik
 
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "assets"
-# Extensions read the metadata from the shared glyph package; the font stays with its setup.
 METADATA = HERE.parents[4] / "pi" / "packages" / "shape-glyphs" / "shapes.json"
 BASE = 0x100000
 UPM, ADVANCE, ASCENT, DESCENT = 1000, 600, 800, -200
@@ -45,7 +44,6 @@ def bounds_glyph():
 
 
 def optimize_png(bitmap):
-    # Lossless recompression: no palette quantization, recoloring or alpha changes.
     original = Image.open(io.BytesIO(bitmap))
     output = io.BytesIO()
     original.save(output, format="PNG", optimize=True)
@@ -87,7 +85,6 @@ def build(rendered):
                 animations[shape][color][background] = {"seconds": 8, "frames": frames[:-1], "still": frames[-1]}
                 assert frames[0] != frames[-1], "Rest is not the first working frame"
 
-    # Solid sticker artwork shares the same font, metrics and playback API.
     assert rubik.FPS == rendered["fps"]
     scenes = rubik.scenes()
     rubik.check_scene(scenes)
@@ -116,11 +113,8 @@ def build(rendered):
     fb.font["head"].created = fb.font["head"].modified = 3660681600
     output = io.BytesIO()
     fb.font.save(output)
-    # Hash the assembled font before adding its derived names. Source comments,
-    # browser provenance and animation timing do not change installed glyphs.
     digest = hashlib.sha256(output.getvalue()).hexdigest()[:10]
     family = f"Shape Spinner {digest}"
-    # Reuse compiled tables when adding names instead of recompiling sbix.
     fb.font = TTFont(output, lazy=True, recalcTimestamp=False)
     fb.setupNameTable({
         "copyright": "Copyright (c) 2026 Gjermund Garaba",
@@ -161,9 +155,6 @@ def validate(font_bytes, metadata):
             if cp not in rubik_codepoints:
                 assert 0 < bounds[0] < bounds[2] < size
                 assert 0 < bounds[1] < bounds[3] < size, (size, cp, bounds)
-            # Rubik fills 94% of the em: Lanczos fringe can touch the bitmap edge.
-            # check_scene proves a 29-unit geometric inset; CoreText tests actual
-            # paint against fixed glyph bounds. Do not shrink each frame to ink.
             glyph = font["glyf"][name]
             assert (glyph.xMin, glyph.yMin, glyph.xMax, glyph.yMax) == (0, DESCENT, UPM, ASCENT)
     return meta, len(codepoints)

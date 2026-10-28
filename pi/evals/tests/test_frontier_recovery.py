@@ -1,4 +1,3 @@
-"""Grading is resumable; model attempts and execution identity are not."""
 import hashlib
 import json
 from pathlib import Path
@@ -99,7 +98,6 @@ class FrontierRecoveryTest(TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             source = root/'evals'
-            # Build an isolated execution snapshot; never edit the shared repo inputs.
             for tree, files in f.sources().items():
                 for name in files:
                     target = source/tree/name

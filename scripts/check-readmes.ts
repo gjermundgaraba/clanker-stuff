@@ -136,6 +136,7 @@ if (existsSync(rootReadmePath)) {
     "## Codex plugins",
     "## Skills",
     "## Development",
+    "## Releasing",
     "## License",
   ];
 
@@ -183,14 +184,14 @@ if (existsSync(rootReadmePath)) {
   errors.push("README.md is missing.");
 }
 
-for (const { dir, packageJson } of experimentalPackages) {
-  const readmePath = path.join(repoRoot, dir, "README.md");
+const experimentalPackagesWithReadme = experimentalPackages
+  .map((pkg) => ({
+    ...pkg,
+    readmePath: path.join(repoRoot, pkg.dir, "README.md"),
+  }))
+  .filter(({ readmePath }) => existsSync(readmePath));
 
-  // Package readiness owns README existence; private packages need no public-page template.
-  if (!existsSync(readmePath)) {
-    continue;
-  }
-
+for (const { dir, packageJson, readmePath } of experimentalPackagesWithReadme) {
   const actual = readFileSync(readmePath, "utf-8");
   const ownSource = `npm:${packageJson.name}`;
 

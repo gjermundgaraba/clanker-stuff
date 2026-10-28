@@ -65,7 +65,8 @@ The root `README.md` should contain:
 7. A `Codex plugins` table linking each Codex plugin directory.
 8. A `Skills` section linking to the reusable catalog and distinguishing it from repository-local and package-owned skills.
 9. A one-line `Development` section naming the Node.js requirement and validation command.
-10. A `License` section linking to the root license.
+10. A `Releasing` section with the release steps and the first-publish steps for a new package.
+11. A `License` section linking to the root license.
 
 ## Deeper documentation
 

@@ -6,7 +6,6 @@ export const LOG_BYTES = 128 * 1024;
 
 export const DEFAULT_TAIL_BYTES = 6000;
 
-/** Bounded in-memory tail of each output stream. */
 export class TaskLogs {
   private readonly tails = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
   private readonly received = { stdout: 0, stderr: 0 };
