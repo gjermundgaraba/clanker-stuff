@@ -16,7 +16,6 @@
     "@types/node": "catalog:",
     "jiti": "2.7.0",
     "oxfmt": "catalog:",
-    "oxlint": "catalog:",
     "typebox": "catalog:",
     "typescript": "catalog:",
     "ultracite": "catalog:",

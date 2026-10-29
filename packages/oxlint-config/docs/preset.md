@@ -136,7 +136,7 @@ Everything else belongs in a name, a type, a test title or the commit message.
 
 ## Migrating a repository
 
-1. Add the package and its peers as dev dependencies.
+1. Add the package and its peers as dev dependencies, except `oxlint`, which `vite-plus` brings. Remove a separate `oxlint` pin.
 2. Replace `testFiles`, `sharedRules`, `sharedTestOverride` and the `defineConfig` shell with `config({ ... })`. Pass the repository's test-block names as `testBlocks`, the extra names its `vitest/no-standalone-expect` list had as `expectBlocks`, and its assertion helpers beyond the defaults as `assertFunctions`.
 3. Drop what the preset now sets: the Vite+ plugin entry, `vite-plus/prefer-vite-plus-imports`, `anti-slop/no-unknown-parameters: "off"`, and `env: { node: true }`.
 4. A repository that configures lint in `vite.config.ts` with a vendored anti-slop under `tools/oxlint/anti-slop` drops it and its `anti-slop` and `anti-slop-effect` plugin entries, because the vendored `anti-slop` name collides with Ultracite's. One with its own `no-comments` plugin drops that too; the shared rule has no `// Why:` or reasoned-directive allowance.

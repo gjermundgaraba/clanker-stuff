@@ -5,7 +5,7 @@ Shares the Ultracite and Effect Oxlint preset, its exceptions and a rule that ke
 ## Install
 
 ```bash
-pnpm add -D @clanker-stuff/oxlint-config ultracite @effect/tsgo oxlint vite-plus
+pnpm add -D @clanker-stuff/oxlint-config ultracite @effect/tsgo vite-plus
 ```
 
 ## Usage
