@@ -13,6 +13,7 @@ import { Value } from "typebox/value";
 
 import type { Unread } from "./notices.js";
 import type { InspectOutput } from "./output.js";
+import { cleanupOf, outcomeOf, resultOf } from "./phase.js";
 import { WAKE_TYPE } from "./protocol.js";
 import { Supervisor, taskSummary, unread } from "./supervisor.js";
 import type { Task } from "./supervisor.js";
@@ -32,8 +33,8 @@ const noticeLine = (task: Task, notice: Unread) => {
 
 const row = (task: Task) =>
   [
-    task.outcome ?? "running",
-    ...(task.cleanup === "failed" ? ["cleanup failed"] : []),
+    outcomeOf(task.phase) ?? "running",
+    ...(cleanupOf(task.phase) === "failed" ? ["cleanup failed"] : []),
     ...(unread(task) ? ["unread"] : []),
     inlineText(task.spec.name),
     task.id,
@@ -188,19 +189,18 @@ export class TaskRuntime {
     }
 
     const task = this.supervisor.get(params.id);
+    const data = resultOf(task.phase);
 
     const result = toolResult({
       task: taskSummary(task),
       ...(task.diagnostic === undefined ? {} : { diagnostic: task.diagnostic }),
-      ...(task.result === undefined
-        ? {}
-        : { result: structuredClone(task.result) }),
+      ...(data === undefined ? {} : { result: structuredClone(data) }),
       events: structuredClone(task.notices.events),
       omittedEvents: task.notices.omitted,
       logs: task.logs.read(params.tailBytes),
     } satisfies InspectOutput);
 
-    task.notices.clear(task.outcome !== undefined);
+    task.notices.clear(outcomeOf(task.phase) !== undefined);
     this.schedule();
 
     return result;
@@ -226,7 +226,7 @@ export class TaskRuntime {
     ).map((task) => ({
       label: inlineText(task.spec.name),
       value: task.id,
-      description: `${task.outcome ?? "running"} · ${task.id}`,
+      description: `${outcomeOf(task.phase) ?? "running"} · ${task.id}`,
     }));
   }
   async command(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -275,7 +275,7 @@ export class TaskRuntime {
     await this.supervisor.shutdown();
 
     for (const task of this.supervisor.list()) {
-      if (task.cleanup === "failed") {
+      if (cleanupOf(task.phase) === "failed") {
         ctx?.ui.notify(
           `Could not clean up task ${task.id}; PID ${task.child?.pid}.`,
           "warning"

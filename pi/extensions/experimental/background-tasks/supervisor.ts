@@ -5,12 +5,13 @@ import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
-import type { JsonValue } from "@earendil-works/pi-ai";
 
 import { TaskLogs } from "./logs.js";
 import { TaskNotices } from "./notices.js";
 import type { Unread } from "./notices.js";
 import type { Outcome, TaskSummary } from "./output.js";
+import { cleanupOf, outcomeOf, taskMachine } from "./phase.js";
+import type { TaskPhase, TaskPhaseEvent } from "./phase.js";
 import { WatchDecoder } from "./protocol.js";
 
 export interface StartTask {
@@ -27,13 +28,10 @@ export interface Task {
   id: string;
   spec: StartTask;
   startedAt: number;
-  outcome?: Outcome;
-  endedAt?: number;
+  phase: TaskPhase;
   exitCode?: number | null;
   signal?: string | null;
-  cleanup: TaskSummary["cleanup"];
   diagnostic?: string;
-  result?: JsonValue;
   notices: TaskNotices;
   logs: TaskLogs;
   child?: ChildProcessByStdio<null, Readable, Readable>;
@@ -59,7 +57,9 @@ export const DEFAULT_LIMITS: ProcessLimits = {
 };
 
 export const unread = (task: Task): Unread | undefined =>
-  task.notices.unread(task.cleanup === "pending" ? undefined : task.outcome);
+  task.notices.unread(
+    cleanupOf(task.phase) === "pending" ? undefined : outcomeOf(task.phase)
+  );
 
 const describe = (error: unknown) =>
   safeText(error instanceof Error ? error.message : String(error)).slice(
@@ -99,8 +99,9 @@ export class Supervisor {
     this.prune();
 
     if (
-      this.list().filter((t) => t.outcome && unread(t)).length >=
-      this.limits.unread
+      this.list().filter(
+        (t) => outcomeOf(t.phase) !== undefined && unread(t) !== undefined
+      ).length >= this.limits.unread
     ) {
       throw new Error(
         "Too many finished tasks have unread notifications; inspect them before starting more."
@@ -111,7 +112,7 @@ export class Supervisor {
       id: `t_${randomUUID()}`,
       spec,
       startedAt: Date.now(),
-      cleanup: "pending",
+      phase: taskMachine.initialState,
       notices: new TaskNotices(),
       logs: new TaskLogs(),
       ready: Promise.resolve(),
@@ -120,21 +121,22 @@ export class Supervisor {
     this.tasks.set(task.id, task);
     task.ready = this.launch(task, signal);
     await task.ready;
+    const outcome = outcomeOf(task.phase);
 
     if (
       signal?.aborted === true ||
-      task.outcome === "spawn_error" ||
-      task.outcome === "cancelled"
+      outcome === "spawn_error" ||
+      outcome === "cancelled"
     ) {
       await this.stop(task.id);
-      const kept = task.cleanup !== "clean";
+      const kept = cleanupOf(task.phase) !== "clean";
 
       if (!kept) {
         this.tasks.delete(task.id);
       }
 
       throw new Error(
-        `Task did not start (${task.outcome ?? "cancelled"})${task.diagnostic !== undefined && task.diagnostic !== "" ? `: ${task.diagnostic}` : ""}${kept ? `; cleanup failed, see task ${task.id}` : ""}`
+        `Task did not start (${outcome ?? "cancelled"})${task.diagnostic !== undefined && task.diagnostic !== "" ? `: ${task.diagnostic}` : ""}${kept ? `; cleanup failed, see task ${task.id}` : ""}`
       );
     }
 
@@ -158,7 +160,11 @@ export class Supervisor {
         try {
           task.logs.append(stream, chunk);
 
-          if (stream === "stdout" && decoder && !task.outcome) {
+          if (
+            stream === "stdout" &&
+            decoder &&
+            task.phase.value === "running"
+          ) {
             decoder.push(chunk, (record) => {
               if (Date.now() - windowStart >= 1000) {
                 windowStart = Date.now();
@@ -172,8 +178,11 @@ export class Supervisor {
               }
 
               if (record.type === "result") {
-                task.result = record.data;
-                this.finish(task, "result");
+                this.send(task, {
+                  type: "task.result",
+                  data: record.data,
+                  at: Date.now(),
+                });
               } else {
                 task.notices.record(record.data, record.key);
                 this.notify();
@@ -206,7 +215,7 @@ export class Supervisor {
         task.exitCode = code;
         task.signal = exitSignal;
 
-        if (!task.outcome) {
+        if (task.phase.value === "running") {
           try {
             decoder?.finish();
           } catch (error) {
@@ -255,7 +264,7 @@ export class Supervisor {
         signal?.removeEventListener("abort", abort);
       }
 
-      if (!task.outcome) {
+      if (task.phase.value === "running") {
         task.timer = setTimeout(() => {
           this.finish(task, "timeout");
         }, task.spec.timeoutMs ?? 3_600_000);
@@ -269,46 +278,46 @@ export class Supervisor {
     }
   }
 
-  private finish(task: Task, outcome: Outcome): void {
-    if (task.outcome) {
-      return;
-    }
+  private finish(task: Task, outcome: Exclude<Outcome, "result">): void {
+    this.send(task, { type: "task.end", outcome, at: Date.now() });
+  }
 
-    task.outcome = outcome;
-    task.endedAt = Date.now();
-    clearTimeout(task.timer);
-    this.reap(task);
+  private send(task: Task, event: TaskPhaseEvent): void {
+    const [next] = taskMachine.transition(task.phase, event);
+    const reaping = task.phase.value !== "reaping" && next.value === "reaping";
+    task.phase = next;
+
+    if (reaping) {
+      clearTimeout(task.timer);
+      this.reap(task);
+    }
   }
 
   private reap(task: Task): void {
-    task.cleanup = "pending";
     task.cleanupPromise = (async () => {
       await Promise.resolve();
+      let verdict: "clean" | "failed";
 
       try {
         await task.ready;
-        await this.cleanup(task);
-        this.notify();
+        verdict = await this.cleanup(task);
       } catch (error) {
-        if (task.cleanup === "pending") {
-          task.cleanup = "failed";
-        }
-
+        verdict = "failed";
         task.diagnostic = describe(error);
-        this.notify();
       }
+
+      this.send(task, { type: "cleanup.done", verdict });
+      this.notify();
     })();
     this.notify();
   }
 
-  private async cleanup(task: Task): Promise<void> {
+  private async cleanup(task: Task): Promise<"clean" | "failed"> {
     const { child } = task;
     const pid = child?.pid;
 
     if (!child || pid === undefined || pid === 0) {
-      task.cleanup = "clean";
-
-      return;
+      return "clean";
     }
 
     const alive = () => {
@@ -373,7 +382,8 @@ export class Supervisor {
 
     child.stdout.destroy();
     child.stderr.destroy();
-    task.cleanup = verdict;
+
+    return verdict;
   }
 
   private notify(): void {
@@ -382,8 +392,7 @@ export class Supervisor {
     }
   }
   get activeCount(): number {
-    return this.list().filter((t) => !t.outcome || t.cleanup !== "clean")
-      .length;
+    return this.list().filter((t) => cleanupOf(t.phase) !== "clean").length;
   }
   get(id: string): Task {
     const task = this.tasks.get(id);
@@ -401,12 +410,7 @@ export class Supervisor {
   }
   async stop(id: string): Promise<Task> {
     const task = this.get(id);
-    this.finish(task, "cancelled");
-
-    if (task.cleanup === "failed") {
-      this.reap(task);
-    }
-
+    this.send(task, { type: "task.stop", at: Date.now() });
     await task.cleanupPromise;
 
     return task;
@@ -423,7 +427,7 @@ export class Supervisor {
         this.finish(task, "cancelled");
         await task.cleanupPromise;
 
-        if (task.cleanup !== "clean") {
+        if (cleanupOf(task.phase) !== "clean") {
           this.tasks.set(task.id, task);
         }
       })
@@ -431,7 +435,7 @@ export class Supervisor {
   }
   private prune(): void {
     const finished = this.list().filter(
-      (t) => t.outcome !== undefined && t.cleanup === "clean" && !unread(t)
+      (t) => cleanupOf(t.phase) === "clean" && !unread(t)
     );
 
     for (const task of finished.slice(
@@ -452,14 +456,18 @@ export class Supervisor {
   }
 }
 
-export const taskSummary = (task: Task): TaskSummary => ({
-  id: task.id,
-  name: safeText(task.spec.name),
-  ...(task.child?.pid === undefined ? {} : { pid: task.child.pid }),
-  status: task.outcome ?? "running",
-  cleanup: task.cleanup,
-  startedAt: task.startedAt,
-  ...(task.endedAt === undefined ? {} : { endedAt: task.endedAt }),
-  ...(task.exitCode === undefined ? {} : { exitCode: task.exitCode }),
-  ...(task.signal === undefined ? {} : { signal: task.signal }),
-});
+export const taskSummary = (task: Task): TaskSummary => {
+  const { ended } = task.phase.context;
+
+  return {
+    id: task.id,
+    name: safeText(task.spec.name),
+    ...(task.child?.pid === undefined ? {} : { pid: task.child.pid }),
+    status: ended?.outcome ?? "running",
+    cleanup: cleanupOf(task.phase),
+    startedAt: task.startedAt,
+    ...(ended === null ? {} : { endedAt: ended.endedAt }),
+    ...(task.exitCode === undefined ? {} : { exitCode: task.exitCode }),
+    ...(task.signal === undefined ? {} : { signal: task.signal }),
+  };
+};

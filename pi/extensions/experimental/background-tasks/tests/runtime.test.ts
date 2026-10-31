@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { WAKE_TYPE } from "../protocol.js";
 import { TaskRuntime } from "../runtime.js";
-import { unread } from "../supervisor.js";
+import { taskSummary, unread } from "../supervisor.js";
 
 const runtimes: TaskRuntime[] = [];
 
@@ -80,7 +80,7 @@ describe("TaskRuntime", () => {
       const watch = await start(RESULT, "lint\nwatch");
       const build = await start(RESULT, "build");
       await expect
-        .poll(() => [watch.outcome, build.outcome])
+        .poll(() => [watch, build].map((task) => taskSummary(task).status))
         .toEqual(["result", "result"]);
 
       const item = (task: typeof watch, label: string) => ({

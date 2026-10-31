@@ -8,7 +8,8 @@ import {
   onTestFinished,
 } from "vite-plus/test";
 
-import { Supervisor, unread } from "../supervisor.js";
+import { resultOf } from "../phase.js";
+import { Supervisor, taskSummary, unread } from "../supervisor.js";
 import type { Task, StartTask, ProcessLimits } from "../supervisor.js";
 
 const supervisors: Supervisor[] = [];
@@ -106,12 +107,14 @@ describe("Supervisor (real subprocesses)", () => {
 
     expect(unread(task)?.outcome).toBeUndefined();
     await finished(task);
-    expect(task.outcome).toBe(outcome);
-    expect(task.cleanup).toBe("clean");
+    expect(taskSummary(task)).toMatchObject({
+      status: outcome,
+      cleanup: "clean",
+    });
     expect(unread(task)?.outcome).toBe(outcome);
 
     await supervisor.stop(task.id);
-    expect(task.outcome).toBe(outcome);
+    expect(taskSummary(task).status).toBe(outcome);
   });
 
   it("keeps the result and events reported before late invalid output", async () => {
@@ -125,8 +128,8 @@ describe("Supervisor (real subprocesses)", () => {
     );
 
     await finished(task);
-    expect(task.outcome).toBe("result");
-    expect(task.result).toStrictEqual({ conclusion: "failure" });
+    expect(taskSummary(task).status).toBe("result");
+    expect(resultOf(task.phase)).toStrictEqual({ conclusion: "failure" });
     expect(task.notices.events).toStrictEqual([
       { seq: 1, key: "ci", data: "running" },
     ]);
@@ -135,10 +138,12 @@ describe("Supervisor (real subprocesses)", () => {
   it("returns after spawn and cancellation is idempotent", async () => {
     const supervisor = setup();
     const task = await supervisor.start(spec("setInterval(()=>{},1000)"));
-    expect(task.outcome).toBeUndefined();
+    expect(taskSummary(task).status).toBe("running");
     await Promise.all([supervisor.stop(task.id), supervisor.stop(task.id)]);
-    expect(task.outcome).toBe("cancelled");
-    expect(task.cleanup).toBe("clean");
+    expect(taskSummary(task)).toMatchObject({
+      status: "cancelled",
+      cleanup: "clean",
+    });
   });
 
   it("leaves no task after a failed or cancelled start, reporting the cause", async () => {
@@ -205,7 +210,10 @@ describe("Supervisor (real subprocesses)", () => {
 
     expect(supervisor.list()).toStrictEqual([kept]);
     await discarding;
-    expect(orphan).toMatchObject({ outcome: "cancelled", cleanup: "clean" });
+    expect(taskSummary(orphan)).toMatchObject({
+      status: "cancelled",
+      cleanup: "clean",
+    });
     expect(alive(orphan.child?.pid)).toBe(false);
     expect(alive(kept.child?.pid)).toBe(true);
     expect(supervisor.list()).toStrictEqual([kept]);
@@ -232,7 +240,7 @@ describe("Supervisor (real subprocesses)", () => {
     const pid = Number(task.logs.read().stdout.trim());
     await delay(100);
     await supervisor.stop(task.id);
-    expect(task.cleanup).toBe("clean");
+    expect(taskSummary(task).cleanup).toBe("clean");
     expect(alive(pid)).toBe(false);
   });
 
@@ -240,18 +248,18 @@ describe("Supervisor (real subprocesses)", () => {
     const supervisor = setup({ concurrency: 1, graceMs: 0, killMs: 0 });
     const task = await supervisor.start(spec("setInterval(()=>{},1000)"));
     await supervisor.stop(task.id);
-    expect(task.cleanup).toBe("failed");
+    expect(taskSummary(task).cleanup).toBe("failed");
     await expect(supervisor.start(spec(""))).rejects.toThrow(
       /Concurrent task limit/u
     );
 
     await expect.poll(() => groupGone(task.child?.pid)).toBe(true);
     await supervisor.stop(task.id);
-    expect(task.cleanup).toBe("clean");
+    expect(taskSummary(task).cleanup).toBe("clean");
     expect(supervisor.activeCount).toBe(0);
-    await expect(supervisor.start(spec(""))).resolves.toMatchObject({
-      cleanup: "pending",
-    });
+    await expect(
+      supervisor.start(spec("")).then(taskSummary)
+    ).resolves.toMatchObject({ cleanup: "pending" });
   });
 
   it("makes a stop during a failing cleanup wait for it instead of retrying it", async () => {
@@ -276,9 +284,9 @@ describe("Supervisor (real subprocesses)", () => {
       }
     });
 
-    const first = supervisor.stop(task.id).then(({ cleanup }) => cleanup);
+    const first = supervisor.stop(task.id).then((t) => taskSummary(t).cleanup);
     await delay(50);
-    const second = supervisor.stop(task.id).then(({ cleanup }) => cleanup);
+    const second = supervisor.stop(task.id).then((t) => taskSummary(t).cleanup);
     await expect(Promise.all([first, second])).resolves.toStrictEqual([
       "failed",
       "failed",
@@ -303,8 +311,10 @@ describe("Supervisor (real subprocesses)", () => {
     );
 
     await finished(task);
-    expect(task.outcome).toBe("completed");
-    expect(task.cleanup).toBe("clean");
+    expect(taskSummary(task)).toMatchObject({
+      status: "completed",
+      cleanup: "clean",
+    });
     expect(alive(Number(task.logs.read().stdout.trim()))).toBe(false);
   });
 });
