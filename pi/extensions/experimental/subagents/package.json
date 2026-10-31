@@ -26,6 +26,7 @@
     "keyed-queue.ts",
     "manager.ts",
     "monitor.ts",
+    "phase.ts",
     "prompts.ts",
     "protocol.ts",
     "renderers.ts",

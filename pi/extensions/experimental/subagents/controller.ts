@@ -15,6 +15,7 @@ import { forkHistory } from "./history.js";
 import type { ForkTurns } from "./history.js";
 import { KeyedSerialQueue } from "./keyed-queue.js";
 import { Monitor } from "./monitor.js";
+import { bound } from "./phase.js";
 import {
   childPrompt,
   COLLABORATION_SECTION,
@@ -42,18 +43,6 @@ import type {
 } from "./runtime.js";
 import { TreeStore } from "./store.js";
 import { registerTools } from "./tools.js";
-
-const bound = (value: string, maximum: number): string => {
-  if (value.length <= maximum) {
-    return value;
-  }
-
-  const end = /[\uD800-\uDBFF]/u.test(value[maximum - 2] ?? "")
-    ? maximum - 2
-    : maximum - 1;
-
-  return `${value.slice(0, end)}…`;
-};
 
 const errorText = (cause: unknown): string =>
   bound(
