@@ -40,7 +40,8 @@
   "dependencies": {
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@clanker-stuff/pi-tool-schema": "workspace:^",
-    "@clanker-stuff/scheduled-check": "workspace:^"
+    "@clanker-stuff/scheduled-check": "workspace:^",
+    "xstate": "catalog:"
   },
   "devDependencies": {
     "vite": "catalog:",
