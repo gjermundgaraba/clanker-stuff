@@ -6,12 +6,12 @@ license: MIT
 metadata:
   upstream-source: "https://github.com/cathrynlavery/diagram-design"
   upstream-path: "skills/diagram-design/"
-  upstream-revision: "d1376371965f513d99cc9ec388835d255c5c88d5"
+  upstream-revision: "0cf73c3fcc56667ad91a9a04c439ac6ccfabc9d1"
   upstream-relationship: "adapted"
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
   upstream-baseline-kind: "reconciled"
-  upstream-release: "2.6.64"
+  upstream-release: "2.6.136"
 ---
 
 # Diagram Design

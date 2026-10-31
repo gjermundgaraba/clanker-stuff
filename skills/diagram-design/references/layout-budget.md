@@ -17,6 +17,9 @@ Useful starting points by visual grammar:
 | Grammar | Starting density |
 | --- | --- |
 | Architecture delta | 8 unique components, 10 relationships, 8 change-ledger entries across both snapshots |
+| Architecture containment | 2 administrative bands, 4 traffic scopes, 8 nodes |
+| Box plot | 8 series, 8 outliers, 1 focal series |
+| Service blueprint | 6 stages; required customer, frontstage, and backstage layers; optional evidence and support; 1 focal cell |
 | Sequence | 5 lifelines, 12 messages; shallow combined fragments |
 | Swimlane | 5 lanes |
 | Nested, tree, org chart | 4–6 levels, with readable labels at each tier |

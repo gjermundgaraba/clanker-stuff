@@ -35,6 +35,10 @@ MAX_SOURCE_BYTES = 4 * 1024 * 1024
 MAX_NODES = 2000
 MAX_EDGES = 5000
 MAX_STATEMENT_CHARS = 4096
+# Sequence `autonumber` start and step. Mermaid numbers steps with JS numbers,
+# which stay exact up to 15 digits. Checking the length first also keeps the
+# error the same on Pythons with and without an int-from-string digit limit.
+MAX_AUTONUMBER_DIGITS = 15
 SUPPORTED_KINDS = "flowchart, sequenceDiagram, stateDiagram-v2, erDiagram"
 UNSUPPORTED_KINDS = {
     "pie",
@@ -52,6 +56,14 @@ UNSUPPORTED_KINDS = {
 }
 MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
 MERMAID_SUFFIXES = {".mmd", ".mermaid"}
+# ER entity names start with a letter (any script) or underscore. The regex
+# shapes the token; _er_name enforces the first character, because \w also
+# matches non-decimal numerals such as "²" and "½" that \d does not exclude.
+ER_IDENTIFIER = r"[^\W\d][\w.-]*"
+
+
+def _er_name(name: str) -> bool:
+    return name[:1] == "_" or name[:1].isalpha()
 
 
 def _configure_stdout_utf8() -> None:
@@ -103,10 +115,13 @@ class Diagram:
     edges: list[Edge] = field(default_factory=list)
     fragments: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # Sequence `autonumber` directives: step numbers are content, prose cites them.
+    autonumber: list[dict[str, Any]] = field(default_factory=list)
     discarded: dict[str, int] = field(
-        default_factory=lambda: {"style_directives": 0, "click_handlers": 0}
+        default_factory=lambda: {"style_directives": 0, "click_handlers": 0, "config_directives": 0}
     )
     _nodes_by_id: dict[str, Node] = field(default_factory=dict, init=False, repr=False)
+    _state_descriptions: dict[str, list[str]] = field(default_factory=dict, init=False, repr=False)
 
     @property
     def node_map(self) -> dict[str, Node]:
@@ -116,7 +131,7 @@ class Diagram:
         self,
         node_id: str,
         label: str = "",
-        shape: str = "rect",
+        shape: str = "",
         parent: str | None = None,
         container: bool = False,
     ) -> Node:
@@ -124,7 +139,9 @@ class Diagram:
         if existing is not None:
             if label and (label != node_id or existing.label == existing.id):
                 existing.label = label
-            if shape != "rect" or not existing.shape:
+                if label != node_id:
+                    self._state_descriptions.pop(node_id, None)
+            if shape:
                 existing.shape = shape
             if parent is not None and existing.parent is None:
                 existing.parent = parent
@@ -137,7 +154,7 @@ class Diagram:
         node = Node(
             id=node_id,
             label=label or node_id,
-            shape=shape,
+            shape=shape or "rect",
             parent=parent,
             depth=self._depth_for(parent),
             container=container,
@@ -203,12 +220,27 @@ def clean_label(value: str) -> str:
         text = text[1:-1]
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", "", text)
-    text = re.sub(r"(?<!&)#(quot|apos|amp|lt|gt);", r"&\1;", text)
-    text = html.unescape(text)
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
     text = re.sub(r"__(.*?)__", r"\1", text)
     text = re.sub(r"(?<!\w)[*_](.*?)[*_](?!\w)", r"\1", text)
     text = text.replace("\\\"", '"').replace("\\'", "'")
+
+    def entity_reference(match: re.Match[str]) -> str:
+        entity = match.group(1)
+        if entity.isdecimal():
+            try:
+                codepoint = int(entity, 10)
+            except ValueError:
+                return match.group(0)
+            if not 0 < codepoint <= 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                return match.group(0)
+            return f"&#{entity};"
+        if entity + ";" in html.entities.html5:
+            return f"&{entity};"
+        return match.group(0)
+
+    text = re.sub(r"(?<!&)#([0-9]+|[A-Za-z][A-Za-z0-9]*);", entity_reference, text)
+    text = html.unescape(text)
     return "\n".join(part.strip() for part in text.splitlines()).strip()
 
 
@@ -223,7 +255,7 @@ def _read_bounded(path: Path) -> str:
             f"source exceeds the {MAX_SOURCE_BYTES // (1024 * 1024)} MiB limit"
         )
     try:
-        return data.decode("utf-8")
+        return data.decode("utf-8-sig")
     except UnicodeDecodeError:
         _fail(f"{path.name}: source is not valid UTF-8 text")
 
@@ -241,22 +273,28 @@ def load_blocks(path: Path) -> list[SourceBlock]:
     start: int | None = None
     fence = ""
     content: list[str] = []
+    capture = False
     for line_number, line in enumerate(lines, 1):
         if start is None:
-            match = re.match(r"^\s*(`{3,}|~{3,})\s*mermaid\s*$", line, re.I)
-            if match:
+            match = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+            if (match and not (match.group(1)[0] == "`" and "`" in match.group(2))
+                    and (match.group(2).strip().casefold() == "mermaid"
+                         or re.match(r"^ {0,3}[`~]", line))):
                 start = line_number + 1
                 fence = match.group(1)
+                capture = match.group(2).strip().casefold() == "mermaid"
                 content = []
             continue
-        if re.match(rf"^\s*{re.escape(fence[0])}{{{len(fence)},}}\s*$", line):
-            blocks.append(SourceBlock(len(blocks), "\n".join(content), start))
+        if (re.match(rf"^\s*{re.escape(fence[0])}{{{len(fence)},}}\s*$", line)
+                and (capture or re.match(r"^ {0,3}[`~]", line))):
+            if capture:
+                blocks.append(SourceBlock(len(blocks), "\n".join(content), start))
             start = None
             fence = ""
             content = []
-        else:
+        elif capture:
             content.append(line)
-    if start is not None:
+    if start is not None and capture:
         _fail(f"{path.name}: unterminated mermaid fence starting at line {start - 1}")
     if not blocks:
         _fail(f"{path.name}: no fenced mermaid block found")
@@ -281,11 +319,13 @@ def _frontmatter_end(lines: list[str]) -> int:
     return -1
 
 
-def _prepared_lines(block: SourceBlock) -> list[tuple[int, str]]:
+def _prepared_lines(block: SourceBlock) -> tuple[list[tuple[int, str]], int]:
+    """Blank out comments and config, returning the lines and the number of config directives."""
     prepared: list[tuple[int, str]] = []
     in_directive = False
     lines = block.text.splitlines()
     frontmatter_end = _frontmatter_end(lines)
+    config_directives = 1 if frontmatter_end >= 0 else 0
     for offset, raw in enumerate(lines):
         line_number = block.source_line + offset
         stripped = raw.strip()
@@ -300,6 +340,7 @@ def _prepared_lines(block: SourceBlock) -> list[tuple[int, str]]:
             prepared.append((line_number, ""))
             continue
         if stripped.startswith("%%{"):
+            config_directives += 1
             if "}%%" not in stripped:
                 in_directive = True
             prepared.append((line_number, ""))
@@ -308,7 +349,7 @@ def _prepared_lines(block: SourceBlock) -> list[tuple[int, str]]:
             prepared.append((line_number, ""))
             continue
         prepared.append((line_number, raw.rstrip()))
-    return prepared
+    return prepared, config_directives
 
 
 def _kind_and_direction(
@@ -560,6 +601,8 @@ def _parse_expanded_attributes(text: str) -> tuple[str, str] | None:
             shape_name = "image"
         elif "icon" in values:
             shape_name = "icon"
+        elif "shape" not in values:
+            return values.get("label", ""), ""
         else:
             shape_name = "rect"
     if not re.fullmatch(r"[a-z][a-z0-9-]*", shape_name):
@@ -578,7 +621,7 @@ def _parse_node_expression(expression: str) -> tuple[str, str, str] | None:
     node_id = match.group(1)
     rest = text[match.end() :].strip()
     if not rest:
-        return node_id, node_id, "rect"
+        return node_id, node_id, ""
     expanded = _parse_expanded_attributes(rest)
     if expanded is not None:
         label, shape = expanded
@@ -602,6 +645,9 @@ class _Operator:
 
 
 def _operator_style(token: str) -> tuple[str, str, bool, bool]:
+    if token.startswith("~"):
+        # `A ~~~ B` is an invisible link: it only places B near A.
+        return "invisible", "none", False, True
     style = "dashed" if "." in token else "thick" if "=" in token else "solid"
     arrowhead = "cross" if token.endswith("x") else "circle" if token.endswith("o") else "arrow"
     undirected = ">" not in token and not token.endswith(("x", "o"))
@@ -649,7 +695,7 @@ def _edge_operators(text: str) -> list[_Operator]:
         r"(?P<closing>\.-+[>xo]|\.-+)"
     )
     trailing_operator = re.compile(
-        r"(?:\.-+[>xo]|\.-+|-{2,}>|--[xo]|=+>|={2,}|-{3,})"
+        r"(?:\.-+[>xo]|\.-+|-{2,}>|--[xo]|=+>|={2,}|-{3,}|~{3,})"
         r"(?:\|[^|\n]*\|)?\s*$"
     )
     for edge_pattern in (text_edge, dotted_edge):
@@ -686,7 +732,7 @@ def _edge_operators(text: str) -> list[_Operator]:
             occupied.append((operator_start, match.end()))
 
     pattern = re.compile(
-        r"[xo][-=.]+[xo]|<[-=.]+>|-+\.-+>|=+>|-+(?:>|x|o)|-+\.-+|={3,}|-{3,}"
+        r"[xo][-=.]+[xo]|<[-=.]+>|-+\.-+>|=+>|-+(?:>|x|o)|-+\.-+|={3,}|-{3,}|~{3,}"
     )
     for match in pattern.finditer(mask):
         if any(start <= match.start() < end for start, end in occupied):
@@ -694,10 +740,15 @@ def _edge_operators(text: str) -> list[_Operator]:
         token = match.group()
         end = match.end()
         label = ""
-        if end < len(text) and text[end] == "|":
-            close = text.find("|", end + 1)
+        # Mermaid allows whitespace between the link and its pipe label:
+        # `A --> |yes| B` reads the same as `A -->|yes| B`.
+        opening_pipe = end
+        while opening_pipe < len(text) and text[opening_pipe] in " \t":
+            opening_pipe += 1
+        if opening_pipe < len(text) and text[opening_pipe] == "|":
+            close = text.find("|", opening_pipe + 1)
             if close != -1:
-                label = clean_label(text[end + 1 : close])
+                label = clean_label(text[opening_pipe + 1 : close])
                 end = close + 1
         style, arrowhead, bidirectional, undirected = _operator_style(token)
         operators.append(
@@ -726,6 +777,28 @@ def _endpoint_group(
 STYLE_DIRECTIVES = ("style ", "classDef ", "class ", "linkStyle ")
 
 
+_EDGE_ID = re.compile(r"(?<![\w.:@-])([A-Za-z_][\w-]*)@")
+
+
+def _strip_edge_ids(text: str) -> tuple[str, list[str]]:
+    """Drop Mermaid v11.6+ edge IDs (`A e1@--> B`) and return the IDs found."""
+    mask = _top_level_mask(text)
+    operator_starts = {operator.start for operator in _edge_operators(text)}
+    ids: list[str] = []
+    pieces: list[str] = []
+    cursor = 0
+    for match in _EDGE_ID.finditer(mask):
+        if match.end() not in operator_starts:
+            continue
+        pieces.append(text[cursor : match.start()])
+        cursor = match.end()
+        ids.append(match.group(1))
+    if not ids:
+        return text, ids
+    pieces.append(text[cursor:])
+    return "".join(pieces), ids
+
+
 def _discard_nonsemantic(diagram: Diagram, text: str) -> bool:
     lowered = text.casefold()
     if any(lowered.startswith(prefix.casefold()) for prefix in STYLE_DIRECTIVES):
@@ -741,12 +814,18 @@ def _parse_flowchart(
     diagram: Diagram, lines: list[tuple[int, str]], header_position: int
 ) -> None:
     containers: list[str] = []
+    invisible_links = 0
+    edge_ids: set[str] = set()
     for line_number, raw in _logical_statements(lines[header_position + 1 :]):
         text = raw.strip()
         if not text:
             continue
         lowered = text.casefold()
         if _discard_nonsemantic(diagram, text):
+            continue
+        id_match = re.match(r"^([A-Za-z_][\w-]*)@\{", text)
+        if id_match and id_match.group(1) in edge_ids:
+            # `e1@{ animate: true }` styles an edge, not a node.
             continue
         if lowered.startswith("direction "):
             if not containers:
@@ -771,6 +850,8 @@ def _parse_flowchart(
                 containers.pop()
             continue
 
+        text, found_ids = _strip_edge_ids(text)
+        edge_ids.update(found_ids)
         operators = _edge_operators(text)
         parent = containers[-1] if containers else None
         if operators:
@@ -787,6 +868,11 @@ def _parse_flowchart(
                 _fail(f"malformed edge at line {line_number}")
             valid_groups = [group for group in groups if group is not None]
             for index, operator in enumerate(operators):
+                if operator.style == "invisible":
+                    # The endpoints were declared above; the link itself is a
+                    # layout hint with no meaning of its own.
+                    invisible_links += 1
+                    continue
                 for source in valid_groups[index]:
                     for target in valid_groups[index + 1]:
                         diagram.add_edge(
@@ -807,12 +893,16 @@ def _parse_flowchart(
             diagram.add_node(node_id, label, shape, parent)
         else:
             _fail(f"unsupported flowchart statement at line {line_number}: {text}")
+    if invisible_links:
+        diagram.notes.append(f"{invisible_links} invisible layout links ignored")
 
 
 def _parse_sequence(
     diagram: Diagram, lines: list[tuple[int, str]], header_position: int
 ) -> None:
-    fragment_stack: list[dict[str, Any]] = []
+    # None marks a visual-only rect block: its end must not close a semantic fragment.
+    fragment_stack: list[dict[str, Any] | None] = []
+    semantic_depth = 0
     participant_re = re.compile(
         r"^(?:create\s+)?(participant|actor)\s+"
         r"(?:\"([^\"]+)\"|'([^']+)'|([\w.:-]+))"
@@ -855,27 +945,45 @@ def _parse_sequence(
                 "actor" if kind == "actor" else "lifeline",
             )
             continue
+        if (re.match(r"^rect\s+", text, re.I) and message_re.match(text) is None
+                and re.match(r"^rect\s+(?:<<--?>>|--?>>|--?>|--?\)|--?x)", text, re.I) is None):
+            fragment_stack.append(None)
+            continue
         fragment = re.match(r"^(alt|opt|loop|par|critical|break)\b\s*(.*)$", text, re.I)
         if fragment:
             entry = {
                 "kind": fragment.group(1).casefold(),
                 "label": clean_label(fragment.group(2)),
                 "line": line_number,
-                "depth": len(fragment_stack),
+                "depth": semantic_depth,
                 "regions": [],
             }
             diagram.fragments.append(entry)
             fragment_stack.append(entry)
+            semantic_depth += 1
             continue
         region = re.match(r"^(else|and|option)\b\s*(.*)$", text, re.I)
-        if region and fragment_stack:
+        if region and fragment_stack and fragment_stack[-1] is not None:
             fragment_stack[-1]["regions"].append(clean_label(region.group(2)))
             continue
         if lowered == "end":
-            if fragment_stack:
-                fragment_stack.pop()
+            if fragment_stack and fragment_stack.pop() is not None:
+                semantic_depth -= 1
             continue
         if lowered.startswith(("activate ", "deactivate ", "+", "-")):
+            continue
+        numbering = re.match(r"^autonumber(?:\s+(off)|\s+(\d+)(?:\s+(\d+))?)?$", text, re.I)
+        if numbering:
+            off, start, step = numbering.groups()
+            entry = {"line": line_number, "off": bool(off)}
+            if not off:
+                if any(len(value or "") > MAX_AUTONUMBER_DIGITS for value in (start, step)):
+                    _fail(
+                        f"autonumber value exceeds {MAX_AUTONUMBER_DIGITS} digits "
+                        f"at line {line_number}"
+                    )
+                entry.update(start=int(start or 1), step=int(step or 1))
+            diagram.autonumber.append(entry)
             continue
         if lowered.startswith("note "):
             _, separator, note = text.partition(":")
@@ -930,7 +1038,12 @@ def _state_endpoint(
     if parsed is None:
         return None
     node_id, label, shape = parsed
-    diagram.add_node(node_id, label, "state" if shape == "rect" else shape, parent)
+    if not shape:
+        existing = diagram.node_map.get(node_id)
+        shape = existing.shape if existing is not None else "state"
+    elif shape == "rect":
+        shape = "state"
+    diagram.add_node(node_id, label, shape, parent)
     return node_id
 
 
@@ -938,9 +1051,27 @@ def _parse_state(
     diagram: Diagram, lines: list[tuple[int, str]], header_position: int
 ) -> None:
     containers: list[str] = []
+    note_start: int | None = None
+    descriptions: dict[str, list[str]] = {}
+    pending_descriptions = diagram._state_descriptions
     for line_number, raw in lines[header_position + 1 :]:
         text = raw.strip()
         if not text:
+            continue
+        if note_start is not None:
+            if re.fullmatch(r"end\s+note", text, re.I):
+                note_start = None
+            continue
+        note = re.fullmatch(
+            r"note\s+(?:left|right)\s+of\s+[^\s:]+(?:\s*:\s*(.*))?", text, re.I
+        )
+        if note:
+            # A colon marks a single-line note; otherwise ignore its opaque body
+            # through `end note` before interpreting states, edges or braces.
+            if note.group(1) is None:
+                note_start = line_number
+            else:
+                diagram.notes.append(clean_label(note.group(1)))
             continue
         if _discard_nonsemantic(diagram, text):
             continue
@@ -959,9 +1090,15 @@ def _parse_state(
             diagram.add_node(node_id, node_id, "container", parent, container=True)
             containers.append(node_id)
             continue
-        alias = re.match(r'^state\s+"(.*?)"\s+as\s+([\w.:-]+)$', text, re.I)
+        alias = re.match(r'^state\s+"(.*?)"\s+as\s+([\w.:-]+)\s*(\{)?$', text, re.I)
         if alias:
-            diagram.add_node(alias.group(2), clean_label(alias.group(1)), "state", parent)
+            label, node_id, opening = alias.groups()
+            diagram.add_node(node_id, clean_label(label), "container" if opening else "state", parent, container=bool(opening))
+            # A renaming alias discards earlier descriptions; later ones build on it.
+            if node_id not in pending_descriptions:
+                descriptions.pop(node_id, None)
+            if opening:
+                containers.append(node_id)
             continue
         stereotype = re.match(
             r"^state\s+([\w.:-]+)\s+<<(fork|join|choice)>>$", text, re.I
@@ -984,15 +1121,33 @@ def _parse_state(
                 _fail(f"malformed edge at line {line_number}")
             diagram.add_edge(source, target, clean_label(label))
             continue
-        description = re.match(r"^([A-Za-z_][\w.-]*)\s*:\s*(.+)$", text)
+        description = re.match(r"^([\w.-]+)\s*:\s*(.+)$", text)
         if description:
-            diagram.add_node(
-                description.group(1), clean_label(description.group(2)), "state", parent
-            )
+            node_id, label = description.group(1), clean_label(description.group(2))
+            if node_id not in descriptions:
+                existing = diagram.node_map.get(node_id)
+                descriptions[node_id] = [existing.label] if existing and existing.label != node_id else []
+            descriptions[node_id].append(label)
+            diagram.add_node(node_id, label, "state", parent)
+            pending_descriptions[node_id] = descriptions[node_id]
             continue
         plain = re.match(r"^state\s+([\w.:-]+)$", text, re.I)
         if plain:
             diagram.add_node(plain.group(1), plain.group(1), "state", parent)
+            continue
+        if text != "--" and re.fullmatch(r"[\w.:-]+", text):
+            if text not in diagram.node_map:
+                diagram.add_node(text, text, "state", parent)
+
+    if note_start is not None:
+        _fail(f"unterminated state note at line {note_start}")
+
+    # Materialize each accumulated label once; later explicit aliases still win.
+    for node_id, parts in pending_descriptions.items():
+        label = "\n".join(parts)
+        if label:
+            diagram.node_map[node_id].label = label
+    pending_descriptions.clear()
 
 
 def _parse_er(
@@ -1000,8 +1155,8 @@ def _parse_er(
 ) -> None:
     current: Node | None = None
     relationship = re.compile(
-        r"^([A-Za-z_][\w.-]*)\s+(\S*(?:--|\.\.)\S*)\s+"
-        r"([A-Za-z_][\w.-]*)\s*(?::\s*(.*))?$"
+        rf"^({ER_IDENTIFIER})\s+(\S*(?:--|\.\.)\S*)\s+"
+        rf"({ER_IDENTIFIER})\s*(?::\s*(.*))?$"
     )
     for line_number, raw in lines[header_position + 1 :]:
         text = raw.strip()
@@ -1016,15 +1171,15 @@ def _parse_er(
         if direction_match and current is None:
             diagram.direction = direction_match.group(1).upper()
             continue
-        entity = re.match(r"^([A-Za-z_][\w.-]*)\s*\{$", text)
-        if entity:
+        entity = re.match(rf"^({ER_IDENTIFIER})\s*\{{$", text)
+        if entity and _er_name(entity.group(1)):
             current = diagram.add_node(entity.group(1), entity.group(1), "table")
             continue
         if current is not None:
             current.fields.append(clean_label(text))
             continue
         edge = relationship.match(text)
-        if edge:
+        if edge and _er_name(edge.group(1)) and _er_name(edge.group(3)):
             source, cardinality, target, relationship_label = edge.groups()
             diagram.add_node(source, source, "table")
             diagram.add_node(target, target, "table")
@@ -1045,10 +1200,12 @@ def _parse_er(
             continue
         if "--" in text or ".." in text:
             _fail(f"malformed edge at line {line_number}")
+        if re.fullmatch(ER_IDENTIFIER, text) and _er_name(text):
+            diagram.add_node(text, text, "table")
 
 
 def parse_block(block: SourceBlock) -> Diagram:
-    lines = _prepared_lines(block)
+    lines, config_directives = _prepared_lines(block)
     kind, direction, header_position, header_end = _kind_and_direction(lines)
     line_number, header = lines[header_position]
     remainder = header.strip()[header_end:].strip()
@@ -1057,6 +1214,7 @@ def parse_block(block: SourceBlock) -> Diagram:
             _fail(f"unexpected content after diagram header at line {line_number}")
         lines.insert(header_position + 1, (line_number, remainder[1:].strip()))
     diagram = Diagram(block.index, kind, block.source_line, direction=direction)
+    diagram.discarded["config_directives"] = config_directives
     if kind == "flowchart":
         _parse_flowchart(diagram, lines, header_position)
     elif kind == "sequenceDiagram":
@@ -1155,6 +1313,16 @@ def _escape_table(text: str) -> str:
     return _escape_markdown(text.replace("\n", " ⏎ "))
 
 
+# The keyword that opens each extra region of a fragment: `else` in alt, `and` in par, `option` in critical.
+REGION_KEYWORDS = {"alt": "else", "par": "and", "critical": "option"}
+
+
+def _fragment_digest(item: dict[str, Any]) -> str:
+    keyword = REGION_KEYWORDS.get(item["kind"], "else")
+    parts = [item["label"] or "unlabeled"] + [f"{keyword}: {region or 'unlabeled'}" for region in item["regions"]]
+    return " | ".join(_escape_table(part) for part in parts)
+
+
 def digest(
     path: Path,
     blocks: list[SourceBlock],
@@ -1187,17 +1355,23 @@ def digest(
                 f"edges {'OVER' if info['over_edge_budget'] else 'ok'} (max 12)",
             ]
         )
-        if diagram.discarded["style_directives"] or diagram.discarded["click_handlers"]:
+        if any(diagram.discarded.values()):
             output.append(
                 f"- discarded: {diagram.discarded['style_directives']} style directives, "
-                f"{diagram.discarded['click_handlers']} click handlers"
+                f"{diagram.discarded['click_handlers']} click handlers, "
+                f"{diagram.discarded['config_directives']} config directives"
             )
         if diagram.fragments:
             fragments = ", ".join(
-                f"{item['kind']}({_escape_markdown(item['label'] or 'unlabeled')})"
-                for item in diagram.fragments
+                f"{item['kind']}({_fragment_digest(item)})" for item in diagram.fragments
             )
             output.append(f"- fragments: {fragments}")
+        if diagram.autonumber:
+            numbering = "; ".join(
+                "off" if item["off"] else f"from {item['start']}, step {item['step']}"
+                for item in diagram.autonumber
+            )
+            output.append(f"- autonumber: {numbering}")
         if diagram.notes:
             output.append(
                 f"- notes: {'; '.join(_escape_markdown(note) for note in diagram.notes[:6])}"
@@ -1281,7 +1455,8 @@ def digest(
 
 def declared_kind(block: SourceBlock) -> str:
     """Inventory only: identifying a block never requires parsing its grammar."""
-    for _, raw in _prepared_lines(block):
+    lines, _config_directives = _prepared_lines(block)
+    for _, raw in lines:
         if raw.strip():
             return raw.strip().split(maxsplit=1)[0].split(";", 1)[0]
     return "unknown"
@@ -1306,6 +1481,7 @@ def to_json(path: Path, blocks: list[SourceBlock], selected: list[Diagram]) -> s
                     "discarded": diagram.discarded,
                     "fragments": diagram.fragments,
                     "notes": diagram.notes,
+                    "autonumber": diagram.autonumber,
                     "nodes": [asdict(node) for node in diagram.nodes],
                     "edges": [asdict(edge) for edge in diagram.edges],
                 }
@@ -1322,7 +1498,7 @@ def select_blocks(blocks: list[SourceBlock], selector: str | None) -> list[Sourc
         return blocks[:1]
     if selector == "all":
         return blocks
-    if selector.isdigit():
+    if selector.isdecimal():
         index = int(selector)
         selected = [block for block in blocks if block.index == index]
         if not selected:

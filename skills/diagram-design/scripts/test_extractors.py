@@ -42,6 +42,10 @@ def excalidraw_scene(start, end):
 
 
 class DrawioTests(unittest.TestCase):
+    def test_cells_hidden_with_visible_zero_are_not_redrawn(self):
+        hidden = '<mxCell id="B" vertex="1" visible="0" value="B" parent="1"><mxGeometry x="9" y="9" width="10" height="10" as="geometry"/></mxCell>'
+        self.assertEqual([node.id for node in drawio_page([vertex("A"), hidden]).nodes], ["A"])
+
     def test_duplicate_cell_ids_are_rejected(self):
         for duplicate in (vertex("A"), '<mxCell id="A" edge="1"/>'):
             with self.subTest(duplicate=duplicate):
@@ -196,6 +200,22 @@ class MermaidTests(unittest.TestCase):
         self.assertEqual(inline.nodes, multiline.nodes)
         self.assertEqual(inline.edges, multiline.edges)
         self.assertEqual(inline.discarded, multiline.discarded)
+
+    def test_invisible_links_declare_nodes_without_becoming_edges(self):
+        diagram = mermaid_diagram("flowchart LR\nA ~~~ B\nA --> C\n")
+        self.assertEqual({node.id for node in diagram.nodes}, {"A", "B", "C"})
+        self.assertEqual([(edge.source, edge.target) for edge in diagram.edges], [("A", "C")])
+        self.assertIn("1 invisible layout links ignored", diagram.notes)
+
+    def test_edge_ids_do_not_become_part_of_the_graph(self):
+        diagram = mermaid_diagram("flowchart LR\nA e1@--> B\ne1@{ animate: true }\n")
+        self.assertEqual({node.id for node in diagram.nodes}, {"A", "B"})
+        self.assertEqual([(edge.source, edge.target) for edge in diagram.edges], [("A", "B")])
+
+    def test_config_directives_are_skipped_and_counted(self):
+        diagram = mermaid_diagram('---\ntitle: Checkout\n---\n%%{init: {"theme": "dark"}}%%\nflowchart LR\nA --> B\n')
+        self.assertEqual(diagram.direction, "LR")
+        self.assertEqual(diagram.discarded["config_directives"], 2)
 
     def test_unrecognized_meaningful_statement_is_not_silently_dropped(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:

@@ -30,7 +30,7 @@ Every cell is two overlapping `<rect>` elements: a paper-fill underlay (no data 
 <rect x="520" y="124" width="116" height="56" fill="#f5f5f5"/>
 <rect data-row="payments" data-col="S4" data-value="47" data-focal="true"
       x="520" y="124" width="116" height="56"
-      fill="rgba(235,108,54,0.85)" stroke="#eb6c36" stroke-width="1.2"/>
+      fill="rgba(191,69,32,0.85)" stroke="#bf4520" stroke-width="1.2"/>
 ```
 
 ## The fill ramp

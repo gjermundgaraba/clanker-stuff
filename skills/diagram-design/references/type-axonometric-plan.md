@@ -30,7 +30,7 @@ Geometry and density values below are starting points for the examples, not perm
 - **Furniture and buildings:** Boxes on the plate with the house face shading (`type-exploded.md` § Faces and lines). Heights are to scale with each other. Two footprints never overlap.
 - **Flat marks:** Roads, paths, and floor tints sit on the plate's top face as flat fills (`ink` at 0.07) with no thickness. A dashed centre line (`ink` at 0.25, `6,5`) may mark a road.
 - **Racks:** Tall shelving is a box of kind `rack` with the house shading, a shelf line every 14 units, and an upright every 30. Run rack rows along x so the reader sees the lit face and the aisles between rows.
-- **Trees:** A canopy cylinder 8 units up on a short trunk, canopy top in `rule-solid` light (`#bfc0c0`) or `soft` dark (`#8e98ac`). Trees are planting, so keep them small and off every footprint.
+- **Trees:** A canopy cylinder 8 units up on a short trunk, canopy top in `rule-solid` light (`#bfc0c0`) or `soft` dark (`#949eb2`). Trees are planting, so keep them small and off every footprint.
 - **Paint order:** The plate first, then flat marks, then every box back to front. Sort with a topological order: box A paints before box B when A lies entirely behind B (`A.x1 <= B.x0` or `A.y1 <= B.y0`) and their screen outlines overlap. A plain `x + y` sort fails on long walls.
 - **Frame:** The canvas is 1000 wide and the plate is centred. The viewBox height follows the plate and its tallest box plus a 48px top margin.
 

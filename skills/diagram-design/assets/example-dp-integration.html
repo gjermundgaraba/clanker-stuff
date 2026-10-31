@@ -17,14 +17,14 @@
         --paper-2: #ececec;
         --ink: #2d3142;
         --muted: #4f5d75;
-        --soft: #7a8399;
-        --accent: #eb6c36;
-        --accent-tint: rgba(235, 108, 54, 0.08);
+        --soft: #5a6580;
+        --accent: #bf4520;
+        --accent-tint: rgba(191, 69, 32, 0.08);
         --link: #2e5aa8;
         --rule: rgba(45, 49, 66, 0.12);
         --dot: rgba(45, 49, 66, 0.1);
         --side-fill: rgba(79, 93, 117, 0.06);
-        --side-stroke: #7a8399;
+        --side-stroke: #5a6580;
         --zone-fill: rgba(45, 49, 66, 0.025);
         --zone-stroke: rgba(45, 49, 66, 0.32);
         --bar-fill: rgba(45, 49, 66, 0.05);
@@ -240,6 +240,16 @@
             <polygon points="0 0,8 3,0 6" fill="var(--accent)" />
           </marker>
           <marker
+            id="arrow-focal"
+            markerWidth="8"
+            markerHeight="6"
+            refX="7"
+            refY="3"
+            orient="auto"
+          >
+            <polygon points="0 0,8 3,0 6" fill="var(--accent)" />
+          </marker>
+          <marker
             id="arrow-link"
             markerWidth="8"
             markerHeight="6"
@@ -330,7 +340,7 @@
         <path
           class="connector primary"
           d="M200 124 H360 Q368 124 368 132 V180 Q368 188 376 188 H400"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <line
           class="connector primary"
@@ -338,12 +348,12 @@
           y1="212"
           x2="400"
           y2="212"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <path
           class="connector primary"
           d="M200 300 H360 Q368 300 368 292 V244 Q368 236 376 236 H400"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <line
           class="connector primary"
@@ -351,12 +361,12 @@
           y1="212"
           x2="656"
           y2="212"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <path
           class="connector primary"
           d="M816 188 H960 Q968 188 968 180 V132 Q968 124 976 124 H1000"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <line
           class="connector primary"
@@ -364,12 +374,12 @@
           y1="212"
           x2="1000"
           y2="212"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <path
           class="connector primary"
           d="M816 236 H960 Q968 236 968 244 V292 Q968 300 976 300 H1000"
-          marker-end="url(#arrow-accent)"
+          marker-end="url(#arrow-focal)"
         />
         <line
           class="connector trigger"

@@ -12,11 +12,14 @@ Use semantic tokens so branding changes remain local to the artifact. The defaul
 | Surface | `#ececec` | `#393e53` | Group or secondary fill             |
 | Ink     | `#2d3142` | `#f5f5f5` | Primary text and strokes            |
 | Muted   | `#4f5d75` | `#bfc0c0` | Secondary labels and connections    |
+| Soft    | `#5a6580` | `#949eb2` | Sublabels and boundary labels       |
 | Rule    | `#bfc0c0` | `#596071` | Borders and separators              |
-| Accent  | `#eb6c36` | `#f08a59` | Editorial emphasis                  |
-| Link    | `#2e5aa8` | `#6a95d8` | Distinct external flow, when needed |
+| Accent  | `#bf4520` | `#f08a59` | Editorial emphasis                  |
+| Link    | `#2e5aa8` | `#739fdf` | Distinct external flow, when needed |
 
 Reserve the accent for a small focal set. Give distinct categories or quantitative series their own consistent encoding when comparison requires it. Include labels, symbols, or line styles when color carries meaning.
+
+Hold each color to every role it plays, measured against the surface it actually sits on: 4.5:1 for text, 3:1 for large text (24px or more, or 18.7px or more at weight 600) and for essential lines, arrows, borders, and data points. Composite a translucent color over its background before measuring, and measure text on a tinted surface against that tint. Decorative rules and tints have no minimum but must never be the only carrier of meaning. On paper, the light defaults measure accent 4.71:1, soft 5.34:1, muted 6.11:1, and link 6.13:1; the dark defaults measure accent 5.21:1, soft 4.78:1, muted 7.07:1, and link 4.76:1. Recheck these when a project supplies its own palette.
 
 Use high-contrast text on accent-filled marks; the upstream `ink-strong` default is `#111111` in both skins, but check the actual foreground/background pair. Use a serif title, sans-serif node names, and monospace only for technical labels such as ports, code, or field types. Instrument Serif, Geist, and Geist Mono are upstream's preferred families; the [starter](../assets/template.html) uses offline system fallbacks. Supplied branding takes precedence. Match the script of the actual labels; CJK text needs a suitable font and often more space.
 
@@ -60,4 +63,4 @@ Give each informative SVG a descriptive `<title>` and `<desc>` referenced by `ar
 
 For standalone SVG, keep its styles, tokens, font choices, and referenced resources inside the SVG, independent of page CSS. For standalone HTML, inline the required page resources. Offline delivery requires system fonts or embedded font data and no remote assets. Browser-loaded fonts are not automatically embedded when adapting an inline diagram; see [export](export.md). Use actual text for labels so they remain selectable and accessible.
 
-The structural checker detects supported markup errors; it cannot establish readability, factual correctness, or visual clearance. Inspect the rendered figure, especially arrow endpoints, label wrapping, contrast, and clipping at the requested size.
+The structural checker detects supported markup errors, truncated HTML, mojibake, and static shapes or text anchors past the viewBox. It skips paths and anything moved by CSS or a non-translate transform, and it cannot establish readability, factual correctness, or visual clearance. Inspect the rendered figure, especially arrow endpoints, label wrapping, contrast, and clipping at the requested size.

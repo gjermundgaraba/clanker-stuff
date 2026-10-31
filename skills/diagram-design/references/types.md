@@ -8,10 +8,10 @@ Route by the relationship the reader needs to understand. These are options, not
 | Floor/site geography and rooms, furniture, or buildings | [Axonometric plan](type-axonometric-plan.md) | Office, campus, coffee shop, warehouse |
 | Physical parts separated along one axis | [Exploded axonometric](type-exploded.md) | Phone, unboxing, AI stack, keyboard |
 | Row × column combinations and quantitative intensity | [Heatmap](type-heatmap.md) | Complete matrix and declared fill ramp |
-| Runtime components, boundaries, and connections | [Architecture](type-architecture.md) | — |
+| Runtime components, boundaries, and connections | [Architecture](type-architecture.md) | Containment: nested administrative and traffic scopes |
 | Compare category magnitudes or paired values | [Bar, column, and dumbbell](type-bar.md) | Column, horizontal, grouped, stacked, dumbbell |
 | Trends, two-state changes, ranks, and distributions | [Line and distribution variants](type-line.md) | Slopegraph, bump, ridgeline, streamgraph |
-| Relations between measures and individual observations | [Scatter, bubble, and beeswarm](type-scatter.md) | Bubble, beeswarm |
+| Relations between measures, individual observations, and group distributions | [Scatter, bubble, beeswarm, and box plot](type-scatter.md) | Bubble, beeswarm, box plot |
 | Cyclic categories with one nonnegative measure | [Polar rays](type-polar.md) | — |
 | Comparable multivariate profiles | [Radar / spider](type-radar.md) | — |
 | Quantities that split and merge | [Sankey](type-sankey.md) | — |
@@ -42,6 +42,7 @@ Route by the relationship the reader needs to understand. These are options, not
 | Tasks with dates, duration, and overlap | [Gantt](type-gantt.md) | — |
 | Dated events and milestones | [Timeline](type-timeline.md) | — |
 | A persona’s experience through stages | [User journey](type-journey.md) | — |
+| What the customer sees versus hidden service work across stages | [Service blueprint](type-service-blueprint.md) | — |
 | Narrative activities and release scope | [User story map](type-story-map.md) | — |
 | Existing tools, handoffs, and friction | [IT current-state](type-it-state.md) | — |
 | Functional phases with a component overview | [High-level platform / data lake](type-high-level.md) | Vertical concerns, unclustered data lake |

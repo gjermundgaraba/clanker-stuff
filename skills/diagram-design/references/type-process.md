@@ -8,4 +8,6 @@ A reusable lane grid uses label width `L=140`, step pitch `P=112`, header `H=36`
 
 Optional input/output chips represent payload formats, with left=input and right=output explained in a key. Keep format distinct from concern/status color. Use explicit `in`/`out` labels when position alone is ambiguous.
 
+When the claim is onstage versus offstage work across stages rather than sequential handoff, use a [service blueprint](type-service-blueprint.md).
+
 Geometry examples: [process](../assets/example-process.html). These retain an upstream illustration palette; use [design defaults](design.md) for new work.

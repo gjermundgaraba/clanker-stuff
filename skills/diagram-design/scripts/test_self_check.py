@@ -61,6 +61,35 @@ class CheckTests(unittest.TestCase):
         source = SVG.replace('</svg>', r'<style>@\69mport "theme.css";</style></svg>')
         self.assertTrue(self.check(source, offline=True))
 
+    def test_incomplete_html_is_reported(self):
+        whole = '<!doctype html><html><head><title>Diagram</title></head><body>' + SVG + '</body></html>'
+        self.assertEqual(self.check(whole, '.html'), [])
+        self.assertEqual(self.check(whole + '\n<!-- generated -->\n', '.html'), [])
+        self.assertEqual(self.check(whole.replace('<title>Diagram', '<title>Using <span> labels'), '.html'), [])
+        for source, expected in ((whole[:-len('</body></html>')], 'does not end with </html>'),
+                                 (whole.replace('</svg>', ''), '<svg> opens 1 time(s) and closes 0'),
+                                 (whole.replace('</title>', ''), '<title> is never closed'),
+                                 (whole.replace('Diagram', 'Diagr\ufffdm'), 'U+FFFD')):
+            self.assertTrue(any(expected in error for error in self.check(source, '.html')), expected)
+
+    def test_static_paint_past_the_viewbox_is_reported(self):
+        def painted(markup, head=''):
+            return self.check(SVG.replace('</svg>', head + markup + '</svg>'))
+        for markup, side in (('<rect x="90" y="0" width="20" height="5"/>', 'right'),
+                             ('<circle cx="50" cy="3" r="9"/>', 'top'),
+                             ('<text x="-10" y="20">Label</text>', 'left'),
+                             ('<g transform="translate(0, 40)"><line x1="0" y1="0" x2="5" y2="30"/></g>', 'bottom')):
+            self.assertTrue(any(f'past the viewBox {side} edge' in error for error in painted(markup)), markup)
+        for markup in ('<rect x="0" y="0" width="100" height="50"/>',
+                       '<rect x="0" y="0" width="102" height="50"/>',
+                       '<defs><rect x="500" width="5" height="5"/></defs>',
+                       '<g transform="rotate(45)"><rect x="500" width="5" height="5"/></g>',
+                       '<rect x="500" width="5" height="5" display="none"/>',
+                       '<rect x="500" width="5" height="5" style="transform: translateX(-500px)"/>'):
+            self.assertEqual(painted(markup), [], markup)
+        self.assertEqual(painted('<rect class="moved" x="500" width="5" height="5"/>',
+                                 '<style>.moved { transform: translateX(-500px) }</style>'), [])
+
     def test_cli_status(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'diagram.svg'

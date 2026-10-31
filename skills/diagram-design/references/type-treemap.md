@@ -14,7 +14,7 @@ For category total `C_j=sum_i(v_ij)` and grand total `T=sum_j(C_j)`, allocate av
 
 Use nonnegative values and disclose display rounding. A zero category has no proportional width, and an absent series has no positive segment; report it in the source data/legend rather than adding a minimum-size rectangle. An all-zero total has no meaningful partition. Do not widen a column or pad a segment to make a label fit.
 
-The example uses up to 8 categories and 5 series, an ink tonal ramp with one focal segment, inside labels only where they fit, and outside labels or a legend for small segments. Marker/leader labels must not alter data geometry. “Other” is appropriate only when the grouping is named, preserves the requested scope, and is disclosed.
+The example uses up to 8 categories and 5 series, an ink tonal ramp with one focal segment, inside labels only where they fit, and outside labels or a legend for small segments. Marker/leader labels must not alter data geometry. “Other” is appropriate only when the grouping is named, preserves the requested scope, and is disclosed. Name the ramp direction by contrast against the paper, as in “stronger contrast is larger”; “darker is larger” is false on dark paper.
 
 ### Data bindings and checks
 
