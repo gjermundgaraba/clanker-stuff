@@ -4,13 +4,12 @@
 
 - [Records](#records)
 - [Construction Versus Decoding](#construction-versus-decoding)
-- [Field And Contract Reuse](#field-and-contract-reuse)
 - [Optionality And Defaults](#optionality-and-defaults)
 - [Nominal Values](#nominal-values)
 - [Variants](#variants)
 - [Errors](#errors)
 
-Use this when touching data models, DTOs, row schemas, wire contracts, brands, variants, optional fields, or decoders.
+Use this when touching data models, DTOs, row schemas, wire contracts, brands, variants, optional fields, or decoders. For the Schema API, read `node_modules/effect/ai-docs/src/01_effect/02_schema/` and `src/Schema.ts`, or `packages/effect/SCHEMA.md` at the matching tag.
 
 ## Records
 
@@ -31,53 +30,23 @@ Guidance:
 - Add `.annotate({ identifier: "User" })` only when tooling consumes it: HTTP API, RPC, OpenAPI/JSON Schema, docs, diagnostics, or codegen.
 - Use `schema.make(...)` when construction is trusted.
 - Use `schema.makeEffect(...)` when construction failure should stay in the Effect error channel. It validates typed constructor input and fails with `SchemaIssue.Issue`, not `Schema.SchemaError`.
-- Use `schema.makeOption(...)` when constructor validation details may be discarded.
 - Decode unknown input at boundaries with `Schema.decodeUnknownEffect(...)` by default.
 - Use `Schema.decodeUnknownSync(...)` only in scripts, tests, or startup paths where throwing is acceptable.
-- Use `Schema.decodeUnknownOption(...)` only when mismatch details are intentionally discarded.
-- Use `Schema.decodeUnknownResult(...)` for pure code that wants explicit success/failure without Effect.
-- Decode JSON text with `Schema.fromJsonString(schema)` rather than `JSON.parse` plus a separate decode. Wrap the schema in `Schema.toCodecJson(...)` when values such as `Option` or `DateTime` must round-trip through JSON.
+- Decode JSON text with `Schema.fromJsonString(schema)` rather than `JSON.parse` plus a separate decode.
 
 ## Construction Versus Decoding
 
 `make` / `makeEffect` apply constructor defaults and type-side validation. They are not decoders for an unknown encoded representation. Decode a wire timestamp through its string-to-DateTime codec rather than passing the string to the decoded value's constructor.
 
 - `Schema.decodeUnknownEffect(schema)(input)` fails with `Schema.SchemaError`.
-- `SchemaParser.decodeUnknownEffect(schema)(input)` exposes the raw `SchemaIssue.Issue` for low-level parser composition.
 - `schema.makeEffect(input)` also exposes `SchemaIssue.Issue`; wrap it explicitly with `Effect.mapError((issue) => new Schema.SchemaError(issue))` if the boundary needs `SchemaError`.
 - `schema.make(input)` throws a plain `Error` with the issue in `cause` on validation failure; do not assume it throws `SchemaError`.
 - `Schema.NumberFromString` uses JavaScript `Number(...)` coercion: empty/whitespace-only strings become `0`, and trailing junk becomes `NaN`, which `Schema.Number` accepts. It is not a strict numeric-text validator or prefix parser. Use `Schema.FiniteFromString` for finite results and validate the encoded text separately when blanks or a specific numeric grammar must be rejected.
-
-## Field And Contract Reuse
-
-Reuse fields directly when contracts are semantically related.
-
-```ts
-export const CreateUserInput = Schema.Struct({
-  name: User.fields.name,
-  email: User.fields.email,
-});
-
-export const StoredUser = User.pipe(
-  Schema.fieldsAssign({
-    createdAt: Schema.DateTimeUtcFromString,
-  })
-);
-```
-
-Guidance:
-
-- Use `.fields`, `Schema.fieldsAssign(...)`, and `.mapFields(...)` when contracts are genuinely related.
-- Use `Schema.encodeKeys(...)` when decoded TypeScript names differ from encoded wire/storage keys and naming is the only difference.
-- Keep explicit mapping when behavior, joins, validation, or domain translation is involved.
-- Use `Schema.extendTo(...)` sparingly for decoded-only derived fields.
-- Use field reuse to build small related contracts, not one oversized inheritance-by-schema object.
 
 ## Optionality And Defaults
 
 - Use `Schema.optionalKey(...)` for absent JSON/storage keys.
 - Use `Schema.optional(...)` only when explicit `undefined` is part of the contract.
-- Use `Schema.NullOr`, `Schema.UndefinedOr`, or `Schema.NullishOr` only when nullish values are truly part of the encoded contract.
 - Keep normalized defaulted values as required fields and apply defaults in constructors/decoding.
 - Do not make domain values optional merely for construction convenience.
 
@@ -85,48 +54,13 @@ Guidance:
 
 - Use constrained branded schemas for scalar IDs and value objects.
 - Use normal schema constraints before `Schema.brand(...)` for most code.
-- Reach for `Schema.fromBrand(...)` only when the project already models brands with `Brand` constructors or wants the check packaged with the brand constructor.
 
 ## Variants
-
-```ts
-type Step = Data.TaggedEnum<{
-  Continue: { readonly cursor: number };
-  Finished: { readonly count: number };
-}>;
-
-export const Step = Data.taggedEnum<Step>();
-
-const next = Step.Continue({ cursor: 10 });
-const label = Step.$match(next, {
-  Continue: ({ cursor }) => `continue at ${cursor}`,
-  Finished: ({ count }) => `finished ${count}`,
-});
-```
-
-```ts
-export const Event = Schema.TaggedUnion({
-  Started: { runId: RunId },
-  Finished: { runId: RunId, result: Schema.Json },
-});
-
-export type Event = typeof Event.Type;
-
-const event = Event.cases.Started.make({ runId });
-const label = Event.match(event, {
-  Started: ({ runId }) => `started ${runId}`,
-  Finished: ({ runId }) => `finished ${runId}`,
-});
-```
-
-Guidance:
 
 - Use `Data.TaggedEnum` for internal control-flow algebras; it provides constructors, `$is`, and exhaustive `$match`. Do not add a Schema solely to obtain these utilities.
 - Use `Schema.TaggedStruct` for the ordinary Effect-owned `_tag` variant.
 - Use `Schema.TaggedUnion` when the union needs decoding, encoding, persistence, wire validation, JSON Schema derivation, or schema composition.
 - Prefer a principled split over forcing one representation everywhere: Data internally, Schema at boundaries.
-- Use `Schema.tag(...)` when an external contract has a custom discriminator field such as `type` or `kind`; combine those structs with `Schema.toTaggedUnion("type")` when union helpers are needed.
-- If the encoded contract omits the discriminant, use `Schema.tagDefaultOmit(...)` deliberately.
 - Avoid `Schema.Class` and `Schema.TaggedClass` for new data models: encoding requires a real instance and rejects a plain object that satisfies the fields. Effect's own docs use `Schema.Class`, and a repository may choose it when models carry behavior; follow that repository's convention.
 
 ## Errors

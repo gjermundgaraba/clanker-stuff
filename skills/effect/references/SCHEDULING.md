@@ -6,11 +6,10 @@
 - [Polling Workers](#polling-workers)
 - [Per-Item Failure Isolation](#per-item-failure-isolation)
 - [Reusable Retry Policy](#reusable-retry-policy)
-- [Rate-Limit-Aware Typed Retry](#rate-limit-aware-typed-retry)
 - [Timeouts And Delays](#timeouts-and-delays)
 - [Wall Time And Elapsed Time](#wall-time-and-elapsed-time)
 
-Use this when writing retries, repeats, polling workers, backoff, jitter, rate-limit-aware policies, timeouts, or pass loops.
+Use this when writing retries, repeats, polling workers, backoff, jitter, rate-limit-aware policies, timeouts, or pass loops. For schedule constructors and combinators, read `node_modules/effect/ai-docs/src/06_schedule/10_schedules.ts`.
 
 Use `Schedule` for retry, polling, pacing, and repeated background work instead of hand-rolled `while (true)` loops with sleeps.
 
@@ -18,19 +17,8 @@ Use `Schedule` for retry, polling, pacing, and repeated background work instead 
 
 - `Effect.retry(...)` retries typed failures. A cause containing a defect or only interruption is not retried; a typed failure beside an interruption is. See [mixed causes](SERVICES_LAYERS.md#mixed-causes).
 - Prefer the options form for an ordinary retry: `Effect.retry({ schedule, times, while })`. It keeps the bound and the retryable-error predicate at the call site. `Effect.repeat({ schedule, until, times })` is the matching polling form.
-- `Effect.repeat(...)` repeats successful effects; failures stop repetition unless the pass handles them first.
-- The source effect runs once before the schedule is stepped.
-- `Schedule.recurs(3)` means three retries/repetitions after the initial run.
-- `Schedule.spaced(...)` waits after work completes.
-- `Schedule.fixed(...)` aligns executions to a cadence.
-- Use `Schedule.exponential(...)` or `Schedule.fibonacci(...)` for backoff. `Schedule.min([...])` takes the shorter delay and recurs while any schedule does, which caps the gap; `Schedule.max([...])` takes the longer delay and recurs while all do, which bounds the count.
-- Add `Schedule.jittered` to avoid synchronized retry storms.
-- Use `Schedule.recurs(...)` for a counter schedule or `Schedule.upTo({ times })` to bound a delay schedule.
-- Use `Schedule.tap(({ input }) => ...)` to log retry inputs. Its metadata includes `input`, `output`, and `duration`.
-- Use `Schedule.setInputType<E>()` before input-dependent combinators when the input type would otherwise be `unknown`.
 - Use `Effect.retry(...)` followed by `Effect.tapError(...)` to report exhaustion while preserving the typed failure. Use `Effect.retryOrElse(...)` when exhaustion has an explicit fallback.
-- Retry only at the narrowest boundary with proven idempotency.
-- Exhausted failures should remain visible unless the boundary has a truthful fallback.
+- Retry at the narrowest boundary.
 
 ## Polling Workers
 
@@ -83,8 +71,6 @@ Only do this when retrying the item later is truthful or skipping the item is th
 
 ## Reusable Retry Policy
 
-This example uses Effect 4 scheduling APIs.
-
 ```ts
 const projectionRetrySchedule: Schedule.Schedule<unknown, ProjectionError> =
   Schedule.exponential("100 millis").pipe(
@@ -111,40 +97,13 @@ const reconcileWithRetry = (target: Target) =>
 
 Use this when the operation is idempotent and retry state is useful for logs or metrics. Exhaustion logs the final error and preserves it for the caller. Returning success after exhaustion requires an explicit product policy that permits a fallback or abandonment.
 
-## Rate-Limit-Aware Typed Retry
-
-For provider errors that carry `retryAfterMs`, let the schedule use the larger of the backoff delay and the provider delay.
-
-```ts
-type RateLimited = {
-  readonly retryAfterMs?: number | undefined;
-};
-
-const providerRetrySchedule: Schedule.Schedule<RateLimited, RateLimited> =
-  Schedule.exponential("200 millis").pipe(
-    Schedule.jittered,
-    Schedule.upTo({ times: 5 }),
-    Schedule.setInputType<RateLimited>(),
-    Schedule.passthrough,
-    Schedule.modifyDelay(({ input, duration }) =>
-      Effect.succeed(
-        input.retryAfterMs === undefined
-          ? duration
-          : Duration.max(duration, Duration.millis(input.retryAfterMs))
-      )
-    )
-  );
-```
-
-Use this for operation-level retries over typed provider errors. For Effect HttpClient-level 429 handling and proactive pacing, read `HTTP_CLIENTS.md`.
+For provider errors that carry a retry delay, use `Schedule.modifyDelay`, whose callback receives the error as `input` and the backoff as `duration`, to take the larger delay; `node_modules/effect/ai-docs/src/52_graphql/50_errors-and-retries.ts` shows the shape. For Effect HttpClient-level 429 handling and proactive pacing, read `HTTP_CLIENTS.md`.
 
 ## Timeouts And Delays
 
 - Use `Effect.timeout(...)` when the operation has a real deadline. Prefer `Effect.timeoutOrElse({ duration, orElse })` to fail with a domain error, and `Effect.timeoutOption(...)` when timing out is an ordinary result.
 - Use `Effect.delay(...)` when one operation should start later.
 - Use `Effect.sleep(...)` inside production workflows only when sleeping itself is the domain behavior.
-- Avoid manual sleep loops; use `Effect.repeat(...)` with `Schedule` for recurring work.
-- In tests, use `TestClock` rather than real time. Read `TESTING.md`.
 
 ## Wall Time And Elapsed Time
 

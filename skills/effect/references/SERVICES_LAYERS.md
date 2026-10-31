@@ -8,28 +8,16 @@
 - [Runtime Wiring](#runtime-wiring)
 - [Effect.fn](#effectfn)
 - [Mixed Causes](#mixed-causes)
-- [Operation Error Helpers](#operation-error-helpers)
-- [Nested Reason Errors](#nested-reason-errors)
 
-Use this when defining service tags, module surfaces, layer implementations, runtime wiring, typed errors, or `Effect.fn` operation boundaries.
+Use this when defining service tags, module surfaces, layer implementations, runtime wiring, typed errors, or `Effect.fn` operation boundaries. For basic service and Layer shapes, read `node_modules/effect/ai-docs/src/01_effect/03_services/` and `06_running/`.
 
 ## Module Surface
 
 Follow the repository's established service naming and export conventions. Export only intentional surface; keep local schemas, row codecs, helpers, and implementation details private. Do not introduce TypeScript `namespace` declarations for organization.
 
-For the optional file-local `Service` / `Interface` convention with a canonical self-exported ES module namespace, read [MODULE_STYLE.md](MODULE_STYLE.md). It is not required by Effect; named service classes remain appropriate for other module styles.
+Some application repositories name a file's members `Service`, `Interface`, and `layer`, and self-export one namespace at the bottom (`export * as UserRepo from "./user-repo.js"`) so consumers write `UserRepo.Service`. Effect does not require this; follow it where the repository already does, and otherwise use a named service class.
 
 ## Layer Constructors
-
-Choose the layer constructor that matches the thing produced.
-
-```ts
-Layer.succeed(Service, impl); // already-built service
-Layer.sync(Service, () => impl); // lazy synchronous service
-Layer.effect(Service, makeEffect); // effectful service acquisition
-```
-
-Guidance:
 
 - Default real implementations to `Layer.effect(Service, Effect.gen(...))`.
 - Use `Layer.effectContext(...)` when one acquisition intentionally supplies multiple services, especially first-class test stubs or one client backing several service tags.
@@ -70,8 +58,7 @@ Guidance:
 - Use `Layer.provideMerge(...)` only when the dependency should remain exposed for downstream consumers.
 - Use `Layer.mergeAll(...)` for independent exposed layers.
 - Prefer flat, topologically sorted runtime layer values with named subgraphs.
-- Memoization follows layer identity. A factory called twice builds twice, so bind a shared layer to one value.
-- A nested `Effect.provide` reuses a layer an enclosing provide or runtime already built. Sibling provides each build their own copy, so provide once at the outermost owner rather than per call.
+- Layers memoize by identity, and sibling `Effect.provide` calls each build their own copy. Bind a shared layer to one value and provide it once at the outermost owner (`migration/layer-memoization.md`).
 - At process entrypoints, use `NodeRuntime.runMain` or `BunRuntime.runMain` from the matching platform package for signal handling, failure reporting, and exit behavior. Use `Layer.launch` to run a long-lived application Layer; it does not replace worker failure observation.
 - Inside running Effect code, bridge native callbacks with the captured context: `const runFork = Effect.runForkWith(yield* Effect.context<never>())`, or `FiberSet.makeRuntime` when the scope should own those fibers. A bare `Effect.runPromise` drops the caller's services and `Clock`, so a test can end up waiting in real time.
 - At non-Effect framework boundaries, create and reuse a `ManagedRuntime` from the application Layer rather than rebuilding dependencies per request. Keep imperative `runPromise` / `runCallback` calls at those boundaries.
@@ -79,69 +66,10 @@ Guidance:
 
 ## Effect.fn
 
-Compose workflows with `Effect.gen`. Prefer named `Effect.fn("Domain.operation")` for public and non-trivial internal service methods; the name creates the span, and an anonymous `Effect.fn(function* ...)` adds only a stack frame. Use `Effect.fnUntraced` for library internals and hot paths where a span is not a useful boundary. Avoid functions that only wrap and return `Effect.gen`. Follow the project-pinned APIs and existing conventions.
-
-Annotate the return type with `Effect.fn.Return<A, E, R>` when inference is not enough. End a failing branch with `return yield* new SomeError({ ... })`; the `return` is what lets TypeScript see that the branch stops.
-
-Use extra `Effect.fn(...)` arguments for wrappers that apply to the whole function call. Each transform receives `(effect, ...originalArgs)`.
-
-```ts
-const readAttachment = Effect.fn("Attachment.read")(
-  function* (ref: AttachmentRef) {
-    return yield* api.read(ref);
-  },
-  (effect, ref) =>
-    effect.pipe(attachmentError("Attachment.read", { attachmentId: ref.id }))
-);
-```
-
-Good whole-function transforms:
-
-- error classification
-- localized recovery
-- logging annotations
-- spans
-- retry
-- timeout
-- ensuring cleanup
-- small local provisioning
-- result mapping
-
-Guidance:
-
-- Keep the generator body focused on the core workflow.
-- Pass whole-function behavior as extra arguments rather than piping inside the body or at each call site.
-- Use transforms when the wrapper needs original arguments.
-- Do not build long clever pipelines; one or two transforms is usually enough.
-- Do not use this for local branch-level handling inside the workflow.
+`node_modules/effect/AGENTS.md` and `node_modules/effect/ai-docs/src/01_effect/01_basics/02_effect-fn.ts` cover `Effect.gen`, `Effect.fn`, and `Effect.fnUntraced`. Name `Effect.fn("Domain.operation")` on public and non-trivial internal service methods: the name creates the span, and an anonymous `Effect.fn(function* ...)` adds only a stack frame. Each extra `Effect.fn(...)` transform receives `(effect, ...originalArgs)`; one or two is usually enough, and branch-level handling stays in the body.
 
 ## Mixed Causes
 
-A cause can hold a typed error and a defect at once, for example when a finalizer dies after the effect failed. Since 4.0.6:
+A cause can hold a typed error and a defect at once, for example when a finalizer dies after the effect failed. Since 4.0.6, defects win: every typed recovery operator on `Effect`, `Stream`, and `Channel`, including `catch`, `ignore`, and `retry`, skips such a cause without running its handler. An interruption beside a typed error does not block recovery. Use `Effect.catchDefect` or `Effect.catchCause` when a boundary truly must recover from defects. See `migration/error-handling.md`.
 
-- Defects win. Every typed recovery operator on `Effect`, `Stream`, and `Channel` skips such a cause, including `catch`, `catchTag`, `catchIf`, `catchReason`, `ignore`, `option`, `result`, and `retry`. The handler does not run, and each typed error is converted to a defect.
-- An interruption beside a typed error does not block recovery. `Effect.catch` handles it, and `Effect.retry` retries it.
-- Mapping is not recovery. `mapError` and `mapBoth` map every typed error in place and keep defects and interrupts.
-- Use `Effect.catchDefect` or `Effect.catchCause` when a boundary truly must recover from defects.
-
-## Operation Error Helpers
-
-For boundary errors with operation labels, prefer a shared curried `mapError` helper over hand-writing wrappers in every module.
-
-```ts
-const persistenceError = operationError(PersistenceError.make);
-
-const row = yield * query.pipe(persistenceError("UserRepository.findById"));
-```
-
-Name the local helper after the error it produces, such as `persistenceError`, `projectionError`, or `processingError`. Use `Effect.fn(...)` and spans for observability in addition to payload labels, not instead of them.
-
-## Nested Reason Errors
-
-When an integration exposes a tagged error containing a tagged `reason`, prefer the typed reason operators over unchecked property inspection or broad cause recovery:
-
-- `Effect.catchReason("OuterError", "ReasonTag", handler)` handles one nested reason; the handler receives that reason.
-- `Effect.catchReasons("OuterError", handlers)` handles several reason tags.
-- `Effect.unwrapReason("OuterError")` promotes reasons into the error channel when that is the intended boundary contract. Preserve outer diagnostic context when callers still need it.
-
-Unhandled reasons remain failures. A typed `reason` is not an Effect `Cause`; interruption and defect policies remain separate.
+For a tagged error containing a tagged `reason`, use `Effect.catchReason`, `catchReasons`, or `unwrapReason` rather than unchecked property inspection or cause recovery; see `node_modules/effect/ai-docs/src/01_effect/04_errors/20_reason-errors.ts`.

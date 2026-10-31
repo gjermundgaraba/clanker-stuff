@@ -28,7 +28,7 @@ const create = Effect.fn("Orders.create")(function* (orderId: string) {
 
 ## Exporters
 
-Use `effect/observability` in new projects, and `@effect/opentelemetry` when joining an existing OpenTelemetry setup. Gate the exporter on config, so an unconfigured process runs without it.
+`node_modules/effect/AGENTS.md` ("Observability") covers which exporter to use. Gate the exporter on config, so an unconfigured process runs without it.
 
 ```ts
 const TelemetryLayer = Layer.unwrap(

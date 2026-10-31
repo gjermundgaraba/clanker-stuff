@@ -15,33 +15,36 @@ metadata:
 
 Use repository-compatible Effect APIs and the production defaults in this skill. Treat the bundled references as preferred playbooks, not API authority.
 
-For reviews and audits, remain read-only and report the problem, supporting evidence, demonstrated consequence, and relevant constraints or uncertainty. Use the design and implementation guidance to assess existing or supplied designs; do not prescribe replacements, implementation steps, or a target design unless requested. A supported finding does not require a known solution.
-
 ## Source And Precedence
 
 Resolve conflicts in this order:
 
 1. Follow the nearest `AGENTS.md`, project-local Effect guidance, and established repository conventions.
-2. Follow the project's pinned `effect` / `@effect/*` version and inspect its installed source and types for exact APIs.
-3. If installed source leaves an API question unresolved, consult matching upstream source and `LLMS.md`. For explicitly current-version work, verify the current upstream version.
-4. Use the matching bundled references for design patterns and production defaults.
-5. Use example repositories only as version-checked pattern research.
+2. Follow the installed `effect` / `@effect/*` version, using the sources below. Exact imports, names, and signatures in the bundled references may age; check them there before editing.
+3. Use the matching bundled references for design patterns and production defaults.
+4. Use example repositories only as version-checked pattern research.
 
-Bundled examples target stable Effect `4.1.1`; the API baseline was checked against tag `effect@4.1.1` at upstream commit `bc492f0965dc0f6a83cefd141071c5ead10f7efa` (2026-10-30). This is not a migration requirement for older projects.
+Bundled examples target stable Effect `4.1.1`; the API baseline was checked against tag `effect@4.1.1` at upstream commit `bc492f0965dc0f6a83cefd141071c5ead10f7efa` (2026-10-30).
 
-Stable Effect 4 removes the `unstable` import-path segment without stabilizing every API. Inspect `@stability` annotations: unstable APIs may break in minor releases, experimental APIs may break in patch releases, and `@stability stable` or untagged APIs follow semver. Modules in packages other than `effect` are currently unstable. Unstable Effect APIs and packages count as much as stable ones: never avoid one because it is unstable.
+Inspect `@stability` annotations; `MIGRATION.md` ("Unstable Module System") defines the tiers. Unstable Effect APIs and packages count as much as stable ones: never avoid one because it is unstable.
 
-Exact imports, names, signatures, and module paths in bundled references may age. Verify anything version-sensitive against the project-pinned package or matching upstream source before editing.
+## Effect Documentation
 
-## Upstream Research (When Needed)
+Resolve `node_modules/effect` from the package being changed. It matches the installed version exactly:
 
-Use installed source and types when they answer the question. The `effect` package also ships `AGENTS.md` and `ai-docs/` for its exact version; read them before reaching for upstream. Otherwise resolve a cached checkout under `${LIBRARIAN_CACHE_ROOT:-$HOME/.cache/checkouts}/github.com/Effect-TS/effect`; use the `librarian` helper when available. Read the relevant source and `LLMS.md` at the project's matching tag/commit, without substituting newer trunk APIs. Refresh upstream for greenfield work explicitly targeting current Effect. Verify branch/version mapping instead of assuming it. For migration or renamed-API questions, consult the matching checkout's `MIGRATION.md` and only the relevant guides under `migration/`; verify their claims against source and types.
+- `node_modules/effect/AGENTS.md`: topic index into the examples. Read it first.
+- `node_modules/effect/ai-docs/src/`: runnable examples for each topic.
+- `node_modules/effect/src/`: types and JSDoc, which also record gotchas. These are the API authority; where prose disagrees with the types, the types win.
+- `node_modules/@effect/vitest/README.md`: test helpers, when installed.
+
+`MIGRATION.md`, `migration/`, and `packages/effect/{SCHEMA,CONFIG,HTTPAPI}.md` are not published to npm. When you need them, read them at the tag matching the installed version from a checkout under `${LIBRARIAN_CACHE_ROOT:-$HOME/.cache/checkouts}/github.com/Effect-TS/effect` (see the `librarian` skill). Verify branch/version mapping instead of assuming it.
+
+`https://effect.website/docs/v4/<guide-path>.md` serves each website guide as Markdown (there is no `llms.txt`). The site is unversioned and can lag the source, so verify anything it says against the installed types.
 
 ## Reference Chooser
 
-Consult the sections that resolve the current task. Established repository patterns and installed source can be sufficient for routine edits. Load additional references as design or API questions arise.
+Consult the sections that resolve the current task. Established repository patterns and installed source can be sufficient for routine edits.
 
-- Migrations from v3 or v4 prereleases, import paths, or renamed APIs: read `references/V4_APIS.md`, then the relevant functional reference. Verify against the project's pinned version before applying any change.
 - Data models, schemas, brands, variants, optional keys, or decoders: read `references/SCHEMA.md`.
 - Service tags and interfaces, module surfaces, Layer constructors and combinators, runtime entrypoints and disposal, callback bridges, worker supervision, typed errors, mixed causes and nested reasons, or `Effect.fn`: read `references/SERVICES_LAYERS.md`.
 - Spans, structured logs, logger wiring, telemetry exporters, or defect reporting: read `references/OBSERVABILITY.md`.
@@ -80,9 +83,5 @@ Resolve examples under `${LIBRARIAN_CACHE_ROOT:-$HOME/.cache/checkouts}`:
 - `github.com/pingdotgg/t3code`
 - `github.com/foldkit/foldkit`
 - `github.com/alchemy-run/alchemy-effect`
-- `github.com/Kilo-Org/kilocode`
-- `github.com/kitlangton/stack`
-- `github.com/kitlangton/ghui`
-- `github.com/UsefulSoftwareCo/executor`
 
-Clone or refresh only the repositories needed for the task. Before borrowing a pattern, inspect its pinned Effect version and verify version-sensitive APIs against the target project. Refresh only when the research requires current source.
+Clone or refresh only the repositories needed for the task. Before borrowing a pattern, inspect its pinned Effect version and verify version-sensitive APIs against the target project.

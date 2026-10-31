@@ -7,62 +7,19 @@
 - [First-Class App Test Stubs](#first-class-app-test-stubs)
 - [Config In Tests](#config-in-tests)
 
-Use this when writing Effect tests, tests involving time, retry, schedules, concurrency, workers, services, fakes, or config.
+Use this when writing Effect tests, tests involving time, retry, schedules, concurrency, workers, services, fakes, or config. For test helpers and basic shapes, read `node_modules/@effect/vitest/README.md` and `node_modules/effect/ai-docs/src/09_testing/`.
 
 ## Defaults
-
-```ts
-import { expect, it } from "@effect/vitest";
-import { Effect, Fiber } from "effect";
-import { TestClock } from "effect/testing";
-```
-
-Use a v4-compatible `@effect/vitest` version. `TestClock` is under `effect/testing`, not the root `effect` barrel or the old `effect/TestClock` path.
 
 - Use `it.effect` by default.
 - Use `it.live` only when real time or live runtime services are the behavior under test, or when real processes, sockets, or file events drive the code. Under `it.effect`, an Effect timeout never fires on its own, so a missed event hangs instead of failing. Use `TestClock.withLive` for one real step inside a virtual-time test.
 - Use test layers and `ConfigProvider` rather than global mutation.
+- Share an expensive layer across a suite with `it.layer`. Pass `{ buildPerTest: true }` when tests mutate state and need fresh services.
 - Use `TestClock.setTime` / `TestClock.adjust` for sleeps, schedules, retries, leases, and timeouts.
 - Fork sleeping effects before advancing `TestClock`. `adjust` wakes only sleeps already registered: a child that suspends before it sleeps can register too late and silently never wake. Fork it with `{ startImmediately: true }`, or have it signal a `Deferred` just before sleeping and await that before adjusting.
 - Avoid arbitrary `Effect.sleep(...)` in tests; it usually makes tests slow and flaky.
 - Use `Effect.flip` to assert a typed failure value.
 - Assert typed failures, rollback, interruption, finalization, retry bounds, idempotency, concurrency laws, and malformed persistence where relevant.
-
-```ts
-it.effect("advances virtual time", () =>
-  Effect.gen(function* () {
-    const fiber = yield* Effect.sleep("1 second").pipe(
-      Effect.as("done"),
-      Effect.forkScoped
-    );
-    yield* TestClock.adjust("1 second");
-    expect(yield* Fiber.join(fiber)).toBe("done");
-  })
-);
-```
-
-```ts
-it.effect("finds a user", () =>
-  Effect.gen(function* () {
-    const users = yield* UserRepo.Service;
-    const result = yield* users.find(UserId.make("u1"));
-    expect(Option.isSome(result)).toBe(true);
-  }).pipe(Effect.provide(UserRepo.testLayer))
-);
-```
-
-Share an expensive layer across a suite with `it.layer`. Pass `{ buildPerTest: true }` when tests mutate state and need fresh services.
-
-```ts
-it.layer(UserRepo.testLayer)("UserRepo", (it) => {
-  it.effect("finds a user", () =>
-    Effect.gen(function* () {
-      const users = yield* UserRepo.Service;
-      expect(Option.isSome(yield* users.find(UserId.make("u1")))).toBe(true);
-    })
-  );
-});
-```
 
 ## Synchronization Instead Of Sleeps
 
@@ -70,6 +27,7 @@ it.layer(UserRepo.testLayer)("UserRepo", (it) => {
 - Use `Queue` for handing test-controlled work or observed events across fibers.
 - Use `Latch` for reusable open/close coordination gates.
 - Use `Ref` for shared test observation state.
+- Use `Stream.fromQueue(...)` with a test-owned `Queue` to drive a stream interactively, and `Stream.concat(Stream.never)` to keep a fixture open like a live subscription.
 - Use explicit test hooks when the production boundary can expose a deterministic synchronization point.
 
 ```ts
