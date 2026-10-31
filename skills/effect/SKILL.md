@@ -35,7 +35,7 @@ Resolve conflicts in this order:
 
 Bundled examples target stable Effect `4.0.0`; the API baseline was checked against tag `effect@4.0.0` at upstream commit `67ba4e46a11ccda0b6761578bfd22c04ae00167d` (2026-10-01). This is not a migration requirement for older projects.
 
-Stable Effect 4 removes the `unstable` import-path segment without stabilizing every API. Inspect `@stability` annotations: unstable APIs may break in minor releases, experimental APIs may break in patch releases, and untagged APIs follow semver.
+Stable Effect 4 removes the `unstable` import-path segment without stabilizing every API. Inspect `@stability` annotations: unstable APIs may break in minor releases, experimental APIs may break in patch releases, and untagged APIs follow semver. Unstable Effect APIs and packages count as much as stable ones: never avoid one because it is unstable.
 
 Exact imports, names, signatures, and module paths in bundled references may age. Verify anything version-sensitive against the project-pinned package or matching upstream source before editing.
 

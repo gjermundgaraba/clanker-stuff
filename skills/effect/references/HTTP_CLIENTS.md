@@ -16,7 +16,7 @@ When Effect HttpClient fits the application or provider boundary, use the module
 - `effect/http/HttpClientResponse`
 - `effect/http/HttpClientError`
 
-Prefer Effect HttpClient in Effect application and provider code when its typed errors, layers, and transforms are useful. Raw `fetch` remains reasonable for browser or edge constraints, small adapters, platform transports, and libraries that intentionally avoid unstable Effect HTTP APIs.
+Prefer Effect HttpClient in Effect application and provider code when its typed errors, layers, and transforms are useful. Raw `fetch` remains reasonable for browser or edge constraints, small adapters, and platform transports.
 
 ## Boundary Shape
 
@@ -68,7 +68,7 @@ Use operation-level `Effect.retry(...)` when retry depends on domain-specific ty
 
 ## Raw Fetch Exception
 
-Use raw `fetch` deliberately for browser or edge constraints, small adapters, platform transports, APIs that cannot use Effect HttpClient, or library boundaries where unstable Effect HTTP modules are not an appropriate dependency.
+Use raw `fetch` deliberately for browser or edge constraints, small adapters, platform transports, or APIs that cannot use Effect HttpClient.
 
 Keep raw `fetch` inside a named adapter effect and apply the same error, decoding, and cancellation discipline. It can remain the chosen transport while those reasons apply.
 
