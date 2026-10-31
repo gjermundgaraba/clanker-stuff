@@ -81,8 +81,6 @@ it.effect("publishes exactly once", () =>
 
 ## First-Class App Test Stubs
 
-Choose the test-implementation kind with [`SERVICE_DESIGN.md`](SERVICE_DESIGN.md); this section covers reusable stateful test-control services.
-
 Use `TestInterface extends Interface`, `TestService`, and `testLayer` for reusable/stateful fakes.
 
 ```ts

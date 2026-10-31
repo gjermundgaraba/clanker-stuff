@@ -12,8 +12,6 @@
 
 Use this when defining service tags, module surfaces, layer implementations, runtime wiring, typed errors, or `Effect.fn` operation boundaries.
 
-For whether a service or provisioning boundary should exist and which module owns it, read [`SERVICE_DESIGN.md`](SERVICE_DESIGN.md). This reference owns implementation mechanics.
-
 ## Module Surface
 
 Follow the repository's established service naming and export conventions. Export only intentional surface; keep local schemas, row codecs, helpers, and implementation details private. Do not introduce TypeScript `namespace` declarations for organization.

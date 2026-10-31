@@ -9,12 +9,6 @@ metadata:
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
   upstream-baseline-kind: "reconciled"
-  upstream-service-design-source: "https://github.com/dmmulroy/.dotfiles"
-  upstream-service-design-path: "home/.agents/skills/effect-service-design/"
-  upstream-service-design-revision: "3669c396c6426a613aceade2112315404dc8e39f"
-  upstream-service-design-relationship: "adapted"
-  upstream-service-design-license: "unresolved"
-  upstream-service-design-baseline-kind: "recorded"
 ---
 
 # Effect
@@ -49,9 +43,6 @@ Consult the sections that resolve the current task. Established repository patte
 
 - Migrations from v3 or v4 prereleases, import paths, or renamed APIs: read `references/V4_APIS.md`, then the relevant functional reference. Verify against the project's pinned version before applying any change.
 - Data models, schemas, brands, variants, optional keys, or decoders: read `references/SCHEMA.md`.
-- Service-or-value decisions, authority boundaries, application ports, adapter or composition ownership, dependency lifetimes, or choosing an honest reusable test implementation: consult `references/SERVICE_DESIGN.md`. Use `references/SERVICES_LAYERS.md` for implementation mechanics as needed.
-- Targeted reviews of changed Effect services, Layers, requirement propagation, composition ownership, or test substitutes: use [Targeted Review](references/SERVICE_AUDIT.md#targeted-review). Read the design or mechanics references needed to assess the changed behavior.
-- Explicitly comprehensive service audits of a codebase, package, or feature slice: use [Comprehensive Audit](references/SERVICE_AUDIT.md#comprehensive-audit) with `references/SERVICE_DESIGN.md`. Consult the relevant mechanics sections when implementing findings.
 - Service tags and interfaces, module surfaces, Layer constructors and combinators, runtime entrypoints and disposal, worker supervision, typed errors and nested reasons, or `Effect.fn`: read `references/SERVICES_LAYERS.md`.
 - Runtime config, environment variables, `ConfigProvider`, or `layerConfig`: read `references/CONFIG.md`.
 - Retry, repeat, polling, backoff, jitter, rate-limit-aware policies, pass loops, or wall-clock versus elapsed time: read `references/SCHEDULING.md`.

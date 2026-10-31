@@ -28,7 +28,7 @@ metadata:
 | `component` | Optional bundled component identifier |
 | `reviewed`, `content-url`, `content-sha256` | Optional reference-page observation; not a recoverable baseline |
 
-Use `upstream-<field>` for the primary source. Additional independent sources use `upstream-<id>-<field>`, such as `upstream-service-design-revision`. Each copied or adapted source needs source, path, revision, relationship, license, and baseline-kind. References need only source and relationship; omit merge-baseline fields. Keep evidence snapshots distinct from established baselines: a reference-page hash cannot reconstruct its bytes, and a candidate is not a confirmed origin.
+Use `upstream-<field>` for the primary source. Additional independent sources use `upstream-<id>-<field>`, such as `upstream-ce-noslop-revision`. Each copied or adapted source needs source, path, revision, relationship, license, and baseline-kind. References need only source and relationship; omit merge-baseline fields. Keep evidence snapshots distinct from established baselines: a reference-page hash cannot reconstruct its bytes, and a candidate is not a confirmed origin.
 
 ## Updating
 
