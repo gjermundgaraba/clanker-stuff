@@ -21,6 +21,7 @@
     "register.ts",
     "runtime.ts",
     "supervisor.ts",
+    "phase.ts",
     "notices.ts",
     "protocol.ts",
     "logs.ts",
