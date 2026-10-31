@@ -20,11 +20,12 @@ import { TestClock } from "effect/testing";
 Use a v4-compatible `@effect/vitest` version. `TestClock` is under `effect/testing`, not the root `effect` barrel or the old `effect/TestClock` path.
 
 - Use `it.effect` by default.
-- Use `it.live` only when real time or live runtime services are the behavior under test.
+- Use `it.live` only when real time or live runtime services are the behavior under test, or when real processes, sockets, or file events drive the code. Under `it.effect`, an Effect timeout never fires on its own, so a missed event hangs instead of failing. Use `TestClock.withLive` for one real step inside a virtual-time test.
 - Use test layers and `ConfigProvider` rather than global mutation.
 - Use `TestClock.setTime` / `TestClock.adjust` for sleeps, schedules, retries, leases, and timeouts.
-- Fork sleeping effects before advancing `TestClock`.
+- Fork sleeping effects before advancing `TestClock`. `adjust` wakes only sleeps already registered: a child that suspends before it sleeps can register too late and silently never wake. Fork it with `{ startImmediately: true }`, or have it signal a `Deferred` just before sleeping and await that before adjusting.
 - Avoid arbitrary `Effect.sleep(...)` in tests; it usually makes tests slow and flaky.
+- Use `Effect.flip` to assert a typed failure value.
 - Assert typed failures, rollback, interruption, finalization, retry bounds, idempotency, concurrency laws, and malformed persistence where relevant.
 
 ```ts
@@ -48,6 +49,19 @@ it.effect("finds a user", () =>
     expect(Option.isSome(result)).toBe(true);
   }).pipe(Effect.provide(UserRepo.testLayer))
 );
+```
+
+Share an expensive layer across a suite with `it.layer`. Pass `{ buildPerTest: true }` when tests mutate state and need fresh services.
+
+```ts
+it.layer(UserRepo.testLayer)("UserRepo", (it) => {
+  it.effect("finds a user", () =>
+    Effect.gen(function* () {
+      const users = yield* UserRepo.Service;
+      expect(Option.isSome(yield* users.find(UserId.make("u1")))).toBe(true);
+    })
+  );
+});
 ```
 
 ## Synchronization Instead Of Sleeps
@@ -111,7 +125,7 @@ export const testLayer = Layer.effectContext(
     const service = TestService.of({
       send: Effect.fn("Notifier.Test.send")(function* (message) {
         const failure = yield* Ref.getAndSet(nextFailure, Option.none());
-        if (Option.isSome(failure)) return yield* Effect.fail(failure.value);
+        if (Option.isSome(failure)) return yield* failure.value;
         yield* Ref.update(sent, (messages) => [...messages, message]);
       }),
       sentMessages: Effect.fn("Notifier.Test.sentMessages")(function* () {
@@ -137,7 +151,7 @@ Guidance:
 - Tests use `TestService` for control and inspection.
 - Use function-valued service members, including zero-argument operations, so `Effect.fn` fits naturally.
 - Use `Layer.succeed` for complete dead-simple static test implementations.
-- Use `Layer.mock` only for tiny local partial mocks where omitted members should fail loudly if used.
+- Use `Layer.mock` for small partial stubs. Omitted Effect-returning members die with `UnimplementedError` when called; other members stay required by the types. When every member returns an Effect, `Layer.mock(Service)({})` marks a required service the test must not call.
 
 ## Config In Tests
 

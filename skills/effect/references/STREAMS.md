@@ -34,13 +34,27 @@ Do not use streams just to loop forever. For one repeated effect with no emitted
 ## Source Chooser
 
 - Test fixtures: `Stream.fromIterable(...)`, often with `Stream.concat(Stream.never)` for an open subscription.
-- Queue-backed callback boundary: `Queue` plus `Stream.fromQueue(...)`.
-- Broadcast events: `PubSub` plus `Stream.fromPubSub(...)`.
+- Callback or event-listener source: `Stream.callback(...)`, returning `Effect.acquireRelease(attach, detach)` so the listener is removed when the stream ends. See the example below.
+- Queue the caller drives from outside the stream: `Queue` plus `Stream.fromQueue(...)`.
+- Broadcast events: `PubSub` plus `Stream.fromPubSub(...)`. It subscribes only when the stream runs, so events published before that are missed.
+- Broadcast events where nothing may be missed: `yield* PubSub.subscribe(pubsub)` first, then `Stream.fromSubscription(...)`. To combine with a snapshot, subscribe, read the snapshot, then filter live events past it.
 - Latest-value state plus updates: `SubscriptionRef`.
 - Schedule-generated ticks/values: `Stream.fromSchedule(...)`.
 - Paginated pull APIs: `Stream.paginate(...)`; its effectful step returns `Effect<readonly [ReadonlyArray<A>, Option.Option<S>], E, R>`. The stream emits `A` elements, not page arrays. `Option.none()` ends pagination after emitting that step's elements; empty arrays are allowed. There is no separate `Stream.paginateEffect`.
 - Async iterable/platform source: `Stream.fromAsyncIterable(...)` when no native Effect source exists.
 - Effect that produces a stream after reading services/config: `Stream.unwrap(...)`.
+
+```ts
+const messages = Stream.callback<Message>((queue) => {
+  const onMessage = (message: Message) => {
+    Queue.offerUnsafe(queue, message);
+  };
+  return Effect.acquireRelease(
+    Effect.sync(() => socket.on("message", onMessage)),
+    () => Effect.sync(() => socket.off("message", onMessage))
+  );
+});
+```
 
 ## Transformation Chooser
 
@@ -54,7 +68,7 @@ Do not use streams just to loop forever. For one repeated effect with no emitted
 - Side-effecting consumer: `Stream.runForEach(...)`.
 - Tests/small finite streams: `Stream.runCollect`.
 - First N values in tests: `Stream.take(n)` plus `Stream.runCollect`.
-- Long-lived consumer in a layer: `stream.pipe(Stream.runForEach(...), Effect.forkScoped)`.
+- Long-lived consumer in a layer: `stream.pipe(Stream.runForEach(...), Effect.forkScoped({ startImmediately: true }))`.
 
 Avoid `Stream.runCollect` on unbounded or production event streams.
 
@@ -70,7 +84,7 @@ export const layer = Layer.effectDiscard(
     yield* gateway.events.pipe(
       Stream.filter(isMessageEvent),
       Stream.runForEach(handleEvent),
-      Effect.forkScoped
+      Effect.forkScoped({ startImmediately: true })
     );
   })
 );
@@ -79,7 +93,7 @@ export const layer = Layer.effectDiscard(
 Guidance:
 
 - Let the layer own the stream lifetime.
-- Use `Effect.forkScoped` for lifetime ownership. It does not propagate a worker failure to the layer or runtime; required consumers need explicit fiber observation and an owner that acts on termination. See [Long-Lived Work](SERVICES_LAYERS.md#long-lived-work).
+- Use `Effect.forkScoped` for lifetime ownership. `startImmediately` subscribes before acquisition continues; a plain fork can miss the first events. Forking does not propagate a worker failure to the layer or runtime; required consumers need explicit fiber observation and an owner that acts on termination. See [Long-Lived Work](SERVICES_LAYERS.md#long-lived-work).
 - If methods need to fork work into the layer lifetime, capture `Scope.Scope` during layer acquisition and use `Effect.forkIn(scope)` internally. Do not expose the scope as public service API.
 - Preserve stream failures unless the owning boundary has a truthful recovery policy.
 
@@ -127,6 +141,7 @@ Use `Stream.debounce(...)` for quiet-period behavior and `Stream.throttle(...)` 
 
 Choose by the required per-key behavior:
 
+- To serialize operations per key outside a stream, hold one `Semaphore.make(1)` per key and run each operation under `Semaphore.withPermit`. Reclaim idle entries so the map stays bounded.
 - For ordinary per-key serialization, consider `Stream.groupByKey(...)` and concurrent consumption of the resulting groups, processing each group's stream sequentially.
 - Account for group cardinality, buffers, and group lifetime. Limiting active group consumers can stall a long-lived stream when unconsumed groups fill their buffers; a group concurrency limit is not automatically a safe global work limit.
 - Grouping does not coalesce pending values into a single latest-value rerun. For projection/reconciliation work requiring that policy, reuse a compatible keyed-run helper when available.

@@ -7,6 +7,7 @@
 - [Long-Lived Work](#long-lived-work)
 - [Runtime Wiring](#runtime-wiring)
 - [Effect.fn](#effectfn)
+- [Mixed Causes](#mixed-causes)
 - [Operation Error Helpers](#operation-error-helpers)
 - [Nested Reason Errors](#nested-reason-errors)
 
@@ -47,7 +48,7 @@ export const layer = Layer.effectDiscard(
 
     yield* events.stream.pipe(
       Stream.runForEach(handleEvent),
-      Effect.forkScoped
+      Effect.forkScoped({ startImmediately: true })
     );
   })
 );
@@ -56,8 +57,10 @@ export const layer = Layer.effectDiscard(
 Guidance:
 
 - Use `Effect.forkScoped`, `FiberSet`, or `FiberMap` for scoped background work.
+- A plain fork only schedules the child, so a subscriber forked that way can miss whatever happens next. Pass `{ startImmediately: true }` when the child must register a listener or subscription before acquisition continues. Leave fire-and-forget work plain.
 - Scoped forking controls cancellation, not failure propagation. Discarding the fiber can leave an application running after its worker fails.
 - For required workers, retain and observe their fibers with `Fiber.join` / `Fiber.await`, or track them with `FiberSet` / `FiberMap` and observe the corresponding `join`. The owning runtime or supervisor must act on failure: shut down, restart under an explicit policy, or report best-effort termination. Merely forking another unobserved join is not supervision.
+- A total loop is the alternative to observing the fiber: handle each item's failure inside the loop, or end the fork in one `Effect.catchCause` that routes to the owner's crash path.
 - Do not run forever work or await a forever worker inline during layer acquisition; observe it from the owning runtime after acquisition completes.
 - Do not expose public `start` methods unless the domain explicitly needs manual lifecycle control.
 
@@ -67,13 +70,18 @@ Guidance:
 - Use `Layer.provideMerge(...)` only when the dependency should remain exposed for downstream consumers.
 - Use `Layer.mergeAll(...)` for independent exposed layers.
 - Prefer flat, topologically sorted runtime layer values with named subgraphs.
+- Memoization follows layer identity. A factory called twice builds twice, so bind a shared layer to one value.
+- A nested `Effect.provide` reuses a layer an enclosing provide or runtime already built. Sibling provides each build their own copy, so provide once at the outermost owner rather than per call.
 - At process entrypoints, use `NodeRuntime.runMain` or `BunRuntime.runMain` from the matching platform package for signal handling, failure reporting, and exit behavior. Use `Layer.launch` to run a long-lived application Layer; it does not replace worker failure observation.
+- Inside running Effect code, bridge native callbacks with the captured context: `const runFork = Effect.runForkWith(yield* Effect.context<never>())`, or `FiberSet.makeRuntime` when the scope should own those fibers. A bare `Effect.runPromise` drops the caller's services and `Clock`, so a test can end up waiting in real time.
 - At non-Effect framework boundaries, create and reuse a `ManagedRuntime` from the application Layer rather than rebuilding dependencies per request. Keep imperative `runPromise` / `runCallback` calls at those boundaries.
 - Tie `ManagedRuntime.dispose()` (or `disposeEffect`) to the framework/application lifecycle and await cleanup before shutdown completes. Share a memo map across separate runtimes only when their dependency ownership and lifetimes intentionally overlap.
 
 ## Effect.fn
 
-Compose workflows with `Effect.gen`. Prefer named `Effect.fn("Domain.operation")` for public and non-trivial internal service methods. Reserve `Effect.fnUntraced` for internal helpers where stack-frame or span metadata is intentionally unnecessary. Follow the project-pinned APIs and existing conventions.
+Compose workflows with `Effect.gen`. Prefer named `Effect.fn("Domain.operation")` for public and non-trivial internal service methods; the name creates the span, and an anonymous `Effect.fn(function* ...)` adds only a stack frame. Use `Effect.fnUntraced` for library internals and hot paths where a span is not a useful boundary. Avoid functions that only wrap and return `Effect.gen`. Follow the project-pinned APIs and existing conventions.
+
+Annotate the return type with `Effect.fn.Return<A, E, R>` when inference is not enough. End a failing branch with `return yield* new SomeError({ ... })`; the `return` is what lets TypeScript see that the branch stops.
 
 Use extra `Effect.fn(...)` arguments for wrappers that apply to the whole function call. Each transform receives `(effect, ...originalArgs)`.
 
@@ -102,9 +110,19 @@ Good whole-function transforms:
 Guidance:
 
 - Keep the generator body focused on the core workflow.
+- Pass whole-function behavior as extra arguments rather than piping inside the body or at each call site.
 - Use transforms when the wrapper needs original arguments.
 - Do not build long clever pipelines; one or two transforms is usually enough.
 - Do not use this for local branch-level handling inside the workflow.
+
+## Mixed Causes
+
+A cause can hold a typed error and a defect at once, for example when a finalizer dies after the effect failed. Since 4.0.6:
+
+- Defects win. Every typed recovery operator on `Effect`, `Stream`, and `Channel` skips such a cause, including `catch`, `catchTag`, `catchIf`, `catchReason`, `ignore`, `option`, `result`, and `retry`. The handler does not run, and each typed error is converted to a defect.
+- An interruption beside a typed error does not block recovery. `Effect.catch` handles it, and `Effect.retry` retries it.
+- Mapping is not recovery. `mapError` and `mapBoth` map every typed error in place and keep defects and interrupts.
+- Use `Effect.catchDefect` or `Effect.catchCause` when a boundary truly must recover from defects.
 
 ## Operation Error Helpers
 

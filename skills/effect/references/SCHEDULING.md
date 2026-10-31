@@ -16,13 +16,14 @@ Use `Schedule` for retry, polling, pacing, and repeated background work instead 
 
 ## Core Rules
 
-- `Effect.retry(...)` retries typed failures; defects and interruptions are not retried.
+- `Effect.retry(...)` retries typed failures. A cause containing a defect or only interruption is not retried; a typed failure beside an interruption is. See [mixed causes](SERVICES_LAYERS.md#mixed-causes).
+- Prefer the options form for an ordinary retry: `Effect.retry({ schedule, times, while })`. It keeps the bound and the retryable-error predicate at the call site. `Effect.repeat({ schedule, until, times })` is the matching polling form.
 - `Effect.repeat(...)` repeats successful effects; failures stop repetition unless the pass handles them first.
 - The source effect runs once before the schedule is stepped.
 - `Schedule.recurs(3)` means three retries/repetitions after the initial run.
 - `Schedule.spaced(...)` waits after work completes.
 - `Schedule.fixed(...)` aligns executions to a cadence.
-- Use `Schedule.exponential(...)` or `Schedule.fibonacci(...)` for backoff.
+- Use `Schedule.exponential(...)` or `Schedule.fibonacci(...)` for backoff. `Schedule.min([...])` takes the shorter delay and recurs while any schedule does, which caps the gap; `Schedule.max([...])` takes the longer delay and recurs while all do, which bounds the count.
 - Add `Schedule.jittered` to avoid synchronized retry storms.
 - Use `Schedule.recurs(...)` for a counter schedule or `Schedule.upTo({ times })` to bound a delay schedule.
 - Use `Schedule.tap(({ input }) => ...)` to log retry inputs. Its metadata includes `input`, `output`, and `duration`.
@@ -37,8 +38,7 @@ Prefer typed pass failures over cause recovery.
 
 ```ts
 const pass = runPass().pipe(
-  Effect.tapError((error) => Effect.logError("Worker.pass_failed", error)),
-  Effect.ignore
+  Effect.ignore({ log: "Error", message: "Worker.pass_failed" })
 );
 
 const run = pass.pipe(Effect.repeat(Schedule.spaced("1 second")));
@@ -140,7 +140,7 @@ Use this for operation-level retries over typed provider errors. For Effect Http
 
 ## Timeouts And Delays
 
-- Use `Effect.timeout(...)` when the operation has a real deadline.
+- Use `Effect.timeout(...)` when the operation has a real deadline. Prefer `Effect.timeoutOrElse({ duration, orElse })` to fail with a domain error, and `Effect.timeoutOption(...)` when timing out is an ordinary result.
 - Use `Effect.delay(...)` when one operation should start later.
 - Use `Effect.sleep(...)` inside production workflows only when sleeping itself is the domain behavior.
 - Avoid manual sleep loops; use `Effect.repeat(...)` with `Schedule` for recurring work.

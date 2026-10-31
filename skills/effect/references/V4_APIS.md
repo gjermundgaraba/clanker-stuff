@@ -27,11 +27,29 @@ Direct imports such as `effect/http/HttpClient` also work. Check the project's `
 | `effect/unstable/http` | `effect/http` |
 | Root `TestClock` import | `effect/testing` |
 | `Context.Tag` / `Effect.Service` service definitions | `Context.Service` plus explicit `Layer` implementations |
+| `Layer.scoped` / `Layer.scopedDiscard` | These do not exist, even where repository docs name them. `Layer.effect` / `Layer.effectDiscard` remove `Scope` from the requirements |
+| `yield* option` / `yield* result` in `Effect.gen` | Not yieldable. Use `Effect.fromOption` / `Effect.fromResult`; `Option.gen` / `Result.gen` are for pure code |
+| `Effect.makeSemaphore` / `makeLatch` | `Semaphore.make` / `Latch.make` |
+| `effect/Crypto` | Family-specific `effect/crypto/*` services (4.1.0) |
+| `Migrator.fromFileSystem` | `effect/sql/MigratorFileSystem` (4.1.0) |
 | `Effect.catchAll` | `Effect.catch`; prefer `catchTag` for selected tagged errors |
 | `Effect.fork` / `forkDaemon` | `Effect.forkChild` / `forkDetach`; prefer `forkScoped` for layer-owned work |
 | `Either` | `Result`; inspect constructors and payload fields rather than just renaming the import |
 | `Schema.TaggedErrorClass` | `Schema.TaggedError` |
 | Constructor validation is wire decoding | Instance `schema.makeEffect` validates typed constructor input and fails with `SchemaIssue.Issue`; `Schema.decodeUnknownEffect` decodes unknown input and fails with `Schema.SchemaError` |
+
+## Behavior Changes Since 4.0.0
+
+Code that compiles can still change behavior across these releases:
+
+- 4.0.1: Interruption is never cached by `Effect.cached` and its TTL variants.
+- 4.0.4: `HttpClient.retryTransient` honors `Retry-After`.
+- 4.0.6: Typed recovery skips causes containing defects, and error mapping maps every typed error in place. See [mixed causes](SERVICES_LAYERS.md#mixed-causes).
+- 4.0.6: `Layer.provide`, `provideMerge`, and `mergeAll` memoize composed layers by identity. See [Runtime Wiring](SERVICES_LAYERS.md#runtime-wiring).
+- 4.0.6: `Stream.callback` starts registration before the first pull.
+- 4.0.7: `Schedule.fibonacci` repeats its base delay: 100, 100, 200, 300, 500 ms for a 100 ms base.
+- 4.0.7: `Ref` and `MutableRef` compare by reference; `Exit.hasFails`, `hasDies`, and `hasInterrupts` return plain `boolean` and no longer narrow.
+- 4.1.0: `HttpClient.withCookiesRef` takes `Ref<ReadonlyArray<Cookie>>`, `sql.insert` and `sql.updateValues` require non-empty rows, and received HTTP methods are typed `string`.
 
 ## Detailed References
 

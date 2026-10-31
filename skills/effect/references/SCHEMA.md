@@ -36,6 +36,7 @@ Guidance:
 - Use `Schema.decodeUnknownSync(...)` only in scripts, tests, or startup paths where throwing is acceptable.
 - Use `Schema.decodeUnknownOption(...)` only when mismatch details are intentionally discarded.
 - Use `Schema.decodeUnknownResult(...)` for pure code that wants explicit success/failure without Effect.
+- Decode JSON text with `Schema.fromJsonString(schema)` rather than `JSON.parse` plus a separate decode. Wrap the schema in `Schema.toCodecJson(...)` when values such as `Option` or `DateTime` must round-trip through JSON.
 
 ## Construction Versus Decoding
 
@@ -126,11 +127,11 @@ Guidance:
 - Prefer a principled split over forcing one representation everywhere: Data internally, Schema at boundaries.
 - Use `Schema.tag(...)` when an external contract has a custom discriminator field such as `type` or `kind`; combine those structs with `Schema.toTaggedUnion("type")` when union helpers are needed.
 - If the encoded contract omits the discriminant, use `Schema.tagDefaultOmit(...)` deliberately.
-- Avoid `Schema.Class` and `Schema.TaggedClass` for new data models.
+- Avoid `Schema.Class` and `Schema.TaggedClass` for new data models: encoding requires a real instance and rejects a plain object that satisfies the fields. Effect's own docs use `Schema.Class`, and a repository may choose it when models carry behavior; follow that repository's convention.
 
 ## Errors
 
-`Schema.TaggedError` is the explicit class exception for typed Effect errors.
+`Schema.TaggedError` is the explicit class exception for typed Effect errors. `Data.TaggedError` is also reasonable for an error that never crosses a wire or persistence boundary; repositories split on this, so follow theirs.
 
 ```ts
 export class PersistenceError extends Schema.TaggedError<PersistenceError>()(

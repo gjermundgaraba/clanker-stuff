@@ -16,7 +16,7 @@ Prefer `effect/Cache` over a `Map` + timestamp + prune-loop cache when its keyed
 - Lookup services are captured at construction by default. Use `requireServicesAt: "lookup"` only when callers should supply them on each lookup; this moves lookup requirements from cache construction to the cache handle's environment type.
 - `timeToLive` is optional and defaults to infinity. Specify it when freshness matters; capacity alone only bounds retained entries.
 - For a single value (no key), use `Effect.cached(effect)` or `Effect.cachedWithTTL(effect, ttl)` instead of a one-key Cache. `cachedWithTTL` also accepts an `Exit => Duration.Input` callback; use it when success and failure need different TTLs.
-- For cached resources that need cleanup (connections, clients), use `ScopedCache`.
+- For cached resources that need cleanup (connections, clients), use `ScopedCache`. Use `RcMap` for reference-counted per-key resources and `LayerMap` for one layer graph per key.
 
 ## Exit-Aware TTL (cache successes, skip degraded results)
 
@@ -51,7 +51,7 @@ const cachedLookup =
   );
 ```
 
-Reuse `cachedLookup` on each call. The TTL callback runs after a fresh computation, including failed or interrupted exits; zero avoids retaining those results. TTL begins at completion, and concurrent callers share the pending computation.
+Reuse `cachedLookup` on each call. The TTL callback runs after a fresh computation that succeeds or fails; zero avoids retaining failures. Interruption is never cached: the callback does not run, and the next caller recomputes. TTL begins at completion, and concurrent callers share the pending computation.
 
 ## Expensive Client Acquisition Belongs In The Layer, Not The Lookup
 

@@ -24,7 +24,7 @@ export const layerFromEnvironment = Layer.effect(
 ## Config Recipes
 
 - `Config<T>` is yieldable and reads the current `ConfigProvider` reference.
-- The default provider is `ConfigProvider.fromEnv()`.
+- The default provider is `ConfigProvider.fromEnv()`. It snapshots the environment when created, so provide a new one if the environment can change during the process.
 - Use `Config.Redacted(...)` for credentials.
 - Use `Config.schema(...)` for refined values. Use `Config.mapEffect(...)` for effectful transformations; its callback returns `Effect<B, Config.ConfigError>`, not a plain value or arbitrary error.
 - Use `Config.option(...)` for semantic absence.

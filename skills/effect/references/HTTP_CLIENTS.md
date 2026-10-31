@@ -5,6 +5,7 @@
 - [Boundary Shape](#boundary-shape)
 - [Effect HttpClient](#effect-httpclient)
 - [Retry And Rate Limits](#retry-and-rate-limits)
+- [Timeouts And Circuit Breakers](#timeouts-and-circuit-breakers)
 - [Raw Fetch Exception](#raw-fetch-exception)
 
 Use this when writing outgoing HTTP calls, Effect HttpClient adapters, status classification, HTTP retries, or rate limiting.
@@ -57,6 +58,8 @@ Use `HttpClient.retryTransient(...)` for common transient HTTP failures:
 - `503`
 - `504`
 
+It honors `Retry-After`, and `HttpClient.isTransientError` / `isTransientResponse` expose the same classification. Combine it with `HttpClient.filterStatusOk`: without that, a transient status that survives every retry comes back as an ordinary response, not a failure.
+
 Use `HttpClient.withRateLimiter(...)` when the client should proactively pace requests and learn from rate-limit / `Retry-After` headers.
 
 - Its automatic `429` retries are unlimited by default. Set a finite `times` budget, or `times: 0` when the operation owns retry policy.
@@ -65,6 +68,13 @@ Use `HttpClient.withRateLimiter(...)` when the client should proactively pace re
 - Apply a whole-operation deadline where required, including pacing and retries. Retry only operations with proven idempotency, and preserve exhausted failures unless a truthful fallback exists.
 
 Use operation-level `Effect.retry(...)` when retry depends on domain-specific typed errors, provider payloads, or idempotency rules. Read `SCHEDULING.md` for custom schedules and `retryAfterMs` typed-provider patterns.
+
+## Timeouts And Circuit Breakers
+
+- `HttpClient.timeout(...)` (4.1.1+) fails as a retryable transport error. Apply it before `retryTransient` to give each attempt its own budget, or after to bound the whole retry loop. Body reads outside the timed client are not covered, so time those separately. Its `@since` tag says 4.1.0, but the API is absent from that release.
+- `HttpClient.withCircuitBreaker({ breaker })` (4.0.7+, experimental) guards a dependency with a breaker from `effect/persistence`. Compose in the order `withRateLimiter`, `retryTransient`, `withCircuitBreaker`, so the breaker sees one outcome per call and an open circuit skips the retry loop.
+- Set `times` on `withRateLimiter` under a breaker; unlimited `429` retries can hold the half-open probe for minutes.
+- `HttpClient.followRedirects` with `FetchHttpClient` needs `FetchHttpClient.RequestInit` set to `{ redirect: "manual" }`.
 
 ## Raw Fetch Exception
 
@@ -81,12 +91,10 @@ const request = Effect.fn("Provider.request")(function* (input: RequestInput) {
   });
 
   if (!response.ok) {
-    return yield* Effect.fail(
-      new ProviderRejected({
-        operation: "Provider.request",
-        status: response.status,
-      })
-    );
+    return yield* new ProviderRejected({
+      operation: "Provider.request",
+      status: response.status,
+    });
   }
 
   const json = yield* Effect.tryPromise({
