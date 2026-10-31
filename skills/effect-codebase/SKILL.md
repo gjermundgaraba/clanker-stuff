@@ -4,9 +4,9 @@ description: "Codebase organization and project conventions for Effect TypeScrip
 metadata:
   upstream-source: "https://ratstack.sh/lore/structure-effect-by-domain"
   upstream-relationship: "reference"
-  upstream-reviewed: "2026-10-11"
-  upstream-content-url: "https://ratstack.sh/lore/structure-effect-by-domain.md"
-  upstream-content-sha256: "22ae3cae8b9950fa1ba9972f5d16c34bd4c54dc87bb60cc2609180c2b8f4710d"
+  upstream-reviewed: "2026-10-31"
+  upstream-content-url: "https://raw.githubusercontent.com/joelhooks/rat-stack/main/.brain/resources/lore/structure-effect-by-domain.svx"
+  upstream-content-sha256: "f6c2e322f303030f3fe5aac9ba5396139f5b6ec30347f34be2952416c84c7169"
   upstream-services-source: "https://ratstack.sh/lore/services-capture-dependencies"
   upstream-services-relationship: "reference"
   upstream-layers-source: "https://ratstack.sh/lore/layers-make-dependencies-explicit"
@@ -25,6 +25,14 @@ metadata:
   upstream-capabilities-relationship: "reference"
   upstream-cartridges-source: "https://ratstack.sh/lore/cartridges"
   upstream-cartridges-relationship: "reference"
+  upstream-errors-source: "https://ratstack.sh/lore/error-model"
+  upstream-errors-relationship: "reference"
+  upstream-basics-source: "https://ratstack.sh/lore/effect-basics"
+  upstream-basics-relationship: "reference"
+  upstream-schemas-source: "https://ratstack.sh/lore/schemas-define-the-boundary"
+  upstream-schemas-relationship: "reference"
+  upstream-restart-source: "https://ratstack.sh/lore/restart-from-known-state"
+  upstream-restart-relationship: "reference"
 ---
 
 # Effect codebase

@@ -68,6 +68,7 @@ Named states, retries, cancellation, and lifecycles that must be resumed or insp
 - **Fits** a service that has accumulated booleans whose combinations have no meaning, or a workflow with several legal event orders.
 - **Does not fit** where storage constraints already enforce the states, where a UI framework's model is already the state machine, or for a two-state flag.
 - **Watch for** adding the dependency before there is a lifecycle that needs it.
+- **Watch for** restarts. A machine in memory ends with its process. A lifecycle that must survive one needs its state rebuilt from durable storage, and the recovery should be tested from an incomplete step, not just by checking that the worker is running.
 
 ## Removable packages
 
