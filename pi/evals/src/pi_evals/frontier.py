@@ -16,7 +16,7 @@ from uuid import uuid4
 from harbor.models.job.config import JobConfig
 import yaml
 
-from pi_evals.artifacts import EVALS, task_hashes, write_json
+from pi_evals.artifacts import EVALS, lint_generated_task, task_hashes, write_json
 from pi_evals.runtime import ARMS, LABELS, command, docker, image_info, pin_tag
 from pi_evals import frontier_report, frontier_state
 from pi_evals.preflight import run_preflight
@@ -154,6 +154,7 @@ docker_image = "{agent['tag']}"
         shutil.copy(EVALS/'verifiers'/name, tests)
     shutil.copy(ASSETS/'validity.mjs', tests)
     (tests/'test.sh').write_text('#!/bin/bash\nset -euo pipefail\npython3 /tests/submission.py\n')
+    lint_generated_task(task)
     series = {'benchmark': 'FrontierSWE v2 capped pilot', 'task': TASK, 'source_revision': SOURCE,
               'source_url': 'https://github.com/Proximal-Labs/frontier-swe-v2',
               'codex_version': version, 'model': expected['model'][7:], 'reasoning': expected['thinking'], 'arms': LABELS,

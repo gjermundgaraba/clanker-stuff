@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from harbor.lint import LintRule, lint_task
+from harbor.lint.models import DEFAULT_RULES
+
 EVALS = Path(__file__).resolve().parents[2]
 
 
@@ -19,3 +22,14 @@ def task_hashes(task: Path) -> dict[str, str]:
         for path in sorted(task.rglob("*"))
         if path.is_file() and "__pycache__" not in path.parts
     }
+
+
+def lint_generated_task(task: Path) -> None:
+    """Fail on Harbor's default `harbor lint` findings before any trial runs."""
+    # Our verifiers check the agent's runtime evidence, so they share its sandbox.
+    findings = lint_task(task, selected_rules=DEFAULT_RULES - {LintRule.SHARED_VERIFIER})
+    if findings:
+        raise ValueError(
+            f"harbor lint rejected {task}: "
+            + "; ".join(f"[{f.rule}] {f.path}: {f.message}" for f in findings)
+        )

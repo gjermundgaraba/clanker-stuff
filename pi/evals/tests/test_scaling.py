@@ -9,6 +9,7 @@ from unittest import TestCase
 from unittest.mock import patch
 import yaml
 from pi_evals.scaling import build_image, generate_task, prepare, verify, run, SIZES
+from pi_evals.artifacts import lint_generated_task
 from pi_evals.runtime import ARMS
 from pi_evals.scaling_report import report
 
@@ -106,6 +107,22 @@ class ScalingTest(TestCase):
             )
             self.assertNotIn("COPY service-codex.mjs /usr/local/bin/codex-eval", recipe)
             self.assertEqual((task / "environment/Dockerfile").read_text(), "FROM test:immutable\n")
+
+    def test_generated_task_passes_harbor_lint_and_typos_fail(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            task = generate_task(root, "small", "test-seed", 1)
+            with (
+                patch("pi_evals.scaling.docker"),
+                patch("pi_evals.scaling.image_info", return_value={"image_id": "sha256:test"}),
+                patch("pi_evals.scaling.pin_tag", return_value="test:immutable"),
+            ):
+                build_image(root, task, "0.154.0", "base:immutable")
+            lint_generated_task(task)
+            config = task / "task.toml"
+            config.write_text(config.read_text().replace("[agent]\n", "[agent]\ntimeout = 1\n"))
+            with self.assertRaisesRegex(ValueError, r"\[unknown-config-field\].*agent\.timeout"):
+                lint_generated_task(task)
 
     def test_18_runs_latest_release_full_order_balance_and_freeze(self):
         with TemporaryDirectory() as directory:

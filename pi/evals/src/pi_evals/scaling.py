@@ -18,7 +18,7 @@ from pi_evals.scaling_state import read_slot
 from pi_evals import scaling_report
 from pi_evals.preflight import run_preflight
 from pi_evals.comparison import comparison, configure_agent
-from pi_evals.artifacts import EVALS, task_hashes, write_json
+from pi_evals.artifacts import EVALS, lint_generated_task, task_hashes, write_json
 from pi_evals.trials import require_terminal_result
 
 ASSETS = EVALS / "suites/scaling"
@@ -180,6 +180,8 @@ def prepare(output: Path, catalog: Path, model=None, thinking=None) -> None:
         for size in SIZES:
             task = generate_task(output, size, seed, replicate, expected)
             images[task.name] = build_image(output, task, version, base)
+            # task.toml names the image digest, so the task is complete only now.
+            lint_generated_task(task)
             settings = json.loads((task / "environment/case.json").read_text())
             fixtures[task.name] = settings
             compose = output / f"{task.name}.compose.yaml"
