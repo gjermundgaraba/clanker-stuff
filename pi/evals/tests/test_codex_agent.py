@@ -291,13 +291,16 @@ HOME = "/installed-agent/codex-home"
 class FakeEnvironment:
     default_user = "agent"
 
-    def __init__(self) -> None:
+    def __init__(self, *, runner_fails: bool = False) -> None:
         self.execs: list[SimpleNamespace] = []
         self.uploads: dict[str, bytes] = {}
         self.agent_owns_home = False
+        self.runner_fails = runner_fails
 
     async def exec(self, command, user=None, env=None, cwd=None, timeout_sec=None):
         self.execs.append(SimpleNamespace(command=command, user=user, env=dict(env or {})))
+        if self.runner_fails and "codex-eval " in command:
+            return SimpleNamespace(return_code=1, stdout="", stderr="codex failed")
         # Harbor creates /installed-agent as root; only root can hand a home in
         # it to the dedicated agent user.
         if user == "root" and f"mkdir -p {HOME}" in command and "chown -R 1000:1000" in command:
@@ -317,8 +320,10 @@ class FakeEnvironment:
 
 
 class CodexRunTest(IsolatedAsyncioTestCase):
-    async def run_adapter(self, **kwargs) -> FakeEnvironment:
-        environment = FakeEnvironment()
+    async def run_adapter(
+        self, environment: FakeEnvironment | None = None, **kwargs
+    ) -> FakeEnvironment:
+        environment = environment or FakeEnvironment()
         # Harbor falls back to a base URL from the host shell.
         with patch.dict(os.environ), TemporaryDirectory() as directory:
             for name in ("OPENAI_BASE_URL", "OPENAI_API_BASE"):
@@ -360,3 +365,16 @@ class CodexRunTest(IsolatedAsyncioTestCase):
         ]
         self.assertEqual(auth.user, "root")
         self.assertIn("chmod 600 /tmp/codex-secrets/auth.json", auth.command)
+
+    async def test_copied_auth_is_removed_after_codex_even_on_failure(self) -> None:
+        environment = FakeEnvironment(runner_fails=True)
+        with self.assertRaises(RuntimeError):
+            await self.run_adapter(environment)
+
+        runner = environment.execs.index(environment.runner())
+        [removal] = [
+            index
+            for index, e in enumerate(environment.execs)
+            if e.user == "root" and e.command.endswith("rm -f /tmp/codex-secrets/auth.json")
+        ]
+        self.assertGreater(removal, runner)

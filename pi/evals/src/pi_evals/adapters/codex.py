@@ -369,11 +369,6 @@ class CodexEval(Codex):
             env=env,
         )
         auth_path = self._resolve_auth_json_path()
-        await environment.upload_file(auth_path, remote_auth)
-        await self.exec_as_root(
-            environment,
-            command=f"chown {uid}:{gid} {remote_auth} && chmod 600 {remote_auth}",
-        )
         setup = f"ln -sf {remote_auth} {remote_home}/auth.json"
 
         openai_base_url = self._resolved_base_url()
@@ -420,12 +415,23 @@ class CodexEval(Codex):
         )
 
         try:
+            await environment.upload_file(auth_path, remote_auth)
+            await self.exec_as_root(
+                environment,
+                command=f"chown {uid}:{gid} {remote_auth} && chmod 600 {remote_auth}",
+            )
             await self.exec_as_agent(
                 environment,
                 command=runner_command(agent_dir, self._OUTPUT_FILENAME),
                 env=env,
             )
         finally:
+            # Each run uploads auth again, and capture reads only the sessions
+            # and events, so the credentials need not outlive the runner.
+            try:
+                await self.exec_as_root(environment, command=f"rm -f {remote_auth}")
+            except Exception:
+                pass
             try:
                 await self.exec_as_agent(
                     environment,
