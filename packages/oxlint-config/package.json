@@ -1,6 +1,6 @@
 {
   "name": "@clanker-stuff/oxlint-config",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "Shares the Ultracite and Effect Oxlint preset, its exceptions and a rule that keeps prose out of comments.",
   "keywords": [
