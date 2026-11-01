@@ -5,6 +5,7 @@ import argparse
 import base64
 from copy import deepcopy
 import hashlib
+from importlib.metadata import version as package_version
 import json
 from pathlib import Path
 import re
@@ -163,7 +164,7 @@ docker_image = "{agent['tag']}"
               'recovery_policy': {'pi': PI_SETTINGS['retry'], 'native': 'Frozen released Codex built-in recovery; no external restart', 'time_budget': 'All recovery and backoff count against the original work deadline', 'trial_retries': 0},
               'cutoff_policy': 'Kill all agent-user processes at the work deadline; capture actual source before telemetry conversion. Budget exhaustion is a scored outcome. Unrecovered stream errors are diagnostic partial submissions, never restarted.',
               'grader': grader, 'agent': agent, 'runtime': runtime, 'platform': 'linux/amd64',
-              'adaptations': ['Harbor 0.21 export adapter and host-side unchanged upstream verifier',
+              'adaptations': [f'Harbor {package_version("harbor")} export adapter and host-side unchanged upstream verifier',
                               'Shorter agent budget; no Proximus continuation/submit harness',
                               'Agent image adds matched Pi/Codex runtimes and removes hidden verifier assets',
                               'Agent network follows existing coding harness; grader network disabled',
