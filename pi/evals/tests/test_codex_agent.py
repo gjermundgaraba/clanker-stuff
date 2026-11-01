@@ -284,16 +284,27 @@ class CodexInstallTest(IsolatedAsyncioTestCase):
             await unpinned.install(environment)
 
 
+HOME = "/installed-agent/codex-home"
+
+
 class FakeEnvironment:
     default_user = "agent"
 
     def __init__(self) -> None:
         self.execs: list[SimpleNamespace] = []
         self.uploads: dict[str, bytes] = {}
+        self.agent_owns_home = False
 
     async def exec(self, command, user=None, env=None, cwd=None, timeout_sec=None):
         self.execs.append(SimpleNamespace(command=command, user=user, env=dict(env or {})))
-        return SimpleNamespace(return_code=0, stdout="", stderr="")
+        # Harbor creates /installed-agent as root; only root can hand a home in
+        # it to the dedicated agent user.
+        if user == "root" and f"mkdir -p {HOME}" in command and "chown -R 1000:1000" in command:
+            self.agent_owns_home = True
+        elif user != "root" and HOME in command and not self.agent_owns_home:
+            return SimpleNamespace(return_code=1, stdout="", stderr="Permission denied")
+        stdout = "CODEX_RUNTIME_ID 1000 1000\n" if "CODEX_RUNTIME_ID" in command else ""
+        return SimpleNamespace(return_code=0, stdout=stdout, stderr="")
 
     async def upload_file(self, source_path, target_path) -> None:
         self.uploads[target_path] = Path(source_path).read_bytes()
@@ -327,7 +338,7 @@ class CodexRunTest(IsolatedAsyncioTestCase):
         runner = environment.runner()
         self.assertEqual(runner.env["OPENAI_BASE_URL"], "http://proxy.test/v1")
         config = tomllib.loads(
-            environment.uploads["/installed-agent/codex-home/config.toml"].decode()
+            environment.uploads[f"{HOME}/config.toml"].decode()
         )
         self.assertEqual(config["openai_base_url"], "http://proxy.test/v1")
         self.assertTrue(config["features"]["unified_exec"])
@@ -335,3 +346,13 @@ class CodexRunTest(IsolatedAsyncioTestCase):
         environment = await self.run_adapter()
         runner = environment.runner()
         self.assertNotIn("OPENAI_BASE_URL", runner.env)
+
+    async def test_root_hands_the_codex_home_to_the_agent_user(self) -> None:
+        environment = await self.run_adapter()
+
+        self.assertTrue(environment.agent_owns_home)
+        [auth] = [
+            e for e in environment.execs if "chown 1000:1000 /tmp/codex-secrets" in e.command
+        ]
+        self.assertEqual(auth.user, "root")
+        self.assertIn("chmod 600 /tmp/codex-secrets/auth.json", auth.command)

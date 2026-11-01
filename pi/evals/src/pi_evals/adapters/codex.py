@@ -359,18 +359,21 @@ class CodexEval(Codex):
         agent_dir = EnvironmentPaths.agent_dir.as_posix()
         env = {"CODEX_HOME": remote_home}
 
+        # Root owns /installed-agent, so the agent user cannot create the home.
+        uid, gid = await self._ensure_agent_owned_dir(
+            environment, self._REMOTE_CODEX_HOME
+        )
         await self.exec_as_agent(
             environment,
-            command=f"mkdir -p {remote_home} {remote_secrets} {agent_dir}",
+            command=f"mkdir -p {remote_secrets} {agent_dir}",
             env=env,
         )
         auth_path = self._resolve_auth_json_path()
         await environment.upload_file(auth_path, remote_auth)
-        if environment.default_user is not None:
-            await self.exec_as_root(
-                environment,
-                command=f"chown {environment.default_user} {remote_auth}",
-            )
+        await self.exec_as_root(
+            environment,
+            command=f"chown {uid}:{gid} {remote_auth} && chmod 600 {remote_auth}",
+        )
         setup = f"ln -sf {remote_auth} {remote_home}/auth.json"
 
         openai_base_url = self._resolved_base_url()
