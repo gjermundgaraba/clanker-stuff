@@ -22,4 +22,4 @@ jobs:
           cache: true
           run-install: false
       - run: vp install --frozen-lockfile
-      - run: vp pm publish -r --access public --no-git-checks --provenance
+      - run: vp pm publish -r --filter @clanker-stuff/oxlint-config --access public --no-git-checks --provenance

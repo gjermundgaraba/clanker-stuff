@@ -56,10 +56,10 @@ Requires Vite+, Node.js 26.12 or newer, and Python 3.10 or newer. Run `vp instal
 
 ## Releasing
 
-Every package with `"private": false` publishes to npm through [`.github/workflows/npm.yml`](.github/workflows/npm.yml), which uses npm trusted publishing with provenance:
+[`.github/workflows/npm.yml`](.github/workflows/npm.yml) publishes `@clanker-stuff/oxlint-config` to npm with trusted publishing and provenance. The other packages with `"private": false` are not published yet; add one to the workflow's `--filter` to release it.
 
 1. Bump the `version` of each package to release, commit, then tag and push: `git tag v<version> && git push origin v<version>`.
-2. The workflow publishes every publishable package whose version npm does not have yet and skips the rest. `vp pm publish -r --dry-run --access public --no-git-checks` shows locally what it would publish.
+2. The workflow publishes each package it filters to whose version npm does not have yet and skips the rest. `vp pm publish -r --filter @clanker-stuff/oxlint-config --dry-run --access public --no-git-checks` shows locally what it would publish.
 
 A new package's first version goes out by hand, because npm can only trust a workflow for a package that exists:
 
