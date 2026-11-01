@@ -13,7 +13,7 @@ RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates git ripgrep \
   && rm -rf /var/lib/apt/lists/* \
   && npm install --global --ignore-scripts \
-    @openai/codex@0.159.2
+    @openai/codex@0.166.0
 COPY --from=runtime /out /opt/pi-evals
 RUN chmod 755 /opt/pi-evals/codex-eval.mjs /opt/pi-evals/pi-eval-compact.mjs \
   && ln -s /opt/pi-evals/codex-eval.mjs /usr/local/bin/codex-eval \

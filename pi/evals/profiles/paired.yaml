@@ -69,7 +69,7 @@ agents:
     model_name: openai/gpt-6.1-sol
     resume_trajectory: true
     kwargs:
-      version: 0.159.2
+      version: 0.166.0
       reasoning_effort: medium
       config:
         model_auto_compact_token_limit: 1000000000
@@ -83,7 +83,7 @@ agents:
     model_name: openai/gpt-6.1-sol
     resume_trajectory: true
     kwargs:
-      version: 0.159.2
+      version: 0.166.0
       reasoning_effort: medium
       config:
         model_auto_compact_token_limit: 1000000000
