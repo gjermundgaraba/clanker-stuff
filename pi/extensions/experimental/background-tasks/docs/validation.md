@@ -6,6 +6,7 @@ All scenarios use synthetic jobs and payloads. No service credentials or private
 
 Unit tests cover:
 
+- The task phase table: the first outcome wins, later outcomes, results and stops change nothing, and a stop after a failed cleanup retries it and keeps the outcome.
 - Strict watcher framing.
 - Per-task notices: keyed replacement, record and byte caps, unread outcome and events, and clearing.
 - Bounded in-memory log tails.

@@ -188,6 +188,9 @@ catalogs:
     vite-plus:
       specifier: 1.4.0
       version: 1.4.0
+    xstate:
+      specifier: 6.0.0-alpha.71
+      version: 6.0.0-alpha.71
 
 overrides:
   '@earendil-works/pi-agent-core': 1.4.0
@@ -351,6 +354,9 @@ importers:
       typebox:
         specifier: 1.4.3
         version: 1.4.3
+      xstate:
+        specifier: 'catalog:'
+        version: 6.0.0-alpha.71
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -383,8 +389,8 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       xstate:
-        specifier: 6.0.0-alpha.70
-        version: 6.0.0-alpha.70
+        specifier: 'catalog:'
+        version: 6.0.0-alpha.71
     devDependencies:
       '@anthropic-ai/sdk':
         specifier: 1.3.0
@@ -3500,8 +3506,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  xstate@6.0.0-alpha.70:
-    resolution: {integrity: sha512-TSFfXYaTNz+ylEpguNsu0L5vDy8cjHRXAqpZBKQnJI++Jm61Vb41TAg1HzeEbC+Mnq9XelKs2dQNOizTwcnssQ==}
+  xstate@6.0.0-alpha.71:
+    resolution: {integrity: sha512-ABNE8jHjqzpQd/gX8huQYvSlbrOEaJcvzBtt6qWMooQuvxKoarkEKT0JFr3ymhI5Jza72YmfsWnFEophersmhQ==}
     hasBin: true
 
   yaml@2.9.0:
@@ -6079,7 +6085,7 @@ snapshots:
 
   ws@8.22.0: {}
 
-  xstate@6.0.0-alpha.70: {}
+  xstate@6.0.0-alpha.71: {}
 
   yaml@2.9.0: {}
 

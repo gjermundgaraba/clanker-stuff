@@ -12,9 +12,10 @@ import {
   listOutputSchema,
   inspectOutputSchema,
 } from "../output.js";
+import { resultOf } from "../phase.js";
 import { registerTaskTools } from "../register.js";
 import { TaskRuntime } from "../runtime.js";
-import { unread } from "../supervisor.js";
+import { taskSummary, unread } from "../supervisor.js";
 import { MAX_TEXT_BYTES } from "../task.js";
 
 const runtimes: TaskRuntime[] = [];
@@ -57,7 +58,7 @@ const setup = async (
 
 const completed = async () => {
   const s = await setup();
-  await expect.poll(() => s.task.outcome).toBe("result");
+  await expect.poll(() => taskSummary(s.task).status).toBe("result");
   await s.task.cleanupPromise;
   expect(unread(s.task)).toStrictEqual({ events: 2, outcome: "result" });
 
@@ -160,7 +161,7 @@ describe("registerTaskTools", () => {
         "console.log(JSON.stringify({v:1,type:'result',data:'\\u202e'.repeat(2730)}))"
     );
 
-    await expect.poll(() => task.outcome).toBe("result");
+    await expect.poll(() => taskSummary(task).status).toBe("result");
     await task.cleanupPromise;
 
     const inspected = await host.runTool(
@@ -193,7 +194,7 @@ describe("registerTaskTools", () => {
         `for (const type of ['event','result']) console.log(JSON.stringify({v:1,type,data:${JSON.stringify(data)}}))`
       );
 
-      await expect.poll(() => task.outcome).toBe("result");
+      await expect.poll(() => taskSummary(task).status).toBe("result");
 
       const result = await host.runTool(
         "task_inspect",
@@ -217,7 +218,7 @@ describe("registerTaskTools", () => {
         `for (const type of ['event','result']) console.log(JSON.stringify({v:1,type,data:${JSON.stringify(captured)}}))`
       );
 
-      await expect.poll(() => task.outcome).toBe("result");
+      await expect.poll(() => taskSummary(task).status).toBe("result");
 
       const schema = Type.Object({
         result: Type.Object({
@@ -243,7 +244,7 @@ describe("registerTaskTools", () => {
       value.result.items.push("added by caller");
       value.events[0]?.data.items.push("added by caller");
 
-      expect(task.result).toStrictEqual(captured);
+      expect(resultOf(task.phase)).toStrictEqual(captured);
       expect(task.notices.events[0]?.data).toStrictEqual(captured);
       const next = await host.runTool("task_inspect", { id: task.id }, { ctx });
       expect(next.structuredContent).toMatchObject({

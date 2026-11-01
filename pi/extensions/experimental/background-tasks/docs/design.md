@@ -57,6 +57,7 @@ Modules follow the repository [extension structure](../../../../../docs/extensio
 - `index.ts`: registration manifest.
 - `register.ts`: tool registrations.
 - `supervisor.ts`: process ownership, lifecycle, admission, retention.
+- `phase.ts`: the task lifecycle table, which decides each outcome and cleanup status.
 - `notices.ts`: per-task events and announcement state.
 - `protocol.ts`: watcher record framing and the wake message type.
 - `logs.ts`: bounded log tails.
