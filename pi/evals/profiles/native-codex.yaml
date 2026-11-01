@@ -16,6 +16,7 @@ agents:
         model_auto_compact_token_limit_scope: body_after_prefix
         web_search: disabled
         features:
+          memories: false
           multi_agent: false
       pi_evals:
         platform: codex-native

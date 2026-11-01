@@ -45,6 +45,7 @@ enabled=false
 [features]
 goals=false
 plugins=false
+memories=false
 multi_agent=false
 multi_agent_v2=false
 sleep_tool=false

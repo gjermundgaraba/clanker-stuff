@@ -16,6 +16,10 @@ export CODEX_AUTH_JSON_PATH="$HOME/.codex/auth.json"
 
 Authenticate Pi and Codex before paid runs. Frontier preparation builds its own images, resolves the latest published Codex, and freezes versions across preflight and measurement. Scaling also builds its own runtime and freezes the latest Codex. Use `./runtime/build.sh` for the memory/compaction suites' baseline image; it is not a latest-Codex comparison series.
 
+## Native Codex settings
+
+Every native Codex profile sets `features.memories = false`, and Frontier and scaling inherit it. Codex 0.166 already defaults memories off; 0.165 only made a fresh profile use memory v2 once they are on. Account or managed configuration can still turn them on, and then Codex adds memory instructions to the developer prompt and runs memory work at startup. Since 0.163, Codex may run independent read-only tools, such as skill, memory and conversation-history lookups, in parallel. That is native behavior and stays on, so tool timing in series frozen on an earlier Codex is not directly comparable.
+
 ## Validation
 
 ```bash

@@ -60,6 +60,7 @@ class ProfileTest(unittest.TestCase):
                 {
                     "model_auto_compact_token_limit": CODEX_THRESHOLD,
                     "model_auto_compact_token_limit_scope": "body_after_prefix",
+                    "features": {"memories": False},
                 },
             )
             self.assertEqual(
