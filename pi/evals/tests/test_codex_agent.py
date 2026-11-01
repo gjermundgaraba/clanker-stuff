@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tomllib
 from pathlib import Path
@@ -318,7 +319,10 @@ class FakeEnvironment:
 class CodexRunTest(IsolatedAsyncioTestCase):
     async def run_adapter(self, **kwargs) -> FakeEnvironment:
         environment = FakeEnvironment()
-        with TemporaryDirectory() as directory:
+        # Harbor falls back to a base URL from the host shell.
+        with patch.dict(os.environ), TemporaryDirectory() as directory:
+            for name in ("OPENAI_BASE_URL", "OPENAI_API_BASE"):
+                os.environ.pop(name, None)
             auth = Path(directory) / "auth.json"
             auth.write_text('{"OPENAI_API_KEY": "test"}')
             adapter = CodexEval(
