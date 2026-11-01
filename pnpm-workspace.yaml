@@ -30,7 +30,7 @@ catalog:
   "@earendil-works/pi-coding-agent": 1.4.0
   "@earendil-works/pi-telemetry": 1.4.0
   "@earendil-works/pi-tui": 1.4.0
-  "@effect/tsgo": 0.57.0
+  "@effect/tsgo": 0.63.0
   "@types/node": 26.6.5
   oxfmt: 0.74.0
   oxlint: 1.89.0
