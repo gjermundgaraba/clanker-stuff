@@ -1,99 +1,28 @@
 # Testing
 
-## Contents
-
-- [Defaults](#defaults)
-- [Synchronization Instead Of Sleeps](#synchronization-instead-of-sleeps)
-- [First-Class App Test Stubs](#first-class-app-test-stubs)
-- [Config In Tests](#config-in-tests)
-
-Use this when writing Effect tests, tests involving time, retry, schedules, concurrency, workers, services, fakes, or config. For test helpers and basic shapes, read `node_modules/@effect/vitest/README.md` and `node_modules/effect/ai-docs/src/09_testing/`.
+For helpers and basic shapes, read `node_modules/@effect/vitest/README.md` and `node_modules/effect/ai-docs/src/09_testing/`.
 
 ## Defaults
 
-- Use `it.effect` by default.
-- Use `it.live` only when real time or live runtime services are the behavior under test, or when real processes, sockets, or file events drive the code. Under `it.effect`, an Effect timeout never fires on its own, so a missed event hangs instead of failing. Use `TestClock.withLive` for one real step inside a virtual-time test.
-- Use test layers and `ConfigProvider` rather than global mutation.
-- Share an expensive layer across a suite with `it.layer`. Pass `{ buildPerTest: true }` when tests mutate state and need fresh services.
-- Use `TestClock.setTime` / `TestClock.adjust` for sleeps, schedules, retries, leases, and timeouts.
+- Use `it.live` only when real time, processes, sockets, or file events are the behavior under test. Under `it.effect`, an Effect timeout never fires on its own, so a missed event hangs instead of failing. Use `TestClock.withLive` for one real step inside a virtual-time test.
+- Use test layers and `ConfigProvider`, not global mutation.
+- Share an expensive layer with `it.layer`. Pass `{ buildPerTest: true }` when tests mutate state.
 - Fork sleeping effects before advancing `TestClock`. `adjust` wakes only sleeps already registered: a child that suspends before it sleeps can register too late and silently never wake. Fork it with `{ startImmediately: true }`, or have it signal a `Deferred` just before sleeping and await that before adjusting.
-- Avoid arbitrary `Effect.sleep(...)` in tests; it usually makes tests slow and flaky.
 - Use `Effect.flip` to assert a typed failure value.
-- Assert typed failures, rollback, interruption, finalization, retry bounds, idempotency, concurrency laws, and malformed persistence where relevant.
+- Assert typed failures, rollback, interruption, finalization, retry bounds, idempotency, and malformed persistence where relevant.
 
-## Synchronization Instead Of Sleeps
+## Synchronization instead of sleeps
 
-- Use `Deferred` for one-shot readiness/completion signals.
-- Use `Queue` for handing test-controlled work or observed events across fibers.
-- Use `Latch` for reusable open/close coordination gates.
-- Use `Ref` for shared test observation state.
-- Use `Stream.fromQueue(...)` with a test-owned `Queue` to drive a stream interactively, and `Stream.concat(Stream.never)` to keep a fixture open like a live subscription.
-- Use explicit test hooks when the production boundary can expose a deterministic synchronization point.
+Replace arbitrary `Effect.sleep(...)` with `Deferred`, `Queue`, `Latch`, or `Ref`, plus a test hook where production can expose a deterministic point. Drive a stream from a test-owned `Queue` with `Stream.fromQueue(...)`, and keep a fixture open like a live subscription with `Stream.concat(Stream.never)`.
 
-```ts
-it.effect("publishes exactly once", () =>
-  Effect.gen(function* () {
-    const published = yield* Queue.unbounded<Message>();
-    const ready = yield* Deferred.make<void>();
+## Reusable fakes
 
-    const runWorker = makeWorker({
-      onReady: () => Deferred.succeed(ready, undefined),
-      onPublish: (message) => Queue.offer(published, message),
-    });
-
-    yield* runWorker.pipe(Effect.forkScoped);
-
-    yield* Deferred.await(ready);
-    const message = yield* Queue.take(published);
-
-    expect(message).toEqual(expectedMessage);
-  })
-);
-```
-
-## First-Class App Test Stubs
-
-Use `TestInterface extends Interface`, `TestService`, and `testLayer` for reusable/stateful fakes.
+For a stateful fake, declare `TestInterface extends Interface` with control and inspection members, a `TestService` tag for it, and a `testLayer`:
 
 ```ts
-export interface Interface {
-  readonly send: (message: Message) => Effect.Effect<void, SendError>;
-}
-
-export class Service extends Context.Service<Service, Interface>()(
-  "@app/Notifier"
-) {}
-
-export interface TestInterface extends Interface {
-  readonly sentMessages: () => Effect.Effect<ReadonlyArray<Message>>;
-  readonly failNextSend: (error: SendError) => Effect.Effect<void>;
-}
-
-export class TestService extends Context.Service<TestService, TestInterface>()(
-  "@app/Notifier/Test"
-) {}
-
 export const testLayer = Layer.effectContext(
   Effect.gen(function* () {
-    const sent = yield* Ref.make<ReadonlyArray<Message>>([]);
-    const nextFailure = yield* Ref.make<Option.Option<SendError>>(
-      Option.none()
-    );
-
-    const service = TestService.of({
-      send: Effect.fn("Notifier.Test.send")(function* (message) {
-        const failure = yield* Ref.getAndSet(nextFailure, Option.none());
-        if (Option.isSome(failure)) return yield* failure.value;
-        yield* Ref.update(sent, (messages) => [...messages, message]);
-      }),
-      sentMessages: Effect.fn("Notifier.Test.sentMessages")(function* () {
-        return yield* Ref.get(sent);
-      }),
-      failNextSend: Effect.fn("Notifier.Test.failNextSend")(function* (error) {
-        yield* Ref.set(nextFailure, Option.some(error));
-      }),
-    });
-
+    const service = TestService.of({/* backed by Ref state */});
     return Context.empty().pipe(
       Context.add(Service, service),
       Context.add(TestService, service)
@@ -102,17 +31,11 @@ export const testLayer = Layer.effectContext(
 );
 ```
 
-Guidance:
+- The same object backs both tags. Production code depends only on `Service`; tests use `TestService`.
+- Use function-valued members, including zero-argument operations, so `Effect.fn` fits.
+- Use `Layer.succeed` for complete static implementations.
+- Use `Layer.mock` for small partial stubs. Omitted Effect-returning members die with `UnimplementedError` when called. When every member returns an Effect, `Layer.mock(Service)({})` marks a service the test must not call.
 
-- The same object should back both the real `Service` tag and `TestService` tag.
-- Production code depends only on the real service tag.
-- Tests use `TestService` for control and inspection.
-- Use function-valued service members, including zero-argument operations, so `Effect.fn` fits naturally.
-- Use `Layer.succeed` for complete dead-simple static test implementations.
-- Use `Layer.mock` for small partial stubs. Omitted Effect-returning members die with `UnimplementedError` when called; other members stay required by the types. When every member returns an Effect, `Layer.mock(Service)({})` marks a required service the test must not call.
+## Config in tests
 
-## Config In Tests
-
-Use `ConfigProvider.layer(ConfigProvider.fromUnknown(...))` when the test should exercise Config decoding.
-
-Use `Layer.succeed(AppConfiguration.Service, config)` when the app wraps decoded config in its own service and the test does not need to exercise env decoding.
+Use `ConfigProvider.layer(ConfigProvider.fromUnknown(...))` to exercise Config decoding, and `Layer.succeed(AppConfiguration.Service, config)` when decoding is not under test.

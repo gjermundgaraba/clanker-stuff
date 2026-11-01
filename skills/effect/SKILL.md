@@ -1,6 +1,6 @@
 ---
 name: effect
-description: Effect conventions and production defaults for TypeScript. Use before writing, migrating to, or reviewing code that imports `effect` or `@effect/*` (services and Layers, Schema, Config, HTTP clients, streams, caching, scheduling, observability, tests), including when introducing Effect to a repository that does not use it yet. Load it even when another skill (a review, planning, or framework skill) or repository instructions already drive the task; they do not replace it. Routine small edits that follow existing repository patterns do not need it.
+description: Effect conventions and production defaults for TypeScript. Use before writing, migrating to, or reviewing code that imports `effect` or `@effect/*`, including when introducing Effect to a repository. Load it even when another skill or repository instructions drive the task. Routine small edits that follow existing repository patterns do not need it.
 metadata:
   upstream-source: "https://github.com/kitlangton/skills"
   upstream-path: "skills/effect/"
@@ -13,75 +13,48 @@ metadata:
 
 # Effect
 
-Use repository-compatible Effect APIs and the production defaults in this skill. Treat the bundled references as preferred playbooks, not API authority.
+## Precedence
 
-## Source And Precedence
+1. The nearest `AGENTS.md` and established repository conventions.
+2. The installed `effect` / `@effect/*` version. Check exact imports, names, and signatures there; the references here target tag `effect@4.1.1` and may age.
+3. The defaults in this skill.
+4. Example repositories, for pattern research only: `github.com/{anomalyco/opencode,pingdotgg/t3code,foldkit/foldkit,alchemy-run/alchemy-effect}` under `${LIBRARIAN_CACHE_ROOT:-$HOME/.cache/checkouts}`. Check each one's pinned Effect version before borrowing.
 
-Resolve conflicts in this order:
+Unstable Effect APIs and packages count as much as stable ones: never avoid one because it is unstable.
 
-1. Follow the nearest `AGENTS.md`, project-local Effect guidance, and established repository conventions.
-2. Follow the installed `effect` / `@effect/*` version, using the sources below. Exact imports, names, and signatures in the bundled references may age; check them there before editing.
-3. Use the matching bundled references for design patterns and production defaults.
-4. Use example repositories only as version-checked pattern research.
+## Effect documentation
 
-Bundled examples target stable Effect `4.1.1`; the API baseline was checked against tag `effect@4.1.1` at upstream commit `bc492f0965dc0f6a83cefd141071c5ead10f7efa` (2026-10-30).
+Resolve `node_modules/effect` from the package being changed:
 
-Inspect `@stability` annotations; `MIGRATION.md` ("Unstable Module System") defines the tiers. Unstable Effect APIs and packages count as much as stable ones: never avoid one because it is unstable.
+- `AGENTS.md`: topic index. Read it first.
+- `ai-docs/src/`: runnable examples for each topic.
+- `src/`: types and JSDoc, which record gotchas. These are the API authority; where prose disagrees, the types win.
+- `node_modules/@effect/vitest/README.md`: test helpers.
 
-## Effect Documentation
+`MIGRATION.md`, `migration/`, and `packages/effect/{SCHEMA,CONFIG,HTTPAPI}.md` are not on npm. Read them at the tag matching the installed version, from a checkout of `Effect-TS/effect` (see the `librarian` skill). `https://effect.website/docs/v4/<guide-path>.md` serves the website guides as Markdown; it is unversioned, so verify it against the types.
 
-Resolve `node_modules/effect` from the package being changed. It matches the installed version exactly:
+## Boundaries
 
-- `node_modules/effect/AGENTS.md`: topic index into the examples. Read it first.
-- `node_modules/effect/ai-docs/src/`: runnable examples for each topic.
-- `node_modules/effect/src/`: types and JSDoc, which also record gotchas. These are the API authority; where prose disagrees with the types, the types win.
-- `node_modules/@effect/vitest/README.md`: test helpers, when installed.
-
-`MIGRATION.md`, `migration/`, and `packages/effect/{SCHEMA,CONFIG,HTTPAPI}.md` are not published to npm. When you need them, read them at the tag matching the installed version from a checkout under `${LIBRARIAN_CACHE_ROOT:-$HOME/.cache/checkouts}/github.com/Effect-TS/effect` (see the `librarian` skill). Verify branch/version mapping instead of assuming it.
-
-`https://effect.website/docs/v4/<guide-path>.md` serves each website guide as Markdown (there is no `llms.txt`). The site is unversioned and can lag the source, so verify anything it says against the installed types.
-
-## Reference Chooser
-
-Consult the sections that resolve the current task. Established repository patterns and installed source can be sufficient for routine edits.
-
-- Data models, schemas, brands, variants, optional keys, or decoders: read `references/SCHEMA.md`.
-- Service tags and interfaces, module surfaces, Layer constructors and combinators, runtime entrypoints and disposal, callback bridges, worker supervision, typed errors, mixed causes and nested reasons, or `Effect.fn`: read `references/SERVICES_LAYERS.md`.
-- Spans, structured logs, logger wiring, telemetry exporters, or defect reporting: read `references/OBSERVABILITY.md`.
-- Runtime config, environment variables, `ConfigProvider`, or `layerConfig`: read `references/CONFIG.md`.
-- Retry, repeat, polling, backoff, jitter, rate-limit-aware policies, pass loops, or wall-clock versus elapsed time: read `references/SCHEDULING.md`.
-- Memoization, per-key TTL caches, deduplicating concurrent lookups, or request batching: read `references/CACHING.md`.
-- Streams, event sources, async iterables, queues, pubsubs, pagination, backpressure, or stream consumers: read `references/STREAMS.md`.
-- Outgoing HTTP calls, Effect `HttpClient`, status handling, or HTTP rate limiting: read `references/HTTP_CLIENTS.md`.
-- Effect tests, `TestClock`, deterministic synchronization, reusable test-control services, or fake implementation mechanics: read `references/TESTING.md`.
-
-## Boundary Rules
-
-- Keep HTTP handlers thin: decode input, read context, call services, and map typed errors to transport responses.
-- For `HttpApi`, declare the status on the error (`{ httpApiStatus: 404 }`) in a contract that clients can import, and map domain errors to those contract errors at the handler edge. For unexpected failures, log the cause and return a reference id rather than internals.
-- Yield stable services once when the handler layer is built; do not `Effect.provide(layer)` per request.
-- Keep business rules in services or domain functions, not transport handlers.
+- Keep HTTP handlers thin: decode input, read context, call services, map typed errors to transport responses. Business rules live in services or domain functions.
+- For `HttpApi`, declare the status on the error (`{ httpApiStatus: 404 }`) in a contract clients can import, and map domain errors to contract errors at the handler edge. For unexpected failures, log the cause and return a reference id, not internals.
+- Yield stable services once when the handler layer is built; never `Effect.provide(layer)` per request.
 - Wrap HTTP clients, SDKs, CLIs, and external integrations in named effects at adapter boundaries.
-- Decode persisted rows with Schema or SQL-specific helpers when values are not trivially trusted.
+- Decode persisted rows with Schema or SQL helpers unless the values are trivially trusted.
 - Keep provider and network calls outside authoritative database transactions.
-- Catch or retry only when the current boundary has a truthful response.
-- Retry only when the operation has proven idempotency.
-- Let exhausted failures remain visible unless the boundary has a real fallback.
+- Catch or retry only when the boundary has a truthful response, and retry only proven-idempotent operations. Otherwise let the failure stay visible.
+- Fix Effect type errors at their source, not with `as any`, non-null assertions, or unchecked casts.
+- Recover from typed errors with typed operators; keep cause-level recovery for supervision boundaries.
 
-## Do Nots
+## References
 
-- Do not use `as any`, non-null assertions, or unchecked casts to silence Effect typing problems.
-- Do not use cause-level recovery when typed-error recovery is enough.
-- Do not use `Layer.mergeAll(...)` or `provideMerge(...)` as blind make-it-compile tools.
-- Do not hide required authority, credentials, persistence, transports, or external services behind `Context.Reference` defaults.
+Read the one that matches the task; repository patterns and installed source can be enough for routine edits.
 
-## Example Repositories
-
-Resolve examples under `${LIBRARIAN_CACHE_ROOT:-$HOME/.cache/checkouts}`:
-
-- `github.com/anomalyco/opencode`
-- `github.com/pingdotgg/t3code`
-- `github.com/foldkit/foldkit`
-- `github.com/alchemy-run/alchemy-effect`
-
-Clone or refresh only the repositories needed for the task. Before borrowing a pattern, inspect its pinned Effect version and verify version-sensitive APIs against the target project.
+- Data models, brands, variants, optional keys, decoders, tagged errors → [SCHEMA.md](references/SCHEMA.md)
+- Services, Layers, runtime entrypoints and disposal, callback bridges, background workers, mixed causes, `Effect.fn` → [SERVICES_LAYERS.md](references/SERVICES_LAYERS.md)
+- Spans, logs, exporters, defect reporting → [OBSERVABILITY.md](references/OBSERVABILITY.md)
+- Runtime config, environment variables, `layerConfig` → [CONFIG.md](references/CONFIG.md)
+- Retry, repeat, polling, backoff, timeouts, wall-clock versus elapsed time → [SCHEDULING.md](references/SCHEDULING.md)
+- Memoization, TTL caches, deduplicating lookups, request batching → [CACHING.md](references/CACHING.md)
+- Streams, event sources, queues, pubsubs, backpressure, keyed concurrency → [STREAMS.md](references/STREAMS.md)
+- Outgoing HTTP, `HttpClient`, status handling, rate limits → [HTTP_CLIENTS.md](references/HTTP_CLIENTS.md)
+- Tests, `TestClock`, synchronization, reusable fakes → [TESTING.md](references/TESTING.md)
