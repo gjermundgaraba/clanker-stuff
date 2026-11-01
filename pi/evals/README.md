@@ -18,7 +18,7 @@ Authenticate Pi and Codex before paid runs. Frontier preparation builds its own 
 
 ## Native Codex settings
 
-Every native Codex profile sets `features.memories = false`, and Frontier and scaling inherit it. Codex 0.166 already defaults memories off; 0.165 only made a fresh profile use memory v2 once they are on. Account or managed configuration can still turn them on, and then Codex adds memory instructions to the developer prompt and runs memory work at startup. Since 0.163, Codex may run independent read-only tools, such as skill, memory and conversation-history lookups, in parallel. That is native behavior and stays on, so tool timing in series frozen on an earlier Codex is not directly comparable.
+Every native Codex profile sets `features.memories = false`, and Frontier and scaling inherit it. The pin is a guard, not a behavior change: Codex 0.166 defaults memories off, and so does 0.154.0, the version of the frozen Frontier result, whose configuration did not turn them on. With memories on, Codex adds memory instructions to the developer prompt and runs memory work at startup, and since 0.165 a fresh profile with memories on uses memory v2. The pin is written to the Codex home's `config.toml`, so it does not override `managed_config.toml` or a `features` requirement in `requirements.toml`, which take precedence over it. Since 0.163, Codex may run independent read-only tools, such as skill, memory and conversation-history lookups, in parallel. That is native behavior and stays on, so tool timing in series frozen on an earlier Codex is not directly comparable.
 
 ## Validation
 
