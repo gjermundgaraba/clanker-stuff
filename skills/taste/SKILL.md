@@ -38,7 +38,8 @@ Every rule below is stated as a ratio or a procedure. Before applying them, writ
 | Lever | Ask |
 | --- | --- |
 | Space | The base unit: px, pt, dp, or one cell and one row. Spacing steps are multiples of it. |
-| Emphasis | What can vary: size, weight, face, case, colour, dim, reverse, underline, position. A terminal has one size, so its levels come from weight, colour, dim, and position. |
+| Emphasis | What can vary: size, weight, face, case, colour, dim, reverse, underline, position. Where the medium has one size, as most terminals do, levels come from weight, colour, dim, and position. |
+| Text | Body size and where it comes from: the platform's body text style, the browser's default, the user's setting, or the terminal's font. Every other size is a ratio of it, in a unit that follows the user's text size. |
 | Colour | Full colour, 256, the user's 16-colour theme, or none. Light and dark grounds, and whether the user owns the palette. |
 | Input | Pointer, touch, keyboard, or several, and the smallest comfortable target. Detect what the input can do, never what the device claims to be. |
 | Sizes | The smallest, typical, and largest space the UI is given, including the user's own text size or zoom. |
@@ -55,7 +56,7 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - Every region the user came for opens with a heading that names it, not a small label standing in for one.
 - Use few levels, far apart. Two or three carry most screens; five is the ceiling. Levels that are almost the same read as noise, so merge them.
 - Emphasis is scarce. If every line is bold, coloured, or boxed, none is.
-- Secondary information is the same face in a softer ink, not a smaller or thinner one that stops being readable.
+- Secondary information is the same face at the same size in a softer ink, not a smaller or thinner one that stops being readable. A smaller size is for captions and metadata only.
 - At each decision, show about four equal options at most: one primary action, one or two secondary ones, the rest grouped. Put the common path first and advanced options one level deeper.
 - Everything a decision needs is on the same screen; do not make the user remember it from an earlier step.
 - Put a control next to what it changes, arranged like the thing it changes. A control that needs a label to explain its mapping is mapped weakly.
@@ -80,6 +81,11 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 
 ## Type and text
 
+- Body is the medium's own reading size, never chosen per screen. Set every other size as a ratio of body, in a unit that follows the user's text size, and size the space around text in the same unit so a larger setting reflows instead of clipping.
+- Two sizes closer than about 1.2 times read as one: merge them, or tell the levels apart by weight or ink instead.
+- The largest size follows the mode: up to about twice body where the user operates, two to three times for the titles of a reading screen, three times or more for the one statement that persuades.
+- Nothing the user reads goes below about three quarters of body or the platform's smallest text style, whichever is larger. Text the user types or edits is at least body size.
+- Leading and tracking tighten as size grows, from about 1.5 times the size for body to near 1 for the largest type. Set them per size, not once, where the medium lets you.
 - Keep running text to about 45 to 75 characters per line. Do not centre more than three lines; do not justify.
 - Sentence case for headings, labels, and buttons. Capitals only for a few words, and never as tiny decorative labels.
 - Use one family, or two with fixed jobs. Do not add a face for labels or numbers.
