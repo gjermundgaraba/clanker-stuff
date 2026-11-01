@@ -24,7 +24,7 @@ How an Effect project on pnpm and Vite+ declares, pins and upgrades its dependen
 - **Vite+.** Run `vp migrate --no-interactive`, read its diff, and revert anything it changed inside a vendored subtree. Then validate.
 - **Effect.** Move `effect` and every lockstep `@effect/*` package to one version together; independently versioned tools such as `@effect/tsgo` move to their own latest. A library changes only its development pins unless rule 2 calls for a new floor.
 - **Everything else.** `vp outdated -r`, then edit catalogs and manifests by hand so each change stays its own commit. A package whose new version breaks the build and needs more than a fix is held back and reported.
-- **pnpm and runtime pins.** Since pnpm 12.17, `pnpm outdated` and `pnpm update` also inspect and update `devEngines.packageManager`, `packageManager`, `devEngines.runtime`, `engines.runtime` and `runtime:` dependencies, so the pnpm and Node pins can be bumped with them.
+- **pnpm.** Since pnpm 12.17, `vp exec pnpm outdated` and `vp exec pnpm update` also cover the pnpm version in `devEngines.packageManager`, so they can bump pnpm. They inspect and update `devEngines.runtime`, `engines.runtime` and `runtime:` dependencies as well. Revert any runtime change they make: the exact Node is bumped by hand in the Node step (rule 11), and an `engines` floor must not rise with the development version.
 - **Node.** Change `.node-version`, and every Dockerfile's `FROM node:` tag and digest, in the same commit. Resolve the digest with `docker buildx imagetools inspect node:<version>-trixie-slim`.
 - **Actions.** `vp exec pnpm update --include-github-actions` moves SHA-pinned actions and their comments. Read the release notes of any major before accepting it.
 - After each step run the repository's full validation, and `vp install --frozen-lockfile` before the last commit.
@@ -39,6 +39,7 @@ Report each departure from a rule with the file and line, and what it costs: a d
 - Catalog publishing and `catalogMode`: <https://pnpm.io/catalogs>, <https://pnpm.io/settings/other>.
 - Release age and its exclusions: <https://pnpm.io/settings/dependency-resolution#minimumreleaseage>, <https://pnpm.io/supply-chain-security>.
 - `devEngines.packageManager`: <https://pnpm.io/package_json#devenginespackagemanager>, <https://pnpm.io/package-managers>.
+- `pnpm outdated` and `pnpm update` on package manager and runtime fields, pnpm v12.17.0 release notes: <https://github.com/pnpm/pnpm/releases/tag/v12.17.0>.
 - Vite+ pins, migrate and setup-vp: `node_modules/vite-plus/docs/guide/migrate-rules.md`, `upgrade-project.md`, `package-management.md`, `ci.md`; <https://github.com/voidzero-dev/setup-vp>.
 - Pinning applications and libraries: <https://docs.renovatebot.com/dependency-pinning/>; caret ranges: <https://github.com/npm/node-semver#caret-ranges-123-025-004>.
 - Actions pinning: <https://docs.github.com/en/actions/reference/security/secure-use>; `pnpm update --include-github-actions`: <https://pnpm.io/cli/update>.
