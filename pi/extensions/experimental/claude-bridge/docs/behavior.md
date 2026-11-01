@@ -44,7 +44,7 @@ CLAUDE_BRIDGE_LIVE=1 vp test --project integration pi/extensions/experimental/cl
 
 ## Upstream behavior the bridge relies on
 
-Facts about Claude Code, Agent SDK 0.3.310, pi and XState that the code depends on. Most of the Claude Code ones are observed rather than documented, so an upgrade can break them silently.
+Facts about Claude Code, Agent SDK 0.3.316 (Claude Code 2.1.316), pi and XState that the code depends on. Most of the Claude Code ones are observed rather than documented, so an upgrade can break them silently. For 0.3.316 they were checked against the 0.3.311–0.3.316 and Claude Code 2.1.311–2.1.316 release notes (2.1.313 was not published and 2.1.315 has no changelog entry), which change none of them, and the live suite passed; 2.1.311's fix to how SDK sessions save transcripts is the change to watch for the resume facts.
 
 - The prompt is a streaming input that stays open for the whole query. Claude Code takes a steer at the next tool boundary only if it reached stdin before the tool result, so the bridge waits until the SDK has written the steer before it releases the result.
 - Pi's TypeBox schemas are served verbatim from a raw MCP protocol server. The SDK's `createSdkMcpServer` accepts only Zod, and its round trip drops nested objects, `anyOf` and `const`. Argument validation is left to pi.

@@ -26,9 +26,10 @@ import type {
 } from "@earendil-works/pi-ai";
 
 /**
- * Turns recorded from live Claude Code at the pinned SDK (0.3.310, Claude Code 2.1.310) by running
- * pi with this extension, `--model claude-bridge/claude-haiku-4-5 --thinking low --tools read`, and
+ * Turns recorded from live Claude Code at SDK 0.3.310 (Claude Code 2.1.310) by running pi with this
+ * extension, `--model claude-bridge/claude-haiku-4-5 --thinking low --tools read`, and
  * CLAUDE_BRIDGE_RECORD_STREAM=<file>.jsonl, in a directory holding one.txt, two.txt and three.txt.
+ * Not re-recorded since the pin moved to 0.3.316.
  * Scrubbed afterwards: `session_id` and every `uuid` renumbered in order of appearance, and the
  * init frame cut to type, subtype, session_id, tools, mcp_servers, model, permissionMode and uuid
  * (it otherwise lists the recording machine's skills, agents, plugins and paths; the bridge reads
@@ -47,7 +48,7 @@ export const recordedStream = (name: RecordedStream): SDKMessage[] => {
     .map((line) => {
       const raw: unknown = JSON.parse(line);
 
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Claude Code output from the pinned SDK, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. No bridge logic reads those fields; debug logging writes the rate-limit info whole.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Claude Code output from SDK 0.3.310, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. No bridge logic reads those fields; debug logging writes the rate-limit info whole.
       return raw as SDKMessage;
     });
 };
