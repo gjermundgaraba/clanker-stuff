@@ -1,13 +1,13 @@
-FROM node:26.12.1-bookworm-slim AS runtime
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 
-RUN npm install --global pnpm@12.5.1
+RUN npm install --global pnpm@12.17.0
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY pi/evals/runtime ./pi/evals/runtime
 RUN pnpm --filter @clanker-stuff/pi-evals-runtime deploy \
     --prod --legacy --frozen-lockfile --ignore-scripts /out
 
-FROM node:26.12.1-bookworm-slim
+FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates git ripgrep \
