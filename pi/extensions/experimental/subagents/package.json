@@ -26,6 +26,7 @@
     "keyed-queue.ts",
     "manager.ts",
     "monitor.ts",
+    "phase.ts",
     "prompts.ts",
     "protocol.ts",
     "renderers.ts",
@@ -47,7 +48,8 @@
     "@clanker-stuff/pi-shape-glyphs": "workspace:^",
     "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
-    "@clanker-stuff/scheduled-check": "workspace:^"
+    "@clanker-stuff/scheduled-check": "workspace:^",
+    "xstate": "catalog:"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

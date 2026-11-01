@@ -15,6 +15,8 @@ import { forkHistory } from "./history.js";
 import type { ForkTurns } from "./history.js";
 import { KeyedSerialQueue } from "./keyed-queue.js";
 import { Monitor } from "./monitor.js";
+import { agentMachine, bound, holdsSlot, project, restore } from "./phase.js";
+import type { AgentEvent, AgentSnapshot, Turn } from "./phase.js";
 import {
   childPrompt,
   COLLABORATION_SECTION,
@@ -42,18 +44,6 @@ import type {
 } from "./runtime.js";
 import { TreeStore } from "./store.js";
 import { registerTools } from "./tools.js";
-
-const bound = (value: string, maximum: number): string => {
-  if (value.length <= maximum) {
-    return value;
-  }
-
-  const end = /[\uD800-\uDBFF]/u.test(value[maximum - 2] ?? "")
-    ? maximum - 2
-    : maximum - 1;
-
-  return `${value.slice(0, end)}…`;
-};
 
 const errorText = (cause: unknown): string =>
   bound(
@@ -87,6 +77,17 @@ const waitUnlessAborted = async (
   }
 };
 
+const record = (node: AgentNode, agent: AgentSnapshot): void => {
+  const recorded = project(agent);
+
+  if (recorded !== null) {
+    delete node.endedAt;
+    delete node.error;
+    delete node.lastAnswer;
+    Object.assign(node, recorded);
+  }
+};
+
 export type CallerContext = Pick<
   ExtensionContext,
   | "cwd"
@@ -96,13 +97,6 @@ export type CallerContext = Pick<
   | "sessionManager"
   | "thinkingLevel"
 >;
-
-interface Resident {
-  runtime: ChildRuntime;
-  settled: Promise<void>;
-  turn: symbol | undefined;
-  retiring?: Promise<void>;
-}
 
 export interface SpawnInput {
   agentType: string | undefined;
@@ -155,10 +149,9 @@ export class Controller {
   readonly #now: () => number;
   readonly #deliverRoot: (mail: Mail) => void;
   readonly #onBackgroundError: (cause: unknown) => void;
+  readonly #agents = new Map<string, AgentSnapshot>();
   readonly #queue = new KeyedSerialQueue();
-  readonly #residents = new Map<string, Resident>();
   readonly #rootRunning: () => boolean;
-  readonly #starting = new Set<string>();
   readonly #unread = new Set<string>();
   readonly #waiters = new Map<string, Set<(activity: WaitActivity) => void>>();
   #epoch = Symbol("tree");
@@ -186,13 +179,16 @@ export class Controller {
     await this.shutdown();
     this.#store = store;
     this.#tree = tree;
-    const stranded = tree.nodes.filter((node) => node.status === "running");
+    let stranded = false;
 
-    for (const node of stranded) {
-      node.status = "interrupted";
+    for (const node of tree.nodes) {
+      stranded ||= node.status === "running";
+      const agent = restore(node);
+      this.#agents.set(node.path, agent);
+      record(node, agent);
     }
 
-    if (stranded.length > 0) {
+    if (stranded) {
       await this.#save();
     } else {
       this.monitor.changed();
@@ -212,11 +208,15 @@ export class Controller {
 
     this.#waiters.clear();
 
-    const retiring = [...this.#residents].map(async ([path, resident]) => {
-      await this.#retire(path, resident);
+    const retiring = [...this.#agents].map(async ([path, agent]) => {
+      if (agent.value === "running") {
+        await this.#retire(path, agent.context.turn);
+      } else if (agent.value === "retiring") {
+        await agent.context.turn.retired.promise;
+      }
     });
 
-    this.#residents.clear();
+    this.#agents.clear();
     await Promise.allSettled(retiring);
   }
 
@@ -250,11 +250,11 @@ export class Controller {
       throw new Error("message must not be blank");
     }
 
-    if (this.#node(path) !== undefined || this.#starting.has(path)) {
+    if (this.#phase(path).value !== "absent") {
       throw new Error(`Agent already exists: ${path}`);
     }
 
-    this.#reserve(path);
+    this.#reserve(path, { type: "spawn.reserve" });
     let runtime: ChildRuntime | undefined;
 
     try {
@@ -287,44 +287,44 @@ export class Controller {
         delegation: readDelegation(ctx.sessionManager, this.#config.delegation),
       });
       signal?.throwIfAborted();
-      this.#assertEpoch(epoch);
+      const turn: Turn = { retired: Promise.withResolvers(), runtime };
 
-      const node: AgentNode = {
-        ...(input.agentType === undefined
-          ? {}
-          : { agentType: input.agentType }),
-        model: runtime.model,
-        path,
-        sessionFile: runtime.sessionFile,
-        startedAt: this.#now(),
-        status: "running",
-        thinking: runtime.thinkingLevel,
-        tools,
-        usage: emptyUsage(),
-      };
+      await this.#serial(path, epoch, async () => {
+        const node: AgentNode = {
+          ...(input.agentType === undefined
+            ? {}
+            : { agentType: input.agentType }),
+          model: turn.runtime.model,
+          path,
+          sessionFile: turn.runtime.sessionFile,
+          startedAt: this.#now(),
+          status: "running",
+          thinking: turn.runtime.thinkingLevel,
+          tools,
+          usage: emptyUsage(),
+        };
 
-      this.#tree.nodes.push(node);
+        this.#tree.nodes.push(node);
 
-      try {
-        await this.#save();
-        this.#assertEpoch(epoch);
-      } catch (error) {
-        this.#tree.nodes = this.#tree.nodes.filter(
-          (candidate) => candidate !== node
-        );
-        throw error;
-      }
-
-      this.#start(
-        path,
-        runtime,
-        envelopeText({
-          content: input.message,
-          from: caller,
-          kind: "NEW_TASK",
-          to: path,
-        })
-      );
+        try {
+          await this.#saveAndStart(
+            node,
+            { turn, type: "spawn.started" },
+            envelopeText({
+              content: input.message,
+              from: caller,
+              kind: "NEW_TASK",
+              to: path,
+            }),
+            epoch
+          );
+        } catch (error) {
+          this.#tree.nodes = this.#tree.nodes.filter(
+            (candidate) => candidate !== node
+          );
+          throw error;
+        }
+      });
 
       return {
         model: runtime.model,
@@ -332,14 +332,16 @@ export class Controller {
         thinkingLevel: runtime.thinkingLevel,
       };
     } catch (error) {
+      if (epoch === this.#epoch) {
+        this.#step(path, { type: "spawn.failed" });
+      }
+
       if (runtime !== undefined) {
         await runtime.dispose();
         await rm(runtime.sessionFile, { force: true });
       }
 
       throw error;
-    } finally {
-      this.#starting.delete(path);
     }
   }
 
@@ -391,26 +393,23 @@ export class Controller {
     };
 
     for (;;) {
-      const settling = await this.#serial(
+      const busy = await this.#serial(
         path,
         epoch,
-        async (): Promise<{ turn: Resident["settled"] } | undefined> => {
+        async (): Promise<{ retired: Promise<undefined> } | undefined> => {
           signal?.throwIfAborted();
           const node = this.#requireNode(path);
-          let resident = this.#residents.get(path);
+          const agent = this.#phase(path);
 
-          if (resident?.retiring !== undefined) {
-            await waitUnlessAborted(resident.retiring, signal);
-            signal?.throwIfAborted();
-            this.#assertEpoch(epoch);
-            resident = this.#residents.get(path);
+          if (agent.value === "retiring") {
+            return { retired: agent.context.turn.retired.promise };
           }
 
-          if (resident !== undefined) {
-            const read = resident.runtime.steer(task);
+          if (agent.value === "running") {
+            const read = agent.context.turn.runtime.steer(task);
 
             if (read === undefined) {
-              return { turn: resident.settled };
+              return { retired: agent.context.turn.retired.promise };
             }
 
             this.notify(path);
@@ -438,8 +437,8 @@ export class Controller {
             return;
           }
 
-          this.#reserve(path);
-          const previous = { ...node };
+          this.#reserve(path, { type: "followup.reserve" });
+          const { model, startedAt, thinking } = node;
           let runtime: ChildRuntime | undefined;
 
           try {
@@ -447,30 +446,36 @@ export class Controller {
             signal?.throwIfAborted();
             node.model = runtime.model;
             node.thinking = runtime.thinkingLevel;
-            node.status = "running";
             node.startedAt = this.#now();
-            delete node.endedAt;
-            delete node.error;
-            await this.#save();
-            this.#assertEpoch(epoch);
-            this.#start(path, runtime, envelopeText(task));
+            await this.#saveAndStart(
+              node,
+              {
+                turn: { retired: Promise.withResolvers(), runtime },
+                type: "followup.started",
+              },
+              envelopeText(task),
+              epoch
+            );
           } catch (error) {
-            Object.assign(node, previous);
+            Object.assign(node, { model, startedAt, thinking });
+
+            if (epoch === this.#epoch) {
+              this.#step(path, { type: "followup.failed" });
+            }
+
             await runtime?.dispose();
             throw error;
-          } finally {
-            this.#starting.delete(path);
           }
 
           return undefined;
         }
       );
 
-      if (settling === undefined) {
+      if (busy === undefined) {
         return;
       }
 
-      await waitUnlessAborted(settling.turn, signal);
+      await waitUnlessAborted(busy.retired, signal);
     }
   }
 
@@ -487,20 +492,13 @@ export class Controller {
     const epoch = this.#epoch;
 
     return await this.#serial(path, epoch, async () => {
-      const node = this.#node(path);
-      const previous = publicStatus(node);
+      const previous = publicStatus(this.#node(path));
+      const agent = this.#phase(path);
+      this.#step(path, { at: this.#now(), type: "interrupt" });
 
-      if (node?.status === "running") {
-        node.status = "interrupted";
-        node.endedAt = this.#now();
-        const resident = this.#residents.get(path);
-
-        if (resident !== undefined) {
-          resident.turn = undefined;
-          resident.runtime.abort();
-          void this.#retire(path, resident);
-        }
-
+      if (agent.value === "running") {
+        agent.context.turn.runtime.abort();
+        void this.#retire(path, agent.context.turn);
         await this.#save();
       }
 
@@ -546,9 +544,9 @@ export class Controller {
 
   /** The runtime of an agent whose turn is still live, for viewers that follow it. */
   live(path: string): ChildRuntime | undefined {
-    const resident = this.#residents.get(path);
+    const agent = this.#phase(path);
 
-    return resident?.retiring === undefined ? resident?.runtime : undefined;
+    return agent.value === "running" ? agent.context.turn.runtime : undefined;
   }
 
   /** Waits until mail reaches `caller`, new user input arrives, or the timeout passes. */
@@ -617,9 +615,12 @@ export class Controller {
     }
   }
 
-  #reserve(path: string): void {
+  #reserve(
+    path: string,
+    event: Extract<AgentEvent, { type: "followup.reserve" | "spawn.reserve" }>
+  ): void {
     if (
-      this.#residents.size + this.#starting.size >=
+      this.#agents.values().filter(holdsSlot).toArray().length >=
       this.#config.maxConcurrent
     ) {
       throw new Error(
@@ -627,7 +628,7 @@ export class Controller {
       );
     }
 
-    this.#starting.add(path);
+    this.#step(path, event);
   }
 
   async #load(
@@ -726,17 +727,25 @@ export class Controller {
     });
   }
 
-  #start(path: string, runtime: ChildRuntime, text: string): void {
-    const epoch = this.#epoch;
-    const turn = Symbol(path);
-    const settled = Promise.withResolvers<undefined>();
-    this.#residents.set(path, { runtime, settled: settled.promise, turn });
+  async #saveAndStart(
+    node: AgentNode,
+    event: Extract<AgentEvent, { type: "followup.started" | "spawn.started" }>,
+    text: string,
+    epoch: symbol
+  ): Promise<void> {
+    const { path } = node;
+    const [running] = agentMachine.transition(this.#phase(path), event);
+    record(node, running);
+    await this.#save();
+    this.#assertEpoch(epoch);
+    this.#agents.set(path, running);
+    const { turn } = event;
 
     void (async () => {
       let outcome: ChildTurnOutcome;
 
       try {
-        outcome = await runtime.startTurn(text);
+        outcome = await turn.runtime.startTurn(text);
       } catch (error) {
         outcome = { error: errorText(error), status: "errored" };
       }
@@ -749,58 +758,47 @@ export class Controller {
         if (epoch === this.#epoch) {
           this.#onBackgroundError(error);
         }
-      } finally {
-        settled.resolve(undefined);
       }
     })();
   }
 
   async #finish(
     path: string,
-    turn: symbol,
+    turn: Turn,
     outcome: ChildTurnOutcome,
     epoch: symbol
   ): Promise<void> {
-    const resident = this.#residents.get(path);
-    const node = this.#node(path);
+    const agent = this.#phase(path);
 
-    if (resident?.turn !== turn || node === undefined) {
+    const next = this.#step(path, {
+      at: this.#now(),
+      outcome,
+      turn,
+      type: "turn.settled",
+    });
+
+    if (next === agent) {
       return;
     }
 
-    void this.#retire(path, resident);
+    void this.#retire(path, turn);
     const parent = parentAgentPath(path) ?? ROOT_AGENT_PATH;
     let mail: Mail | undefined;
-    node.endedAt = this.#now();
 
     if (outcome.status === "completed") {
-      const answer =
-        outcome.text === undefined
-          ? undefined
-          : bound(outcome.text, MAX_DURABLE_TEXT);
-
-      node.status = "completed";
-      delete node.error;
-
-      if (answer === undefined) {
-        delete node.lastAnswer;
-      } else {
-        node.lastAnswer = bound(answer, MAX_STATUS_TEXT);
-      }
-
       mail = {
-        content: answer ?? "",
+        content:
+          outcome.text === undefined
+            ? ""
+            : bound(outcome.text, MAX_DURABLE_TEXT),
         from: path,
         id: randomUUID(),
         kind: "FINAL_ANSWER",
         to: parent,
       };
     } else if (outcome.status === "errored") {
-      node.status = "errored";
-      node.error = errorText(outcome.error);
-      delete node.lastAnswer;
       mail = {
-        content: errorCompletion(node.error),
+        content: errorCompletion(errorText(outcome.error)),
         failed: true,
         from: path,
         id: randomUUID(),
@@ -812,39 +810,29 @@ export class Controller {
     await (mail === undefined ? this.#save() : this.#post(mail, epoch));
   }
 
-  /** Disposes a resident after its turn; mail for it waits in the outbox until it runs again. */
-  async #retire(path: string, resident: Resident): Promise<void> {
-    if (resident.retiring !== undefined) {
-      await resident.retiring;
-
-      return;
-    }
-
+  async #retire(path: string, turn: Turn): Promise<void> {
     this.monitor.clear(path);
     const node = this.#node(path);
     const store = this.#store;
     const tree = this.#tree;
 
-    resident.retiring = (async () => {
+    try {
       try {
-        await resident.runtime.dispose();
+        await turn.runtime.dispose();
       } finally {
         if (node !== undefined) {
-          node.model = resident.runtime.model;
-          node.thinking = resident.runtime.thinkingLevel;
+          node.model = turn.runtime.model;
+          node.thinking = turn.runtime.thinkingLevel;
           await store.save(tree);
           this.monitor.changed();
         }
       }
-    })()
-      .catch(this.#onBackgroundError)
-      .finally(() => {
-        if (this.#residents.get(path) === resident) {
-          this.#residents.delete(path);
-        }
-      });
+    } catch (error) {
+      this.#onBackgroundError(error);
+    }
 
-    await resident.retiring;
+    this.#step(path, { turn, type: "retire.done" });
+    turn.retired.resolve(undefined);
   }
 
   /** Persists mail before handing it to a resident target; delivery acknowledges it. */
@@ -859,10 +847,10 @@ export class Controller {
     if (mail.to === ROOT_AGENT_PATH) {
       this.#deliverRoot(mail);
     } else {
-      const resident = this.#residents.get(mail.to);
+      const agent = this.#phase(mail.to);
 
-      if (resident?.retiring === undefined) {
-        resident?.runtime.deliver(mail);
+      if (agent.value === "running") {
+        agent.context.turn.runtime.deliver(mail);
       }
     }
 
@@ -881,6 +869,33 @@ export class Controller {
     if (epoch === this.#epoch) {
       this.acknowledge([id]).catch(this.#onBackgroundError);
     }
+  }
+
+  #phase(path: string): AgentSnapshot {
+    return this.#agents.get(path) ?? agentMachine.initialState;
+  }
+
+  #step(path: string, event: AgentEvent): AgentSnapshot {
+    const current = this.#phase(path);
+    const [next] = agentMachine.transition(current, event);
+
+    if (next === current) {
+      return next;
+    }
+
+    if (next.value === "absent") {
+      this.#agents.delete(path);
+    } else {
+      this.#agents.set(path, next);
+    }
+
+    const node = this.#node(path);
+
+    if (node !== undefined) {
+      record(node, next);
+    }
+
+    return next;
   }
 
   #node(path: string): AgentNode | undefined {

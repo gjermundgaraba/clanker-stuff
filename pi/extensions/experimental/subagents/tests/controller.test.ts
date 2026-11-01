@@ -239,6 +239,43 @@ describe(Controller, () => {
     return { controller, ctx, errors, rootMail, runtimes, saved, spawn };
   };
 
+  const holdNextSave = async (controller: Controller) => {
+    const { store } = await openTree(dataDir, "root-session", true);
+    const reached = Promise.withResolvers<undefined>();
+    const released = Promise.withResolvers<undefined>();
+    let held = true;
+
+    class HeldStore extends TreeStore {
+      readonly #disk: TreeStore;
+
+      constructor(disk: TreeStore) {
+        super(undefined);
+        this.#disk = disk;
+      }
+
+      override async save(tree: Tree): Promise<void> {
+        const contents = structuredClone(tree);
+
+        if (held) {
+          held = false;
+          reached.resolve(undefined);
+          await released.promise;
+        }
+
+        await this.#disk.save(contents);
+      }
+    }
+
+    await controller.open(new HeldStore(store), emptyTree());
+
+    return {
+      reached: reached.promise,
+      release: () => {
+        released.resolve(undefined);
+      },
+    };
+  };
+
   it("runs a spawned task and mails its final answer to the parent", async () => {
     const { controller, errors, rootMail, runtimes, saved, spawn } =
       await setup();
@@ -492,6 +529,58 @@ describe(Controller, () => {
     await expect(
       controller.interrupt("/root/worker", "/root/worker")
     ).rejects.toThrow("cannot interrupt itself");
+  });
+
+  it("an interrupt during a spawn's save interrupts the turn the spawn starts", async () => {
+    const { controller, errors, rootMail, runtimes, saved, spawn } =
+      await setup();
+
+    const { reached, release } = await holdNextSave(controller);
+
+    const spawning = spawn("worker");
+    await reached;
+    const interrupting = controller.interrupt("/root", "worker");
+    await yieldToEventLoop();
+    release();
+    await spawning;
+
+    await expect(interrupting).resolves.toStrictEqual({
+      previous_status: "running",
+    });
+    const [runtime] = runtimes;
+    runtime?.turns[0]?.outcome.resolve({ status: "completed", text: "late" });
+    await delay(50);
+
+    expect(controller.list("/root", "worker")).toStrictEqual([
+      { agent_name: "/root/worker", agent_status: "interrupted" },
+    ]);
+    await expect(saved()).resolves.toMatchObject({
+      nodes: [{ status: "interrupted" }],
+      outbox: [],
+    });
+    expect(rootMail).toStrictEqual([]);
+    expect(runtime?.aborted).toBe(true);
+    expect(runtime?.dispose).toHaveBeenCalledWith();
+    expect(errors).toStrictEqual([]);
+  });
+
+  it("a follow-up during a spawn's save steers the spawned turn instead of loading a second runtime", async () => {
+    const { controller, ctx, errors, runtimes, spawn } = await setup();
+    const { reached, release } = await holdNextSave(controller);
+
+    const spawning = spawn("worker");
+    await reached;
+    const following = controller.followUp("/root", "worker", "more", ctx);
+    await yieldToEventLoop();
+    release();
+    await spawning;
+    await following;
+
+    expect(runtimes).toHaveLength(1);
+    expect(runtimes[0]?.steered).toStrictEqual([
+      { content: "more", from: "/root", kind: "NEW_TASK", to: "/root/worker" },
+    ]);
+    expect(errors).toStrictEqual([]);
   });
 
   it("limits concurrent child turns and rejects duplicate paths", async () => {

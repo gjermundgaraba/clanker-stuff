@@ -607,6 +607,9 @@ importers:
       typebox:
         specifier: 1.4.3
         version: 1.4.3
+      xstate:
+        specifier: 'catalog:'
+        version: 6.0.0-alpha.71
 
   pi/extensions/experimental/turn-recap:
     dependencies:
