@@ -19,6 +19,13 @@ class BudgetCapture:
         self.budget_seconds = budget_seconds
         super().__init__(*args, **kwargs)
 
+    @classmethod
+    def parse_options(cls, kwargs=None, env=None):
+        # Harbor checks job kwargs before construction; the budget is ours.
+        kwargs = dict(kwargs or {})
+        kwargs.pop('budget_seconds', None)
+        return super().parse_options(kwargs, env)
+
     async def _quiesce(self, environment):
         if environment.default_user != 'agent':
             raise ValueError('budget capture requires the dedicated agent user')

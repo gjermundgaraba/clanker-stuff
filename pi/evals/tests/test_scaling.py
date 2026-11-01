@@ -12,6 +12,8 @@ from pi_evals.scaling import build_image, generate_task, prepare, verify, run, S
 from pi_evals.runtime import ARMS
 from pi_evals.scaling_report import report
 
+from fixtures.harbor_agents import start_agents
+
 
 class ScalingTest(TestCase):
     def test_new_seeded_fixtures_reference_and_nested_prefixes(self):
@@ -149,6 +151,7 @@ class ScalingTest(TestCase):
                     JobPlan.resolve_task_configs(JobConfig.model_validate(config))
                 )
                 self.assertEqual([task.path.name for task in tasks], [entry["task"]])
+                start_agents(config, root / "logs")
                 self.assertEqual(config["agents"][0]["model_name"], "openai/gpt-6-luna")
                 expected = json.loads((output / "tasks" / entry["task"] / "tests/comparison.json").read_text())
                 self.assertEqual(expected, {"model": "openai/gpt-6-luna", "thinking": "medium", "directTools": ["list_records", "submit_report"]})

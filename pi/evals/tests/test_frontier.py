@@ -8,8 +8,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 import yaml
-from pi_evals.adapters.frontier import FrontierPi
 from pi_evals import frontier as f, frontier_report, frontier_state
+
+from fixtures.harbor_agents import start_agents
 
 
 class FrontierTest(TestCase):
@@ -47,6 +48,8 @@ class FrontierTest(TestCase):
                     kwargs = config['agents'][0]['kwargs']
                     self.assertEqual(kwargs['budget_seconds'], 1800)
                     self.assertTrue(config['agents'][0]['import_path'].startswith('pi_evals.adapters.frontier:'))
+                    [agent] = start_agents(config, root/'logs')
+                    self.assertEqual(agent.budget_seconds, 1800)
                     if row['arm'] == 'native':
                         self.assertEqual(kwargs['version'], '9.8.7')
                     else:
@@ -54,7 +57,6 @@ class FrontierTest(TestCase):
                         self.assertEqual({key: settings[key] for key in f.PI_SETTINGS}, f.PI_SETTINGS)
                         self.assertNotIn('defaultTools', settings)
                         self.assertNotIn('codemode', settings)
-                        FrontierPi(logs_dir=root/'logs', model_name=config['agents'][0]['model_name'], **kwargs)
                         self.assertEqual(kwargs['pi_evals']['tool_mode'], 'direct' if row['arm']=='pi-direct' else 'code_mode_only')
                 f.verify(output)
                 with self.assertRaises(FileNotFoundError):

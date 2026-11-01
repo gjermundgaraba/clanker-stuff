@@ -3,12 +3,15 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from re import search
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import yaml
 from harbor.job_plan import JobPlan
 from harbor.models.job.config import JobConfig
 from pi_evals.protocol import validate_manifest
+
+from fixtures.harbor_agents import start_agents
 
 
 EVALS = Path(__file__).parents[1]
@@ -136,6 +139,28 @@ class ProfileTest(unittest.TestCase):
                 tasks, trials = self.resolve_profile_tasks(raw)
                 self.assertEqual([task.path.name for task in tasks], ["inventory-ledger"])
                 self.assertEqual(len(trials), len(raw["agents"]) * raw["n_attempts"])
+
+    def test_harbor_starts_every_job_config(self):
+        configs = [*PROFILES.glob("*.yaml"), *EVALS.glob("suites/*/job.yaml")]
+        self.assertGreater(len(configs), 5)
+        with TemporaryDirectory() as directory:
+            for path in configs:
+                raw = yaml.safe_load(path.read_text())
+                with self.subTest(config=path.name):
+                    agents = start_agents(raw, Path(directory))
+                    self.assertEqual(
+                        len(agents),
+                        sum("import_path" in agent for agent in raw["agents"]),
+                    )
+
+            for name in ("code-mode", "native-codex"):
+                raw = yaml.safe_load((PROFILES / f"{name}.yaml").read_text())
+                raw["agents"][0]["kwargs"]["pi_eval"] = {}
+                with (
+                    self.subTest(misspelled=name),
+                    self.assertRaisesRegex(ValueError, "Unknown option 'pi_eval'"),
+                ):
+                    start_agents(raw, Path(directory))
 
     def test_smoke_manifest_matches_trajectory(self):
         smoke = yaml.safe_load(

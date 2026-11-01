@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import shlex
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, override
 
 from harbor.agents.installed.base import with_prompt_template
 from harbor.agents.installed.pi import Pi
+from harbor.agents.options import AgentOptions
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 from harbor.models.trajectories import (
@@ -497,6 +499,20 @@ class PiEval(Pi):
             or self._pi_evals["expected_protocol"] is not None
         ):
             raise ValueError("pi_evals manifest does not match native Pi tool settings")
+
+    @classmethod
+    @override
+    def parse_options(
+        cls,
+        kwargs: dict[str, Any] | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> AgentOptions | None:
+        # Harbor checks job kwargs against PiOptions before construction; these
+        # belong to this adapter's __init__, not to Pi.
+        options = dict(kwargs or {})
+        for key in ("auth_json_path", "extensions", "pi_evals", "settings"):
+            options.pop(key, None)
+        return super().parse_options(options, env)
 
     @staticmethod
     @override

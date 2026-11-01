@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, override
 
 from harbor.agents.installed.codex import Codex
+from harbor.agents.options import AgentOptions
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 from harbor.models.trajectories import (
@@ -172,6 +174,19 @@ class CodexEval(Codex):
             for key in ("platform", "expected_mechanism", "expected_protocol")
         ) != ("codex-native", "codex-native", None):
             raise ValueError("pi_evals manifest does not match Codex native")
+
+    @classmethod
+    @override
+    def parse_options(
+        cls,
+        kwargs: dict[str, Any] | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> AgentOptions | None:
+        # Harbor checks job kwargs against CodexOptions before construction;
+        # the manifest belongs to this adapter's __init__, not to Codex.
+        options = dict(kwargs or {})
+        options.pop("pi_evals", None)
+        return super().parse_options(options, env)
 
     @override
     def _resolve_auth_json_path(self) -> Path:
