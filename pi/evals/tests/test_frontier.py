@@ -26,7 +26,7 @@ class FrontierTest(TestCase):
             with patch.object(f, 'command', side_effect=[f.SOURCE, '', '9.8.7']) as cmd, \
                  patch.object(f, 'build', side_effect=built), patch.object(f, 'image_info', side_effect=built), \
                  patch.object(f, 'pin_tag', return_value='image:runtime'), patch.object(f, 'docker'), \
-                 patch.object(f, 'sources', return_value={'frozen': True}):
+                 patch.object(f, 'sources', return_value={'src': {'frozen.py': 'digest'}}):
                 f.prepare(output, upstream)
                 self.assertIn(['npm', 'view', '@openai/codex', 'version'], [c.args[0] for c in cmd.call_args_list])
                 self.assertEqual((output/'task/instruction.md').read_text(), 'original prompt')

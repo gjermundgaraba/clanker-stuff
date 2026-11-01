@@ -24,6 +24,29 @@ def task_hashes(task: Path) -> dict[str, str]:
     }
 
 
+def require_frozen_sources(
+    frozen: dict[str, dict[str, str]], current: dict[str, dict[str, str]]
+) -> None:
+    """Name each execution source that changed since the series was prepared."""
+
+    def paths(sources: dict[str, dict[str, str]]) -> dict[str, str]:
+        return {
+            Path(root, name).as_posix(): digest
+            for root, files in sources.items()
+            for name, digest in files.items()
+        }
+
+    before, after = paths(frozen), paths(current)
+    changed = sorted(
+        path for path in before.keys() | after.keys() if before.get(path) != after.get(path)
+    )
+    if changed:
+        raise ValueError(
+            f"frozen source changed: {', '.join(changed)}. This series cannot "
+            "continue; prepare a new series in a new output directory."
+        )
+
+
 def lint_generated_task(task: Path) -> None:
     """Fail on Harbor's default `harbor lint` findings before any trial runs."""
     # Our verifiers check the agent's runtime evidence, so they share its sandbox.

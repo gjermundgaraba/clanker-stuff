@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import shutil
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -99,18 +100,23 @@ class PreflightTest(TestCase):
                     with self.subTest(analysis=name):
                         self.assertEqual(scaling.verify(output), frozen)
                 for name in (
-                    "scaling.py",
-                    "scaling_state.py",
-                    "preflight.py",
-                    "trials.py",
-                    "adapters/services.py",
+                    "src/pi_evals/scaling.py",
+                    "src/pi_evals/scaling_state.py",
+                    "src/pi_evals/preflight.py",
+                    "src/pi_evals/trials.py",
+                    "src/pi_evals/adapters/services.py",
+                    "profiles/native-codex.yaml",
+                    "uv.lock",
                 ):
-                    target = source / "src/pi_evals" / name
+                    target = source / name
                     before = target.read_bytes()
                     target.write_bytes(before + b"\n# execution policy changed\n")
                     with (
                         self.subTest(name=name),
-                        self.assertRaisesRegex(ValueError, "frozen source"),
+                        self.assertRaisesRegex(
+                            ValueError,
+                            rf"frozen source changed: {re.escape(name)}\. .*new output directory",
+                        ),
                     ):
                         scaling.verify(output)
                     target.write_bytes(before)

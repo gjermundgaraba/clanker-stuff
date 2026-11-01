@@ -18,7 +18,13 @@ from pi_evals.scaling_state import read_slot
 from pi_evals import scaling_report
 from pi_evals.preflight import run_preflight
 from pi_evals.comparison import comparison, configure_agent
-from pi_evals.artifacts import EVALS, lint_generated_task, task_hashes, write_json
+from pi_evals.artifacts import (
+    EVALS,
+    lint_generated_task,
+    require_frozen_sources,
+    task_hashes,
+    write_json,
+)
 from pi_evals.trials import require_terminal_result
 
 ASSETS = EVALS / "suites/scaling"
@@ -128,6 +134,8 @@ def source_hashes():
         ),
         "profiles": ("code-mode.yaml", "native-codex.yaml"),
         "verifiers": ("tool-mode-core.mjs", "native-codex.mjs", "comparison.mjs"),
+        # The lockfile pins Harbor and the other Python execution dependencies.
+        ".": ("pyproject.toml", "uv.lock"),
     }
     return {
         **{
@@ -289,8 +297,7 @@ def prepare(output: Path, catalog: Path, model=None, thinking=None) -> None:
 
 def verify(output: Path):
     frozen = json.loads((output / "frozen.json").read_text())
-    if frozen["source_hashes"] != source_hashes():
-        raise ValueError("frozen source changed")
+    require_frozen_sources(frozen["source_hashes"], source_hashes())
     for name, digest in frozen["config_hashes"].items():
         if hashlib.sha256((output / name).read_bytes()).hexdigest() != digest:
             raise ValueError(f"frozen artifact changed: {name}")

@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -116,11 +117,13 @@ class FrontierRecoveryTest(TestCase):
                 (source/'src/pi_evals/report.py').write_text('changed generic reporting')
                 (source/'src/pi_evals/unrelated_suite.py').write_text('changed unrelated suite')
                 self.assertEqual(f.verify(series), frozen)
-                for name in ('frontier.py', 'frontier_state.py', 'trials.py', 'adapters/pi.py'):
-                    target = source/'src/pi_evals'/name
+                for name in ('src/pi_evals/frontier.py', 'src/pi_evals/frontier_state.py', 'src/pi_evals/trials.py',
+                             'src/pi_evals/adapters/pi.py', 'profiles/native-codex.yaml', 'uv.lock'):
+                    target = source/name
                     original = target.read_bytes()
                     target.write_bytes(original + b'\n# execution change\n')
-                    with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'frozen source'):
+                    with self.subTest(name=name), self.assertRaisesRegex(
+                            ValueError, f'frozen source changed: {re.escape(name)}\\. .*new output directory'):
                         f.verify(series)
                     target.write_bytes(original)
 

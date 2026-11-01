@@ -17,7 +17,7 @@ from uuid import uuid4
 from harbor.models.job.config import JobConfig
 import yaml
 
-from pi_evals.artifacts import EVALS, lint_generated_task, task_hashes, write_json
+from pi_evals.artifacts import EVALS, lint_generated_task, require_frozen_sources, task_hashes, write_json
 from pi_evals.runtime import ARMS, LABELS, command, docker, image_info, pin_tag
 from pi_evals import frontier_report, frontier_state
 from pi_evals.preflight import run_preflight
@@ -42,6 +42,8 @@ def sources():
         'runtime': ('Dockerfile', 'pi-eval-tools.mjs', 'eval-journal.mjs', 'codex-eval.mjs', 'pi-eval-compact.mjs'),
         'profiles': ('code-mode.yaml', 'native-codex.yaml'),
         'verifiers': ('tool-mode-core.mjs', 'native-codex.mjs', 'comparison.mjs'),
+        # The lockfile pins Harbor and the other Python execution dependencies.
+        '.': ('pyproject.toml', 'uv.lock'),
     }
     return {**{root: {name: hashlib.sha256((EVALS/root/name).read_bytes()).hexdigest() for name in names}
                for root, names in selected.items()}, 'suites/frontier': task_hashes(ASSETS)}
@@ -182,8 +184,7 @@ docker_image = "{agent['tag']}"
 
 def verify(output):
     frozen = json.loads((output/'frozen.json').read_text())
-    if frozen['sources'] != sources():
-        raise ValueError('frozen source changed')
+    require_frozen_sources(frozen['sources'], sources())
     for name, digest in frozen['artifacts'].items():
         if hashlib.sha256((output/name).read_bytes()).hexdigest() != digest:
             raise ValueError(f'frozen artifact changed: {name}')

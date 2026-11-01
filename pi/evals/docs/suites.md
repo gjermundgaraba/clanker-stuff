@@ -22,7 +22,7 @@ The supported tool catalog is just `list_records` and `submit_report`; shell, fi
 
 Preflight retries keep numbered attempt directories without rebuilding fixtures or changing the frozen Codex version. A malformed native service argument is ordinary tool-error feedback, just as in Pi, and the free controls exercise correction afterward. The scaling extension registers the provider lifecycle without its shell/file tool controller; its extension and grader composition live with the fixture.
 
-Scaling freezes its execution dependencies, not unrelated suites, `report.py`, or `scaling_report.py`. Reports record current analysis-source provenance separately. Shared trial extraction and validity policy in `trials.py` remain execution inputs.
+Scaling freezes its execution dependencies, not unrelated suites, `report.py`, or `scaling_report.py`. Reports record current analysis-source provenance separately. Shared trial extraction and validity policy in `trials.py` remain execution inputs. A change to the driver, adapters, profiles, runtime, verifiers or Python dependencies (`pyproject.toml`, `uv.lock`, so also the Harbor version) blocks continuing a prepared series: `preflight` and `run` stop and name the changed files. Prepare a new series in a new output directory.
 
 ## Compaction continuity
 
