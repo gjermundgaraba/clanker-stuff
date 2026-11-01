@@ -373,8 +373,7 @@ class CodexEval(Codex):
             )
         setup = f"ln -sf {remote_auth} {remote_home}/auth.json"
 
-        access = self.model_connection
-        openai_base_url = access.configured_base_url
+        openai_base_url = self._resolved_base_url()
         if openai_base_url:
             env["OPENAI_BASE_URL"] = openai_base_url
         effective_config = self._build_effective_config(openai_base_url)

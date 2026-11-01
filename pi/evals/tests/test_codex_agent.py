@@ -1,5 +1,6 @@
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -281,3 +282,56 @@ class CodexInstallTest(IsolatedAsyncioTestCase):
         )
         with self.assertRaisesRegex(ValueError, "pinned Codex version"):
             await unpinned.install(environment)
+
+
+class FakeEnvironment:
+    default_user = "agent"
+
+    def __init__(self) -> None:
+        self.execs: list[SimpleNamespace] = []
+        self.uploads: dict[str, bytes] = {}
+
+    async def exec(self, command, user=None, env=None, cwd=None, timeout_sec=None):
+        self.execs.append(SimpleNamespace(command=command, user=user, env=dict(env or {})))
+        return SimpleNamespace(return_code=0, stdout="", stderr="")
+
+    async def upload_file(self, source_path, target_path) -> None:
+        self.uploads[target_path] = Path(source_path).read_bytes()
+
+    def runner(self) -> SimpleNamespace:
+        command = runner_command("/logs/agent", "codex.txt")
+        [runner] = [e for e in self.execs if command in e.command]
+        return runner
+
+
+class CodexRunTest(IsolatedAsyncioTestCase):
+    async def run_adapter(self, **kwargs) -> FakeEnvironment:
+        environment = FakeEnvironment()
+        with TemporaryDirectory() as directory:
+            auth = Path(directory) / "auth.json"
+            auth.write_text('{"OPENAI_API_KEY": "test"}')
+            adapter = CodexEval(
+                logs_dir=Path(directory),
+                model_name="openai/gpt-6.1-sol",
+                version="0.166.0",
+                pi_evals={**MANIFEST, "compaction_mode": "off"},
+                **kwargs,
+            )
+            with patch.object(CodexEval, "_resolve_auth_json_path", return_value=auth):
+                await adapter.run("solve it", environment, SimpleNamespace())
+        return environment
+
+    async def test_base_url_reaches_codex_env_and_config(self) -> None:
+        environment = await self.run_adapter(base_url="http://proxy.test/v1")
+
+        runner = environment.runner()
+        self.assertEqual(runner.env["OPENAI_BASE_URL"], "http://proxy.test/v1")
+        config = tomllib.loads(
+            environment.uploads["/installed-agent/codex-home/config.toml"].decode()
+        )
+        self.assertEqual(config["openai_base_url"], "http://proxy.test/v1")
+        self.assertTrue(config["features"]["unified_exec"])
+
+        environment = await self.run_adapter()
+        runner = environment.runner()
+        self.assertNotIn("OPENAI_BASE_URL", runner.env)
