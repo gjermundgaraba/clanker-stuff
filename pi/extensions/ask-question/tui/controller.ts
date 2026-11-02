@@ -12,8 +12,6 @@ import {
   truncateToWidth,
 } from "@earendil-works/pi-tui";
 import type {
-  ProgramStatus,
-  Terminal,
   TUI,
   TuiMouseEvent,
   TuiMouseEventResult,
@@ -692,44 +690,21 @@ export class QuestionnaireView {
   }
 }
 
-const reportStatus = (
-  terminal: Terminal,
-  status: Omit<ProgramStatus, "app">
-): void => {
-  terminal.setProgramStatus({ ...status, app: "pi" });
-};
-
 export const showQuestionnaire = async (
   ctx: ExtensionContext,
   item: Interaction,
   signal: AbortSignal,
   port: FormPort
-): Promise<FormOutcome> => {
-  let terminal: Terminal | undefined;
-
-  try {
-    return await ctx.ui.custom<FormOutcome>((tui, theme, keys, done) => {
-      if (port.blocking) {
-        ({ terminal } = tui);
-        reportStatus(terminal, {
-          state: "blocked",
-          kind: "question",
-          message: item.request.title ?? "Questions await your answers",
-        });
-      }
-
-      return new QuestionnaireView(tui, theme, keys, item, port, done, signal);
-    });
-  } finally {
-    if (terminal && !signal.aborted) {
-      const name = ctx.sessionManager.getSessionName();
-
-      reportStatus(
-        terminal,
-        name === undefined
-          ? { state: "working" }
-          : { state: "working", message: name }
-      );
-    }
-  }
-};
+): Promise<FormOutcome> =>
+  await ctx.ui.custom<FormOutcome>(
+    (tui, theme, keys, done) =>
+      new QuestionnaireView(tui, theme, keys, item, port, done, signal),
+    port.blocking
+      ? {
+          blocked: {
+            kind: "question",
+            message: item.request.title ?? "Questions await your answers",
+          },
+        }
+      : undefined
+  );

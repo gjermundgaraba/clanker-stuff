@@ -73,6 +73,8 @@ const setup = async (
     },
   });
 
+  const custom = vi.fn<ExtensionUIContext["custom"]>(driver.custom);
+
   const select = vi.fn<ExtensionUIContext["select"]>(
     async (_title, choices) => choices[0]
   );
@@ -82,7 +84,7 @@ const setup = async (
   const uiContext = Object.assign(
     createExtensionHost(() => {}).createContext().ui,
     {
-      custom: driver.custom,
+      custom,
       select,
       notify: vi.fn<ExtensionUIContext["notify"]>(),
       setWidget: vi.fn<ExtensionUIContext["setWidget"]>(),
@@ -111,6 +113,7 @@ const setup = async (
   return {
     harness,
     select,
+    custom,
     statuses,
     uiContext,
     press,
@@ -235,67 +238,70 @@ describe("durable questionnaires in AgentSession", () => {
     }
   });
 
-  it("blocks for explicit Review and returns structured answers without another user message", async () => {
-    const env = await setup();
+  it.each([
+    { request: question, message: "Deploy target" },
+    {
+      request: { questions: question.questions },
+      message: "Questions await your answers",
+    },
+  ])(
+    "blocks for explicit Review with status $message and returns structured answers",
+    async ({ request, message }) => {
+      const env = await setup();
 
-    try {
-      env.harness.setResponses([
-        fauxAssistantMessage(fauxToolCall("request_user_input", question), {
-          stopReason: "toolUse",
-        }),
-        fauxAssistantMessage("Done"),
-      ]);
-      env.harness.session.setSessionName("Deploy");
-      const running = env.harness.prompt("Ask a question");
-      await expect.poll(() => !!env.component).toBe(true);
-      expect(env.component?.render(80).join("\n")).toContain("( ) 1. Local");
-      await env.press("1");
-      expect(env.component?.render(80).join("\n")).toContain("Review");
-      await env.press("\r");
-      await running;
-      expect(env.statuses).toStrictEqual([
-        {
-          state: "blocked",
-          kind: "question",
-          message: "Deploy target",
-          app: "pi",
-        },
-        { state: "working", message: "Deploy", app: "pi" },
-      ]);
+      try {
+        env.harness.setResponses([
+          fauxAssistantMessage(fauxToolCall("request_user_input", request), {
+            stopReason: "toolUse",
+          }),
+          fauxAssistantMessage("Done"),
+        ]);
+        const running = env.harness.prompt("Ask a question");
+        await expect.poll(() => !!env.component).toBe(true);
+        expect(env.custom).toHaveBeenCalledWith(expect.any(Function), {
+          blocked: { kind: "question", message },
+        });
+        expect(env.component?.render(80).join("\n")).toContain("( ) 1. Local");
+        await env.press("1");
+        expect(env.component?.render(80).join("\n")).toContain("Review");
+        await env.press("\r");
+        await running;
+        expect(env.statuses).toStrictEqual([]);
 
-      const result = env.harness
-        .messages()
-        .find((m) => m.role === "toolResult");
+        const result = env.harness
+          .messages()
+          .find((m) => m.role === "toolResult");
 
-      expect(result).toMatchObject({
-        isError: false,
-        details: {
-          type: "questionnaire_answer",
-          revision: 1,
-          answers: {
-            target: { selections: [{ option_id: "local", label: "Local" }] },
+        expect(result).toMatchObject({
+          isError: false,
+          details: {
+            type: "questionnaire_answer",
+            revision: 1,
+            answers: {
+              target: { selections: [{ option_id: "local", label: "Local" }] },
+            },
           },
-        },
-      });
-      expect(
-        env.harness.messages().filter((m) => m.role === "user")
-      ).toHaveLength(1);
-      const branch = env.harness.sessionManager.getBranch();
+        });
+        expect(
+          env.harness.messages().filter((m) => m.role === "user")
+        ).toHaveLength(1);
+        const branch = env.harness.sessionManager.getBranch();
 
-      const sent = branch.findIndex((e) =>
-        JSON.stringify(e).includes('"sent_at"')
-      );
+        const sent = branch.findIndex((e) =>
+          JSON.stringify(e).includes('"sent_at"')
+        );
 
-      const delivered = branch.findIndex(
-        (e) => e.type === "message" && e.message.role === "toolResult"
-      );
+        const delivered = branch.findIndex(
+          (e) => e.type === "message" && e.message.role === "toolResult"
+        );
 
-      expect(sent).toBeGreaterThan(-1);
-      expect(sent).toBeLessThan(delivered);
-    } finally {
-      await env.cleanup();
+        expect(sent).toBeGreaterThan(-1);
+        expect(sent).toBeLessThan(delivered);
+      } finally {
+        await env.cleanup();
+      }
     }
-  });
+  );
 
   it("accepts async durably, survives replay, keeps submission in inbox and explicitly sends it", async () => {
     const env = await setup();
@@ -325,6 +331,8 @@ describe("durable questionnaires in AgentSession", () => {
       });
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);
+      expect(env.custom).toHaveBeenCalledWith(expect.any(Function), undefined);
+      expect(env.statuses).toStrictEqual([]);
       await env.press("2", "k");
       await answering;
       expect(env.select).toHaveBeenCalledOnce();
