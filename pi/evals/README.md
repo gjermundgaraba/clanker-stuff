@@ -6,7 +6,7 @@ The supported harness comparisons are [Frontier Qubit Routing](#frontierswe-v2-q
 
 ## Setup
 
-Requires Node 26.12+, Python 3.12+, uv, and Docker with Linux AMD64 support.
+Requires Node 26.13+, Python 3.12+, uv, and Docker with Linux AMD64 support.
 
 ```bash
 uv sync

@@ -27,7 +27,7 @@ const PI_PROVIDED = new Set([
 
 const ROOT_PACKAGE_NAME = "clanker-stuff";
 
-const EXPECTED_NODE_ENGINE = ">=26.12.0";
+const EXPECTED_NODE_ENGINE = ">=26.13.0";
 
 const EXPECTED_PACKAGE_MANAGER = "pnpm";
 
