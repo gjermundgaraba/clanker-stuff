@@ -1,5 +1,5 @@
-import type { ExecResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vite-plus/test";
+import type { ExecResult } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vite-plus/test";
 
 import { parseGitDetails, readGitDetails } from "../git.js";
 
@@ -26,30 +26,6 @@ describe("git details", () => {
       unstaged: 1,
       untracked: 1,
     });
-  });
-
-  it("bounds Git output while returning complete status counts", async () => {
-    const exec = vi.fn<ExtensionAPI["exec"]>(async () => ({
-      code: 0,
-      killed: false,
-      truncated: false,
-      stderr: "",
-      stdout:
-        "# branch.ab +2 -1\n1 .M N... 100644 100644 100644 a b file\n? new",
-    }));
-
-    await expect(readGitDetails({ exec }, "/repo")).resolves.toStrictEqual({
-      ahead: 2,
-      behind: 1,
-      staged: 0,
-      unstaged: 1,
-      untracked: 1,
-    });
-    expect(exec).toHaveBeenCalledWith(
-      "git",
-      ["--no-optional-locks", "status", "--porcelain=v2", "--branch"],
-      { cwd: "/repo", timeout: 1000, maxBuffer: 8 * 1024 * 1024 }
-    );
   });
 
   it("treats a timed-out scan as a failure even though Pi reports exit code 0", async () => {
@@ -79,7 +55,7 @@ describe("git details", () => {
         }),
         "/repo"
       )
-    ).rejects.toThrow("git status output exceeded the 8 MiB limit");
+    ).rejects.toThrow("output exceeded");
   });
 
   it("treats a failed scan as a failure instead of a clean tree", async () => {

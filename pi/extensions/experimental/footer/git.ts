@@ -12,8 +12,6 @@ const BRANCH_AB_PATTERN = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/u;
 
 const GIT_TIMEOUT_MS = 1000;
 
-const GIT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-
 export const parseGitDetails = (output: string): GitDetails => {
   const details: GitDetails = {
     ahead: 0,
@@ -51,7 +49,7 @@ export const parseGitDetails = (output: string): GitDetails => {
   return details;
 };
 
-/** Rejects on timeout or failure; Pi reports a timed-out process as exit code 0 with `killed`. */
+/** Rejects on timeout, truncated output, or failure; Pi reports a timed-out process as exit code 0 with `killed`. */
 export const readGitDetails = async (
   runtime: Pick<ExtensionAPI, "exec">,
   cwd: string
@@ -59,11 +57,11 @@ export const readGitDetails = async (
   const result = await runtime.exec(
     "git",
     ["--no-optional-locks", "status", "--porcelain=v2", "--branch"],
-    { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES }
+    { cwd, timeout: GIT_TIMEOUT_MS }
   );
 
   if (result.truncated) {
-    throw new Error("git status output exceeded the 8 MiB limit");
+    throw new Error("git status output exceeded Pi's output limit");
   }
 
   if (result.killed) {

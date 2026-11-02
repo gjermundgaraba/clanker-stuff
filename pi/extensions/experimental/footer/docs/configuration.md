@@ -42,7 +42,7 @@ All four fields are required. Unknown fields, an ID listed twice across rows, bo
 | --- | --- |
 | `footer.cwd` | Working directory. |
 | `footer.git` | Git branch, as Pi reports it. |
-| `footer.git.details` | Staged `+`, unstaged `~`, untracked `?`, ahead `↑`, and behind `↓` counts. Runs `git status` at session start, after each turn, and on branch changes, only while placed. Output is capped at 8 MiB; if exceeded, details are hidden and `/footer inspect` reports the error. |
+| `footer.git.details` | Staged `+`, unstaged `~`, untracked `?`, ahead `↑`, and behind `↓` counts. Runs `git status` at session start, after each turn, and on branch changes, only while placed. |
 | `footer.model` | Selected model. When the branch's last successful response used another model, `selected: … · last: …`, including physical routes behind virtual models. The last model is the provider-reported ID when available, otherwise the requested ID; the provider remains the one Pi contacted. |
 | `footer.thinking` | Thinking level, split the same way. |
 | `footer.context` | Context use against the window. Shows `?` while unknown, such as after compaction until the next response. |

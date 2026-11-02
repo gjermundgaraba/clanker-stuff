@@ -1,6 +1,5 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type {
-  ExtensionAPI,
   ExtensionFactory,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
@@ -14,7 +13,6 @@ import {
 } from "../../../../tests/harness/tui.js";
 import { DEFAULT_CONFIG } from "../config.js";
 import type { FooterConfigStore } from "../config.js";
-import { readGitDetails } from "../git.js";
 import footerExtension from "../index.js";
 import { formatTokenCount } from "../widgets.js";
 
@@ -113,35 +111,6 @@ describe("footer AgentSession lifecycle", () => {
   afterEach(() => {
     harness?.cleanup();
     harness = undefined;
-  });
-
-  it("rejects oversized Git output through Pi's real exec buffer", async () => {
-    let runtime: ExtensionAPI | undefined;
-
-    harness = await createAgentSessionHarness({
-      extensionFactories: [
-        (pi) => {
-          runtime = pi;
-        },
-      ],
-    });
-
-    if (runtime === undefined) {
-      throw new Error("Missing extension runtime");
-    }
-
-    const pi = runtime;
-
-    const exec: ExtensionAPI["exec"] = async (_command, _args, options) =>
-      await pi.exec(
-        process.execPath,
-        ["-e", "process.stdout.write(Buffer.alloc(9 * 1024 * 1024, 120))"],
-        { ...options, timeout: 10_000 }
-      );
-
-    await expect(readGitDetails({ exec }, harness.tempDir)).rejects.toThrow(
-      "git status output exceeded the 8 MiB limit"
-    );
   });
 
   it("renders selected and executed virtual-model status after real routing", async () => {
