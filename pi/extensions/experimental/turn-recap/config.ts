@@ -13,10 +13,15 @@ const RecapConfigSchema = Type.Object(
   {
     model: Type.Object({ id: Id, provider: Id }, STRICT),
     thinking: Type.Optional(
-      Type.Enum(
-        ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
-        { type: "string" }
-      )
+      Type.Enum([
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+      ] as const)
     ),
   },
   STRICT

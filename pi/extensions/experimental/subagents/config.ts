@@ -37,9 +37,7 @@ const RoleSchema = Type.Object(
 
 const SubagentsConfigSchema = Type.Object(
   {
-    delegation: Type.Optional(
-      Type.Enum(["explicit", "proactive"] as const, { type: "string" })
-    ),
+    delegation: Type.Optional(Type.Enum(["explicit", "proactive"] as const)),
     max_concurrent_threads_per_session: Type.Optional(
       Type.Integer({ minimum: 1 })
     ),
