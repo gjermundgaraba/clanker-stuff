@@ -383,9 +383,7 @@ export class Turn {
           block.type === "toolCall" &&
           open.arguments !== undefined
         ) {
-          if (delta.partial_json !== "") {
-            block.arguments = open.arguments.append(delta.partial_json);
-          }
+          block.arguments = open.arguments.append(delta.partial_json);
 
           this.push({
             type: "toolcall_delta",
@@ -434,7 +432,7 @@ export class Turn {
             partial: output,
           });
         } else {
-          if (open.arguments !== undefined && open.arguments.text !== "") {
+          if (open.arguments !== undefined) {
             Object.assign(block, open.arguments.finish());
           }
 

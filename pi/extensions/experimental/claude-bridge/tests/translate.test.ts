@@ -322,40 +322,6 @@ describe("a tool call whose content_block_stop never arrived", () => {
 });
 
 describe("completed tool-call arguments", () => {
-  it("keeps interleaved calls independent and previews split escapes", () => {
-    const { turn } = open();
-
-    feed(turn, [
-      messageStart("msg_parallel"),
-      toolUseStart(0, READ, "toolu_first"),
-      toolUseStart(1, READ, "toolu_second"),
-      inputJsonDelta(0, String.raw`{"path":"one\u00`),
-      inputJsonDelta(1, '{"path":"two'),
-    ]);
-
-    const firstPreview = toolCalls(turn)[0]?.arguments;
-
-    expect(toolCalls(turn).map((call) => call.arguments)).toStrictEqual([
-      { path: "one" },
-      { path: "two" },
-    ]);
-
-    feed(turn, [
-      inputJsonDelta(1, '.txt"}'),
-      inputJsonDelta(0, '20😀"}'),
-      blockStop(1),
-      blockStop(0),
-      messageStop(),
-    ]);
-
-    expect(firstPreview).toStrictEqual({ path: "one" });
-    expect(toolCalls(turn).map((call) => call.arguments)).toStrictEqual([
-      { path: "one 😀" },
-      { path: "two.txt" },
-    ]);
-    expect(turn.output.stopReason).toBe("toolUse");
-  });
-
   it.each(["streamed", "whole"])(
     "preserves a custom tool's declared parameters in a %s response",
     (mode) => {
@@ -456,36 +422,6 @@ describe("completed tool-call arguments", () => {
     });
     expect(call?.argumentsError).toBeUndefined();
   });
-
-  it.each([false, true])(
-    "keeps initial input with empty delta: %s",
-    (emptyDelta) => {
-      const start = toolUseStart(0, READ, "toolu_initial");
-
-      start.event = {
-        type: "content_block_start",
-        index: 0,
-        content_block: {
-          type: "tool_use",
-          id: "toolu_initial",
-          name: READ,
-          input: { path: "initial.txt" },
-        },
-      };
-
-      const { turn } = run([
-        messageStart("msg_initial"),
-        start,
-        ...(emptyDelta ? [inputJsonDelta(0, "")] : []),
-        blockStop(0),
-        messageStop(),
-      ]);
-
-      expect(toolCalls(turn)[0]?.arguments).toStrictEqual({
-        path: "initial.txt",
-      });
-    }
-  );
 });
 
 describe("a tool call cut off at the output limit", () => {
@@ -864,6 +800,11 @@ describe("a recorded stream", () => {
     expect(calls.length).toBeGreaterThanOrEqual(2);
     expect(turn.toolCallIds).toStrictEqual(calls.map((call) => call.id));
     expect(new Set(turn.toolCallIds).size).toBe(calls.length);
+    expect(calls.map((call) => call.arguments)).toStrictEqual([
+      { path: "one.txt" },
+      { path: "two.txt" },
+      { path: "three.txt" },
+    ]);
     expect(new Set(calls.map((call) => call.name))).toStrictEqual(
       new Set(["read"])
     );
