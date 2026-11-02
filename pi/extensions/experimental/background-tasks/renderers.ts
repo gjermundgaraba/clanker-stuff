@@ -106,6 +106,7 @@ export const taskRenderers = (name: string): Renderers => ({
         return new Text(lines.join("\n"), 0, 0);
       },
       context.expanded,
+      context,
       3
     );
   },
@@ -120,7 +121,13 @@ export const taskRenderers = (name: string): Renderers => ({
       edge: "head" | "tail" = "head"
     ) => {
       output.addChild(
-        preview(() => new Text(draw(), 0, 0), options.expanded, limit, edge)
+        preview(
+          () => new Text(draw(), 0, 0),
+          options.expanded,
+          context,
+          limit,
+          edge
+        )
       );
     };
 
@@ -145,7 +152,7 @@ export const taskRenderers = (name: string): Renderers => ({
 
     const warn = (warning: string) => {
       output.addChild(
-        preview(() => new Text(theme.fg("error", warning), 0, 0), true)
+        preview(() => new Text(theme.fg("error", warning), 0, 0), true, context)
       );
     };
 

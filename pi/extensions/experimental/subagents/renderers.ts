@@ -175,6 +175,7 @@ export const agentRenderers = (name: string): Renderers => ({
         return new Text(lines.join("\n"), 0, 0);
       },
       context.expanded,
+      context,
       3
     );
   },
@@ -185,7 +186,7 @@ export const agentRenderers = (name: string): Renderers => ({
 
     const add = (draw: () => string, limit = 5) => {
       output.addChild(
-        preview(() => new Text(draw(), 0, 0), options.expanded, limit)
+        preview(() => new Text(draw(), 0, 0), options.expanded, context, limit)
       );
     };
 
@@ -363,6 +364,7 @@ export const mailRenderer: MessageRenderer = (message, options, theme) => {
       preview(
         () => new Markdown(body, 2, 0, getMarkdownTheme()),
         options.expanded,
+        options,
         PREVIEW_ROWS[envelope.kind]
       )
     );

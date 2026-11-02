@@ -104,6 +104,15 @@ describe("collaboration tools", () => {
     });
 
     await expect(
+      extension.runTool("spawn_agent", {
+        message: "work",
+        reasoning_effort: "automatic",
+        task_name: "worker",
+      })
+    ).rejects.toThrow(/Validation failed for tool "spawn_agent"/u);
+    expect(spawn).toHaveBeenCalledOnce();
+
+    await expect(
       extension.runTool("send_message", {
         message: "context",
         target: "worker",

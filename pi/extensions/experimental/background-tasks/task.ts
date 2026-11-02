@@ -1,6 +1,5 @@
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import { structuralSchema } from "@clanker-stuff/pi-tool-schema";
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { TextContent } from "@earendil-works/pi-ai";
 import { DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -27,7 +26,8 @@ export const startSchema = Type.Object(
     ),
     cwd: Type.Optional(Type.String({ maxLength: 4096 })),
     protocol: Type.Optional(
-      StringEnum(["events-v1"] as const, {
+      Type.Enum(["events-v1"] as const, {
+        type: "string",
         description:
           "Opt in to strict JSONL watcher records on stdout; stderr remains diagnostics.",
       })

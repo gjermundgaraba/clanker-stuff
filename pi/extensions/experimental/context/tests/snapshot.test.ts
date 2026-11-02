@@ -1,8 +1,9 @@
-import { fauxAssistantMessage, Type } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import {
   estimateTokens,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildTree, filterTree } from "../tree.js";

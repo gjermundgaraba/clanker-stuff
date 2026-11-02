@@ -2,12 +2,12 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import {
-  Type,
   fauxAssistantMessage,
   getCurrentSystemPrompt,
 } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 

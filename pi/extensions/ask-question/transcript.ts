@@ -60,7 +60,7 @@ const callHeading = (
   heading: string,
   argsJson: string,
   theme: Parameters<CallRenderer>[1],
-  context: { readonly expanded: boolean }
+  context: Pick<Parameters<CallRenderer>[2], "expanded" | "keyHint">
 ) => {
   const expanded = context.expanded ? `\n${argsJson}` : "";
   const line = displayText(heading).replaceAll(/\s+/gu, " ");
@@ -68,7 +68,8 @@ const callHeading = (
   return preview(
     () =>
       new Text(theme.fg("toolTitle", `${line}${displayText(expanded)}`), 0, 0),
-    context.expanded
+    context.expanded,
+    context
   );
 };
 
@@ -92,7 +93,7 @@ export const renderCall = (
 export const renderReviseCall = (
   args: Parameters<ReviseCallRenderer>[0],
   theme: Parameters<ReviseCallRenderer>[1],
-  context: { readonly expanded: boolean },
+  context: Pick<Parameters<ReviseCallRenderer>[2], "expanded" | "keyHint">,
   titleOf: (interactionId: string) => string | undefined
 ) => {
   const title = titleOf(args.interaction_id) ?? "Questionnaire";
@@ -170,6 +171,7 @@ export const renderResult: NonNullable<
         0,
         0
       ),
-    options.expanded
+    options.expanded,
+    context
   );
 };

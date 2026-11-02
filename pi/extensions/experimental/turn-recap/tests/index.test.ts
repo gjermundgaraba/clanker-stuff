@@ -13,6 +13,7 @@ import { Value } from "typebox/value";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { toolRenderContext } from "../../../../tests/harness/tool-rendering.js";
 import {
   createIdentityTheme,
   createMockTui,
@@ -37,7 +38,11 @@ const cardComponent = (
     throw new Error("Missing card or renderer");
   }
 
-  return renderer(entry, { expanded }, createIdentityTheme());
+  return renderer(
+    entry,
+    { ...toolRenderContext(), expanded },
+    createIdentityTheme()
+  );
 };
 
 const renderEntry = (

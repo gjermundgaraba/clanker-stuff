@@ -37,7 +37,7 @@ const card = (
       role: "custom",
       timestamp: 0,
     },
-    { expanded, outputPad: 0 },
+    { ...toolRenderContext(), expanded, outputPad: 0 },
     theme
   );
 
@@ -454,6 +454,7 @@ describe("subagent renderers", () => {
       expect(collapsed.join("\n")).toContain("line 1");
       expect(collapsed.join("\n")).not.toContain("line 12");
       expect(collapsed.join("\n")).not.toContain("Message Type");
+      expect(collapsed.join("\n")).toContain("ctrl+o to expand");
       expect(card({ ...base, content: answer }, true).join("\n")).toContain(
         "line 12"
       );

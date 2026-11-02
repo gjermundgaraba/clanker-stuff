@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -14,15 +13,10 @@ const RecapConfigSchema = Type.Object(
   {
     model: Type.Object({ id: Id, provider: Id }, STRICT),
     thinking: Type.Optional(
-      StringEnum([
-        "off",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-      ] as const)
+      Type.Enum(
+        ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
+        { type: "string" }
+      )
     ),
   },
   STRICT

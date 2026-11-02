@@ -194,13 +194,16 @@ describe("footer AgentSession lifecycle", () => {
       throw new Error("expected assistant message");
     }
 
-    expect(assistant.usage.input).toBeGreaterThan(0);
+    expect(assistant.usage.cacheWrite).toBeGreaterThan(0);
     expect(assistant.usage.output).toBeGreaterThan(0);
     expect(renderedAtTurnEnd).toContain(
       `in ${formatTokenCount(assistant.usage.input)}`
     );
     expect(renderedAtTurnEnd).toContain(
       `out ${formatTokenCount(assistant.usage.output)}`
+    );
+    expect(renderedAtTurnEnd).toContain(
+      `cache ${formatTokenCount(assistant.usage.cacheRead)}/${formatTokenCount(assistant.usage.cacheWrite)}`
     );
   });
 });

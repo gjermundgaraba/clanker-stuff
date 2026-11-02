@@ -22,6 +22,9 @@ export const toolRenderContext = (overrides: Partial<Context> = {}) => ({
   invalidate: () => undefined,
   isError: false,
   isPartial: false,
+  keyHint: (_keybinding: string, description: string) =>
+    `ctrl+o ${description}`,
+  keyText: (_keybinding: string) => "ctrl+o",
   lastComponent: undefined,
   outputPad: 1,
   showImages: false,

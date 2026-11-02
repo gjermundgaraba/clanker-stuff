@@ -31,16 +31,43 @@ describe("git details", () => {
   it("treats a timed-out scan as a failure even though Pi reports exit code 0", async () => {
     await expect(
       readGitDetails(
-        runtime({ code: 0, killed: true, stderr: "", stdout: "" }),
+        runtime({
+          code: 0,
+          killed: true,
+          truncated: false,
+          stderr: "",
+          stdout: "",
+        }),
         "/repo"
       )
     ).rejects.toThrow("timed out");
   });
 
+  it("reports an output cap separately from a timeout", async () => {
+    await expect(
+      readGitDetails(
+        runtime({
+          code: 1,
+          killed: true,
+          truncated: true,
+          stderr: "",
+          stdout: "? partial",
+        }),
+        "/repo"
+      )
+    ).rejects.toThrow("output exceeded");
+  });
+
   it("treats a failed scan as a failure instead of a clean tree", async () => {
     await expect(
       readGitDetails(
-        runtime({ code: 128, killed: false, stderr: "fatal", stdout: "" }),
+        runtime({
+          code: 128,
+          killed: false,
+          truncated: false,
+          stderr: "fatal",
+          stdout: "",
+        }),
         "/repo"
       )
     ).rejects.toThrow("code 128");

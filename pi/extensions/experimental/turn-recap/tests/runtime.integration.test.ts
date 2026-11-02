@@ -12,6 +12,7 @@ import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import type { AgentSessionHarnessOptions } from "../../../../tests/harness/agent-session.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { toolRenderContext } from "../../../../tests/harness/tool-rendering.js";
 import {
   createIdentityTheme,
   createMockTui,
@@ -100,7 +101,11 @@ const setup = async (
       harness.session.extensionRunner.getEntryRenderer(ENTRY_TYPE);
 
     return entry?.type === "custom" && renderer
-      ? (renderer(entry, { expanded: false }, createIdentityTheme())
+      ? (renderer(
+          entry,
+          { ...toolRenderContext(), expanded: false },
+          createIdentityTheme()
+        )
           ?.render(120)
           .join("\n") ?? "")
       : "";

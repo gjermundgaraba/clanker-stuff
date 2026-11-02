@@ -40,8 +40,12 @@ export const systemText = (
   (system === undefined ? "" : getSystemMessageText(system)) || undefined;
 
 /** Pi's own preamble, the start of every prompt pi renders without a custom prompt. */
-export const PI_PREAMBLE =
-  "You are an expert coding assistant operating inside pi";
+export const PI_PREAMBLE = "You are a coding assistant running inside pi";
+
+const PI_PREAMBLES = [
+  PI_PREAMBLE,
+  "You are an expert coding assistant operating inside pi",
+] as const;
 
 const PI_SECTIONS = new Set(["tools", "rules", "docs", "cwd"]);
 
@@ -72,29 +76,31 @@ const labelFor = (name: string): string => {
     : `the ${name} section`;
 };
 
-const preambleAtLineStart = (text: string): number => {
-  for (
-    let offset = text.indexOf(PI_PREAMBLE);
-    offset !== -1;
-    offset = text.indexOf(PI_PREAMBLE, offset + PI_PREAMBLE.length)
-  ) {
-    if (offset === 0 || text[offset - 1] === "\n") {
-      return offset;
+const preambleAtLineStart = (text: string) => {
+  for (const preamble of PI_PREAMBLES) {
+    for (
+      let offset = text.indexOf(preamble);
+      offset !== -1;
+      offset = text.indexOf(preamble, offset + preamble.length)
+    ) {
+      if (offset === 0 || text[offset - 1] === "\n") {
+        return { preamble, offset };
+      }
     }
   }
 
-  return -1;
+  return undefined;
 };
 
 const assertSendable = (parts: readonly PromptPart[]): void => {
   const findings: string[] = [];
 
   for (const { label, text } of parts) {
-    const offset = preambleAtLineStart(text);
+    const preambleMatch = preambleAtLineStart(text);
 
-    if (offset !== -1) {
+    if (preambleMatch !== undefined) {
       findings.push(
-        `pi's preamble ("${PI_PREAMBLE}") in ${label}, at offset ${offset} of ${text.length} chars`
+        `pi's preamble ("${preambleMatch.preamble}") in ${label}, at offset ${preambleMatch.offset} of ${text.length} chars`
       );
     }
 
@@ -155,7 +161,10 @@ export const forwardedPrompt = (
       continue;
     }
 
-    if (name === "preamble" && value.startsWith(PI_PREAMBLE)) {
+    if (
+      name === "preamble" &&
+      PI_PREAMBLES.some((preamble) => value.startsWith(preamble))
+    ) {
       continue;
     }
 

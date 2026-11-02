@@ -1,4 +1,4 @@
-import { Type, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxProvider } from "@earendil-works/pi-ai";
 import type {
   EntryRenderer,
   ExtensionAPI,
@@ -9,6 +9,7 @@ import type {
   ToolDefinition,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
 

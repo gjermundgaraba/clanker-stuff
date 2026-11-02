@@ -2,7 +2,6 @@ import { inspect } from "node:util";
 
 import {
   InMemoryCredentialStore,
-  Type,
   fauxAssistantMessage,
   validateToolArguments,
 } from "@earendil-works/pi-ai";
@@ -46,6 +45,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { vi } from "vite-plus/test";
 

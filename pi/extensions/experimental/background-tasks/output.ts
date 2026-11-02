@@ -1,4 +1,3 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -10,18 +9,23 @@ export const taskSummarySchema = Type.Object(
     id: Type.String(),
     name: Type.String(),
     pid: Type.Optional(Type.Integer()),
-    status: StringEnum([
-      "running",
-      "completed",
-      "result",
-      "result_missing",
-      "process_error",
-      "spawn_error",
-      "protocol_error",
-      "timeout",
-      "cancelled",
-    ] as const),
-    cleanup: StringEnum(["pending", "clean", "failed"] as const),
+    status: Type.Enum(
+      [
+        "running",
+        "completed",
+        "result",
+        "result_missing",
+        "process_error",
+        "spawn_error",
+        "protocol_error",
+        "timeout",
+        "cancelled",
+      ] as const,
+      { type: "string" }
+    ),
+    cleanup: Type.Enum(["pending", "clean", "failed"] as const, {
+      type: "string",
+    }),
     startedAt: Type.Number(),
     endedAt: Type.Optional(Type.Number()),
     exitCode: Type.Optional(Type.Union([Type.Integer(), Type.Null()])),

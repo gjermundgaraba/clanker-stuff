@@ -113,6 +113,24 @@ describe("the third-party gate", () => {
     );
   });
 
+  it("rejects the previous pi preamble in resumed or replaced prompts", () => {
+    const previous = "You are an expert coding assistant operating inside pi";
+
+    expect(
+      forwardedPrompt({
+        role: "system",
+        content: "",
+        sections: { preamble: previous },
+        timestamp: 0,
+      })
+    ).toBeUndefined();
+    expect(() =>
+      forwardedPrompt(
+        piSystem({ forceSystemPrompt: `Custom text\n${previous}` })
+      )
+    ).toThrow(/pi's preamble/u);
+  });
+
   it("refuses pi's whole prompt sent as a replacement", () => {
     const harness = buildSystemPromptState({ cwd: "/repo" });
     const rendered = Object.values(harness.sections ?? {}).join("\n\n");

@@ -50,6 +50,8 @@ describe(parseConfig, () => {
     { protocols: { "*": "v2" }, version: 2 },
     { max_concurrent_threads_per_session: 0, version: 2 },
     { wake_on_final_answer: "yes", version: 2 },
+    { delegation: "automatic", version: 2 },
+    { roles: { reviewer: { thinking: "automatic" } }, version: 2 },
     { roles: { "My Role": {} }, version: 2 },
     { roles: { reviewer: { nicknames: ["Scout"] } }, version: 2 },
   ])("rejects retired or invalid configuration %j", (value) => {

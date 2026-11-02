@@ -8,6 +8,10 @@ const createFourLines = () => new Text("one\ntwo\nthree\nfour", 0, 0);
 
 const createThreeLines = () => new Text("one\ntwo\nthree", 0, 0);
 
+const hints = {
+  keyHint: (_key: string, description: string) => `custom-key ${description}`,
+};
+
 describe("tool preview", () => {
   beforeAll(() => {
     initTheme("dark");
@@ -25,6 +29,7 @@ describe("tool preview", () => {
       const component = preview(
         () => ({ invalidate() {}, render: () => rows }),
         false,
+        hints,
         5,
         edge
       );
@@ -37,26 +42,30 @@ describe("tool preview", () => {
   });
 
   it("clips heads and tails with the hint beside the omitted rows", () => {
-    const head = preview(createFourLines, false, 2)
+    const head = preview(createFourLines, false, hints, 2)
       .render(80)
       .map((row) => row.trimEnd());
 
-    const tail = preview(createFourLines, false, 2, "tail")
+    const tail = preview(createFourLines, false, hints, 2, "tail")
       .render(80)
       .map((row) => row.trimEnd());
 
     expect(head.slice(0, 2)).toStrictEqual(["one", "two"]);
     expect(head[2]).toContain("2 more lines");
-    expect(head[2]).toContain("to expand");
+    expect(head[2]).toContain("custom-key to expand");
     expect(tail.slice(1)).toStrictEqual(["three", "four"]);
     expect(tail[0]).toContain("2 earlier lines");
   });
 
   it("shows every expanded row and does not hint when the content fits", () => {
-    expect(preview(createThreeLines, true, 1).render(80)).toHaveLength(3);
-    expect(preview(createThreeLines, false, 3).render(80)).toHaveLength(3);
+    expect(preview(createThreeLines, true, hints, 1).render(80)).toHaveLength(
+      3
+    );
+    expect(preview(createThreeLines, false, hints, 3).render(80)).toHaveLength(
+      3
+    );
     expect(
-      preview(createThreeLines, false, 3).render(80).join("\n")
+      preview(createThreeLines, false, hints, 3).render(80).join("\n")
     ).not.toContain("to expand");
   });
 
@@ -64,6 +73,7 @@ describe("tool preview", () => {
     const component = preview(
       () => new Text(`中文 ${"word ".repeat(100)}`, 0, 0),
       false,
+      hints,
       3
     );
 
@@ -79,22 +89,26 @@ describe("tool preview", () => {
     let creations = 0;
     let renders = 0;
 
-    const component = preview(() => {
-      creations += 1;
-      const container = new Container();
-      container.addChild(new Text(`${color}hello\u001B[0m`, 0, 0));
+    const component = preview(
+      () => {
+        creations += 1;
+        const container = new Container();
+        container.addChild(new Text(`${color}hello\u001B[0m`, 0, 0));
 
-      return {
-        invalidate: () => {
-          container.invalidate();
-        },
-        render(width) {
-          renders += 1;
+        return {
+          invalidate: () => {
+            container.invalidate();
+          },
+          render(width) {
+            renders += 1;
 
-          return container.render(width);
-        },
-      };
-    }, false);
+            return container.render(width);
+          },
+        };
+      },
+      false,
+      hints
+    );
 
     const first = component.render(80);
     expect(component.render(80)).toBe(first);

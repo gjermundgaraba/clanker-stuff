@@ -60,6 +60,10 @@ export const readGitDetails = async (
     { cwd, timeout: GIT_TIMEOUT_MS }
   );
 
+  if (result.truncated) {
+    throw new Error("git status output exceeded Pi's buffer limit");
+  }
+
   if (result.killed) {
     throw new Error(`git status timed out after ${GIT_TIMEOUT_MS}ms`);
   }

@@ -1,4 +1,4 @@
-import { keyHint } from "@earendil-works/pi-coding-agent";
+import type { KeybindingHints } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 
@@ -6,6 +6,7 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 export const preview = (
   create: () => Component,
   expanded: boolean,
+  hints: Pick<KeybindingHints, "keyHint">,
   limit = 5,
   edge: "head" | "tail" = "head"
 ): Component => {
@@ -27,7 +28,7 @@ export const preview = (
 
       if (!expanded && rows.length > limit) {
         const tail = edge === "tail";
-        const hint = `… ${rows.length - limit} ${tail ? "earlier" : "more"} lines · ${keyHint("app.tools.expand", "to expand")}`;
+        const hint = `… ${rows.length - limit} ${tail ? "earlier" : "more"} lines · ${hints.keyHint("app.tools.expand", "to expand")}`;
         rows = tail
           ? [hint, ...rows.slice(-limit)]
           : [...rows.slice(0, limit), hint];

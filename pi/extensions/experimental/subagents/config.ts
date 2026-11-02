@@ -4,7 +4,6 @@ import { readFile } from "node:fs/promises";
 import {
   getSupportedThinkingLevels,
   modelsAreEqual,
-  StringEnum,
 } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -24,7 +23,7 @@ const THINKING_LEVELS = [
   "max",
 ] as const;
 
-export const ThinkingSchema = StringEnum(THINKING_LEVELS);
+export const ThinkingSchema = Type.Enum(THINKING_LEVELS, { type: "string" });
 
 const RoleSchema = Type.Object(
   {
@@ -38,7 +37,9 @@ const RoleSchema = Type.Object(
 
 const SubagentsConfigSchema = Type.Object(
   {
-    delegation: Type.Optional(StringEnum(["explicit", "proactive"] as const)),
+    delegation: Type.Optional(
+      Type.Enum(["explicit", "proactive"] as const, { type: "string" })
+    ),
     max_concurrent_threads_per_session: Type.Optional(
       Type.Integer({ minimum: 1 })
     ),

@@ -91,12 +91,21 @@ describe("registerTaskTools", () => {
       return result.structuredContent;
     };
 
+    await expect(
+      host.runTool(
+        "task_start",
+        { name: "invalid", command: process.execPath, protocol: "events-v2" },
+        { ctx }
+      )
+    ).rejects.toThrow(/Validation failed for tool "task_start"/u);
+
     const started = Value.Parse(
       taskSummarySchema,
       await call("task_start", {
         name: "running",
         command: process.execPath,
         args: ["-e", "setInterval(()=>{},1000)"],
+        protocol: "events-v1",
       })
     );
 
