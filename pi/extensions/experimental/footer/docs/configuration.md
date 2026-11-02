@@ -21,7 +21,6 @@ The default layout:
   ],
   "border": [
     "status:ask-question",
-    "status:vim",
     "status:background-tasks.pending",
     "status:background-tasks.active"
   ],

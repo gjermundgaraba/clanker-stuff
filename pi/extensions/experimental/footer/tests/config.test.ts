@@ -103,7 +103,7 @@ describe(parseFooterConfig, () => {
   });
 
   it("accepts built-ins in the border", () => {
-    const border = ["footer.session", "status:vim"];
+    const border = ["footer.session", "status:ask-question"];
 
     expect(parseFooterConfig(text({ border })).border).toStrictEqual(border);
   });
@@ -123,8 +123,8 @@ describe(parseFooterConfig, () => {
     [
       "a duplicate",
       text({
-        border: ["status:vim"],
-        rows: [{ left: ["status:vim"], right: [] }],
+        border: ["status:ask-question"],
+        rows: [{ left: ["status:ask-question"], right: [] }],
       }),
       "listed twice",
     ],

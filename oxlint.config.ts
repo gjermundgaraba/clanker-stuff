@@ -64,11 +64,7 @@ export default config({
       },
     },
     {
-      files: [
-        "pi/extensions/experimental/codemode-diffs/renderer.ts",
-        "pi/extensions/experimental/vim/core/commands.ts",
-        "pi/extensions/experimental/vim/tests/core/document.test.ts",
-      ],
+      files: ["pi/extensions/experimental/codemode-diffs/renderer.ts"],
       rules: { "node/callback-return": "off" },
     },
     {

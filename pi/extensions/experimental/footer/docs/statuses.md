@@ -8,4 +8,4 @@ Extensions publish footer and border values with Pi's `ctx.ui.setStatus(key, tex
 
 The footer renders statuses as Pi's footer does: line breaks and tabs become spaces, and styling is closed before the next widget. Styled text keeps the colors of the theme that was active when it was set until the producer publishes again.
 
-Any extension's `setStatus` key can be placed. The default layout places `status:usage` in the second footer row; `status:ask-question`, `status:vim`, `status:background-tasks.pending`, and `status:background-tasks.active` in the editor border; and every other status in `footer.statuses`.
+Any extension's `setStatus` key can be placed. The default layout places `status:usage` in the second footer row; `status:ask-question`, `status:background-tasks.pending`, and `status:background-tasks.active` in the editor border; and every other status in `footer.statuses`.

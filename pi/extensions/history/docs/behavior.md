@@ -6,7 +6,7 @@ History is global across projects and stored as text in `<agent-dir>/data/histor
 
 Every session seeds Pi's editor with the latest 100 distinct saved prompts. Pi handles ↑/↓, multiline cursor movement, autocomplete, and draft restoration normally. When Pi starts in a resumed session, it adds that session's own prompts on top. Native history is a startup snapshot: prompts saved by other running sessions reach ↑/↓ in the next session.
 
-Recall uses this repository's shared native editor, alongside dollah-skills and Vim. With another editor installed, ↑/↓ recall is unavailable; search, recording, and importing still work.
+Recall uses this repository's shared native editor, alongside dollah-skills. With another editor installed, ↑/↓ recall is unavailable; search, recording, and importing still work.
 
 ## Search
 

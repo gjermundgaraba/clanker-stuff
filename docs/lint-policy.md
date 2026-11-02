@@ -129,7 +129,7 @@ The overrides `oxlint.config.ts` passes to the shared preset, and why each exist
 - **`unicorn/prefer-code-point` off for tool-rendering's `text.ts`.** A JSON `\uXXXX` escape encodes one UTF-16 code unit, so `charCodeAt` is the right call.
 - **`unicorn/prefer-dom-node-remove` off for the subagents transcript.** pi-tui's `Container.removeChild` is not a DOM node method.
 - **`class-methods-use-this` with `ignoreClassesWithImplements`.** These classes implement Pi's `Component` or the runtime interface their fakes stand in for, so a method stays an instance method even when it ignores `this`.
-- **`node/callback-return` off for three files.** Their `next` is a domain function, the vim document's next cell or Pi's renderer chain, not a Node callback, so `return next(...)` would be wrong.
+- **`node/callback-return` off for the diff renderer.** Its `next` is Pi's renderer chain, not a Node callback, so `return next(...)` would be wrong.
 - **`no-unmodified-loop-condition` off for claude-bridge's prompt stream.** The loop condition reads `done` and `failure`, which `end()` and `fail()` set while the loop awaits.
 - **`unicorn/prefer-spread` off for turn-recap's conversation and its runtime test.** They count code points: `Array.from(text)` trips `prefer-spread`, and `[...text]` trips `typescript/no-misused-spread`.
 - **`unicorn/prefer-single-call` off for three test files.** Their fakes' `push` takes one message by contract (the SDK query, the watch decoder); the rule reads them as `Array#push`.

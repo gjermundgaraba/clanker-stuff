@@ -142,7 +142,7 @@ describe(layoutFooter, () => {
           { left: ["footer.statuses"], right: [] },
         ],
         {
-          border: ["status:vim"],
+          border: ["status:ask-question"],
           hidden: ["status:noise"],
         }
       ),
@@ -150,7 +150,7 @@ describe(layoutFooter, () => {
         new Map([
           ["zeta", "Z"],
           ["pinned", "P"],
-          ["vim", "NORMAL"],
+          ["ask-question", "WAITING"],
           ["noise", "N"],
           ["alpha", "A"],
           ["empty", " \n "],
@@ -189,9 +189,9 @@ const border = (text: string) => text;
 
 describe(renderBorder, () => {
   it("replaces only trailing rule cells, in configured order", () => {
-    const line = renderBorder(rule(30), 30, ["✉ 1", "NORMAL"], theme, border);
+    const line = renderBorder(rule(30), 30, ["✉ 1", "READY"], theme, border);
 
-    expect(stripTerminalSequences(line)).toBe(`${rule(15)} ✉ 1 · NORMAL ─`);
+    expect(stripTerminalSequences(line)).toBe(`${rule(16)} ✉ 1 · READY ─`);
     expect(visibleWidth(line)).toBe(30);
   });
 

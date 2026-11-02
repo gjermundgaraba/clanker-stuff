@@ -207,16 +207,16 @@ describe("footer host", () => {
 
   it("draws border statuses into the editor top border and keeps them out of footer.statuses", async () => {
     const footer = await start();
-    footer.statuses.set("vim", "NORMAL");
+    footer.statuses.set("ask-question", "WAITING");
     footer.statuses.set("other", "elsewhere");
 
-    expect(footer.border()).toContain("NORMAL ─");
+    expect(footer.border()).toContain("WAITING ─");
     expect(footer.render()).toContain("elsewhere");
-    expect(footer.render()).not.toContain("NORMAL");
+    expect(footer.render()).not.toContain("WAITING");
 
     await footer.host.emitSessionShutdown(footer.ctx);
 
-    expect(footer.border()).not.toContain("NORMAL");
+    expect(footer.border()).not.toContain("WAITING");
     expect(
       footer.setFooter,
       "Pi removes the custom footer itself after shutdown handlers"
@@ -228,31 +228,31 @@ describe("footer host", () => {
       ui: { getEditorComponent: () => vi.fn<EditorFactory>() },
     });
 
-    footer.statuses.set("vim", "NORMAL");
+    footer.statuses.set("ask-question", "WAITING");
 
-    expect(footer.render()).toContain("NORMAL");
+    expect(footer.render()).toContain("WAITING");
 
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
     expect(footer.host.getNotifications().at(-1)?.message).toContain(
-      "status:vim · footer.statuses: NORMAL"
+      "status:ask-question · footer.statuses: WAITING"
     );
   });
 
   it("lists border statuses in footer.statuses after another editor takes over", async () => {
     const footer = await start();
-    footer.statuses.set("vim", "NORMAL");
+    footer.statuses.set("ask-question", "WAITING");
 
-    expect(footer.render()).not.toContain("NORMAL");
+    expect(footer.render()).not.toContain("WAITING");
 
     footer.ctx.ui.setEditorComponent(vi.fn<EditorFactory>());
 
-    expect(footer.render()).toContain("NORMAL");
+    expect(footer.render()).toContain("WAITING");
 
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
     expect(footer.host.getNotifications().at(-1)?.message).toContain(
-      "status:vim · footer.statuses: NORMAL"
+      "status:ask-question · footer.statuses: WAITING"
     );
   });
 
@@ -337,11 +337,11 @@ describe("footer host", () => {
     const footer = await start({
       config: withRows(
         [{ left: ["footer.cwd", "example.missing"], right: [] }],
-        ["status:vim"]
+        ["status:ask-question"]
       ),
     });
 
-    footer.statuses.set("vim", "INSERT");
+    footer.statuses.set("ask-question", "WAITING");
 
     await footer.host.runCommand("footer", "inspect", footer.ctx);
 
@@ -353,6 +353,6 @@ describe("footer host", () => {
     expect(inspect?.message).toContain(
       "example.missing · row 1 left · not present"
     );
-    expect(inspect?.message).toContain("status:vim · border: INSERT");
+    expect(inspect?.message).toContain("status:ask-question · border: WAITING");
   });
 });
