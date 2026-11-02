@@ -178,6 +178,7 @@ export const snapshot = (): Snapshot => ({
       cost: 0.33,
       reports: 1,
       reasoningReports: 1,
+      providerCostReports: 0,
     },
     toolCalls: 3,
     toolErrors: 1,

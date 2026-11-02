@@ -209,8 +209,10 @@ describe("turn-recap registrations", () => {
       );
 
     expect(render(snapshot())).toContain("Completed in 1.5s");
-    expect(render(snapshot())).not.toContain("Reported cost");
-    expect(render(snapshot(), true)).toContain("Reported cost");
+    expect(render(snapshot())).not.toContain("Cost $");
+    expect(render(snapshot(), true)).toContain(
+      "Cost $0.3300 (includes estimates)"
+    );
     expect(render({ ...snapshot(), activeMs: 900 })).toContain(
       "Completed in 1.5s"
     );

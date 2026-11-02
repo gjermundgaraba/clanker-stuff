@@ -110,7 +110,7 @@ describe("transcript card", () => {
     const data = withRecap({
       status: "ready",
       text: "Done",
-      usage: snapshot().metrics.usage,
+      usage: { ...snapshot().metrics.usage, providerCostReports: 1 },
     });
 
     const detailed = card(data, true, 120).join("\n");
@@ -119,10 +119,10 @@ describe("transcript card", () => {
       "3 tools · 370 processed · Context +400 (≈1.0k/10.0k, 10.0%) · 1 compaction"
     );
     expect(detailed).toContain(
-      "Reported cost $0.3300 · Reasoning 10 (included in output)"
+      "Cost $0.3300 (includes estimates) · Reasoning 10 (included in output)"
     );
     expect(detailed).toContain(
-      "Recap only: 370 tokens · $0.3300 reported (excluded above)"
+      "Recap only: 370 tokens · $0.3300 (provider-reported; excluded above)"
     );
     expect(detailed).toContain(
       "Input 100 · Output 50 · Cache read 200 · Cache write 20"
@@ -132,8 +132,35 @@ describe("transcript card", () => {
     expect(detailed).toMatch(/\n {2}Started \d/u);
     expect(detailed).toContain("Models: provider/model");
     expect(detailed.match(/context/giu)).toHaveLength(1);
-    expect(card(data).join("\n")).not.toContain("Reported cost");
+    expect(card(data).join("\n")).not.toContain("Cost $");
     expect(card(data).join("\n")).not.toContain("Model 0.9s");
+  });
+
+  it.each([
+    { reports: 0, provider: 0, label: "no usage" },
+    { reports: 2, provider: 0, label: "includes estimates" },
+    { reports: 2, provider: 2, label: "provider-reported" },
+    {
+      reports: 2,
+      provider: 1,
+      label: "mixed: provider-reported and estimated",
+    },
+    { reports: 2, provider: undefined, label: "source unknown" },
+    { reports: 2, provider: 3, label: "source unknown" },
+  ])("labels cost provenance as $label", ({ reports, provider, label }) => {
+    const data = snapshot();
+    data.metrics.usage.reports = reports;
+    data.metrics.usage.cost = reports === 0 ? 0 : 0.33;
+    delete data.metrics.usage.providerCostReports;
+
+    if (provider !== undefined) {
+      data.metrics.usage.providerCostReports = provider;
+    }
+
+    const rendered = card({ data }, true, 140).join("\n");
+    expect(rendered).toContain(
+      `Cost $${data.metrics.usage.cost.toFixed(4)} (${label})`
+    );
   });
 
   it("names a single tool call in the singular", () => {

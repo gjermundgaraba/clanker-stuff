@@ -38,6 +38,7 @@ import {
   createRecapConfigFile,
   queuedStream,
   sampleUsage,
+  snapshot,
   fontManifest,
   measuredResponse,
   userMessage,
@@ -326,13 +327,44 @@ describe("turn recap runtime", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("restores recaps into their cards after a reload", async () => {
-    const env = await started(() => fauxAssistantMessage("Restored recap"));
+  it("restores recaps and their cost provenance after a reload", async () => {
+    const usage = sampleUsage();
+
+    const env = await started(() => ({
+      ...fauxAssistantMessage("Restored recap"),
+      usage: { ...usage, cost: { ...usage.cost, totalFromProvider: true } },
+    }));
+
     env.runtime.begin(env.ctx);
     appendTurn(env.session, 1);
     await env.runtime.settled({ aborted: false }, env.ctx);
     await env.reload();
     expect(env.card()).toContain("Restored recap");
+    expect(env.card(true)).toContain(
+      "$0.3300 (provider-reported; excluded above)"
+    );
+  });
+
+  it("restores older cards and recaps without inventing cost provenance", async () => {
+    const env = await started();
+    const legacy = snapshot();
+    delete legacy.metrics.usage.providerCostReports;
+    env.session.appendCustomEntry(ENTRY_TYPE, legacy);
+    env.session.appendCustomEntry(RECAP_ENTRY_TYPE, {
+      runId: legacy.runId,
+      recap: {
+        status: "ready",
+        text: "Older recap",
+        usage: legacy.metrics.usage,
+      },
+    });
+
+    await env.reload();
+    expect(env.card(true)).toContain("Cost $0.3300 (source unknown)");
+    expect(env.card(true)).toContain("Older recap");
+    expect(env.card(true)).toContain(
+      "$0.3300 (source unknown; excluded above)"
+    );
   });
 
   it("keeps timing across retries", async () => {

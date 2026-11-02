@@ -8,7 +8,7 @@ import { sanitizeRecapText } from "./conversation.js";
 import { SnapshotSchema } from "./entry.js";
 import type { Recap, Snapshot } from "./entry.js";
 import { totalTokens } from "./metrics.js";
-import type { Metrics } from "./metrics.js";
+import type { Metrics, ReportedUsage } from "./metrics.js";
 import { formatElapsed } from "./timing.js";
 
 type Foreground = Pick<Theme, "fg">;
@@ -25,6 +25,26 @@ const compact = new Intl.NumberFormat("en", {
 
 const number = (value: number): string =>
   value < 1000 ? String(value) : compact.format(value).replace("K", "k");
+
+const costSource = (usage: ReportedUsage): string => {
+  if (usage.reports === 0) {
+    return "no usage";
+  }
+
+  const reported = usage.providerCostReports;
+
+  if (reported === undefined || reported > usage.reports) {
+    return "source unknown";
+  }
+
+  if (reported === 0) {
+    return "includes estimates";
+  }
+
+  return reported === usage.reports
+    ? "provider-reported"
+    : "mixed: provider-reported and estimated";
+};
 
 const clock = (timestamp: number): string =>
   new Date(timestamp).toLocaleTimeString(undefined, {
@@ -208,7 +228,7 @@ export const renderCard = (
   add(
     theme.fg(
       "muted",
-      `Reported cost $${usage.cost.toFixed(4)} · Reasoning ${reasoning}`
+      `Cost $${usage.cost.toFixed(4)} (${costSource(usage)}) · Reasoning ${reasoning}`
     )
   );
 
@@ -216,7 +236,7 @@ export const renderCard = (
     add(
       theme.fg(
         "dim",
-        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} reported (excluded above)`
+        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} (${costSource(recap.usage)}; excluded above)`
       )
     );
   }
