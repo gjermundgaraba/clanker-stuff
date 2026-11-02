@@ -20,6 +20,4 @@ Source identities and baseline revisions live in `SKILL.md` metadata; licenses t
 
 ## Helper requirements and validation
 
-Skills with a `package.json` declare their helper dependencies. `vp install` supplies these in this repository; standalone installations must follow the skill's setup instructions, such as the [product-description helper](product-description/README.md).
-
 `vp run ready` includes the Python diagram and librarian suites as well as JavaScript/TypeScript helper tests. Python helpers require Python 3.10 or newer; `vp run check:skills` runs just the Python suites.
