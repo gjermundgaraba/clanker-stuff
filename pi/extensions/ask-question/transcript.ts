@@ -68,7 +68,6 @@ const callHeading = (
   return preview(
     () =>
       new Text(theme.fg("toolTitle", `${line}${displayText(expanded)}`), 0, 0),
-    context.expanded,
     context
   );
 };
@@ -167,11 +166,10 @@ export const renderResult: NonNullable<
   return preview(
     () =>
       new Text(
-        theme.fg(color, displayText(options.expanded ? text : summary)),
+        theme.fg(color, displayText(context.expanded ? text : summary)),
         0,
         0
       ),
-    options.expanded,
     context
   );
 };

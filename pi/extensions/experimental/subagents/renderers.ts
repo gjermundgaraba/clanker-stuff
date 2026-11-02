@@ -174,7 +174,6 @@ export const agentRenderers = (name: string): Renderers => ({
 
         return new Text(lines.join("\n"), 0, 0);
       },
-      context.expanded,
       context,
       3
     );
@@ -185,9 +184,7 @@ export const agentRenderers = (name: string): Renderers => ({
     const output = new Container();
 
     const add = (draw: () => string, limit = 5) => {
-      output.addChild(
-        preview(() => new Text(draw(), 0, 0), options.expanded, context, limit)
-      );
+      output.addChild(preview(() => new Text(draw(), 0, 0), context, limit));
     };
 
     const raw = () => {
@@ -310,7 +307,7 @@ export const agentRenderers = (name: string): Renderers => ({
       });
 
       if (agents.length > 0) {
-        add(() => listing(theme, agents, options.expanded).join("\n"), 8);
+        add(() => listing(theme, agents, context.expanded).join("\n"), 8);
       }
     }
 
@@ -363,7 +360,6 @@ export const mailRenderer: MessageRenderer = (message, options, theme) => {
     box.addChild(
       preview(
         () => new Markdown(body, 2, 0, getMarkdownTheme()),
-        options.expanded,
         options,
         PREVIEW_ROWS[envelope.kind]
       )

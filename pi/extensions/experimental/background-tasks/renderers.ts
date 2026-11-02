@@ -105,7 +105,6 @@ export const taskRenderers = (name: string): Renderers => ({
 
         return new Text(lines.join("\n"), 0, 0);
       },
-      context.expanded,
       context,
       3
     );
@@ -121,13 +120,7 @@ export const taskRenderers = (name: string): Renderers => ({
       edge: "head" | "tail" = "head"
     ) => {
       output.addChild(
-        preview(
-          () => new Text(draw(), 0, 0),
-          options.expanded,
-          context,
-          limit,
-          edge
-        )
+        preview(() => new Text(draw(), 0, 0), context, limit, edge)
       );
     };
 
@@ -152,7 +145,10 @@ export const taskRenderers = (name: string): Renderers => ({
 
     const warn = (warning: string) => {
       output.addChild(
-        preview(() => new Text(theme.fg("error", warning), 0, 0), true, context)
+        preview(() => new Text(theme.fg("error", warning), 0, 0), {
+          ...context,
+          expanded: true,
+        })
       );
     };
 
@@ -190,7 +186,7 @@ export const taskRenderers = (name: string): Renderers => ({
 
     add(() => taskLine(task, theme));
 
-    if (options.expanded) {
+    if (context.expanded) {
       const metadata = [
         task.pid === undefined ? "" : `PID ${task.pid}`,
         task.endedAt === undefined
@@ -231,7 +227,7 @@ export const taskRenderers = (name: string): Renderers => ({
         )
       );
 
-      if (options.expanded && events.length) {
+      if (context.expanded && events.length) {
         add(() =>
           events
             .map(

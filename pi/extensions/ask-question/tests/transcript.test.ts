@@ -211,7 +211,10 @@ describe("compact questionnaire transcript", () => {
     expect(collapsed).not.toContain("q_test");
     expect(collapsed).not.toContain("END_NOTE");
     expect(
-      renderResult(result, { expanded: true, isPartial: false }, theme, context)
+      renderResult(result, { expanded: true, isPartial: false }, theme, {
+        ...context,
+        expanded: true,
+      })
         .render(100)
         .join("\n")
     ).toContain("END_NOTE");

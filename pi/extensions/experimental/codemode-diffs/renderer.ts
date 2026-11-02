@@ -73,7 +73,6 @@ export const resolveRenderer = (
 
             return body;
           },
-          options.expanded,
           context,
           12
         )

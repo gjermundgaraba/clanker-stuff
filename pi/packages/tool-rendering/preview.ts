@@ -5,8 +5,7 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 /** Bound visual rows, recreating themed content after invalidation. */
 export const preview = (
   create: () => Component,
-  expanded: boolean,
-  hints: Pick<KeybindingHints, "keyHint">,
+  view: { readonly expanded: boolean } & Pick<KeybindingHints, "keyHint">,
   limit = 5,
   edge: "head" | "tail" = "head"
 ): Component => {
@@ -26,9 +25,9 @@ export const preview = (
       child ??= create();
       let rows = child.render(width);
 
-      if (!expanded && rows.length > limit) {
+      if (!view.expanded && rows.length > limit) {
         const tail = edge === "tail";
-        const hint = `… ${rows.length - limit} ${tail ? "earlier" : "more"} lines · ${hints.keyHint("app.tools.expand", "to expand")}`;
+        const hint = `… ${rows.length - limit} ${tail ? "earlier" : "more"} lines · ${view.keyHint("app.tools.expand", "to expand")}`;
         rows = tail
           ? [hint, ...rows.slice(-limit)]
           : [...rows.slice(0, limit), hint];
