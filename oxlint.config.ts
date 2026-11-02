@@ -135,7 +135,6 @@ export default config({
     {
       files: [
         "pi/evals/**/*.{js,mjs}",
-        "pi/extensions/ask-question/tests/lifecycle.integration.test.ts",
         "pi/extensions/experimental/claude-bridge/json.ts",
         "pi/extensions/experimental/claude-bridge/log.ts",
         "pi/extensions/experimental/claude-bridge/machine/conversation.ts",

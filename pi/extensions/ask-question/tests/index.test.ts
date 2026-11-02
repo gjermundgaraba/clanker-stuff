@@ -9,27 +9,25 @@ import {
 } from "../../../tests/harness/tui.js";
 import { Coordinator } from "../coordinator.js";
 import extension from "../index.js";
-import {
-  QuestionnaireParameters,
-  RevisionParameters,
-  validateQuestionnaire,
-  validateRevision,
-} from "../request.js";
+import { QuestionnaireParameters, validateQuestionnaire } from "../request.js";
 
 describe("questionnaire contract", () => {
-  it.each(["request_user_input", "request_user_input_async"])(
-    "%s rejects invalid requests at the tool boundary",
-    async (name) => {
+  it.each([true, false])(
+    "rejects invalid requests at the tool boundary with wait: %s",
+    async (wait) => {
       const host = createExtensionHost(extension);
       await host.ready;
       const question = { id: "q", header: "Question", question: "Proceed?" };
 
       await expect(
-        host.runTool(name, { questions: [question, question] })
+        host.runTool("request_user_input", {
+          wait,
+          questions: [question, question],
+        })
       ).rejects.toThrow("Duplicate question ID");
-      await expect(host.runTool(name, { questions: [] })).rejects.toThrow(
-        "Invalid questionnaire arguments"
-      );
+      await expect(
+        host.runTool("request_user_input", { wait, questions: [] })
+      ).rejects.toThrow("Invalid questionnaire arguments");
     }
   );
 
@@ -60,7 +58,7 @@ describe("questionnaire contract", () => {
 
     const asking = host.runTool(
       "request_user_input",
-      { questions: [question] },
+      { wait: true, questions: [question] },
       { ctx }
     );
 
@@ -72,7 +70,7 @@ describe("questionnaire contract", () => {
     );
   });
 
-  it("registers the question tools with schemas strict sampling can represent", async () => {
+  it("registers one question tool with a schema strict sampling can represent", async () => {
     const host = createExtensionHost(extension);
     await host.ready;
 
@@ -96,55 +94,31 @@ describe("questionnaire contract", () => {
         renders: true,
         strict: true,
       },
-      {
-        executionMode: "sequential",
-        name: "request_user_input_async",
-        parameters: QuestionnaireParameters,
-        renders: true,
-        strict: true,
-      },
-      {
-        executionMode: "sequential",
-        name: "revise_user_input",
-        parameters: RevisionParameters,
-        renders: true,
-        strict: true,
-      },
     ]);
   });
 
   it("owns the limits the structural schemas no longer carry", () => {
     const question = { id: "q1", header: "Tests", question: "Which test?" };
 
-    expect(validateQuestionnaire({ questions: [question] })).toStrictEqual({
-      questions: [question],
-    });
     expect(
-      validateRevision({
-        interaction_id: "i1",
-        base_revision: 1,
-        reason: "Update",
-      })
-    ).toStrictEqual({
-      interaction_id: "i1",
-      base_revision: 1,
-      reason: "Update",
-    });
+      validateQuestionnaire({ wait: false, questions: [question] })
+    ).toStrictEqual({ wait: false, questions: [question] });
 
     for (const invalid of [
       {},
-      { questions: [] },
+      { questions: [question] },
+      { wait: true, questions: [] },
       {
+        wait: true,
         questions: Array.from({ length: 6 }, (_, i) => ({
           ...question,
           id: `q${i}`,
         })),
       },
-      { questions: [{ ...question, id: "1-leading-digit" }] },
-      { questions: [{ ...question, header: "x".repeat(65) }] },
-      { questions: [{ ...question, options: [] }] },
-      { questions: [question], unknown: true },
-      { questions: [{ title: "Retired shape" }] },
+      { wait: true, questions: [{ ...question, id: "1-leading-digit" }] },
+      { wait: true, questions: [{ ...question, header: "x".repeat(65) }] },
+      { wait: true, questions: [{ ...question, options: [] }] },
+      { wait: true, questions: [question], unknown: true },
     ]) {
       expect(() => validateQuestionnaire(invalid)).toThrow(
         "Invalid questionnaire arguments"
@@ -153,6 +127,7 @@ describe("questionnaire contract", () => {
 
     expect(() =>
       validateQuestionnaire({
+        wait: true,
         questions: [
           {
             ...question,
@@ -162,21 +137,5 @@ describe("questionnaire contract", () => {
         ],
       })
     ).toThrow(/Invalid recommendation/u);
-
-    for (const invalid of [
-      {},
-      { interaction_id: "i1", base_revision: 0, reason: "Update" },
-      { interaction_id: "i1", base_revision: 1, reason: " " },
-      {
-        interaction_id: "i1",
-        base_revision: 1,
-        reason: "Update",
-        questions: [question],
-      },
-    ]) {
-      expect(() => validateRevision(invalid)).toThrow(
-        /^(?:Invalid revision arguments|Revision reason must not be blank)/u
-      );
-    }
   });
 });

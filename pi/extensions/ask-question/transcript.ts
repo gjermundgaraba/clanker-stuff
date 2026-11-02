@@ -1,175 +1,107 @@
 import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
-  MarkdownTransformer,
+  MessageRenderer,
+  Theme,
   ThemeColor,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 
-import { AnswerEnvelopeSchema, parseAnswerMessage } from "./delivery.js";
-import type { AnswerEnvelope } from "./delivery.js";
-import type { Mode } from "./interaction.js";
-import type { QuestionnaireSchema, RevisionSchema } from "./request.js";
-import {
-  escapeMarkdown,
-  markdownText,
-  plainText,
-  submissionRows,
-} from "./summary.js";
+import { readOutcome } from "./delivery.js";
+import type { Outcome } from "./delivery.js";
+import type { QuestionnaireSchema } from "./request.js";
+import { answersRows, plainText } from "./summary.js";
 
-const supersedes = (revision: number) =>
-  revision > 1 ? ` · supersedes revision ${revision - 1}` : "";
+type Definition = ToolDefinition<typeof QuestionnaireSchema>;
 
-const envelopeRows = (envelope: AnswerEnvelope) =>
-  submissionRows(
-    envelope.answers,
-    envelope.note,
-    envelope.revision > 1 ? envelope.changed : undefined
-  );
+const oneLine = (text: string) => displayText(text).replaceAll(/\s+/gu, " ");
 
-export const transformAnswerMarkdown: MarkdownTransformer = (
-  markdown,
+export const renderCall: NonNullable<Definition["renderCall"]> = (
+  args,
+  theme,
   context
 ) => {
-  const envelope =
-    context.messageType === "user" ? parseAnswerMessage(markdown) : undefined;
+  const count = Array.isArray(args.questions) ? args.questions.length : 0;
 
-  if (!envelope) {
-    return markdown;
-  }
+  const heading = oneLine(
+    `${args.title ?? "Questionnaire"} · ${args.wait ? "waiting" : "async"} · ${count} question${count === 1 ? "" : "s"}`
+  );
 
-  const heading =
-    `**${escapeMarkdown(envelope.title ?? "Questionnaire")}** · answered · revision ${envelope.revision}` +
-    `${supersedes(envelope.revision)}\\\n/answers to inspect or revise`;
-
-  return markdownText(heading, envelopeRows(envelope));
-};
-
-type CallRenderer = NonNullable<
-  ToolDefinition<typeof QuestionnaireSchema>["renderCall"]
->;
-
-type ReviseCallRenderer = NonNullable<
-  ToolDefinition<typeof RevisionSchema>["renderCall"]
->;
-
-const callHeading = (
-  heading: string,
-  argsJson: string,
-  theme: Parameters<CallRenderer>[1],
-  context: Pick<Parameters<CallRenderer>[2], "expanded" | "keyHint">
-) => {
-  const expanded = context.expanded ? `\n${argsJson}` : "";
-  const line = displayText(heading).replaceAll(/\s+/gu, " ");
+  const expanded = context.expanded
+    ? `\n${displayText(JSON.stringify(args, null, 2))}`
+    : "";
 
   return preview(
-    () =>
-      new Text(theme.fg("toolTitle", `${line}${displayText(expanded)}`), 0, 0),
+    () => new Text(theme.fg("toolTitle", `${heading}${expanded}`), 0, 0),
     context
   );
 };
 
-export const renderCall = (
-  args: Parameters<CallRenderer>[0],
-  theme: Parameters<CallRenderer>[1],
-  context: Parameters<CallRenderer>[2],
-  mode: Mode
+const STATUS: Record<Outcome["status"], { text: string; color: ThemeColor }> = {
+  answered: { text: "✓ Answered", color: "success" },
+  pending: {
+    text: "Pending · not answered yet · /answers to answer",
+    color: "muted",
+  },
+  closed: {
+    text: "Closed without answering · draft kept · run stopped · /answers to resume",
+    color: "warning",
+  },
+  dismissed: { text: "Dismissed · not answered", color: "warning" },
+};
+
+const outcomeText = (details: Outcome, theme: Theme, titled: boolean) => {
+  const status = STATUS[details.status];
+  const title = titled ? `${oneLine(details.title ?? "Questionnaire")} · ` : "";
+  const heading = theme.fg(status.color, `${title}${status.text}`);
+
+  return details.answers
+    ? `${heading}\n${theme.fg("toolOutput", plainText(answersRows(details.answers)))}`
+    : heading;
+};
+
+export const renderResult: NonNullable<Definition["renderResult"]> = (
+  result,
+  options,
+  theme,
+  context
 ) => {
-  const count = Array.isArray(args.questions) ? args.questions.length : 0;
-  const title = args.title ?? "Questionnaire";
+  const details = readOutcome(result.details);
 
-  return callHeading(
-    `${title} · ${mode} · ${count} question${count === 1 ? "" : "s"}`,
-    JSON.stringify(args, null, 2),
-    theme,
-    context
-  );
-};
-
-export const renderReviseCall = (
-  args: Parameters<ReviseCallRenderer>[0],
-  theme: Parameters<ReviseCallRenderer>[1],
-  context: Pick<Parameters<ReviseCallRenderer>[2], "expanded" | "keyHint">,
-  titleOf: (interactionId: string) => string | undefined
-) => {
-  const title = titleOf(args.interaction_id) ?? "Questionnaire";
-
-  return callHeading(
-    `${title} · revision request`,
-    JSON.stringify(args, null, 2),
-    theme,
-    context
-  );
-};
-
-const ReceiptDisplaySchema = Type.Object({
-  accepted: Type.Optional(Type.Boolean()),
-  status: Type.Optional(Type.String()),
-});
-
-const STATUS_LABELS = new Map([
-  ["cancelled", "Cancelled by the user · nothing answered · run stopped"],
-  [
-    "closed",
-    "Closed without answering · draft kept · run stopped · /answers to resume",
-  ],
-  ["pending", "Pending · not answered yet · /answers to answer"],
-]);
-
-const resultSummary = (text: string): string => {
-  let details: unknown;
-
-  try {
-    details = JSON.parse(text);
-  } catch {
-    return text;
-  }
-
-  if (Value.Check(AnswerEnvelopeSchema, details)) {
-    return `Answered · revision ${details.revision}${supersedes(details.revision)}\n${plainText(envelopeRows(details))}`;
-  }
-
-  if (Value.Check(ReceiptDisplaySchema, details)) {
-    const status =
-      details.accepted === true ? "pending" : (details.status ?? "");
-
-    return STATUS_LABELS.get(status) ?? (status || text);
-  }
-
-  return text;
-};
-
-export const renderResult: NonNullable<
-  ToolDefinition<
-    typeof QuestionnaireSchema | typeof RevisionSchema
-  >["renderResult"]
-> = (result, options, theme, context) => {
   const text = result.content
     .filter((c) => c.type === "text")
-    .map((c) => c.text)
+    .map((c) => displayText(c.text))
     .join("\n");
 
-  const summary =
-    context.isError || options.isPartial ? text : resultSummary(text);
-
-  let color: ThemeColor = "toolOutput";
+  let body = theme.fg("toolOutput", text);
 
   if (context.isError) {
-    color = "error";
+    body = theme.fg("error", text);
   } else if (options.isPartial) {
-    color = "warning";
+    body = theme.fg("warning", text);
+  } else if (details) {
+    body = outcomeText(details, theme, false);
+  }
+
+  return preview(() => new Text(body, 0, 0), context);
+};
+
+/** Renders answers and dismissals that arrived as messages, from their own details. */
+export const renderOutcomeMessage: MessageRenderer = (
+  message,
+  options,
+  theme
+) => {
+  const details = readOutcome(message.details);
+
+  if (!details) {
+    return;
   }
 
   return preview(
-    () =>
-      new Text(
-        theme.fg(color, displayText(context.expanded ? text : summary)),
-        0,
-        0
-      ),
-    context
+    () => new Text(outcomeText(details, theme, true), options.outputPad, 0),
+    options,
+    12
   );
 };

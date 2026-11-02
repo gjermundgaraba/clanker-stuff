@@ -17,14 +17,14 @@ import type {
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 
-import type { Action, Draft, Interaction } from "../interaction.js";
-import { answered, revisedSubmission } from "../interaction.js";
+import type { Outcome } from "../delivery.js";
+import type { Action, Fields, Interaction } from "../interaction.js";
+import { answered } from "../interaction.js";
 import { MAX_NOTE, MAX_TEXT } from "../request.js";
 import type { Question } from "../request.js";
 import { intent, keyLabel } from "./input.js";
 import {
   Viewport,
-  diffText,
   optionDetailText,
   optionLines,
   padded,
@@ -35,22 +35,24 @@ import {
   textLines,
 } from "./render.js";
 
-export type FormOutcome = "submitted" | "closed" | "cancelled" | "stopped";
+/** A submitted or dismissed outcome; "closed" keeps the draft; "stopped" means the view was aborted. */
+export type FormResult = Outcome | "closed" | "stopped";
 
 export interface FormPort {
   mutate: (action: Action) => Interaction;
   current: () => Interaction;
   subscribe: (listener: () => void) => () => void;
-  send: (revision: number) => void;
-  blocking: boolean;
+  /** Submits or dismisses the draft and returns the outcome. */
+  finish: (kind: "submit" | "dismiss") => Outcome;
+  /** Whether a tool call is waiting for this questionnaire. */
+  waiting: boolean;
   setFlush: (flush: () => void) => void;
-  notify: (text: string) => void;
   report: (cause: unknown) => void;
 }
 
 type Field =
   | { type: "custom"; question: string }
-  | { type: "note"; question?: string; option?: string };
+  | { type: "note"; question: string; option?: string };
 
 export class QuestionnaireView {
   private item: Interaction;
@@ -58,14 +60,11 @@ export class QuestionnaireView {
   private highlight = 0;
   private readonly viewport = new Viewport();
   private readonly markdown = new Map<string, Markdown>();
-  private detail:
-    | { title: string; text: string; markdown: boolean }
-    | undefined;
+  private detail: { title: string; text: string } | undefined;
   private editor:
     | { component: Editor; field: Field; initial: string; limit: number }
     | undefined;
   private hint = "";
-  private armedCancel = false;
   private finished = false;
   private readonly unsubscribe: () => void;
   private _focused = false;
@@ -82,7 +81,7 @@ export class QuestionnaireView {
   private readonly theme: Theme;
   private readonly keys: KeybindingsManager;
   private readonly port: FormPort;
-  private readonly done: (result: FormOutcome) => void;
+  private readonly done: (result: FormResult) => void;
   private readonly signal: AbortSignal;
 
   constructor(
@@ -91,7 +90,7 @@ export class QuestionnaireView {
     keys: KeybindingsManager,
     item: Interaction,
     port: FormPort,
-    done: (result: FormOutcome) => void,
+    done: (result: FormResult) => void,
     signal: AbortSignal
   ) {
     this.tui = tui;
@@ -103,7 +102,7 @@ export class QuestionnaireView {
     this.item = item;
 
     const open = item.request.questions.findIndex(
-      (q) => !item.draft || !answered(item.draft.answers[q.id])
+      (q) => !answered(item.draft?.[q.id])
     );
 
     this.go(open === -1 ? item.request.questions.length : open);
@@ -186,7 +185,7 @@ export class QuestionnaireView {
     const { questions } = this.item.request;
     this.question = Math.max(0, Math.min(index, questions.length));
     const q = questions[this.question];
-    const a = q && this.item.draft?.answers[q.id];
+    const a = q && this.item.draft?.[q.id];
 
     const selected =
       q?.options?.findIndex((o) => a?.selected.includes(o.id) === true) ?? -1;
@@ -203,7 +202,7 @@ export class QuestionnaireView {
   }
   private choose(index: number, toggle = false): void {
     const q = this.item.request.questions[this.question];
-    const draft = q && this.item.draft?.answers[q.id];
+    const draft = q && this.item.draft?.[q.id];
 
     if (!q || !draft) {
       throw new Error("No editable question");
@@ -227,18 +226,14 @@ export class QuestionnaireView {
       this.go(this.question + 1);
     }
   }
-  private finish(outcome: FormOutcome): void {
+  private finish(result: FormResult): void {
     if (this.finished) {
       return;
     }
 
-    if (outcome !== "stopped") {
-      this.saveField();
-    }
-
     this.finished = true;
     this.dispose();
-    this.done(outcome);
+    this.done(result);
   }
   handleInput(data: string): void {
     if (this.finished) {
@@ -291,9 +286,6 @@ export class QuestionnaireView {
       !!this.detail || this.question < this.item.request.questions.length
     );
 
-    const confirmCancel = this.armedCancel && action === "key:x";
-    this.armedCancel = false;
-
     if (action === "page_up" || action === "page_down") {
       this.viewport.pages(action === "page_up" ? -1 : 1);
 
@@ -319,16 +311,8 @@ export class QuestionnaireView {
       return;
     }
 
-    if (action === "key:x") {
-      if (!confirmCancel) {
-        this.armedCancel = true;
-        this.hint = `Press x again to cancel this request and discard the draft${this.port.blocking ? " · the run stops" : ""}`;
-
-        return;
-      }
-
-      this.change({ type: "cancel" });
-      this.finish("cancelled");
+    if (action === "key:d") {
+      this.finish(this.port.finish("dismiss"));
 
       return;
     }
@@ -351,34 +335,6 @@ export class QuestionnaireView {
       return;
     }
 
-    if (action === "key:g") {
-      this.edit({ type: "note" }, this.item.draft?.note ?? "");
-
-      return;
-    }
-
-    if (action === "key:i") {
-      this.detail = {
-        title: "Request details",
-        text: `ID: ${this.item.id}\nCreated: ${this.item.created_at}${this.item.draft?.reason !== undefined && this.item.draft.reason !== "" ? `\nRevision requested: ${this.item.draft.reason}` : ""}`,
-        markdown: false,
-      };
-      this.viewport.scroll = 0;
-
-      return;
-    }
-
-    if (action === "key:d") {
-      this.detail = {
-        title: "Revision comparison",
-        text: diffText(this.item),
-        markdown: false,
-      };
-      this.viewport.scroll = 0;
-
-      return;
-    }
-
     const q = this.item.request.questions[this.question];
 
     if (!q) {
@@ -388,30 +344,8 @@ export class QuestionnaireView {
         return;
       }
 
-      if (action === "confirm" || action === "key:k") {
-        this.change({ type: "submit" });
-
-        if (!this.port.blocking) {
-          try {
-            if (action === "key:k") {
-              this.port.notify(
-                "Answers saved, not sent · /answers to send them"
-              );
-            } else {
-              const submission = this.item.submissions.at(-1);
-
-              if (!submission) {
-                throw new Error("A submitted questionnaire has a submission");
-              }
-
-              this.port.send(submission.revision);
-            }
-          } catch (error) {
-            this.port.report(error);
-          }
-        }
-
-        this.finish("submitted");
+      if (action === "confirm") {
+        this.finish(this.port.finish("submit"));
       }
 
       return;
@@ -438,14 +372,14 @@ export class QuestionnaireView {
         return;
       }
 
-      this.detail = { title: option.label, text, markdown: true };
+      this.detail = { title: option.label, text };
       this.viewport.scroll = 0;
 
       return;
     }
 
     if (action === "key:n") {
-      const a = this.item.draft?.answers[q.id];
+      const a = this.item.draft?.[q.id];
 
       if (!a) {
         throw new Error("No editable question");
@@ -482,7 +416,7 @@ export class QuestionnaireView {
 
     if (action === "confirm") {
       if (q.multi_select === true && option) {
-        if (!answered(this.item.draft?.answers[q.id])) {
+        if (!answered(this.item.draft?.[q.id])) {
           throw new Error("Select at least one answer before advancing");
         }
 
@@ -497,7 +431,7 @@ export class QuestionnaireView {
       (q) => q.id === questionId
     );
 
-    const a = this.item.draft?.answers[questionId];
+    const a = this.item.draft?.[questionId];
 
     if (index === -1 || !a) {
       return;
@@ -522,10 +456,9 @@ export class QuestionnaireView {
     const confirm = keyLabel(this.keys, "tui.select.confirm");
     const close = keyLabel(this.keys, "tui.select.cancel");
     const scrollKeys = `${keyLabel(this.keys, "tui.select.pageUp")}/${keyLabel(this.keys, "tui.select.pageDown")}`;
-    const base = revisedSubmission(this.item)?.revision;
 
     const common = {
-      title: `${this.item.request.title ?? "Questionnaire"}${base === undefined ? "" : ` · revising revision ${base}`}`,
+      title: this.item.request.title ?? "Questionnaire",
       closeKey: close,
       rows: this.tui.terminal.rows,
       width,
@@ -558,9 +491,7 @@ export class QuestionnaireView {
           "accent",
           this.theme.bold(truncateToWidth(this.detail.title, width))
         ),
-        body: this.detail.markdown
-          ? this.markdownLines(this.detail.text, width)
-          : textLines(this.detail.text, width),
+        body: this.markdownLines(this.detail.text, width),
         footer: `${close}/${confirm} Back · ↑↓/j/k/${scrollKeys} Scroll`,
         hint: this.hint,
       });
@@ -571,12 +502,12 @@ export class QuestionnaireView {
         ...common,
         header: progressLine(this.item, this.question, width, this.theme),
         body: textLines(reviewText(this.item), width),
-        footer: `${confirm} ${this.port.blocking ? "Submit answers" : "Send answers"}${this.port.blocking ? "" : " · k Save without sending"} · ${close} Close · x Cancel\n${this.port.blocking ? "" : "Send starts/steers a turn · "}1–5 Edit · ←/h Back · g Form note${base === undefined ? "" : " · d Changes"} · i Details`,
+        footer: `${confirm} ${this.port.waiting ? "Submit answers" : "Send answers (starts or steers a turn)"} · ${close} Close\n1–5 Edit · ←/h Back · d Dismiss`,
         hint: this.hint,
       });
     }
 
-    const a = this.item.draft?.answers[q.id];
+    const a = this.item.draft?.[q.id];
 
     if (!a) {
       throw new Error("No editable question");
@@ -602,7 +533,7 @@ export class QuestionnaireView {
       header: progressLine(this.item, this.question, width, this.theme),
       context: this.contextLines(q, width),
       answers: this.questionBody(q, a, this.highlight, width),
-      footer: `${confirm} ${primary}${q.multi_select === true ? " · Space Toggle" : ""} · ${close} Close · x Cancel\n${scrollKeys} Context · ↑↓/j/k Move · ←→/h/l Questions · n Note · g Form note${hasDetails ? " · p Details" : ""} · i Details${base === undefined ? "" : " · d Changes"}`,
+      footer: `${confirm} ${primary}${q.multi_select === true ? " · Space Toggle" : ""} · ${close} Close · d Dismiss\n${scrollKeys} Context · ↑↓/j/k Move · ←→/h/l Questions · r Review · n Note${hasDetails ? " · p Details" : ""}`,
       hint: this.hint,
     });
   }
@@ -619,13 +550,7 @@ export class QuestionnaireView {
   private contextLines(q: Question, width: number): string[] {
     const lines: string[] = [];
 
-    for (const context of [
-      this.item.draft?.reason !== undefined && this.item.draft.reason !== ""
-        ? `**Revision requested:** ${this.item.draft.reason}`
-        : undefined,
-      this.item.request.context,
-      q.context,
-    ]) {
+    for (const context of [this.item.request.context, q.context]) {
       if (context !== undefined) {
         lines.push(...this.markdownLines(context, width), "");
       }
@@ -638,10 +563,6 @@ export class QuestionnaireView {
     return lines;
   }
   private static editorLabel(field: Field, q: Question | undefined): string {
-    if (field.question === undefined) {
-      return "Questionnaire note";
-    }
-
     if (field.type === "custom") {
       return q?.question ?? "Written answer";
     }
@@ -654,31 +575,15 @@ export class QuestionnaireView {
   }
   private questionBody(
     q: Question,
-    a: Draft["answers"][string],
+    a: Fields,
     highlight: number,
     width: number
   ): string[] {
-    const lines = [
+    return [
       ...textLines(q.question, width),
       "",
       ...optionLines(q, a, highlight, width, this.theme),
     ];
-
-    if (this.item.draft?.note !== undefined && this.item.draft.note !== "") {
-      lines.push(
-        "",
-        this.theme.fg(
-          "muted",
-          truncateToWidth(
-            `Questionnaire note: ${displayText(this.item.draft.note).split("\n")[0]}`,
-            width,
-            "…"
-          )
-        )
-      );
-    }
-
-    return lines;
   }
   invalidate(): void {
     this.markdown.clear();
@@ -695,11 +600,11 @@ export const showQuestionnaire = async (
   item: Interaction,
   signal: AbortSignal,
   port: FormPort
-): Promise<FormOutcome> =>
-  await ctx.ui.custom<FormOutcome>(
+): Promise<FormResult> =>
+  await ctx.ui.custom<FormResult>(
     (tui, theme, keys, done) =>
       new QuestionnaireView(tui, theme, keys, item, port, done, signal),
-    port.blocking
+    port.waiting
       ? {
           blocked: {
             kind: "question",

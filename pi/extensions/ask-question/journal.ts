@@ -7,9 +7,9 @@ import { Value } from "typebox/value";
 import { RequestRecordSchema, StateRecordSchema } from "./interaction.js";
 import type { Interaction, RequestRecord } from "./interaction.js";
 
-export const REQUEST_TYPE = "questionnaire.request";
+export const REQUEST_TYPE = "ask-question.request";
 
-export const STATE_TYPE = "questionnaire.state";
+export const STATE_TYPE = "ask-question.state";
 
 type Writer = Pick<ExtensionAPI, "appendEntry">;
 
@@ -18,7 +18,7 @@ export const recordRequest = (pi: Writer, item: Interaction): void => {
     id: item.id,
     request: item.request,
     created_at: item.created_at,
-    origin_tool_call_id: item.origin_tool_call_id,
+    tool_call_id: item.tool_call_id,
   });
 };
 
@@ -26,12 +26,12 @@ export const recordState = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(STATE_TYPE, {
     id: item.id,
     updated_at: item.updated_at,
-    cancelled: item.cancelled,
+    status: item.status,
     ...(item.draft ? { draft: item.draft } : {}),
-    submissions: item.submissions,
   });
 };
 
+/** Rebuilds the questionnaires still open on the active branch. */
 export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
   const requests = new Map<string, RequestRecord>();
   const items = new Map<string, Interaction>();
@@ -55,6 +55,12 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
       if (request) {
         items.set(request.id, { ...request, ...entry.data });
       }
+    }
+  }
+
+  for (const [id, item] of items) {
+    if (!item.draft) {
+      items.delete(id);
     }
   }
 

@@ -11,6 +11,7 @@ import {
 } from "../journal.js";
 
 const request = {
+  wait: false,
   questions: [
     {
       id: "q",
@@ -35,9 +36,9 @@ const session = () => {
 };
 
 describe("questionnaire journal", () => {
-  it("stores the request once and restores the last state joined to it", () => {
+  it("stores the request once and restores the last state of open questionnaires", () => {
     const { sm, pi } = session();
-    const created = createInteraction("q_test", request, "call", "async");
+    const created = createInteraction("q_open", request, "call");
     recordRequest(pi, created);
     recordState(pi, created);
 
@@ -48,8 +49,17 @@ describe("questionnaire journal", () => {
     });
 
     recordState(pi, selected);
-    const submitted = transition(selected, { type: "submit" });
-    recordState(pi, submitted);
+
+    const answered = createInteraction("q_answered", request, "call2");
+    recordRequest(pi, answered);
+    recordState(pi, answered);
+    recordState(
+      pi,
+      transition(
+        transition(answered, { type: "select", question: "q", option: "yes" }),
+        { type: "submit" }
+      )
+    );
 
     const types = sm
       .getBranch()
@@ -59,19 +69,25 @@ describe("questionnaire journal", () => {
       REQUEST_TYPE,
       STATE_TYPE,
       STATE_TYPE,
+      REQUEST_TYPE,
+      STATE_TYPE,
       STATE_TYPE,
     ]);
-    expect(replay(sm.getBranch()).get("q_test")).toStrictEqual(submitted);
+
+    const items = replay(sm.getBranch());
+
+    expect([...items.keys()]).toStrictEqual(["q_open"]);
+    expect(items.get("q_open")).toStrictEqual(selected);
   });
 
   it("skips unreadable entries and states without a request instead of blocking recovery", () => {
     const { sm, pi } = session();
-    const item = createInteraction("q_kept", request, "call", "async");
+    const item = createInteraction("q_kept", request, "call");
     recordRequest(pi, item);
     recordState(pi, item);
     sm.appendCustomEntry(STATE_TYPE, { id: "q_kept", retired: true });
     sm.appendCustomEntry(REQUEST_TYPE, { id: "q_broken" });
-    recordState(pi, createInteraction("q_orphan", request, "call", "async"));
+    recordState(pi, createInteraction("q_orphan", request, "call"));
 
     const items = replay(sm.getBranch());
 

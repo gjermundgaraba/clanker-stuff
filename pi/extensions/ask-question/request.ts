@@ -15,13 +15,7 @@ export const MAX_TEXT = 4000;
 
 export const MAX_NOTE = 1000;
 
-const id = (description?: string) =>
-  Type.String({
-    pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
-    ...(description === undefined ? {} : { description }),
-  });
-
-export const Id = id();
+export const Id = Type.String({ pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" });
 
 const text = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 
@@ -65,13 +59,12 @@ export const QuestionSchema = Type.Object(
 
 export const QuestionnaireSchema = Type.Object(
   {
+    wait: Type.Boolean({
+      description:
+        "true waits for the answers. false returns a pending receipt at once; the answers arrive later as a user message",
+    }),
     title: Type.Optional(text(256)),
     context: Type.Optional(text(12_000)),
-    linked_interaction_id: Type.Optional(
-      id(
-        "interaction_id of an earlier questionnaire in this session that this one follows up on. Omit for a standalone questionnaire; never invent one"
-      )
-    ),
     questions: Type.Array(QuestionSchema, {
       minItems: 1,
       maxItems: MAX_QUESTIONS,
@@ -80,30 +73,11 @@ export const QuestionnaireSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const RevisionSchema = Type.Object(
-  {
-    interaction_id: id(
-      "interaction_id returned with the answers being reopened"
-    ),
-    base_revision: Type.Integer({
-      minimum: 1,
-      description:
-        "Latest submitted revision of that questionnaire, as returned with its answers. A stale revision is rejected",
-    }),
-    reason: text(2000),
-  },
-  { additionalProperties: false }
-);
-
 export const QuestionnaireParameters = structuralSchema(QuestionnaireSchema);
-
-export const RevisionParameters = structuralSchema(RevisionSchema);
 
 export type Questionnaire = Static<typeof QuestionnaireSchema>;
 
 export type Question = Static<typeof QuestionSchema>;
-
-export type Revision = Static<typeof RevisionSchema>;
 
 export const validateQuestionnaire = (input: unknown): Questionnaire => {
   if (!Value.Check(QuestionnaireSchema, input)) {
@@ -155,16 +129,4 @@ export const validateQuestionnaire = (input: unknown): Questionnaire => {
   }
 
   return request;
-};
-
-export const validateRevision = (input: unknown): Revision => {
-  if (!Value.Check(RevisionSchema, input)) {
-    throw invalidArguments(RevisionSchema, input, "revision");
-  }
-
-  if (!displayText(input.reason).trim()) {
-    throw new Error("Revision reason must not be blank");
-  }
-
-  return structuredClone(input);
 };

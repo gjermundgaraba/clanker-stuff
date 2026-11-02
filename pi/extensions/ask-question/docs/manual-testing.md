@@ -29,17 +29,10 @@ Task prompt:
 Tester checks:
 
 - The agent chooses a blocking questionnaire with valid IDs, genuine multi-select, structured recommendations and dedicated Markdown previews; no authored Other option or preselection.
-- Verify available context appears above the question without a toggle; open a preview without choosing. Select against a recommendation, attach an option note, and add a questionnaire-wide constraint. Complete Review explicitly.
+- The agent sets `wait: true`. Verify available context appears above the question without a toggle; open a preview without choosing. Select against a recommendation and attach notes to two chosen options. Complete Review explicitly.
 - The resulting plan follows selections and both notes, rather than substituting recommended answers or treating notes as execution permission.
 
-Follow-up prompt after completion:
-
-> I want to reconsider the metadata choice. Reopen the same questionnaire, keeping its questions, other choices and notes. After I submit, explain only what changes in the design.
-
-- The agent obtains the interaction identity and latest revision from its own context and uses a revision request, not a duplicate form.
-- Revise a choice. Verify preserved answers, the superseding revision and a focused reconsideration of affected work.
-
-### 2. Async boundaries, written answers and linked follow-ups
+### 2. Async boundaries, written answers and dismissal
 
 Task prompt:
 
@@ -47,17 +40,16 @@ Task prompt:
 
 Tester checks:
 
-- The agent chooses async without being told its name. The pending receipt is not an answer; it completes only independent work.
-- Open `/answers`, choose hosting, and enter multiline constraints that include an unresolved requirement and explicitly withhold deployment approval.
-- Submit but keep in the inbox first: no answer reaches the model. Then explicitly Send; confirm that the UI warns this can start a turn.
-- The displayed answer contains selections and notes without a JSON dump. Canonical history and model context still contain the original envelope. Reload and inspect the same message again.
+- The agent sets `wait: false` without being told the field. The pending receipt is not an answer; it completes only independent work.
+- Open `/answers`, choose hosting, and enter multiline constraints that include an unresolved requirement and explicitly withhold deployment approval. Review names the action **Send answers** and warns that it starts or steers a turn.
+- The displayed answer contains selections and notes without a JSON dump. Canonical history and model context still contain the complete object. Reload and inspect the same message again.
 - The agent incorporates the written constraints without inventing approval or treating pending legal/operational questions as settled.
 
 Follow-up prompt:
 
-> Now ask different questions: which monitoring services to shortlist, allowing several, and my budget in my own words. Keep this connected to the earlier questionnaire without replacing those answers. I can answer now; wait before refining the plan.
+> Ask me which monitoring services to shortlist, allowing several. I will answer later; meanwhile, list what the dashboard should alert on.
 
-- The agent authors a new linked request, rather than changing the original questions through a revision.
+- While the agent works, open `/answers` and press `d`. The agent learns the questionnaire was dismissed, not answered, and does not invent a shortlist.
 
 ### 3. Questionnaire limits and complete collection
 
@@ -75,15 +67,15 @@ Use any naturally authored form above. These are operator actions, not instructi
 - Open an option note, type text, then rapidly press editor-submit followed by an option number. The number must select an option, not leak into the saved note.
 - Write an answer and press editor-submit: the question completes and the form advances. Reopen the row, edit, then press selection-cancel: the edit is discarded and the saved answer remains.
 - Rapidly open an editor and type or paste: initial characters must not disappear. Numbers and shortcut letters inside a paste stay text.
-- Try multiline input, default and remapped completion bindings, over-limit text, and Stop with an open editor. Over-limit text cannot be saved but can always be discarded with selection-cancel; completing a field never submits the questionnaire. Press `x` once (a hint asks for confirmation), then any other key: nothing is cancelled.
+- Try multiline input, default and remapped completion bindings, over-limit text, and Stop with an open editor. Over-limit text cannot be saved but can always be discarded with selection-cancel; completing a field never submits the questionnaire.
 - Test both separate Herdr key events without artificial pacing and a batched key command. Use bracketed paste for text. Compare with physical typing when available; do not claim physical-keyboard verification from injected input alone.
 - Verify the tab row (also for a single question), distinct focused/selected markers and note excerpts. Highlight an option with a description, recommendation or preview and press `p`: one scrollable details page must contain all available auxiliary content. Open a note with `n`: a focused editor page must name the target; saving or discarding returns to the answer list. Move between questions with `h`/`l` and into Review; each view should size naturally to its current content without exceeding the cap. Resize with a lower option focused and confirm the compact answer controls remain visible. Check that long labels, Unicode and remapped keys stay within the frame.
-- Open the inbox: questionnaires awaiting you are listed first, sent and cancelled ones below a separator; titles/progress should be readable without IDs; Enter opens directly. Review should omit empty notes and repeated recommendations. Reopen a submission: it opens on Review with the superseded revision in its title; change one answer and inspect Changes: unchanged questions should not repeat. Request IDs and submission provenance remain available through Details.
-- With long Markdown context, verify the context has its own viewport above the pinned compact question and answer rows. PageUp/PageDown must reach every context line in both directions on supported terminals (for example, 20 rows), including after resizing; moving the option highlight must not move or reset context. Verify the question footer shows the configured context-scrolling keys, including remapped bindings. Open and close option details, then save and discard an option note: returning to the question must not select an answer. Check revision reason, form context and question context appear in that order, questions without context have no empty context pane, and terminals too small for the compact controls show the explicit fallback instead of clipping them.
+- Open the inbox: only open questionnaires are listed; titles and progress should be readable without IDs; Enter opens directly. Review should omit empty notes and repeated recommendations.
+- With long Markdown context, verify the context has its own viewport above the pinned compact question and answer rows. PageUp/PageDown must reach every context line in both directions on supported terminals (for example, 20 rows), including after resizing; moving the option highlight must not move or reset context. Verify the question footer shows the configured context-scrolling keys, including remapped bindings. Open and close option details, then save and discard an option note: returning to the question must not select an answer. Check form context and question context appear in that order, questions without context have no empty context pane, and terminals too small for the compact controls show the explicit fallback instead of clipping them.
 - In `--tui-mode fullscreen`, verify the mouse wheel scrolls only while the pointer is over the context or auxiliary page viewport and never changes answers. In regular mode, verify PageUp/PageDown scrolls the form while native terminal mouse selection and transcript scrollback remain available.
 - Inspect the screen after each tested transition. Pacing can help operate a form, but must not be used to conceal an ordering failure.
-- For async messages, check selected-option notes, custom-answer notes, long multiline text and revisions. Nothing is silently truncated or interpreted as transcript markup, and no code fences or backslashes appear around the summary. Edited messages and answers restored alongside unrelated queued text remain verbatim.
-- Verify Stop/reload never sends an answer and that rendering alone never marks one sent. After Stop restores a queued answer to the editor, the inbox shows it as sent and offers **Send again**.
+- For async messages, check selected-option notes, custom-answer notes and long multiline text. Nothing is silently truncated or interpreted as transcript markup.
+- Verify Stop/reload never sends an answer. Send async answers while the agent is still running, then Stop before it reads them: a warning appears and `/answers` lists the questionnaire again with the submitted answers.
 
 ## If the agent gets it wrong
 

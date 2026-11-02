@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  awaitingUser,
   collectAnswers,
   createInteraction,
   transition,
@@ -12,6 +11,7 @@ import type { Action } from "../interaction.js";
 import type { Question } from "../request.js";
 
 const request = {
+  wait: true,
   questions: [
     {
       id: "target",
@@ -27,13 +27,17 @@ const request = {
 
 describe("questionnaire transitions", () => {
   it("requires explicit selection, retains deselected notes, and snapshots only selected answers", () => {
-    let item = createInteraction("question_test", request, "call1", "blocking");
+    let item = createInteraction("question_test", request, "call1");
 
     const apply = (a: Action) => {
       item = transition(item, a);
     };
 
     expect(() => collectAnswers(item)).toThrow("Answer required");
+    expect(() => {
+      apply({ type: "submit" });
+    }).toThrow("Answer required");
+    expect(item.status).toBe("open");
     apply({ type: "select", question: "target", option: "local" });
     apply({
       type: "note",
@@ -42,129 +46,64 @@ describe("questionnaire transitions", () => {
       text: "my local note",
     });
     apply({ type: "select", question: "target", option: "remote" });
-    expect(item.draft?.answers["target"]?.notes["local"]).toBe("my local note");
-    apply({ type: "note", text: "overall" });
-    apply({ type: "submit" });
-    expect(item.submissions[0]?.answers["target"]?.selections).toStrictEqual([
+    expect(item.draft?.["target"]?.notes["local"]).toBe("my local note");
+    expect(collectAnswers(item)["target"]?.selections).toStrictEqual([
       { option_id: "remote", label: "Remote" },
     ]);
-    expect(item.submissions[0]?.note).toBe("overall");
+    apply({ type: "submit" });
+    expect(item.status).toBe("answered");
+    expect(item.draft).toBeUndefined();
     expect(() => {
       apply({ type: "submit" });
-    }).toThrow("No editable draft");
+    }).toThrow("no longer open");
   });
 
-  it("reopens immutable revisions and rejects stale bases and concurrent reopens", () => {
-    let item = createInteraction("question_test", request, "call1", "async");
-
-    const apply = (a: Action) => {
-      item = transition(item, a);
-    };
-
-    apply({ type: "select", question: "target", option: "local" });
-    apply({ type: "submit" });
-    const original = structuredClone(item.submissions[0]);
-    apply({
-      type: "reopen",
-      base: 1,
-      initiated_by: "agent",
-      tool_call_id: "call2",
-      reason: "Reconsider",
-    });
-    expect(item.draft?.mode).toBe("async");
-    expect(() => {
-      apply({ type: "reopen", base: 1, initiated_by: "user", mode: "async" });
-    }).toThrow("already exists");
-    apply({ type: "custom", question: "target", text: "somewhere else" });
-    apply({ type: "submit" });
-    expect(item.submissions[0]).toStrictEqual(original);
-    expect(item.submissions[1]).toMatchObject({
-      revision: 2,
-      initiated_by: "agent",
-      reason: "Reconsider",
-      tool_call_id: "call2",
-    });
-    expect(() =>
-      transition(item, {
-        type: "reopen",
-        base: 1,
-        initiated_by: "user",
-        mode: "async",
-      })
-    ).toThrow("latest submission is revision 2");
-  });
-
-  it("awaits the user until every submission is sent, unless cancelled", () => {
-    let item = createInteraction("question_test", request, "call1", "async");
-    expect(awaitingUser(item)).toBe(true);
+  it("dismisses an open draft and restores one that was taken back", () => {
+    let item = createInteraction("question_test", request, "call1");
     item = transition(item, {
       type: "select",
       question: "target",
       option: "local",
     });
-    item = transition(item, { type: "submit" });
-    expect(awaitingUser(item)).toBe(true);
-    item = transition(
-      item,
-      { type: "sent", revision: 1 },
-      "2026-01-01T00:00:00.000Z"
-    );
-    expect(item.submissions[0]?.sent_at).toBe("2026-01-01T00:00:00.000Z");
-    expect(awaitingUser(item)).toBe(false);
-    expect(() => transition(item, { type: "sent", revision: 2 })).toThrow(
-      "Unknown submission"
-    );
-    item = transition(item, {
-      type: "reopen",
-      base: 1,
-      initiated_by: "user",
-      mode: "async",
-    });
-    expect(awaitingUser(item)).toBe(true);
-    item = transition(item, { type: "cancel" });
-    expect(awaitingUser(item)).toBe(false);
+    const { draft } = item;
+    assert.ok(draft);
+
+    const dismissed = transition(item, { type: "dismiss" });
+    expect(dismissed.status).toBe("dismissed");
+    expect(dismissed.draft).toBeUndefined();
+    expect(() =>
+      transition(dismissed, {
+        type: "select",
+        question: "target",
+        option: "remote",
+      })
+    ).toThrow("no longer open");
+
+    const answered = transition(item, { type: "submit" });
+    const restored = transition(answered, { type: "restore", draft });
+    expect(restored.status).toBe("open");
+    expect(restored.draft).toStrictEqual(draft);
   });
 
   it("rejects a persisted draft missing the question's answer record without mutating it", () => {
-    const item = createInteraction("question_test", request, "call1", "async");
+    const item = createInteraction("question_test", request, "call1");
     assert.ok(item.draft);
-    delete item.draft.answers["target"];
+    delete item.draft["target"];
     const before = structuredClone(item);
     expect(() =>
       transition(item, { type: "select", question: "target", option: "local" })
-    ).toThrow("Missing draft answer: target");
-    expect(item).toStrictEqual(before);
-  });
-
-  it("rejects reopening a persisted submission missing a question's answer record", () => {
-    let item = createInteraction("question_test", request, "call1", "async");
-    item = transition(item, {
-      type: "select",
-      question: "target",
-      option: "local",
-    });
-    item = transition(item, { type: "submit" });
-    const [submission] = item.submissions;
-    assert.ok(submission);
-    delete submission.answers["target"];
-    const before = structuredClone(item);
-    expect(() =>
-      transition(item, {
-        type: "reopen",
-        base: 1,
-        initiated_by: "user",
-        mode: "async",
-      })
-    ).toThrow("Missing submitted answer: target");
+    ).toThrow("Unknown question: target");
     expect(item).toStrictEqual(before);
   });
 
   it("keeps custom text separate from notes and allows multi-select combinations", () => {
     let item = createInteraction(
       "question_test",
-      { questions: [{ ...request.questions[0], multi_select: true }] },
-      "c",
-      "async"
+      {
+        ...request,
+        questions: [{ ...request.questions[0], multi_select: true }],
+      },
+      "c"
     );
 
     for (const action of [
@@ -185,6 +124,7 @@ describe("questionnaire transitions", () => {
     let item = createInteraction(
       "q_names",
       {
+        wait: true,
         questions: [
           {
             id: "constructor",
@@ -194,8 +134,7 @@ describe("questionnaire transitions", () => {
           },
         ],
       },
-      "c",
-      "blocking"
+      "c"
     );
 
     item = transition(item, {
@@ -203,9 +142,8 @@ describe("questionnaire transitions", () => {
       question: "constructor",
       option: "toString",
     });
-    item = transition(item, { type: "submit" });
-    expect(
-      Object.values(item.submissions[0]?.answers ?? {})[0]?.selections
-    ).toStrictEqual([{ option_id: "toString", label: "Safe" }]);
+    expect(Object.values(collectAnswers(item))[0]?.selections).toStrictEqual([
+      { option_id: "toString", label: "Safe" },
+    ]);
   });
 });

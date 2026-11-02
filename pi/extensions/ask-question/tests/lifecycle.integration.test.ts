@@ -8,27 +8,26 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
-  ExtensionFactory,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { toolRenderContext } from "../../../tests/harness/tool-rendering.js";
 import {
   createCustomUiDriver,
+  createIdentityTheme,
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
-import backgroundTasks from "../../experimental/background-tasks/index.js";
-import { WAKE_TYPE } from "../../experimental/background-tasks/protocol.js";
-import { AnswerEnvelopeSchema } from "../delivery.js";
+import { MESSAGE_TYPE } from "../delivery.js";
 import extension from "../index.js";
 import { STATE_TYPE } from "../journal.js";
 
 const question = {
+  wait: true,
   title: "Deploy target",
   questions: [
     {
@@ -57,8 +56,7 @@ const keys = createKeybindings({
 
 const setup = async (
   mode: ExtensionContext["mode"] = "tui",
-  persisted = true,
-  extra: ExtensionFactory[] = []
+  persisted = true
 ) => {
   initTheme("dark");
   const dir = mkdtempSync(path.join(tmpdir(), "question-lifecycle-"));
@@ -91,7 +89,7 @@ const setup = async (
   );
 
   const harness = await createAgentSessionHarness({
-    extensionFactories: [extension, ...extra],
+    extensionFactories: [extension],
     mode,
     uiContext,
     ...(persisted ? { sessionDir: dir } : {}),
@@ -131,112 +129,18 @@ const setup = async (
   };
 };
 
-type Env = Awaited<ReturnType<typeof setup>>;
+const asyncQuestion = { ...question, wait: false };
+
+const outcomeMessages = (env: Awaited<ReturnType<typeof setup>>) =>
+  env.harness
+    .messages()
+    .filter((m) => m.role === "custom" && m.customType === MESSAGE_TYPE);
+
+const toolResults = (env: Awaited<ReturnType<typeof setup>>) =>
+  env.harness.messages().filter((m) => m.role === "toolResult");
 
 describe("durable questionnaires in AgentSession", () => {
-  it("opens submitted answers directly and only revises on an explicit action", async () => {
-    const env = await setup();
-
-    try {
-      env.harness.setResponses([
-        fauxAssistantMessage(
-          fauxToolCall("request_user_input_async", question),
-          {
-            stopReason: "toolUse",
-          }
-        ),
-        fauxAssistantMessage("Independent work"),
-      ]);
-      await env.harness.prompt("Ask async");
-      const answering = env.harness.prompt("/answers");
-      await expect.poll(() => !!env.component).toBe(true);
-      await env.press("1", "k");
-      await answering;
-      const reviewing = env.harness.prompt("/answers");
-      await expect
-        .poll(() => env.component?.render(80).join("\n"))
-        .toContain("Read-only · revision 1");
-      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
-      const beforeDetails = JSON.stringify(env.checkpoint());
-      expect(env.component?.render(80).join("\n")).not.toContain("ID:");
-      await env.press("i");
-      expect(env.component?.render(80).join("\n")).toContain("ID:");
-      expect(env.component?.render(80).join("\n")).toContain("Requested by:");
-      await env.press("\u001B");
-      expect(env.component?.render(80).join("\n")).not.toContain("ID:");
-      expect(JSON.stringify(env.checkpoint())).toBe(beforeDetails);
-      await env.press("r");
-      await expect
-        .poll(() => env.component?.render(80).join("\n"))
-        .toContain("revising revision 1");
-      await env.press("1");
-      expect(env.component?.render(80).join("\n")).toContain("> (•) 1. Local");
-      await env.press("2", "k");
-      await reviewing;
-      const history = env.harness.prompt("/answers");
-      await expect
-        .poll(() => env.component?.render(80).join("\n"))
-        .toContain("Read-only · revision 2");
-      await env.press("\u001B[D");
-      expect(env.component?.render(80).join("\n")).toContain(
-        "Read-only · revision 1"
-      );
-      expect(env.component?.render(80).join("\n")).not.toContain("r Revise");
-      await env.press("r");
-      expect(env.component?.render(80).join("\n")).toContain(
-        "Read-only · revision 1"
-      );
-      await env.press("\u001B[C", "\u001B");
-      await history;
-      expect(env.select).toHaveBeenCalledTimes(3);
-      expect(
-        env.harness.messages().filter((m) => m.role === "user")
-      ).toHaveLength(1);
-      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
-    } finally {
-      await env.cleanup();
-    }
-  });
-
-  it("opens cancelled questionnaires read-only without creating an answer or draft", async () => {
-    const env = await setup();
-
-    try {
-      env.harness.setResponses([
-        fauxAssistantMessage(
-          fauxToolCall("request_user_input_async", question),
-          {
-            stopReason: "toolUse",
-          }
-        ),
-        fauxAssistantMessage("Independent work"),
-      ]);
-      await env.harness.prompt("Ask async");
-      const cancelling = env.harness.prompt("/answers");
-      await expect.poll(() => !!env.component).toBe(true);
-      await env.press("x");
-      expect(env.component?.render(80).join("\n")).toContain("Press x again");
-      await env.press("j");
-      await env.press("x");
-      expect(env.checkpoint()).toBeDefined();
-      expect(JSON.stringify(env.checkpoint())).toContain('"cancelled":false');
-      await env.press("x", "x");
-      await cancelling;
-      const inspecting = env.harness.prompt("/answers");
-      await expect
-        .poll(() => env.component?.render(80).join("\n"))
-        .toContain("Cancelled · no submitted answers");
-      expect(env.component?.render(80).join("\n")).toContain("Where?");
-      await env.press("r", "s", "\u001B");
-      await inspecting;
-      expect(JSON.stringify(env.checkpoint())).toContain('"submissions":[]');
-      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
-    } finally {
-      await env.cleanup();
-    }
-  });
-
-  it("blocks for explicit Review and returns structured answers without another user message", async () => {
+  it("waits for explicit Review and returns structured answers without another message", async () => {
     const env = await setup();
 
     try {
@@ -251,53 +155,52 @@ describe("durable questionnaires in AgentSession", () => {
       expect(env.custom).toHaveBeenCalledWith(expect.any(Function), {
         blocked: { kind: "question", message: "Deploy target" },
       });
-      expect(env.component?.render(80).join("\n")).toContain("( ) 1. Local");
+      expect(env.screen()).toContain("( ) 1. Local");
       await env.press("1");
-      expect(env.component?.render(80).join("\n")).toContain("Review");
+      expect(env.screen()).toContain("Review");
       await env.press("\r");
       await running;
 
-      const result = env.harness
-        .messages()
-        .find((m) => m.role === "toolResult");
-
-      expect(result).toMatchObject({
-        isError: false,
-        details: {
-          type: "questionnaire_answer",
-          revision: 1,
-          answers: {
-            target: { selections: [{ option_id: "local", label: "Local" }] },
+      expect(toolResults(env)).toMatchObject([
+        {
+          isError: false,
+          details: {
+            type: "questionnaire",
+            status: "answered",
+            answers: {
+              target: { selections: [{ option_id: "local", label: "Local" }] },
+            },
           },
         },
-      });
+      ]);
       expect(
         env.harness.messages().filter((m) => m.role === "user")
       ).toHaveLength(1);
+      expect(outcomeMessages(env)).toHaveLength(0);
       const branch = env.harness.sessionManager.getBranch();
 
-      const sent = branch.findIndex((e) =>
-        JSON.stringify(e).includes('"sent_at"')
+      const answered = branch.findIndex((e) =>
+        JSON.stringify(e).includes('"status":"answered"')
       );
 
       const delivered = branch.findIndex(
         (e) => e.type === "message" && e.message.role === "toolResult"
       );
 
-      expect(sent).toBeGreaterThan(-1);
-      expect(sent).toBeLessThan(delivered);
+      expect(answered).toBeGreaterThan(-1);
+      expect(answered).toBeLessThan(delivered);
     } finally {
       await env.cleanup();
     }
   });
 
-  it("accepts async durably, survives replay, keeps submission in inbox and explicitly sends it", async () => {
+  it("accepts async durably, survives replay, and starts a turn with the answers as a custom message", async () => {
     const env = await setup();
 
     try {
       env.harness.setResponses([
         fauxAssistantMessage(
-          fauxToolCall("request_user_input_async", question),
+          fauxToolCall("request_user_input", asyncQuestion),
           {
             stopReason: "toolUse",
           }
@@ -307,11 +210,9 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       await env.harness.prompt("Ask async");
       expect(env.harness.getPendingResponseCount()).toBe(1);
-      expect(
-        env.harness.messages().find((m) => m.role === "toolResult")
-      ).toMatchObject({
-        details: { accepted: true, status: "pending" },
-      });
+      expect(toolResults(env)).toMatchObject([
+        { details: { type: "questionnaire", status: "pending" } },
+      ]);
       await env.harness.session.extensionRunner.emit({
         type: "session_tree",
         newLeafId: env.harness.sessionManager.getLeafId(),
@@ -320,164 +221,67 @@ describe("durable questionnaires in AgentSession", () => {
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);
       expect(env.custom).toHaveBeenCalledWith(expect.any(Function), undefined);
-      await env.press("2", "k");
+      await env.press("2");
+      expect(env.screen()).toContain("Send answers (starts or steers a turn)");
+      await env.press("\r");
       await answering;
-      expect(env.select).toHaveBeenCalledOnce();
-      expect(env.harness.getPendingResponseCount()).toBe(1);
-      const sending = env.harness.prompt("/answers");
-      await expect
-        .poll(() => env.component?.render(80).join("\n"))
-        .toContain("Read-only · revision 1");
-      expect(env.harness.getPendingResponseCount()).toBe(1);
-      await env.press("s");
-      await sending;
       await expect.poll(() => env.harness.getPendingResponseCount()).toBe(0);
       await expect.poll(() => env.harness.session.isIdle).toBe(true);
-      expect(JSON.stringify(env.harness.messages())).toContain(
-        '\\"option_id\\":\\"remote\\"'
-      );
-      expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
 
-      const answer = env.harness.messages().findLast((m) => m.role === "user")!;
+      const [message] = outcomeMessages(env);
+      assert.ok(message?.role === "custom");
 
-      const wire =
-        typeof answer.content === "string"
-          ? answer.content
-          : answer.content
-              .filter((c) => c.type === "text")
-              .map((c) => c.text)
-              .join("\n");
-
-      const [transformer] =
-        env.harness.session.extensionRunner.getMarkdownTransformers();
-
-      assert.ok(transformer);
-
-      const displayContext = {
-        messageType: "user" as const,
-        isStreaming: false,
-        availableWidth: 80,
+      const answer = {
+        type: "questionnaire",
+        title: "Deploy target",
+        status: "answered",
+        answers: {
+          target: {
+            question: "Where?",
+            header: "Target",
+            selections: [{ option_id: "remote", label: "Remote" }],
+          },
+        },
       };
 
-      expect(transformer(wire, displayContext)).toContain("✓ Remote");
-      expect(transformer(wire, displayContext)).not.toContain(
-        '"type":"questionnaire_answer"'
-      );
-      await env.harness.session.extensionRunner.emit({
-        type: "session_start",
-        reason: "reload",
-      });
-      expect(transformer(wire, displayContext)).toContain("✓ Remote");
-      expect(JSON.stringify(env.harness.messages())).toContain(
-        '\\"option_id\\":\\"remote\\"'
+      expect(message.details).toMatchObject(answer);
+      expect(message.content).toBe(JSON.stringify(message.details));
+      expect(message.display).toBe(true);
+      expect(
+        env.harness.messages().filter((m) => m.role === "user")
+      ).toHaveLength(1);
+
+      const renderer =
+        env.harness.session.extensionRunner.getMessageRenderer(MESSAGE_TYPE);
+
+      assert.ok(renderer);
+
+      const rendered = renderer(
+        message,
+        toolRenderContext(),
+        createIdentityTheme()
+      )?.render(80);
+
+      expect(rendered?.join("\n")).toContain("✓ Remote");
+
+      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
+      await env.harness.prompt("/answers");
+      expect(env.uiContext.notify).toHaveBeenLastCalledWith(
+        "No questionnaires await you on this branch",
+        "info"
       );
     } finally {
       await env.cleanup();
     }
   });
 
-  it.each([
-    {
-      inbox: "closed",
-      openInbox: async (_env: Env) => async () => {},
-    },
-    {
-      inbox: "open",
-      openInbox: async (env: Env) => {
-        const reviewing = env.harness.prompt("/answers");
-        await expect.poll(env.screen).toContain("Read-only · revision 1");
-
-        return async () => {
-          await env.press("\u001B");
-          await reviewing;
-        };
-      },
-    },
-  ])(
-    "keeps saved answers explicit across a background wake (inbox $inbox)",
-    async ({ openInbox }) => {
-      const env = await setup("tui", true, [backgroundTasks]);
-      const { harness } = env;
-
-      const wakeMessages = () =>
-        harness
-          .messages()
-          .filter((m) => m.role === "custom" && m.customType === WAKE_TYPE);
-
-      const answerMessages = () =>
-        harness
-          .messages()
-          .filter(
-            (m) =>
-              m.role === "user" &&
-              JSON.stringify(m.content).includes("questionnaire_answer")
-          );
-
-      try {
-        harness.setResponses([
-          fauxAssistantMessage(
-            fauxToolCall("request_user_input_async", question),
-            {
-              stopReason: "toolUse",
-            }
-          ),
-          fauxAssistantMessage("Independent work"),
-          fauxAssistantMessage(
-            fauxToolCall("task_start", {
-              name: "independent work",
-              command: process.execPath,
-              args: ["-e", "process.exit(0)"],
-            }),
-            { stopReason: "toolUse" }
-          ),
-          fauxAssistantMessage("Task started"),
-          fauxAssistantMessage("Notification processed"),
-          fauxAssistantMessage("Explicit answer received"),
-        ]);
-        await harness.prompt("Ask async");
-        const answering = harness.prompt("/answers");
-        await expect.poll(() => !!env.component).toBe(true);
-        await env.press("2", "k");
-        await answering;
-        expect(answerMessages()).toHaveLength(0);
-
-        const closeInbox = await openInbox(env);
-        await harness.prompt("Do independent background work");
-        await closeInbox();
-
-        await expect.poll(() => wakeMessages().length).toBe(1);
-        await expect.poll(() => harness.session.isIdle).toBe(true);
-        expect(answerMessages()).toHaveLength(0);
-        expect(JSON.stringify(env.checkpoint())).not.toContain('"sent_at"');
-
-        const previousView = env.component;
-        const sending = harness.prompt("/answers");
-        await expect.poll(() => env.component !== previousView).toBe(true);
-        await expect
-          .poll(env.screen)
-          .toContain("Read-only · revision 1 · Not sent");
-        await env.press("s");
-        await sending;
-        await expect.poll(() => harness.getPendingResponseCount()).toBe(0);
-        await expect.poll(() => harness.session.isIdle).toBe(true);
-        expect(answerMessages()).toHaveLength(1);
-        expect(JSON.stringify(answerMessages())).toContain("remote");
-        expect(wakeMessages()).toHaveLength(1);
-        expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
-      } finally {
-        await harness.session.abort();
-        await env.cleanup();
-      }
-    }
-  );
-
-  it("hands an explicit Send to Pi's queue and can send again after Stop restores it", async () => {
+  it("returns answers that a Stop dropped from Pi's queue to the inbox", async () => {
     const env = await setup();
 
     try {
       env.harness.setResponses([
         fauxAssistantMessage(
-          fauxToolCall("request_user_input_async", question),
+          fauxToolCall("request_user_input", asyncQuestion),
           {
             stopReason: "toolUse",
           }
@@ -496,9 +300,7 @@ describe("durable questionnaires in AgentSession", () => {
             () => {
               aborted.resolve(undefined);
             },
-            {
-              once: true,
-            }
+            { once: true }
           );
           await aborted.promise;
 
@@ -508,39 +310,122 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       const running = env.harness.prompt("Independent work");
       await providerStarted.promise;
-      await env.harness.session.steer("Unrelated queued text");
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);
       await env.press("1", "\r");
       await answering;
-      expect(env.harness.session.getSteeringMessages()).toHaveLength(2);
-      expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
-      const restored = env.harness.session.clearQueue();
-      expect(restored.steering[0]).toBe("Unrelated queued text");
-      expect(restored.steering[1]).toContain('"type":"questionnaire_answer"');
+      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
+
+      env.harness.session.clearQueue();
       await env.harness.session.abort();
       await running;
+      expect(outcomeMessages(env)).toHaveLength(0);
+      expect(JSON.stringify(env.checkpoint())).toContain('"status":"open"');
+      expect(env.uiContext.notify).toHaveBeenCalledWith(
+        expect.stringContaining("/answers to send them again"),
+        "warning"
+      );
+
       const resending = env.harness.prompt("/answers");
-      await expect.poll(env.screen).toContain("Read-only · revision 1 · Sent");
-      expect(env.screen()).toContain("s Send again");
-      await env.press("s");
+      await expect.poll(env.screen).toContain("Send answers");
+      expect(env.screen()).toContain("✓ Local");
+      await env.press("\r");
       await resending;
       await expect.poll(() => env.harness.session.isIdle).toBe(true);
-      expect(
-        env.harness
-          .messages()
-          .filter(
-            (m) =>
-              m.role === "user" &&
-              JSON.stringify(m.content).includes("questionnaire_answer")
-          )
-      ).toHaveLength(1);
+      expect(outcomeMessages(env)).toMatchObject([
+        { details: { status: "answered" } },
+      ]);
+      expect(env.harness.getPendingResponseCount()).toBe(0);
     } finally {
       await env.cleanup();
     }
   });
 
-  it("flushes a blocking draft on Stop and returns no invented answer", async () => {
+  it("tells a waiting call the questionnaire was dismissed and lets the run continue", async () => {
+    const env = await setup();
+
+    try {
+      env.harness.setResponses([
+        fauxAssistantMessage(fauxToolCall("request_user_input", question), {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("Continuing without an answer"),
+      ]);
+      const running = env.harness.prompt("Ask");
+      await expect.poll(() => !!env.component).toBe(true);
+      await env.press("d");
+      await running;
+      expect(toolResults(env)).toMatchObject([
+        { isError: false, details: { status: "dismissed" } },
+      ]);
+      expect(env.harness.getPendingResponseCount()).toBe(0);
+      expect(outcomeMessages(env)).toHaveLength(0);
+      expect(JSON.stringify(env.checkpoint())).toContain(
+        '"status":"dismissed"'
+      );
+    } finally {
+      await env.cleanup();
+    }
+  });
+
+  it("records an async dismissal for the agent without starting a turn while idle", async () => {
+    const env = await setup();
+
+    try {
+      env.harness.setResponses([
+        fauxAssistantMessage(
+          fauxToolCall("request_user_input", asyncQuestion),
+          {
+            stopReason: "toolUse",
+          }
+        ),
+        fauxAssistantMessage("Independent"),
+        fauxAssistantMessage("Not expected"),
+      ]);
+      await env.harness.prompt("Ask async");
+      const dismissing = env.harness.prompt("/answers");
+      await expect.poll(() => !!env.component).toBe(true);
+      await env.press("d");
+      await dismissing;
+      expect(outcomeMessages(env)).toMatchObject([
+        { details: { status: "dismissed" } },
+      ]);
+      expect(env.harness.getPendingResponseCount()).toBe(1);
+      expect(env.uiContext.setWidget).toHaveBeenLastCalledWith(
+        "questionnaires",
+        undefined
+      );
+    } finally {
+      await env.cleanup();
+    }
+  });
+
+  it("stops the run and keeps the draft when a waiting questionnaire is closed", async () => {
+    const env = await setup();
+
+    try {
+      env.harness.setResponses([
+        fauxAssistantMessage(fauxToolCall("request_user_input", question), {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("Not expected"),
+      ]);
+      const running = env.harness.prompt("Ask");
+      await expect.poll(() => !!env.component).toBe(true);
+      await env.press("j", "n", "kept note", "\r", "\u001B");
+      await running;
+      expect(toolResults(env)).toMatchObject([
+        { details: { status: "closed" } },
+      ]);
+      expect(env.harness.getPendingResponseCount()).toBe(1);
+      expect(JSON.stringify(env.checkpoint())).toContain("kept note");
+      expect(JSON.stringify(env.checkpoint())).toContain('"status":"open"');
+    } finally {
+      await env.cleanup();
+    }
+  });
+
+  it("flushes a waiting draft on Stop and returns no invented answer", async () => {
     const env = await setup();
 
     try {
@@ -551,78 +436,12 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       const running = env.harness.prompt("Ask");
       await expect.poll(() => !!env.component).toBe(true);
-      await env.press("g");
+      await env.press("n");
       env.component?.handleInput?.("last typed note");
       await env.harness.session.abort();
       await running;
       expect(JSON.stringify(env.checkpoint())).toContain("last typed note");
-      expect(JSON.stringify(env.checkpoint())).not.toContain('"revision":1');
-    } finally {
-      await env.cleanup();
-    }
-  });
-
-  it("agent revisions share the same immutable user-revision path and report supersession", async () => {
-    const env = await setup();
-
-    try {
-      env.harness.setResponses([
-        fauxAssistantMessage(fauxToolCall("request_user_input", question), {
-          stopReason: "toolUse",
-        }),
-        fauxAssistantMessage("First recorded"),
-      ]);
-      const first = env.harness.prompt("Ask");
-      await expect.poll(() => !!env.component).toBe(true);
-      await env.press("1", "\r");
-      await first;
-
-      const result = env.harness
-        .messages()
-        .find((m) => m.role === "toolResult");
-
-      if (result?.role !== "toolResult") {
-        throw new Error("Missing result");
-      }
-
-      const original = Value.Parse(AnswerEnvelopeSchema, result.details);
-      const oldView = env.component;
-      env.harness.setResponses([
-        fauxAssistantMessage(
-          fauxToolCall("revise_user_input", {
-            interaction_id: original.interaction_id,
-            base_revision: 1,
-            reason: "Synthetic reconsideration",
-          }),
-          { stopReason: "toolUse" }
-        ),
-        fauxAssistantMessage("Revision recorded"),
-      ]);
-      const revision = env.harness.prompt("Revise");
-      await expect.poll(() => env.component !== oldView).toBe(true);
-      oldView?.handleInput?.("2");
-      await env.press("1", "2", "d");
-      expect(env.component?.render(80).join("\n")).toContain(
-        "Before · revision 1"
-      );
-      await env.press("\u001B", "\r");
-      await revision;
-
-      const results = env.harness
-        .messages()
-        .filter((m) => m.role === "toolResult");
-
-      expect(results.at(-1)).toMatchObject({
-        details: {
-          revision: 2,
-          changed: ["Target"],
-          answers: { target: { selections: [{ option_id: "remote" }] } },
-        },
-      });
-      expect(results[0]).toMatchObject({ details: original });
-      expect(
-        env.harness.messages().filter((m) => m.role === "user")
-      ).toHaveLength(2);
+      expect(JSON.stringify(env.checkpoint())).toContain('"status":"open"');
     } finally {
       await env.cleanup();
     }
@@ -634,7 +453,7 @@ describe("durable questionnaires in AgentSession", () => {
     try {
       env.harness.setResponses([
         fauxAssistantMessage(
-          fauxToolCall("request_user_input_async", question),
+          fauxToolCall("request_user_input", asyncQuestion),
           {
             stopReason: "toolUse",
           }
@@ -646,7 +465,7 @@ describe("durable questionnaires in AgentSession", () => {
       assert.ok(root);
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);
-      await env.press("g");
+      await env.press("n");
       env.component?.handleInput?.("branch-local draft note");
       const stale = env.component;
       await env.harness.session.navigateTree(root.id, { summarize: false });
@@ -663,16 +482,12 @@ describe("durable questionnaires in AgentSession", () => {
     }
   });
 
-  it("declares the questionnaire tools in the TUI", async () => {
+  it("declares the questionnaire tool in the TUI", async () => {
     const env = await setup();
 
     try {
-      expect(env.harness.session.getActiveToolNames()).toStrictEqual(
-        expect.arrayContaining([
-          "request_user_input",
-          "request_user_input_async",
-          "revise_user_input",
-        ])
+      expect(env.harness.session.getActiveToolNames()).toContain(
+        "request_user_input"
       );
     } finally {
       await env.cleanup();
@@ -684,16 +499,13 @@ describe("durable questionnaires in AgentSession", () => {
     async (mode) => {
       const env = await setup(mode);
 
-      const tools = [
-        "request_user_input",
-        "request_user_input_async",
-        "revise_user_input",
-      ];
-
       try {
         const active = env.harness.session.getActiveToolNames();
-        expect(active.filter((name) => tools.includes(name))).toStrictEqual([]);
-        env.harness.session.setActiveToolsByName([...active, ...tools]);
+        expect(active).not.toContain("request_user_input");
+        env.harness.session.setActiveToolsByName([
+          ...active,
+          "request_user_input",
+        ]);
         expect(env.harness.session.getActiveToolNames()).toStrictEqual(active);
         await env.harness.prompt("/answers");
         expect(env.component).toBeUndefined();
@@ -719,13 +531,9 @@ describe("durable questionnaires in AgentSession", () => {
       await env.press("1", "\r");
       await running;
       expect(env.harness.sessionManager.getSessionFile()).toBeUndefined();
-      expect(
-        env.harness.messages().find((m) => m.role === "toolResult")
-      ).toMatchObject({
-        isError: false,
-        details: { type: "questionnaire_answer", revision: 1 },
-      });
-      expect(JSON.stringify(env.checkpoint())).toContain('"sent_at"');
+      expect(toolResults(env)).toMatchObject([
+        { isError: false, details: { status: "answered" } },
+      ]);
     } finally {
       await env.cleanup();
     }

@@ -10,10 +10,10 @@ import type {
   TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 
-import type { Draft, Interaction, Submission } from "../interaction.js";
-import { answered, draftAnswer } from "../interaction.js";
+import type { Fields, Interaction } from "../interaction.js";
+import { answered } from "../interaction.js";
 import type { Question } from "../request.js";
-import { answerRows, interactionRows, plainText } from "../summary.js";
+import { draftRows, plainText } from "../summary.js";
 
 const oneLine = (text: string) => displayText(text).replaceAll(/\s+/gu, " ");
 
@@ -27,14 +27,13 @@ export const progressLine = (
 
   const labels = [
     ...questions.map((q) => {
-      const complete = !!item.draft && answered(item.draft.answers[q.id]);
+      const complete = answered(item.draft?.[q.id]);
 
       return { text: `${complete ? "✓" : "○"} ${oneLine(q.header)}`, complete };
     }),
     {
       text: "Review",
-      complete:
-        !!item.draft && Object.values(item.draft.answers).every(answered),
+      complete: questions.every((q) => answered(item.draft?.[q.id])),
     },
   ];
 
@@ -61,71 +60,22 @@ export const progressLine = (
   return truncateToWidth(`${prefix}${chip(active, current)}`, width);
 };
 
-export const deliveryLabel = (submission: Submission): string =>
-  submission.sent_at !== undefined && submission.sent_at !== ""
-    ? "Sent"
-    : "Not sent";
-
 export const inboxLabel = (item: Interaction, index: number): string => {
-  const latest = item.submissions.at(-1);
-
-  let status = "Cancelled";
-
-  if (item.draft) {
-    status = `${Object.values(item.draft.answers).filter(answered).length}/${item.request.questions.length} answered · Draft`;
-  } else if (latest) {
-    status = `Revision ${latest.revision} · ${deliveryLabel(latest)}`;
-  }
-
   const title = item.request.title ?? item.request.questions[0]?.header;
 
   if (title === undefined) {
     throw new Error("A questionnaire request has at least one question");
   }
 
-  return `${index + 1}. ${oneLine(title)} · ${status}`;
+  const done = item.request.questions.filter((q) =>
+    answered(item.draft?.[q.id])
+  ).length;
+
+  return `${index + 1}. ${oneLine(title)} · ${done}/${item.request.questions.length} answered`;
 };
 
-export const reviewText = (
-  item: Interaction,
-  submission?: Submission
-): string => plainText(interactionRows(item, submission));
-
-export const diffText = (item: Interaction): string => {
-  const previous = item.submissions.at(-1);
-
-  if (!previous || !item.draft) {
-    return "No earlier submission";
-  }
-
-  const lines: string[] = [];
-
-  for (const q of item.request.questions) {
-    const before = plainText(answerRows(previous.answers[q.id]));
-    const after = plainText(answerRows(draftAnswer(item, q)));
-
-    if (before !== after) {
-      lines.push(
-        q.header,
-        `Before · revision ${previous.revision}`,
-        before,
-        "After · draft",
-        after,
-        ""
-      );
-    }
-  }
-
-  if (previous.note !== item.draft.note) {
-    lines.push(
-      "Questionnaire note",
-      `Before: ${previous.note || "(none)"}`,
-      `After: ${item.draft.note || "(none)"}`
-    );
-  }
-
-  return lines.join("\n").trimEnd() || "No answer changes";
-};
+export const reviewText = (item: Interaction): string =>
+  plainText(draftRows(item));
 
 export const textLines = (text: string, width: number): string[] =>
   wrapTextWithAnsi(displayText(text), Math.max(1, width));
@@ -171,7 +121,7 @@ const DETAILS_MARK = "  ▸ details (p)";
 
 export const optionLines = (
   q: Question,
-  a: Draft["answers"][string],
+  a: Fields,
   highlight: number,
   width: number,
   theme: Theme

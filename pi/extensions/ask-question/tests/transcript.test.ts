@@ -1,21 +1,26 @@
 import assert from "node:assert/strict";
 
-import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
-import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vite-plus/test";
 
 import { toolRenderContext } from "../../../tests/harness/tool-rendering.js";
 import { createIdentityTheme } from "../../../tests/harness/tui.js";
-import { answerEnvelope, answerMessage, jsonResult } from "../delivery.js";
-import { createInteraction, transition } from "../interaction.js";
+import { MESSAGE_TYPE, outcome, toolResult } from "../delivery.js";
+import type { Outcome } from "../delivery.js";
+import {
+  collectAnswers,
+  createInteraction,
+  transition,
+} from "../interaction.js";
 import {
   renderCall,
+  renderOutcomeMessage,
   renderResult,
-  renderReviseCall,
-  transformAnswerMarkdown,
 } from "../transcript.js";
 
 const request = {
+  wait: false,
   title: "Synthetic request",
   questions: [
     {
@@ -31,199 +36,129 @@ const theme = createIdentityTheme();
 
 const context = { ...toolRenderContext({ toolCallId: "test" }), args: request };
 
-const render = (markdown: string) =>
-  new Markdown(markdown, 0, 0, getMarkdownTheme()).render(80).join("\n");
+const answeredOutcome = (note = "Option note"): Outcome => {
+  let item = createInteraction("q_display", request, "call");
+  item = transition(item, { type: "select", question: "q", option: "a" });
+  item = transition(item, {
+    type: "note",
+    question: "q",
+    option: "a",
+    text: note,
+  });
+
+  return outcome(item, "answered", collectAnswers(item));
+};
+
+const message = (details: unknown) => ({
+  role: "custom" as const,
+  customType: MESSAGE_TYPE,
+  content: JSON.stringify(details),
+  display: true,
+  details,
+  timestamp: 0,
+});
+
+const messageOptions = { ...toolRenderContext(), expanded: false };
+
+const rows = (component: { render: (width: number) => string[] } | undefined) =>
+  component
+    ?.render(100)
+    .map((row) => row.trimEnd())
+    .join("\n");
 
 describe("compact questionnaire transcript", () => {
-  it("renders exact answer messages from their own envelope, leaving any other text verbatim", () => {
-    let item = createInteraction("q_display", request, "call", "async");
-    item = transition(item, { type: "select", question: "q", option: "a" });
-    item = transition(item, {
-      type: "note",
-      question: "q",
-      option: "a",
-      text: "Option note",
-    });
-    item = transition(item, { type: "submit" });
-    item = transition(item, {
-      type: "reopen",
-      base: 1,
-      initiated_by: "user",
-      mode: "async",
-    });
-    item = transition(item, {
-      type: "custom",
-      question: "q",
-      text: "A written alternative\n```\n# literal text\n```",
-    });
-    item = transition(item, {
-      type: "note",
-      question: "q",
-      text: "Written-answer note",
-    });
-    item = transition(item, {
-      type: "note",
-      text: `${"x".repeat(900)}END_NOTE`,
-    });
-    item = transition(item, { type: "submit" });
-
-    const ctx = {
-      messageType: "user" as const,
-      isStreaming: false,
-      availableWidth: 80,
-    };
-
-    const [first, submission] = item.submissions;
-    assert.ok(first && submission);
-    const wire = answerMessage(answerEnvelope(item, submission));
-    const projected = transformAnswerMarkdown(wire, ctx);
-    expect(projected).not.toContain('"type":"questionnaire_answer"');
-    expect(projected).not.toContain(item.id);
-    expect(projected).not.toContain("Option note");
-    expect(
-      transformAnswerMarkdown(answerMessage(answerEnvelope(item, first)), ctx)
-    ).toContain("Option note");
+  it("renders answers that arrived as messages from their own details", () => {
     initTheme("dark");
+    const details = answeredOutcome("Line one\nLine two");
 
-    const rendered = render(projected);
-    expect(rendered).toContain("Synthetic request");
-    expect(rendered).toContain("supersedes revision 1");
-    expect(rendered).toContain("Written-answer note");
-    expect(rendered).toContain("END_NOTE");
-    expect(rendered).toContain("Changed: Q, Questionnaire note");
-    expect(rendered).toContain("# literal text");
-    expect(rendered).toContain("```");
-    expect(rendered).not.toMatch(/\\[#`-]/u);
-    expect(rendered.indexOf("A written alternative")).toBeLessThan(
-      rendered.indexOf("# literal text")
+    const rendered = rows(
+      renderOutcomeMessage(message(details), messageOptions, theme)
     );
-    expect(
-      rendered.split("\n").some((line) => line.trimEnd().endsWith("\\"))
-    ).toBe(false);
 
-    for (const untouched of [
-      `${wire}\nUnrelated queued text`,
-      `Quoted answer:\n${wire}`,
-      wire.replace("Synthetic request ·", "Edited summary ·"),
-      wire.replace('"revision":2', '"revision":"2"'),
-    ]) {
-      expect(transformAnswerMarkdown(untouched, ctx)).toBe(untouched);
-    }
+    expect(rendered).toContain("Synthetic request · ✓ Answered");
+    expect(rendered).toContain("1. Q");
+    expect(rendered).toContain("✓ A");
+    expect(rendered).toContain("     Note: Line one\n           Line two");
+    expect(rendered).not.toContain("q_display");
+    expect(rendered).not.toContain('"type"');
 
+    const dismissed = { ...details, status: "dismissed" as const };
+    delete dismissed.answers;
     expect(
-      transformAnswerMarkdown(wire, { ...ctx, messageType: "assistant" })
-    ).toBe(wire);
+      rows(renderOutcomeMessage(message(dismissed), messageOptions, theme))
+    ).toBe(" Synthetic request · Dismissed · not answered");
     expect(
-      transformAnswerMarkdown(wire, {
-        ...ctx,
-        messageType: "assistant-thinking",
-      })
-    ).toBe(wire);
-    expect(transformAnswerMarkdown("Ordinary user prose", ctx)).toBe(
-      "Ordinary user prose"
-    );
+      renderOutcomeMessage(
+        message({ status: "answered" }),
+        messageOptions,
+        theme
+      )
+    ).toBeUndefined();
   });
 
   it("keeps collapsed calls concise and exposes the complete authored request when expanded", () => {
-    const collapsed = renderCall(request, theme, context, "async")
-      .render(100)
-      .join("\n");
+    const collapsed = rows(renderCall(request, theme, context));
 
-    expect(collapsed).toContain("async · 1 question");
+    expect(collapsed).toContain("Synthetic request · async · 1 question");
     expect(collapsed).not.toContain("Complete preview contents");
     expect(
-      renderCall(request, theme, { ...context, expanded: true }, "async")
-        .render(100)
-        .join("\n")
-    ).toContain("Complete preview contents");
+      rows(renderCall({ ...request, wait: true }, theme, context))
+    ).toContain("· waiting ·");
     expect(
+      rows(renderCall(request, theme, { ...context, expanded: true }))
+    ).toContain("Complete preview contents");
+
+    const item = createInteraction("q_x", request, "call");
+
+    for (const [status, label] of [
+      ["pending", "Pending · not answered yet"],
+      ["closed", "draft kept"],
+      ["dismissed", "Dismissed · not answered"],
+    ] as const) {
+      expect(
+        rows(
+          renderResult(
+            toolResult(outcome(item, status)),
+            { expanded: false, isPartial: false },
+            theme,
+            context
+          )
+        )
+      ).toContain(label);
+    }
+  });
+
+  it("summarizes answered results and shows every note when expanded", () => {
+    const result = toolResult(answeredOutcome(`${"x".repeat(900)}END_NOTE`));
+    const before = JSON.stringify(result);
+
+    const collapsed = rows(
       renderResult(
-        { content: [{ type: "text", text: '{"accepted":true}' }], details: {} },
+        result,
         { expanded: false, isPartial: false },
         theme,
         context
       )
-        .render(100)
-        .join("\n")
-    ).toContain("Pending · not answered yet");
+    );
 
-    for (const [status, label] of [
-      ["cancelled", "Cancelled by the user"],
-      ["closed", "draft kept"],
-    ]) {
-      expect(
-        renderResult(
-          {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ interaction_id: "q_x", status }),
-              },
-            ],
-            details: {},
-          },
-          { expanded: false, isPartial: false },
-          theme,
-          context
-        )
-          .render(100)
-          .join("\n")
-      ).toContain(label);
-    }
-
-    expect(
-      renderReviseCall(
-        { interaction_id: "q_known", base_revision: 1, reason: "Why" },
-        theme,
-        context,
-        (id) => (id === "q_known" ? "Known title" : undefined)
-      )
-        .render(100)
-        .join("\n")
-    ).toContain("Known title · revision request");
-  });
-
-  it("renders a short answer summary without truncating the submitted notes", () => {
-    let item = createInteraction("q_test", request, "call", "blocking");
-    item = transition(item, { type: "select", question: "q", option: "a" });
-    item = transition(item, {
-      type: "note",
-      text: `${"x".repeat(900)}END_NOTE`,
-    });
-    item = transition(item, { type: "submit" });
-    const [submission] = item.submissions;
-    assert.ok(submission);
-    const result = jsonResult(answerEnvelope(item, submission));
-    const before = JSON.stringify(result);
-
-    const collapsed = renderResult(
-      result,
-      { expanded: false, isPartial: false },
-      theme,
-      context
-    )
-      .render(100)
-      .join("\n");
-
-    expect(collapsed).toContain("Answered · revision 1");
-    expect(collapsed).toContain("Q");
+    expect(collapsed).toContain("✓ Answered");
     expect(collapsed).toContain("✓ A");
-    expect(collapsed).not.toContain("q_test");
+    expect(collapsed).not.toContain("q_display");
     expect(collapsed).not.toContain("END_NOTE");
     expect(
-      renderResult(result, { expanded: true, isPartial: false }, theme, {
-        ...context,
-        expanded: true,
-      })
-        .render(100)
-        .join("\n")
+      rows(
+        renderResult(result, { expanded: true, isPartial: false }, theme, {
+          ...context,
+          expanded: true,
+        })
+      )
     ).toContain("END_NOTE");
     expect(JSON.stringify(result)).toBe(before);
   });
 
   it("bounds visual rows, strips hostile controls, and refreshes themes", () => {
     initTheme("dark");
-    const hostile = "\u001B[2J\u061C\u200E\u200F\u202E\u2066";
+    const hostile = "\u001B[2J؜‎‏‮⁦";
     const changing = createIdentityTheme();
     let color = "\u001B[31m";
     changing.fg = (_name, value) => `${color + value}\u001B[0m`;
@@ -231,83 +166,69 @@ describe("compact questionnaire transcript", () => {
     const component = renderCall(
       { ...request, title: "中文".repeat(100) + hostile },
       changing,
-      context,
-      "async"
-    );
-
-    const result = renderResult(
-      {
-        content: [{ type: "text", text: "中文".repeat(100) + hostile }],
-        details: {},
-      },
-      { expanded: false, isPartial: false },
-      theme,
       context
     );
 
-    for (const view of [component, result]) {
-      for (const width of [1, 2, 20, 80]) {
-        const rows = view.render(width);
-        expect(rows.length).toBeLessThanOrEqual(6);
-        expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+    const details = answeredOutcome("中文".repeat(100) + hostile);
 
-        for (const control of [
-          "\u001B[2J",
-          "\u061C",
-          "\u200E",
-          "\u200F",
-          "\u202E",
-          "\u2066",
-        ]) {
-          expect(rows.join("\n")).not.toContain(control);
+    const views = [
+      component,
+      renderResult(
+        {
+          content: [{ type: "text", text: "中文".repeat(100) + hostile }],
+          details: {},
+        },
+        { expanded: false, isPartial: false },
+        theme,
+        context
+      ),
+      renderOutcomeMessage(
+        message({ ...details, title: hostile }),
+        messageOptions,
+        theme
+      ),
+    ];
+
+    for (const view of views) {
+      assert.ok(view);
+
+      for (const width of [1, 2, 20, 80]) {
+        const lines = view.render(width);
+        expect(lines.length).toBeLessThanOrEqual(13);
+        expect(lines.every((row) => visibleWidth(row) <= width)).toBe(true);
+
+        for (const control of ["\u001B[2J", "؜", "‎", "‏", "‮", "⁦"]) {
+          expect(lines.join("\n")).not.toContain(control);
         }
       }
     }
 
-    expect(component.render(80).join("\n")).toContain("\u001B[31m");
+    expect(rows(component)).toContain("\u001B[31m");
     color = "\u001B[32m";
     component.invalidate();
-    expect(component.render(80).join("\n")).toContain("\u001B[32m");
-    expect(component.render(80).join("\n")).not.toContain("\u001B[31m");
+    expect(rows(component)).toContain("\u001B[32m");
+    expect(rows(component)).not.toContain("\u001B[31m");
   });
 
-  it.each([
-    { accepted: "false", status: "pending" },
-    { status: { hidden: "value" } },
-  ])("keeps malformed receipts as literal output", (receipt) => {
-    const text = JSON.stringify(receipt);
+  it("keeps partial, failed and unrecognized results as literal output", () => {
+    const text = JSON.stringify({ status: "pending" });
 
-    const result = {
-      content: [{ type: "text" as const, text }],
-      details: undefined,
-    };
+    for (const [isPartial, isError, details] of [
+      [false, false, undefined],
+      [true, false, outcome(createInteraction("q_x", request, "c"), "pending")],
+      [false, true, outcome(createInteraction("q_x", request, "c"), "pending")],
+    ] as const) {
+      const rendered = rows(
+        renderResult(
+          { content: [{ type: "text", text }], details },
+          { expanded: false, isPartial },
+          theme,
+          { ...context, isError }
+        )
+      );
 
-    const rendered = renderResult(
-      result,
-      { expanded: false, isPartial: false },
-      theme,
-      context
-    )
-      .render(2000)
-      .join("\n");
-
-    expect(rendered).toContain(text);
-    expect(rendered).not.toContain("Pending ·");
-  });
-
-  it("does not interpret partial or failed acceptance as pending success", () => {
-    for (const isPartial of [false, true]) {
-      const text = renderResult(
-        { content: [{ type: "text", text: '{"accepted":true}' }], details: {} },
-        { expanded: false, isPartial },
-        theme,
-        { ...context, isError: !isPartial }
-      )
-        .render(80)
-        .join("\n");
-
-      expect(text).not.toContain("Pending");
-      expect(text).toContain('{"accepted":true}');
+      expect(rendered).toContain(text);
+      expect(rendered).not.toContain("Pending ·");
     }
   });
 });

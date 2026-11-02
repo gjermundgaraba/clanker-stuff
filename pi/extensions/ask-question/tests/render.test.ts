@@ -9,7 +9,6 @@ import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
 import type { Question } from "../request.js";
 import {
-  diffText,
   inboxLabel,
   optionDetailText,
   optionLines,
@@ -20,6 +19,7 @@ import {
 } from "../tui/render.js";
 
 const request = {
+  wait: false,
   title: "Release plan",
   questions: [
     {
@@ -44,8 +44,7 @@ const request = {
   ] satisfies [Question, Question],
 };
 
-const fresh = () =>
-  createInteraction("q_private_identifier", request, "call", "async");
+const fresh = () => createInteraction("q_private_identifier", request, "call");
 
 const theme = createIdentityTheme();
 
@@ -54,7 +53,7 @@ describe("questionnaire presentation", () => {
     initTheme("dark");
     const item = fresh();
     const [q] = request.questions;
-    const a = item.draft?.answers["target"];
+    const a = item.draft?.["target"];
     assert.ok(a);
     a.selected = ["cloud"];
     a.notes["local"] = "Keep the local data\nSecond line";
@@ -106,51 +105,20 @@ describe("questionnaire presentation", () => {
     expect(text).toContain("Answer required");
     expect(text).not.toContain(request.questions[0].question);
     expect(text).not.toContain("Recommendation");
-    expect(text).not.toContain("Questionnaire note:");
   });
 
   it("shows a required marker for a selected but blank custom draft", () => {
     const item = fresh();
-    const answer = item.draft?.answers["target"];
+    const answer = item.draft?.["target"];
     assert.ok(answer);
     answer.custom_selected = true;
 
     expect(reviewText(item)).toContain("(blank — required)");
   });
 
-  it("compares only changed answers and notes without hiding multiline text", () => {
-    let item = fresh();
-
-    for (const [question, option] of [
-      ["target", "local"],
-      ["timing", "now"],
-    ] as const) {
-      item = transition(item, { type: "select", question, option });
-    }
-
-    item = transition(item, { type: "submit" });
-    item = transition(item, {
-      type: "reopen",
-      base: 1,
-      initiated_by: "user",
-      mode: "async",
-    });
-    expect(diffText(item)).toContain("No answer changes");
-    item = transition(item, {
-      type: "note",
-      question: "target",
-      option: "local",
-      text: "Line one\nLine two",
-    });
-    const text = diffText(item);
-    expect(text).toContain("Target");
-    expect(text).toContain("Line two");
-    expect(text).not.toContain("Timing");
-  });
-
   it("leads inbox rows with a title and meaningful progress, not internal IDs", () => {
     const item = fresh();
-    expect(inboxLabel(item, 0)).toBe("1. Release plan · 0/2 answered · Draft");
+    expect(inboxLabel(item, 0)).toBe("1. Release plan · 0/2 answered");
     expect(inboxLabel(item, 0)).not.toContain(item.id);
     expect(inboxLabel(item, 1)).not.toBe(inboxLabel(item, 0));
   });
@@ -233,7 +201,7 @@ describe("questionnaire presentation", () => {
   it("clips long written answers and notes to one line with a single ellipsis", () => {
     initTheme("dark");
     const item = fresh();
-    const draft = item.draft?.answers["target"];
+    const draft = item.draft?.["target"];
     assert.ok(draft);
     const a = { ...draft, custom: "word ".repeat(80), custom_selected: true };
 

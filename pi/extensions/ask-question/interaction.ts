@@ -14,11 +14,7 @@ import type { Question } from "./request.js";
 const record = <T extends TSchema>(schema: T) =>
   Type.Record(Id, schema, { additionalProperties: false });
 
-const Mode = Type.Enum(["blocking", "async"]);
-
-const Initiator = Type.Enum(["user", "agent"]);
-
-const Fields = Type.Object(
+const FieldsSchema = Type.Object(
   {
     selected: Type.Array(Id, { uniqueItems: true }),
     custom_selected: Type.Boolean(),
@@ -29,19 +25,9 @@ const Fields = Type.Object(
   { additionalProperties: false }
 );
 
-const DraftSchema = Type.Object(
-  {
-    answers: record(Fields),
-    note: Type.String({ maxLength: MAX_NOTE }),
-    initiated_by: Initiator,
-    reason: Type.Optional(Type.String()),
-    mode: Mode,
-    tool_call_id: Type.Optional(Type.String()),
-  },
-  { additionalProperties: false }
-);
+const DraftSchema = record(FieldsSchema);
 
-const AnswerSchema = Type.Object(
+export const AnswerSchema = Type.Object(
   {
     question: Type.String(),
     header: Type.String(),
@@ -65,28 +51,14 @@ const AnswerSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const submittedFields = {
-  revision: Type.Integer({ minimum: 1 }),
-  timestamp: Type.String(),
-  initiated_by: Initiator,
-  reason: Type.Optional(Type.String()),
-  tool_call_id: Type.Optional(Type.String()),
-  mode: Mode,
-  answers: record(AnswerSchema),
-  note: Type.String(),
-};
-
-const SubmissionSchema = Type.Object(
-  { ...submittedFields, sent_at: Type.Optional(Type.String()) },
-  { additionalProperties: false }
-);
+export const AnswersSchema = record(AnswerSchema);
 
 export const RequestRecordSchema = Type.Object(
   {
     id: Id,
     request: QuestionnaireSchema,
     created_at: Type.String(),
-    origin_tool_call_id: Type.String(),
+    tool_call_id: Type.String(),
   },
   { additionalProperties: false }
 );
@@ -95,9 +67,8 @@ export const StateRecordSchema = Type.Object(
   {
     id: Id,
     updated_at: Type.String(),
-    cancelled: Type.Boolean(),
+    status: Type.Enum(["open", "answered", "dismissed"]),
     draft: Type.Optional(DraftSchema),
-    submissions: Type.Array(SubmissionSchema),
   },
   { additionalProperties: false }
 );
@@ -106,39 +77,30 @@ export type RequestRecord = Static<typeof RequestRecordSchema>;
 
 export type StateRecord = Static<typeof StateRecordSchema>;
 
+/** A questionnaire is open, and answerable, exactly while it has a draft. */
 export type Interaction = RequestRecord & StateRecord;
 
 export type Draft = Static<typeof DraftSchema>;
 
-export type Submission = Static<typeof SubmissionSchema>;
+export type Fields = Static<typeof FieldsSchema>;
 
 export type Answer = Static<typeof AnswerSchema>;
 
-export type Mode = Static<typeof Mode>;
+export type Answers = Static<typeof AnswersSchema>;
 
 export type Action =
   | { type: "select"; question: string; option: string }
   | { type: "custom"; question: string; text: string }
   | { type: "toggle_custom"; question: string }
-  | { type: "note"; question?: string; option?: string; text: string }
+  | { type: "note"; question: string; option?: string; text: string }
   | { type: "submit" }
-  | {
-      type: "reopen";
-      base: number;
-      initiated_by: Static<typeof Initiator>;
-      /** Defaults to the mode of the latest submission: the way the questionnaire was last asked. */
-      mode?: Mode;
-      reason?: string;
-      tool_call_id?: string;
-    }
-  | { type: "cancel" }
-  | { type: "sent"; revision: number };
+  | { type: "dismiss" }
+  | { type: "restore"; draft: Draft };
 
 export const createInteraction = (
   id: string,
   input: unknown,
   toolCallId: string,
-  mode: Mode,
   now = new Date().toISOString()
 ): Interaction => {
   const request = validateQuestionnaire(input);
@@ -146,33 +108,26 @@ export const createInteraction = (
   return {
     id,
     request,
-    origin_tool_call_id: toolCallId,
+    tool_call_id: toolCallId,
     created_at: now,
     updated_at: now,
-    cancelled: false,
-    submissions: [],
-    draft: {
-      answers: Object.fromEntries(
-        request.questions.map((q) => [
-          q.id,
-          {
-            selected: [],
-            custom_selected: false,
-            custom: "",
-            notes: Object.fromEntries((q.options ?? []).map((o) => [o.id, ""])),
-            custom_note: "",
-          },
-        ])
-      ),
-      note: "",
-      initiated_by: "agent",
-      tool_call_id: toolCallId,
-      mode,
-    },
+    status: "open",
+    draft: Object.fromEntries(
+      request.questions.map((q) => [
+        q.id,
+        {
+          selected: [],
+          custom_selected: false,
+          custom: "",
+          notes: Object.fromEntries((q.options ?? []).map((o) => [o.id, ""])),
+          custom_note: "",
+        },
+      ])
+    ),
   };
 };
 
-export const answered = (a: Draft["answers"][string] | undefined): boolean =>
+export const answered = (a: Fields | undefined): boolean =>
   a !== undefined &&
   (a.selected.length > 0 || a.custom_selected) &&
   (!a.custom_selected || !!displayText(a.custom).trim());
@@ -184,7 +139,7 @@ export const draftAnswer = (item: Interaction, q: Question): Answer => {
     selections: [],
   };
 
-  const a = item.draft?.answers[q.id];
+  const a = item.draft?.[q.id];
 
   if (!a) {
     return answer;
@@ -214,17 +169,18 @@ export const draftAnswer = (item: Interaction, q: Question): Answer => {
   return answer;
 };
 
-export const collectAnswers = (item: Interaction): Submission["answers"] => {
+/** Validates a complete draft and snapshots its selected answers and notes. */
+export const collectAnswers = (item: Interaction): Answers => {
   const { draft } = item;
 
   if (!draft) {
-    throw new Error("No editable draft; reopen a submission first");
+    throw new Error("This questionnaire is no longer open");
   }
 
-  const answers: Submission["answers"] = {};
+  const answers: Answers = {};
 
   for (const q of item.request.questions) {
-    const a = draft.answers[q.id];
+    const a = draft[q.id];
 
     if (
       !a ||
@@ -256,9 +212,7 @@ export const collectAnswers = (item: Interaction): Submission["answers"] => {
     answers[q.id] = draftAnswer(item, q);
   }
 
-  if (
-    Buffer.byteLength(JSON.stringify({ answers, note: draft.note })) > 40_000
-  ) {
+  if (Buffer.byteLength(JSON.stringify(answers)) > 40_000) {
     throw new Error(
       "Combined answers and notes exceed 40,000 UTF-8 bytes; shorten them before submitting"
     );
@@ -267,209 +221,108 @@ export const collectAnswers = (item: Interaction): Submission["answers"] => {
   return answers;
 };
 
+const edit = (
+  q: Question,
+  a: Fields,
+  action: Extract<Action, { question: string }>
+): void => {
+  switch (action.type) {
+    case "select": {
+      if (q.options?.some((o) => o.id === action.option) !== true) {
+        throw new Error("Unknown option");
+      }
+
+      if (q.multi_select === true) {
+        a.selected = a.selected.includes(action.option)
+          ? a.selected.filter((id) => id !== action.option)
+          : [...a.selected, action.option];
+      } else {
+        a.selected = [action.option];
+        a.custom_selected = false;
+      }
+
+      break;
+    }
+
+    case "custom": {
+      if (action.text.length > MAX_TEXT) {
+        throw new Error(`Answer limit: ${MAX_TEXT} characters`);
+      }
+
+      a.custom = action.text;
+      a.custom_selected = true;
+
+      if (q.multi_select !== true) {
+        a.selected = [];
+      }
+
+      break;
+    }
+
+    case "toggle_custom": {
+      a.custom_selected = !a.custom_selected;
+
+      if (q.multi_select !== true && a.custom_selected) {
+        a.selected = [];
+      }
+
+      break;
+    }
+
+    case "note": {
+      if (action.text.length > MAX_NOTE) {
+        throw new Error(`Note limit: ${MAX_NOTE} characters`);
+      }
+
+      if (action.option === undefined) {
+        a.custom_note = action.text;
+      } else if (q.options?.some((o) => o.id === action.option) === true) {
+        a.notes[action.option] = action.text;
+      } else {
+        throw new Error("Unknown option");
+      }
+
+      break;
+    }
+  }
+};
+
 export const transition = (
   item: Interaction,
   action: Action,
   now = new Date().toISOString()
 ): Interaction => {
   const next = structuredClone(item);
-  const { draft } = next;
 
-  switch (action.type) {
-    case "select":
-    case "custom":
-    case "toggle_custom":
-    case "note": {
-      if (!draft || next.cancelled) {
-        throw new Error("No editable draft; reopen first");
-      }
+  if (action.type === "restore") {
+    next.status = "open";
+    next.draft = structuredClone(action.draft);
+  } else {
+    const { draft } = next;
 
-      if (
-        action.type === "note" &&
-        (action.question === undefined || action.question === "")
-      ) {
-        if (action.text.length > MAX_NOTE) {
-          throw new Error(`Note limit: ${MAX_NOTE} characters`);
-        }
+    if (!draft) {
+      throw new Error("This questionnaire is no longer open");
+    }
 
-        draft.note = action.text;
-        break;
-      }
-
+    if (action.type === "submit") {
+      collectAnswers(next);
+      next.status = "answered";
+      delete next.draft;
+    } else if (action.type === "dismiss") {
+      next.status = "dismissed";
+      delete next.draft;
+    } else {
       const q = next.request.questions.find(
         (question) => question.id === action.question
       );
 
-      if (!q) {
-        throw new Error("Unknown question");
+      const a = q && draft[q.id];
+
+      if (!q || !a) {
+        throw new Error(`Unknown question: ${action.question}`);
       }
 
-      const a = draft.answers[q.id];
-
-      if (!a) {
-        throw new Error(`Missing draft answer: ${q.id}`);
-      }
-
-      if (action.type === "select") {
-        if (q.options?.some((o) => o.id === action.option) !== true) {
-          throw new Error("Unknown option");
-        }
-
-        if (q.multi_select === true) {
-          a.selected = a.selected.includes(action.option)
-            ? a.selected.filter((id) => id !== action.option)
-            : [...a.selected, action.option];
-        } else {
-          a.selected = [action.option];
-          a.custom_selected = false;
-        }
-      } else if (action.type === "custom") {
-        if (action.text.length > MAX_TEXT) {
-          throw new Error(`Answer limit: ${MAX_TEXT} characters`);
-        }
-
-        a.custom = action.text;
-        a.custom_selected = true;
-
-        if (q.multi_select !== true) {
-          a.selected = [];
-        }
-      } else if (action.type === "toggle_custom") {
-        a.custom_selected = !a.custom_selected;
-
-        if (q.multi_select !== true && a.custom_selected) {
-          a.selected = [];
-        }
-      } else {
-        if (action.text.length > MAX_NOTE) {
-          throw new Error(`Note limit: ${MAX_NOTE} characters`);
-        }
-
-        if (action.option !== undefined && action.option !== "") {
-          if (q.options?.some((o) => o.id === action.option) !== true) {
-            throw new Error("Unknown option");
-          }
-
-          a.notes[action.option] = action.text;
-        } else {
-          a.custom_note = action.text;
-        }
-      }
-
-      break;
-    }
-
-    case "submit": {
-      if (!draft || next.cancelled) {
-        throw new Error("No editable draft");
-      }
-
-      const submission: Submission = {
-        revision: next.submissions.length + 1,
-        timestamp: now,
-        initiated_by: draft.initiated_by,
-        mode: draft.mode,
-        answers: collectAnswers(next),
-        note: draft.note,
-      };
-
-      if (draft.reason !== undefined && draft.reason !== "") {
-        submission.reason = draft.reason;
-      }
-
-      if (draft.tool_call_id !== undefined && draft.tool_call_id !== "") {
-        submission.tool_call_id = draft.tool_call_id;
-      }
-
-      next.submissions.push(submission);
-      delete next.draft;
-      break;
-    }
-
-    case "reopen": {
-      if (draft) {
-        throw new Error(
-          "An editable draft already exists; finish or cancel it before requesting a revision"
-        );
-      }
-
-      const base = next.submissions.at(-1);
-
-      if (!base) {
-        throw new Error(
-          next.cancelled
-            ? "This request was cancelled before any answer; author a new request instead"
-            : "Nothing has been submitted yet; wait for an answer before revising"
-        );
-      }
-
-      if (base.revision !== action.base) {
-        throw new Error(
-          `Stale base revision; the latest submission is revision ${base.revision}`
-        );
-      }
-
-      next.draft = {
-        initiated_by: action.initiated_by,
-        mode: action.mode ?? base.mode,
-
-        note: base.note,
-        answers: Object.fromEntries(
-          next.request.questions.map((q) => {
-            const a = base.answers[q.id];
-
-            if (!a) {
-              throw new Error(`Missing submitted answer: ${q.id}`);
-            }
-
-            return [
-              q.id,
-              {
-                selected: a.selections.map((s) => s.option_id),
-                notes: Object.fromEntries(
-                  (q.options ?? []).map((o) => [
-                    o.id,
-                    a.selections.find((s) => s.option_id === o.id)?.note ?? "",
-                  ])
-                ),
-                custom_selected: !!a.custom,
-                custom: a.custom?.text ?? "",
-                custom_note: a.custom?.note ?? "",
-              },
-            ];
-          })
-        ),
-      };
-
-      if (action.reason !== undefined && action.reason !== "") {
-        next.draft.reason = action.reason;
-      }
-
-      if (action.tool_call_id !== undefined && action.tool_call_id !== "") {
-        next.draft.tool_call_id = action.tool_call_id;
-      }
-
-      next.cancelled = false;
-      break;
-    }
-
-    case "cancel": {
-      next.cancelled = true;
-      delete next.draft;
-      break;
-    }
-
-    case "sent": {
-      const submission = next.submissions.find(
-        (s) => s.revision === action.revision
-      );
-
-      if (!submission) {
-        throw new Error("Unknown submission revision");
-      }
-
-      submission.sent_at = now;
-      break;
+      edit(q, a, action);
     }
   }
 
@@ -477,11 +330,3 @@ export const transition = (
 
   return next;
 };
-
-export const revisedSubmission = (item: Interaction): Submission | undefined =>
-  item.draft ? item.submissions.at(-1) : undefined;
-
-export const awaitingUser = (item: Interaction): boolean =>
-  !item.cancelled &&
-  (!!item.draft ||
-    item.submissions.some((s) => s.sent_at === undefined || s.sent_at === ""));

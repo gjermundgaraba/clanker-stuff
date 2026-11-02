@@ -8,11 +8,16 @@ import {
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
-import { createInteraction, transition } from "../interaction.js";
-import type { Interaction } from "../interaction.js";
+import { outcome } from "../delivery.js";
+import type { Outcome } from "../delivery.js";
+import {
+  collectAnswers,
+  createInteraction,
+  transition,
+} from "../interaction.js";
 import type { Questionnaire } from "../request.js";
 import { QuestionnaireView } from "../tui/controller.js";
-import type { FormOutcome } from "../tui/controller.js";
+import type { FormResult } from "../tui/controller.js";
 import { intent } from "../tui/input.js";
 
 const plainQuestion = {
@@ -38,29 +43,37 @@ const question = {
 const setup = (
   multi = false,
   remap = false,
-  request?: Questionnaire,
-  prepare?: (item: Interaction) => Interaction
+  request?: Omit<Questionnaire, "wait">
 ) => {
   initTheme("dark");
 
   let item = createInteraction(
     "q_ui",
-    request ?? { questions: [{ ...question, multi_select: multi }] },
-    "call",
-    "async"
+    {
+      wait: false,
+      ...(request ?? { questions: [{ ...question, multi_select: multi }] }),
+    },
+    "call"
   );
 
   let mutations = 0;
-
-  if (prepare) {
-    item = prepare(item);
-  }
-
+  let result: Outcome | undefined;
   const abort = new AbortController();
-  const done = vi.fn<(result: FormOutcome) => void>();
+  const done = vi.fn<(form: FormResult) => void>();
   const report = vi.fn<(cause: unknown) => void>();
-  const notify = vi.fn<(text: string) => void>();
-  const send = vi.fn<(revision: number) => void>();
+
+  const finish = vi.fn<(kind: "submit" | "dismiss") => Outcome>((kind) => {
+    const answers = kind === "submit" ? collectAnswers(item) : undefined;
+    item = transition(item, { type: kind });
+    result = outcome(
+      item,
+      kind === "submit" ? "answered" : "dismissed",
+      answers
+    );
+
+    return result;
+  });
+
   const tui = createMockTui({ rows: 30 });
 
   const keys = createKeybindings({
@@ -88,10 +101,9 @@ const setup = (
       },
       subscribe: () => () => {},
       setFlush: () => {},
-      blocking: false,
-      notify,
+      finish,
+      waiting: false,
       report,
-      send,
     },
     done,
     abort.signal
@@ -108,8 +120,7 @@ const setup = (
   return {
     view,
     done,
-    send,
-    notify,
+    finish,
     report,
     abort,
     tui,
@@ -119,6 +130,9 @@ const setup = (
     },
     get mutations() {
       return mutations;
+    },
+    get outcome() {
+      return result;
     },
   };
 };
@@ -151,7 +165,7 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).not.toContain("c Context");
       expect(screen).toContain("1. First\u00A0★  ▸ details (p)");
       expect(screen).not.toContain("Synthetic suggestion");
-      expect(screen).toContain("x Cancel");
+      expect(screen).toContain("d Dismiss");
       expect(screen).toContain("h/l Questions");
       expect(screen).not.toContain("Help");
       expect(screen).not.toContain("const value");
@@ -168,59 +182,29 @@ describe("bounded questionnaire TUI", () => {
       expect(displayText(e.view.render(100).join("\n"))).toContain("Unicode:");
       e.press("1", "1");
       screen = e.view.render(100).join("\n");
-      expect(screen).toContain("Send answers");
-      expect(screen).toContain("Save without sending");
-      expect(screen).toContain("Send starts/steers a turn");
+      expect(screen).toContain("Send answers (starts or steers a turn)");
     } finally {
       e.view.dispose();
     }
   });
 
-  it("renders revision, form and current-question Markdown context in order", () => {
-    const e = setup(
-      false,
-      false,
-      {
-        context: "**Shared constraints**",
-        questions: [
-          { ...question, context: "```ts\nconst local = 1;\n```" },
-          { ...questionWithoutContext, id: "plain" },
-        ],
-      },
-      (created) => {
-        let item = created;
-
-        for (const q of item.request.questions) {
-          item = transition(item, {
-            type: "select",
-            question: q.id,
-            option: "first",
-          });
-        }
-
-        item = transition(item, { type: "submit" });
-
-        return transition(item, {
-          type: "reopen",
-          base: 1,
-          initiated_by: "agent",
-          mode: "async",
-          reason: "New constraint",
-        });
-      }
-    );
+  it("renders form and current-question Markdown context in order", () => {
+    const e = setup(false, false, {
+      context: "**Shared constraints**",
+      questions: [
+        { ...question, context: "```ts\nconst local = 1;\n```" },
+        { ...questionWithoutContext, id: "plain" },
+      ],
+    });
 
     try {
       Object.defineProperty(e.tui.terminal, "rows", {
         value: 80,
         configurable: true,
       });
-      e.press("1");
       const screen = displayText(e.view.render(120).join("\n"));
 
       const positions = [
-        "Revision requested:",
-        "New constraint",
         "Shared constraints",
         "const local = 1;",
         question.question,
@@ -233,7 +217,6 @@ describe("bounded questionnaire TUI", () => {
       e.press("l");
       const next = displayText(e.view.render(120).join("\n"));
       expect(next).toContain("Shared constraints");
-      expect(next).toContain("New constraint");
       expect(next).not.toContain("const local");
     } finally {
       e.view.dispose();
@@ -494,10 +477,10 @@ describe("bounded questionnaire TUI", () => {
         expect(displayText(e.view.render(80).join("\n"))).toContain(
           "> [ ] 2. Second"
         );
-        expect(e.item.draft?.answers["choice"]?.notes["second"]).toBe(
+        expect(e.item.draft?.["choice"]?.notes["second"]).toBe(
           close === "\r" ? "Answer note" : ""
         );
-        expect(e.item.draft?.answers["choice"]?.selected).toStrictEqual([]);
+        expect(e.item.draft?.["choice"]?.selected).toStrictEqual([]);
         expect(e.done).not.toHaveBeenCalled();
       } finally {
         e.view.dispose();
@@ -546,13 +529,13 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).not.toContain("Terminal too small");
       expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
       expect(lines.length).toBeLessThanOrEqual(20);
-      expect(e.item.draft?.answers["choice"]?.selected).toStrictEqual(["o4"]);
+      expect(e.item.draft?.["choice"]?.selected).toStrictEqual(["o4"]);
     } finally {
       e.view.dispose();
     }
   });
 
-  it("uses j/k to highlight without selecting, but keeps editor text and Review k intact", () => {
+  it("uses j/k to highlight without selecting, but keeps editor text intact", () => {
     const e = setup();
 
     try {
@@ -561,12 +544,10 @@ describe("bounded questionnaire TUI", () => {
       e.press("k");
       expect(e.view.render(80).join("\n")).toContain("> ( ) 1. First");
       expect(e.mutations).toBe(0);
-      e.press("g", "jk", "\r", "j", "\r", "k");
-      expect(
-        e.item.submissions[0]?.answers["choice"]?.selections[0]?.option_id
-      ).toBe("second");
-      expect(e.item.submissions[0]?.note).toBe("jk");
-      expect(e.send).not.toHaveBeenCalled();
+      e.press("j", "n", "jk", "\r", "\r", "\r");
+      expect(e.outcome?.answers?.["choice"]?.selections).toStrictEqual([
+        { option_id: "second", label: "Second", note: "jk" },
+      ]);
       expect(
         intent(createKeybindings({ "tui.select.confirm": ["k"] }), "k", true)
       ).toBe("confirm");
@@ -596,8 +577,8 @@ describe("bounded questionnaire TUI", () => {
       expect(e.done).not.toHaveBeenCalled();
       expect(e.view.render(80).join("\n")).toContain("Review");
       e.press("\r", "\r");
-      expect(e.item.submissions).toHaveLength(1);
-      expect(e.send).toHaveBeenCalledOnce();
+      expect(e.finish).toHaveBeenCalledExactlyOnceWith("submit");
+      expect(e.item.status).toBe("answered");
     } finally {
       e.view.dispose();
     }
@@ -611,19 +592,20 @@ describe("bounded questionnaire TUI", () => {
       e.press("r", "\r");
       expect(e.item).toStrictEqual(before);
       expect(e.view.render(80).join("\n")).toContain("Answer required: Choice");
-      expect(e.send).not.toHaveBeenCalled();
       expect(e.done).not.toHaveBeenCalled();
 
       e.press("1", "1", "\r");
-      expect(e.item.submissions).toHaveLength(1);
-      expect(e.send).toHaveBeenCalledWith(1);
-      expect(e.done).toHaveBeenCalledWith("submitted");
+      expect(e.done).toHaveBeenCalledExactlyOnceWith(e.outcome);
+      expect(e.outcome).toMatchObject({
+        status: "answered",
+        answers: { choice: { selections: [{ option_id: "first" }] } },
+      });
     } finally {
       e.view.dispose();
     }
   });
 
-  it("preserves distinct option notes across deselection and adds an overall note", () => {
+  it("preserves distinct option notes across deselection", () => {
     const e = setup(true);
 
     try {
@@ -638,20 +620,13 @@ describe("bounded questionnaire TUI", () => {
         "\r",
         "1",
         "1",
-        "g",
-        "whole form",
-        "\r",
         "r",
-        "k"
+        "\r"
       );
-      expect(
-        e.item.submissions[0]?.answers["choice"]?.selections
-      ).toStrictEqual([
+      expect(e.outcome?.answers?.["choice"]?.selections).toStrictEqual([
         { option_id: "second", label: "Second", note: "second note" },
         { option_id: "first", label: "First", note: "first note" },
       ]);
-      expect(e.item.submissions[0]?.note).toBe("whole form");
-      expect(e.send).not.toHaveBeenCalled();
     } finally {
       e.view.dispose();
     }
@@ -670,12 +645,10 @@ describe("bounded questionnaire TUI", () => {
         "\u001B[200~r1s\u001B[201~",
         "\u001Bd"
       );
-      expect(e.item.draft?.answers["choice"]?.custom).toBe("123\nr1s");
+      expect(e.item.draft?.["choice"]?.custom).toBe("123\nr1s");
       expect(e.done).not.toHaveBeenCalled();
-      e.press("r", "k");
-      expect(e.item.submissions[0]?.answers["choice"]?.custom?.text).toBe(
-        "123\nr1s"
-      );
+      e.press("r", "\u001By");
+      expect(e.outcome?.answers?.["choice"]?.custom?.text).toBe("123\nr1s");
     } finally {
       e.view.dispose();
     }
@@ -698,9 +671,9 @@ describe("bounded questionnaire TUI", () => {
         "\r",
         "\r",
         "r",
-        "k"
+        "\r"
       );
-      expect(e.item.submissions[0]?.answers["choice"]).toMatchObject({
+      expect(e.outcome?.answers?.["choice"]).toMatchObject({
         selections: [],
         custom: { text: "Saved alternative" },
       });
@@ -730,12 +703,12 @@ describe("bounded questionnaire TUI", () => {
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
       }
 
-      e.press("\u001B", "g");
+      e.press("\u001B", "n");
       e.view.handleInput("日".repeat(1001));
       expect(() => {
         e.view.flush();
       }).toThrow("limit");
-      expect(e.item.draft?.note).toBe("");
+      expect(e.item.draft?.["choice"]?.notes["first"]).toBe("");
       Object.defineProperty(e.tui.terminal, "rows", {
         value: 40,
         configurable: true,
@@ -746,7 +719,7 @@ describe("bounded questionnaire TUI", () => {
       expect(e.view.render(80).join("\n")).toContain("limit");
       e.press("\u001B");
       expect(e.view.render(80).join("\n")).not.toContain("1001/1000");
-      expect(e.item.draft?.note).toBe("");
+      expect(e.item.draft?.["choice"]?.notes["first"]).toBe("");
     } finally {
       e.view.dispose();
     }
@@ -757,11 +730,11 @@ describe("bounded questionnaire TUI", () => {
 
     try {
       e.press("\u001B[B", "\u001B[B", "\r", "typed then dropped", "\u001B");
-      expect(e.item.draft?.answers["choice"]?.custom).toBe("");
-      expect(e.item.draft?.answers["choice"]?.custom_selected).toBe(false);
+      expect(e.item.draft?.["choice"]?.custom).toBe("");
+      expect(e.item.draft?.["choice"]?.custom_selected).toBe(false);
       expect(e.view.render(80).join("\n")).toContain("Write answer");
       e.press("\r", "kept", "\r");
-      expect(e.item.draft?.answers["choice"]).toMatchObject({
+      expect(e.item.draft?.["choice"]).toMatchObject({
         custom: "kept",
         custom_selected: true,
       });
@@ -772,7 +745,7 @@ describe("bounded questionnaire TUI", () => {
       );
       expect(e.view.render(80).join("\n")).toContain("Edit answer · → Next");
       e.press("\r", "\u001B");
-      expect(e.item.draft?.answers["choice"]?.custom).toBe("kept");
+      expect(e.item.draft?.["choice"]?.custom).toBe("kept");
       expect(e.view.render(80).join("\n")).not.toContain("Send answers");
     } finally {
       e.view.dispose();
@@ -791,45 +764,35 @@ describe("bounded questionnaire TUI", () => {
       expect(editor).toContain("11/1000");
       expect(editor).toContain("Save");
       e.press("\r");
-      expect(e.item.draft?.answers["choice"]?.notes["second"]).toBe(
-        "inline note"
-      );
+      expect(e.item.draft?.["choice"]?.notes["second"]).toBe("inline note");
       expect(displayText(e.view.render(80).join("\n"))).toContain(
         "Note: inline note"
       );
-      e.press("g", "overall");
-      expect(displayText(e.view.render(80).join("\n"))).toContain(
-        "Questionnaire note"
-      );
-      e.press("\r");
-      e.press("pageDown");
-      expect(displayText(e.view.render(80).join("\n"))).toContain(
-        "Questionnaire note: overall"
-      );
     } finally {
       e.view.dispose();
     }
   });
 
-  it("cancels only on a repeated x and notifies when answers are kept unsent", () => {
-    const e = setup();
+  it.each([[[]], [["r"]]])(
+    "dismisses with d after %j, without answering",
+    (before) => {
+      const e = setup();
 
-    try {
-      e.press("x");
-      expect(e.view.render(80).join("\n")).toContain("Press x again");
-      e.press("1");
-      expect(e.item.cancelled).toBe(false);
-      expect(e.view.render(80).join("\n")).not.toContain("Press x again");
-      e.press("k");
-      expect(e.notify).toHaveBeenCalledWith(
-        expect.stringContaining("not sent")
-      );
-      expect(e.send).not.toHaveBeenCalled();
-      expect(e.done).toHaveBeenCalledWith("submitted");
-    } finally {
-      e.view.dispose();
+      try {
+        e.press("1", "\u001B[D", ...before, "d");
+        expect(e.finish).toHaveBeenCalledExactlyOnceWith("dismiss");
+        expect(e.done).toHaveBeenCalledExactlyOnceWith(e.outcome);
+        expect(e.outcome).toStrictEqual({
+          type: "questionnaire",
+          interaction_id: "q_ui",
+          status: "dismissed",
+        });
+        expect(e.item.status).toBe("dismissed");
+      } finally {
+        e.view.dispose();
+      }
     }
-  });
+  );
 
   it("opens on the first unanswered question with the current answer highlighted", () => {
     const e = setup(false, false, {
@@ -842,24 +805,6 @@ describe("bounded questionnaire TUI", () => {
     try {
       e.press("2", "\u001B[D");
       expect(e.view.render(80).join("\n")).toContain("> (•) 2. Second");
-      e.press("x", "x");
-      expect(e.item.cancelled).toBe(true);
-    } finally {
-      e.view.dispose();
-    }
-  });
-
-  it("closes after failed delivery while retaining the submitted revision in the inbox", () => {
-    const e = setup();
-
-    try {
-      e.send.mockImplementation(() => {
-        throw new Error("handoff failed");
-      });
-      e.press("1", "\r");
-      expect(e.item.submissions).toHaveLength(1);
-      expect(e.done).toHaveBeenCalledWith("submitted");
-      expect(e.report).toHaveBeenCalledWith(new Error("handoff failed"));
     } finally {
       e.view.dispose();
     }

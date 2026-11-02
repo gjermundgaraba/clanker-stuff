@@ -1,85 +1,78 @@
+import type {
+  ExtensionAPI,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { submittedFields } from "./interaction.js";
-import type { Interaction, Submission } from "./interaction.js";
-import { submissionChanges } from "./summary.js";
+import { AnswersSchema } from "./interaction.js";
+import type { Answers, Interaction } from "./interaction.js";
 
-export const AnswerEnvelopeSchema = Type.Object(
+/** Custom message type of answers and dismissals that arrive outside a waiting tool call. */
+export const MESSAGE_TYPE = "ask-question";
+
+export const OutcomeSchema = Type.Object(
   {
-    type: Type.Literal("questionnaire_answer"),
+    type: Type.Literal("questionnaire"),
     interaction_id: Type.String(),
     title: Type.Optional(Type.String()),
-    ...submittedFields,
-    changed: Type.Array(Type.String()),
+    status: Type.Enum(["answered", "pending", "closed", "dismissed"]),
+    answers: Type.Optional(AnswersSchema),
   },
   { additionalProperties: false }
 );
 
-export type AnswerEnvelope = Static<typeof AnswerEnvelopeSchema>;
+/**
+ * What the model learns about a questionnaire. The same object is the text the model reads and
+ * the `details` the transcript renders.
+ */
+export type Outcome = Static<typeof OutcomeSchema>;
 
-export const answerEnvelope = (
+export const outcome = (
   item: Interaction,
-  submission: Submission
-): AnswerEnvelope => ({
-  type: "questionnaire_answer",
+  status: Outcome["status"],
+  answers?: Answers
+): Outcome => ({
+  type: "questionnaire",
   interaction_id: item.id,
   ...(item.request.title === undefined ? {} : { title: item.request.title }),
-  revision: submission.revision,
-  timestamp: submission.timestamp,
-  initiated_by: submission.initiated_by,
-  ...(submission.reason === undefined ? {} : { reason: submission.reason }),
-  ...(submission.tool_call_id === undefined
-    ? {}
-    : { tool_call_id: submission.tool_call_id }),
-  mode: submission.mode,
-  answers: submission.answers,
-  note: submission.note,
-  changed: submissionChanges(item, submission) ?? [],
+  status,
+  ...(answers === undefined ? {} : { answers }),
 });
 
-export const answerSummary = (envelope: AnswerEnvelope): string => {
-  const summary = [
-    `${envelope.title ?? "Questionnaire"} · ${envelope.interaction_id} · revision ${envelope.revision}${envelope.revision > 1 ? ` · supersedes revision ${envelope.revision - 1}` : ""}`,
-    ...Object.values(envelope.answers).map(
-      (a) =>
-        `${a.header}: ${[...a.selections.map((s) => s.label), ...(a.custom ? [a.custom.text] : [])].join(", ")}`
-    ),
-  ].join("\n");
+export const readOutcome = (value: unknown): Outcome | undefined =>
+  Value.Check(OutcomeSchema, value) ? value : undefined;
 
-  return summary.length > 700
-    ? `${summary.slice(0, 680)}… (full structured answer below)`
-    : summary;
-};
-
-export const answerMessage = (envelope: AnswerEnvelope): string =>
-  `${answerSummary(envelope)}\n\n${JSON.stringify(envelope)}`;
-
-export const parseAnswerMessage = (
-  text: string
-): AnswerEnvelope | undefined => {
-  const line = text.slice(text.lastIndexOf("\n") + 1);
-
-  if (!line.startsWith('{"type":"questionnaire_answer"')) {
-    return;
-  }
-
-  let value: unknown;
-
-  try {
-    value = JSON.parse(line);
-  } catch {
-    return;
-  }
-
-  return Value.Check(AnswerEnvelopeSchema, value) &&
-    answerMessage(value) === text
-    ? value
-    : undefined;
-};
-
-export const jsonResult = <T>(details: T) => ({
+export const toolResult = (details: Outcome) => ({
   content: [{ type: "text" as const, text: JSON.stringify(details) }],
   details,
 });
+
+/**
+ * Hands an outcome to Pi as a custom message. The model reads it as a user message; while the
+ * agent runs it steers the run.
+ */
+export const sendOutcome = (
+  pi: Pick<ExtensionAPI, "sendMessage">,
+  details: Outcome,
+  triggerTurn: boolean
+): void => {
+  pi.sendMessage(
+    {
+      customType: MESSAGE_TYPE,
+      content: JSON.stringify(details),
+      display: true,
+      details,
+    },
+    { deliverAs: "steer", triggerTurn }
+  );
+};
+
+export const delivered = (branch: SessionEntry[], id: string): boolean =>
+  branch.some(
+    (entry) =>
+      entry.type === "custom_message" &&
+      entry.customType === MESSAGE_TYPE &&
+      readOutcome(entry.details)?.interaction_id === id
+  );
