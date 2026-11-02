@@ -4,16 +4,19 @@ Use for repeated verbal patterns or tone calibration. Apply edits in context, no
 
 | Pattern | Editing choice |
 | --- | --- |
-| Inflated vocabulary: “delve”, “tapestry”, “pivotal”, “showcase”, “quietly”, “robust”, “gate/gated/gating” | Prefer a familiar precise word when it preserves the meaning. Keep technical uses of “robust” and “gate/gated/gating”; ordinary formal vocabulary and literal uses can stay. |
+| Inflated vocabulary: “delve”, “tapestry”, “pivotal”, “showcase”, “testament”, “underscore”, “interplay”, “intricate”, “garner”, “enduring”, “vibrant”, “crucial”, “additionally”, an abstract “landscape”, “quietly”, “robust”, “gate/gated/gating” | Prefer a familiar precise word when it preserves the meaning. Keep technical uses of “robust” and “gate/gated/gating”; ordinary formal vocabulary and literal uses can stay. |
+| Fancy synonyms for plain words: “utilize”, “leverage”, “facilitate”, “enhance”, “numerous”, “in the event that” | Use “use”, “help”, “improve”, “many”, or “if” when the meaning is the same. Keep a term with a precise domain sense, such as financial leverage. |
 | Unnecessary nominalizations: “we performed validation of the input” | Prefer “we validated the input” when the actor, tense, and meaning stay the same. Keep nouns that name precise domain concepts. |
-| Borrowed technical metaphors: a “lever” for a change or a “surface” for an API | Name the actual operation or thing only when the source establishes it. Preserve precise domain terminology and meaningful author metaphors; do not infer a mechanism from vague wording. |
-| Copula avoidance: “serves as”, “boasts” | Use “is”, “are”, or “has” where equivalent. Preserve quantities such as “over 3,000”. |
+| Borrowed technical metaphors: a “lever” for a change, a “surface” for an API, “substrate”, “wedge”, “vector” for a way, “locus”, “nexus”, “vantage”, “primitive” as a noun, “harness”, “bedrock”, “scaffolding”, “modality”, “paradigm”, “gold-plating”, “ratchet”, “evacuate” for moving code, “endgame”, “north star”, “flywheel” | Prefer the concrete word: “base”, “add”, “way”, “more than the job needs”, “move out”, “the last phase”. Name the actual operation or thing only when the source establishes it. Preserve precise domain terminology, such as a test harness or a language primitive, and meaningful author metaphors; do not infer a mechanism from vague wording. |
+| Copula avoidance: “serves as”, “stands as”, “boasts”, “features” | Use “is”, “are”, or “has” where equivalent. Preserve quantities such as “over 3,000”. |
 | Negative parallelism: “not just X, but Y”; trailing “no guessing”; “This does not mean X. It means Y.” | State the relationship directly or make the negation a real clause. Keep contrasts that correct an actual misconception or carry information in both halves, including equivalent constructions in other languages. |
 | Forced groups of three and synonym cycling | Keep each substantive item; use a consistent name for the same subject. |
 | Repeated sentence openings | Merge sentences or vary their openings when repetition is mechanical. Keep deliberate repetition that serves the author's rhythm. |
 | False ranges: “from X to Y” without a scale | Name the actual topics without introducing a new medium, topic, or scope. |
 | Passive voice and subjectless fragments | Name the actor only when the input establishes it. Passive voice is useful when the actor is unknown. |
-| Filler and excessive hedging | Shorten wording while retaining real uncertainty: “could potentially possibly affect” becomes “may affect”. |
+| Filler and excessive hedging | Shorten wording while retaining real uncertainty: “in order to” becomes “to”, “due to the fact that” becomes “because”, “it is important to note that” goes, and “could potentially possibly affect” becomes “may affect”. |
+| Adverbs propping up weak verbs: “runs quickly”, “significantly improves” | Use a stronger verb or the number the source supplies. Without a number, keep the claim's strength rather than inventing a measurement. |
+| Mannered prose: personified code (“the plan holds it”), figurative verbs (“rides along”, “stands on”), stock framing phrases | Say it literally when a literal phrase exists: “a dial worth turning” becomes “a parameter worth varying”. Keep metaphors that are the author's own voice in personal writing. |
 | Authority tropes and theatrical openers | Cut “the real question”, “at its core”, or “Honestly?” when they add ceremony rather than meaning. |
 | Manufactured punchlines and staccato drama | Combine repetitive fragments. Keep a short sentence when it earns emphasis. |
 | Aphorism formulas | Express the supported concrete claim; do not manufacture an explanation for an ambiguous metaphor. |
@@ -26,6 +29,22 @@ Empty contrasts, repetitive closers, empty aphorisms, staged openers, and invent
 ## Rhythm by rule
 
 Check across paragraphs: three parallel examples followed by a lesson can form a forced triad, and a recurring one-line closer can repeat each section's point. Change structure without dropping distinct examples, rankings, or simultaneous actions. Cut a sentence after an example, scene, or number that merely explains what it already showed, including “That distinction matters”, “This shows the importance of...”, or “It was a lesson in patience”. Keep a closer that adds a fact or consequence the example does not establish. A short sentence that adds information can stay. Passive voice and hedging are weak cues alone; keep unknown actors, real uncertainty, scope statements, and necessary notices.
+
+## Plain speech
+
+Technical and reference prose should say what something does, not how it feels. “SQL you can read” or “the database stays close at hand” name a feeling; “`.toSQL()` returns the exact query string” or “a column rename fails the build” name a mechanism. Ask what the sentence tells the reader to do or know. A sentence that could appear unchanged in another project's documentation usually says nothing about this one. Replace it with the mechanism or number only when the source or task context supplies one; otherwise cut it when it carries no claim, or keep it and flag the gap. Do not invent the mechanism.
+
+Split a sentence the reader has to reread to parse, or drop clauses that add nothing. One idea per sentence is a good default, not a quota.
+
+## Over-compression
+
+Notes pasted into prose often drop articles and verbs, use arrows or symbols for relationships, and abbreviate terms the reader must decode. Write whole sentences, and spell out arrows and abbreviations the audience may not know. Keep standard identifiers, units, and abbreviations the audience uses.
+
+Before: “Parser rejects bad date → exit 2, no write.”
+
+After: “The parser rejects a bad date, exits with code 2, and writes nothing.”
+
+Commit subjects, tables, changelogs, and other terse formats can stay terse when that is the convention.
 
 ## Author voice
 

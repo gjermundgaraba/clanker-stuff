@@ -14,6 +14,7 @@ Third-party sources and licenses are listed below. Skill provenance is recorded 
 | Effect skill and references | [`skills/effect/`](skills/effect/SKILL.md) | [kitlangton/skills](https://github.com/kitlangton/skills) | [MIT](skills/effect/LICENSE) |
 | Humanizer skill | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [blader/humanizer](https://github.com/blader/humanizer) | [MIT](skills/humanizer/LICENSE) |
 | Additional humanizer guidance | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin) | [MIT](skills/humanizer/LICENSE.ce-noslop) |
+| Humanizer plain-speech guidance | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/humanizer/LICENSE.unslop) |
 | Instruction-design reference guidance | [`skills/instruction-design/`](skills/instruction-design/SKILL.md) | [OpenAI Developers article](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) | Reference only; locally written summary, no article text bundled |
 | Librarian skill and checkout helper | [`skills/librarian/`](skills/librarian/SKILL.md) | [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff) | [Apache-2.0](skills/librarian/LICENSE) |
 | Show-me skill | [`skills/show-me/`](skills/show-me/SKILL.md) | [humanlayer/skills](https://github.com/humanlayer/skills) | [MIT](skills/show-me/LICENSE) |

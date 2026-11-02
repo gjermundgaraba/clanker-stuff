@@ -4,7 +4,7 @@ Use when prose inflates significance, markets ordinary facts, relies on vague au
 
 ## Inflation and borrowed authority
 
-- **Inflated significance and superficial analysis:** remove unsupported symbolism, broad trends, and trailing “highlighting” or “reflecting” clauses. Retain meaningful stated relationships.
+- **Inflated significance and superficial analysis:** remove unsupported symbolism, broad trends, and trailing “highlighting”, “reflecting”, “ensuring”, “showcasing”, or “fostering” clauses. Retain meaningful stated relationships.
 - **Promotional language and notability:** replace superlatives with the facts already supplied. Preserve specific media sources, numbers, and attributed opinions; do not invent a better citation or concrete detail.
 - **Vague attribution:** retain uncertainty and flag missing sources if relevant. “Experts believe” cannot become a named study unless that study was supplied or separately verified within the task.
 - **Vague associations:** replace “associated with”, “connected to”, or “linked to” with the relationship the source establishes. If the source gives no role or relationship, preserve its ambiguity rather than inventing one.
@@ -13,7 +13,7 @@ Use when prose inflates significance, markets ordinary facts, relies on vague au
 ## Leftovers from chat and drafting
 
 - **Speculative gap filling:** distinguish what the source says from what it establishes. Never turn “appears to have” into a definite date or replace an unknown biography with plausible details.
-- **Chatbot residue:** remove offers to continue, generic praise, knowledge-cutoff boilerplate, and tutorial announcements when they are pasted into a deliverable. Preserve real limitations and qualifications.
+- **Chatbot residue:** remove offers to continue, eager openers such as “Certainly!” or “Found the smoking gun!”, generic praise, knowledge-cutoff boilerplate, and tutorial announcements when they are pasted into a deliverable. Preserve real limitations and qualifications.
 - **Repeated heading:** remove an opening sentence that only repeats its heading; preserve one that adds information. Ordinary salutations and sign-offs in letters or comments are not chatbot residue.
 - **Document narration:** ordinary documentation should describe its subject, not what the text replaced, how it was sourced or assembled, or a layout the reader can already see. Release notes and migration guides can describe changes. Keep source credits readers can follow, caveats that change what they should do, and conventions they cannot infer; state each convention once. A single page description is a weak cue alone. Do not invent the current mechanism when the input only describes history, or turn sourcing narration into unsupported findings.
 
