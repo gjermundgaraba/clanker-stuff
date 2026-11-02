@@ -123,15 +123,19 @@ const modelWidget = (
     ? `${ctx.modelRegistry.getProviderDisplayName(model.provider)} / ${model.name}`
     : model.name;
 
+  const lastModel = latest?.responseModel ?? latest?.model;
+
   const differs =
     latest !== undefined &&
-    (latest.provider !== model.provider || latest.model !== model.id);
+    (latest.provider !== model.provider ||
+      latest.model !== model.id ||
+      lastModel !== model.id);
 
   return {
     ...base,
     content: span(
       differs
-        ? `selected: ${selected} · last: ${latest.provider}/${latest.model}`
+        ? `selected: ${selected} · last: ${latest.provider}/${lastModel}`
         : selected,
       "muted"
     ),

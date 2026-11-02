@@ -1,10 +1,11 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { Usage } from "@earendil-works/pi-ai";
+import type { Model, Usage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { renderBuiltin } from "../layout.js";
 import { buildBuiltinWidgets, collectSessionTotals } from "../widgets.js";
 import { sessionReads } from "./helpers.js";
 
@@ -196,6 +197,69 @@ describe(buildBuiltinWidgets, () => {
     session.branch(original);
     expect(content("footer.model")).toBe("Auto");
     expect(content("footer.thinking")).toBe("low");
+  });
+
+  const radiusAuto: Model<"pi-messages"> = {
+    api: "pi-messages",
+    baseUrl: "",
+    provider: "radius",
+    id: "auto",
+    name: "Auto",
+    input: ["text"],
+    reasoning: true,
+    contextWindow: 0,
+    maxTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  };
+
+  it.each([
+    { responseModel: undefined, expected: "Auto" },
+    { responseModel: "auto", expected: "Auto" },
+    {
+      responseModel: "actual",
+      expected: "selected: Auto · last: radius/actual",
+    },
+  ])(
+    "shows the last provider-reported model: $responseModel",
+    ({ responseModel, expected }) => {
+      const session = SessionManager.inMemory();
+      session.appendMessage({
+        ...fauxAssistantMessage("done"),
+        provider: "radius",
+        model: "auto",
+        ...(responseModel === undefined ? {} : { responseModel }),
+      });
+
+      const widgets = build({
+        model: radiusAuto,
+        sessionManager: sessionReads(session),
+      });
+
+      expect(text(widgets, "footer.model")).toBe(expected);
+    }
+  );
+
+  it("sanitizes the provider-reported model at the rendering boundary", () => {
+    const session = SessionManager.inMemory();
+    session.appendMessage({
+      ...fauxAssistantMessage("done"),
+      provider: "radius",
+      model: "auto",
+      responseModel: "actual\u001B[2J\u202E\nmodel",
+    });
+
+    const widget = build({
+      model: radiusAuto,
+      sessionManager: sessionReads(session),
+    }).get("footer.model");
+
+    if (widget === undefined) {
+      throw new Error("Missing model widget");
+    }
+
+    expect(
+      renderBuiltin(widget, "ascii", { fg: (_tone, value) => value })
+    ).toBe("model selected: Auto · last: radius/actual model");
   });
 
   it.each([
