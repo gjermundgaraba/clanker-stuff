@@ -20,7 +20,6 @@ A personal collection of extensions, plugins, and skills for Pi, Claude Code, an
 | [`@clanker-stuff/claude-bridge`](pi/extensions/experimental/claude-bridge) | Uses Claude Code with your Claude subscription as a Pi model provider. |
 | [`@clanker-stuff/codemode-diffs`](pi/extensions/experimental/codemode-diffs) | Shows nested edit diffs beneath Code Mode results. |
 | [`@clanker-stuff/context`](pi/extensions/experimental/context) | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details. |
-| [`@clanker-stuff/fast`](pi/extensions/experimental/fast) | Adds a local /fast toggle for best-effort native OpenAI subscription priority requests. |
 | [`@clanker-stuff/footer`](pi/extensions/experimental/footer) | Lays out built-in widgets and native extension statuses in the footer and editor border. |
 | [`@clanker-stuff/mcp-skills`](pi/extensions/experimental/mcp-skills) | Loads skills that MCP servers serve with the MCP Skills extension as part of Pi's own skill list. |
 | [`@clanker-stuff/plannotator`](pi/extensions/experimental/plannotator) | Adds Plannotator review and annotation commands to pi. |

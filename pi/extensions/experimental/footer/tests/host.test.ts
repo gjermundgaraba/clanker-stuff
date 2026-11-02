@@ -336,7 +336,7 @@ describe("footer host", () => {
   it("names unknown widget IDs when loading and in inspect", async () => {
     const footer = await start({
       config: withRows(
-        [{ left: ["footer.cwd", "clanker.codex.fast"], right: [] }],
+        [{ left: ["footer.cwd", "example.missing"], right: [] }],
         ["status:vim"]
       ),
     });
@@ -347,11 +347,11 @@ describe("footer host", () => {
 
     const [warning, inspect] = footer.host.getNotifications();
     expect(warning).toStrictEqual({
-      message: "Footer ignores unknown widget IDs: clanker.codex.fast",
+      message: "Footer ignores unknown widget IDs: example.missing",
       type: "warning",
     });
     expect(inspect?.message).toContain(
-      "clanker.codex.fast · row 1 left · not present"
+      "example.missing · row 1 left · not present"
     );
     expect(inspect?.message).toContain("status:vim · border: INSERT");
   });

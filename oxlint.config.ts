@@ -149,7 +149,6 @@ export default config({
         "pi/extensions/experimental/claude-bridge/tests/session/messages.ts",
         "pi/extensions/experimental/codemode-diffs/diffs.ts",
         "pi/extensions/experimental/context/observation.ts",
-        "pi/extensions/experimental/fast/tests/transport.integration.test.ts",
         "pi/extensions/experimental/footer/tests/layout.test.ts",
         "pi/extensions/experimental/mcp-skills/config.ts",
         "pi/extensions/experimental/mcp-skills/entry.ts",
