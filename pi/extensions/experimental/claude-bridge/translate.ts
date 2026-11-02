@@ -3,15 +3,11 @@ import type {
   SDKPartialAssistantMessage,
   SDKResultSuccess,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  parseStreamingJson,
-  parseToolCallArguments,
-} from "@earendil-works/pi-ai";
+import { ToolCallArgumentsStream } from "@earendil-works/pi-ai";
 import type {
   Api,
   AssistantMessage,
   AssistantMessageEventStream,
-  JsonObject,
   Model,
   ToolCall,
 } from "@earendil-works/pi-ai";
@@ -25,7 +21,7 @@ export type TurnBlock = AssistantMessage["content"][number];
 
 interface OpenBlock {
   index: number;
-  partialJson: string;
+  arguments: ToolCallArgumentsStream | undefined;
 }
 
 export const newAssistantOutput = (
@@ -77,9 +73,6 @@ export const mapStopReason = (
     }
   }
 };
-
-const streamedArguments = (json: string, fallback: JsonObject): JsonObject =>
-  json === "" ? fallback : (toJsonObject(parseStreamingJson(json)) ?? fallback);
 
 const START_EVENT = {
   text: "text_start",
@@ -334,7 +327,13 @@ export class Turn {
         }
 
         this.blocks.push(opened);
-        this.openBlocks.set(opened, { index: event.index, partialJson: "" });
+        this.openBlocks.set(opened, {
+          index: event.index,
+          arguments:
+            opened.type === "toolCall"
+              ? new ToolCallArgumentsStream()
+              : undefined,
+        });
 
         const contentIndex = this.blocks.length - 1;
 
@@ -381,13 +380,13 @@ export class Turn {
           });
         } else if (
           delta.type === "input_json_delta" &&
-          block.type === "toolCall"
+          block.type === "toolCall" &&
+          open.arguments !== undefined
         ) {
-          open.partialJson += delta.partial_json;
-          block.arguments = streamedArguments(
-            open.partialJson,
-            block.arguments
-          );
+          if (delta.partial_json !== "") {
+            block.arguments = open.arguments.append(delta.partial_json);
+          }
+
           this.push({
             type: "toolcall_delta",
             contentIndex,
@@ -435,8 +434,8 @@ export class Turn {
             partial: output,
           });
         } else {
-          if (open.partialJson !== "") {
-            Object.assign(block, parseToolCallArguments(open.partialJson));
+          if (open.arguments !== undefined && open.arguments.text !== "") {
+            Object.assign(block, open.arguments.finish());
           }
 
           this.push({
