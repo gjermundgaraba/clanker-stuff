@@ -39,13 +39,8 @@ export const systemText = (
 ): string | undefined =>
   (system === undefined ? "" : getSystemMessageText(system)) || undefined;
 
-/** Pi's own preamble, the start of every prompt pi renders without a custom prompt. */
-export const PI_PREAMBLE = "You are a coding assistant running inside pi";
-
-const PI_PREAMBLES = [
-  PI_PREAMBLE,
-  "You are an expert coding assistant operating inside pi",
-] as const;
+const PI_CURRENT_OR_PREVIOUS_PREAMBLE_AT_LINE_START =
+  /^(?:You are a coding assistant running inside pi|You are an expert coding assistant operating inside pi)/mu;
 
 const PI_SECTIONS = new Set(["tools", "rules", "docs", "cwd"]);
 
@@ -76,31 +71,15 @@ const labelFor = (name: string): string => {
     : `the ${name} section`;
 };
 
-const preambleAtLineStart = (text: string) => {
-  for (const preamble of PI_PREAMBLES) {
-    for (
-      let offset = text.indexOf(preamble);
-      offset !== -1;
-      offset = text.indexOf(preamble, offset + preamble.length)
-    ) {
-      if (offset === 0 || text[offset - 1] === "\n") {
-        return { preamble, offset };
-      }
-    }
-  }
-
-  return undefined;
-};
-
 const assertSendable = (parts: readonly PromptPart[]): void => {
   const findings: string[] = [];
 
   for (const { label, text } of parts) {
-    const preambleMatch = preambleAtLineStart(text);
+    const preamble = PI_CURRENT_OR_PREVIOUS_PREAMBLE_AT_LINE_START.exec(text);
 
-    if (preambleMatch !== undefined) {
+    if (preamble !== null) {
       findings.push(
-        `pi's preamble ("${preambleMatch.preamble}") in ${label}, at offset ${preambleMatch.offset} of ${text.length} chars`
+        `pi's preamble ("${preamble[0]}") in ${label}, at offset ${preamble.index} of ${text.length} chars`
       );
     }
 
@@ -156,14 +135,15 @@ export const forwardedPrompt = (
     parts.push({ label: "the system prompt", text: content });
   }
 
-  for (const [name, value] of Object.entries(system.sections ?? {})) {
-    if (value === null || value === "" || PI_SECTIONS.has(name)) {
-      continue;
-    }
+  const sections = system.sections ?? {};
+  const isPiDefaultPrompt = "docs" in sections;
 
+  for (const [name, value] of Object.entries(sections)) {
     if (
-      name === "preamble" &&
-      PI_PREAMBLES.some((preamble) => value.startsWith(preamble))
+      value === null ||
+      value === "" ||
+      PI_SECTIONS.has(name) ||
+      (name === "preamble" && isPiDefaultPrompt)
     ) {
       continue;
     }

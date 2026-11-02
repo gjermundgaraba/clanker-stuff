@@ -22,7 +22,6 @@ import {
 
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
-import { PI_PREAMBLE } from "../prompt.js";
 import { CONTINUE_PROMPT, streamClaudeCode } from "../provider.js";
 import { Sessions } from "../sessions.js";
 import {
@@ -458,7 +457,10 @@ describe("streamClaudeCode", () => {
     const reply = await call(
       [user("hi")],
       {},
-      { systemPrompt: `${PI_PREAMBLE}, a harness.` }
+      {
+        systemPrompt:
+          "You are a coding assistant running inside pi, a harness.",
+      }
     ).result();
 
     expect(reply.stopReason).toBe("error");

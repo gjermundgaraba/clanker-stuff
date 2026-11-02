@@ -4,12 +4,7 @@ import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildSystemPromptState } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt.js";
-import {
-  forwardedPrompt,
-  PI_PREAMBLE,
-  systemText,
-  toBridgeContext,
-} from "../prompt.js";
+import { forwardedPrompt, systemText, toBridgeContext } from "../prompt.js";
 import { transcript } from "./helpers.js";
 
 const piSystem = (
@@ -27,6 +22,11 @@ const piSystem = (
     ...(sections === undefined ? {} : { sections }),
   };
 };
+
+const piPreamble = piSystem({}).sections?.["preamble"] ?? "";
+
+const previousPiPreamble =
+  "You are an expert coding assistant operating inside pi";
 
 const skill = {
   name: "browser",
@@ -57,7 +57,7 @@ describe(forwardedPrompt, () => {
     expect(forwarded).toContain("Answer in English.");
     expect(forwarded).toContain("<mcp_servers>");
 
-    expect(forwarded).not.toContain(PI_PREAMBLE);
+    expect(forwarded).not.toContain(piPreamble);
     expect(forwarded).not.toContain("<tools>");
     expect(forwarded).not.toContain("Prefer rg over grep");
     expect(forwarded).not.toContain("Be concise in your responses");
@@ -105,7 +105,7 @@ describe(forwardedPrompt, () => {
 describe("the third-party gate", () => {
   it("refuses pi's preamble at the start of a line and names where it was", () => {
     const system = piSystem({
-      appendSystemPrompt: `Context:\n${PI_PREAMBLE}, a harness.`,
+      appendSystemPrompt: `Context:\n${piPreamble}`,
     });
 
     expect(() => forwardedPrompt(system)).toThrow(
@@ -113,23 +113,24 @@ describe("the third-party gate", () => {
     );
   });
 
-  it("rejects the previous pi preamble in resumed or replaced prompts", () => {
-    const previous = "You are an expert coding assistant operating inside pi";
-
-    expect(
-      forwardedPrompt({
-        role: "system",
-        content: "",
-        sections: { preamble: previous },
-        timestamp: 0,
-      })
-    ).toBeUndefined();
-    expect(() =>
-      forwardedPrompt(
-        piSystem({ forceSystemPrompt: `Custom text\n${previous}` })
-      )
-    ).toThrow(/pi's preamble/u);
-  });
+  it.each([
+    ["current", piPreamble],
+    ["previous", previousPiPreamble],
+  ])(
+    "refuses a custom prompt that opens with pi's %s preamble",
+    (_version, preamble) => {
+      expect(() =>
+        forwardedPrompt(
+          piSystem({ customPrompt: `${preamble}, with my rules.` })
+        )
+      ).toThrow(/pi's preamble .* in the custom prompt/u);
+      expect(() =>
+        forwardedPrompt(
+          piSystem({ forceSystemPrompt: `Custom text\n${preamble}` })
+        )
+      ).toThrow(/pi's preamble .* in the system prompt/u);
+    }
+  );
 
   it("refuses pi's whole prompt sent as a replacement", () => {
     const harness = buildSystemPromptState({ cwd: "/repo" });
@@ -164,7 +165,7 @@ describe("the third-party gate", () => {
   );
 
   it("allows a mid-line mention of pi's preamble", () => {
-    const custom = `note: ${PI_PREAMBLE}, allegedly`;
+    const custom = `note: ${piPreamble}, allegedly`;
 
     expect(forwardedPrompt(piSystem({ customPrompt: custom }))).toBe(custom);
   });
@@ -172,7 +173,6 @@ describe("the third-party gate", () => {
   it("pins its markers to pi's own rendered prompt", () => {
     const sections = buildSystemPromptState({ cwd: "/repo" }).sections ?? {};
 
-    expect(sections["preamble"]).toContain(PI_PREAMBLE);
     expect(sections["docs"]).toContain("docs/custom-provider.md");
     expect(sections["docs"]).toContain("docs/packages.md");
   });
