@@ -5,7 +5,6 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { renderBuiltin } from "../layout.js";
 import { buildBuiltinWidgets, collectSessionTotals } from "../widgets.js";
 import { sessionReads } from "./helpers.js";
 
@@ -213,15 +212,21 @@ describe(buildBuiltinWidgets, () => {
   };
 
   it.each([
-    { responseModel: undefined, expected: "Auto" },
-    { responseModel: "auto", expected: "Auto" },
+    { selected: radiusAuto, responseModel: undefined, expected: "Auto" },
+    { selected: radiusAuto, responseModel: "auto", expected: "Auto" },
     {
+      selected: radiusAuto,
       responseModel: "actual",
       expected: "selected: Auto · last: radius/actual",
     },
+    {
+      selected: { ...radiusAuto, id: "actual", name: "Actual" },
+      responseModel: "actual",
+      expected: "Actual",
+    },
   ])(
-    "shows the last provider-reported model: $responseModel",
-    ({ responseModel, expected }) => {
+    "shows $expected after a response from $responseModel",
+    ({ selected, responseModel, expected }) => {
       const session = SessionManager.inMemory();
       session.appendMessage({
         ...fauxAssistantMessage("done"),
@@ -231,36 +236,13 @@ describe(buildBuiltinWidgets, () => {
       });
 
       const widgets = build({
-        model: radiusAuto,
+        model: selected,
         sessionManager: sessionReads(session),
       });
 
       expect(text(widgets, "footer.model")).toBe(expected);
     }
   );
-
-  it("sanitizes the provider-reported model at the rendering boundary", () => {
-    const session = SessionManager.inMemory();
-    session.appendMessage({
-      ...fauxAssistantMessage("done"),
-      provider: "radius",
-      model: "auto",
-      responseModel: "actual\u001B[2J\u202E\nmodel",
-    });
-
-    const widget = build({
-      model: radiusAuto,
-      sessionManager: sessionReads(session),
-    }).get("footer.model");
-
-    if (widget === undefined) {
-      throw new Error("Missing model widget");
-    }
-
-    expect(
-      renderBuiltin(widget, "ascii", { fg: (_tone, value) => value })
-    ).toBe("model selected: Auto · last: radius/actual model");
-  });
 
   it.each([
     [

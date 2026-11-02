@@ -127,9 +127,7 @@ const modelWidget = (
 
   const differs =
     latest !== undefined &&
-    (latest.provider !== model.provider ||
-      latest.model !== model.id ||
-      lastModel !== model.id);
+    (latest.provider !== model.provider || lastModel !== model.id);
 
   return {
     ...base,
