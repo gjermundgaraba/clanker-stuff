@@ -2,13 +2,8 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { addUsage, collectMetrics, totalTokens } from "../metrics.js";
-import {
-  measuredResponse,
-  sampleUsage,
-  snapshot,
-  userMessage,
-} from "./fixtures.js";
+import { collectMetrics, totalTokens } from "../metrics.js";
+import { measuredResponse, sampleUsage, userMessage } from "./fixtures.js";
 
 type Build = (session: SessionManager) => void;
 
@@ -175,23 +170,10 @@ describe("run metrics", () => {
       reasoning: 40,
       reports: 4,
       reasoningReports: 4,
-      providerCostReports: 2,
+      costFromProvider: false,
     });
     expect(metrics.usage.cost).toBeCloseTo(1.32);
     expect(totalTokens(metrics.usage)).toBe(1480);
-  });
-
-  it("does not invent cost provenance when adding usage to an older aggregate", () => {
-    const legacy = snapshot().metrics.usage;
-    delete legacy.providerCostReports;
-    const usage = sampleUsage();
-    addUsage(legacy, {
-      ...usage,
-      cost: { ...usage.cost, totalFromProvider: true },
-    });
-
-    expect(legacy.reports).toBe(2);
-    expect(legacy).not.toHaveProperty("providerCostReports");
   });
 
   it("counts the calls a tool made itself, such as Code Mode's, with their errors", () => {

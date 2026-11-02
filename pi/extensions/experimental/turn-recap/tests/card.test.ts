@@ -110,7 +110,7 @@ describe("transcript card", () => {
     const data = withRecap({
       status: "ready",
       text: "Done",
-      usage: { ...snapshot().metrics.usage, providerCostReports: 1 },
+      usage: { ...snapshot().metrics.usage, costFromProvider: true },
     });
 
     const detailed = card(data, true, 120).join("\n");
@@ -137,30 +137,28 @@ describe("transcript card", () => {
   });
 
   it.each([
-    { reports: 0, provider: 0, label: "no usage" },
-    { reports: 2, provider: 0, label: "includes estimates" },
-    { reports: 2, provider: 2, label: "provider-reported" },
     {
       reports: 2,
-      provider: 1,
-      label: "mixed: provider-reported and estimated",
+      fromProvider: true,
+      line: "Cost $0.3300 (provider-reported) ·",
     },
-    { reports: 2, provider: undefined, label: "source unknown" },
-    { reports: 2, provider: 3, label: "source unknown" },
-  ])("labels cost provenance as $label", ({ reports, provider, label }) => {
+    {
+      reports: 2,
+      fromProvider: false,
+      line: "Cost $0.3300 (includes estimates) ·",
+    },
+    { reports: 0, fromProvider: true, line: "Cost $0.3300 ·" },
+    { reports: 2, fromProvider: undefined, line: "Cost $0.3300 ·" },
+  ])("labels the cost source: $line", ({ reports, fromProvider, line }) => {
     const data = snapshot();
     data.metrics.usage.reports = reports;
-    data.metrics.usage.cost = reports === 0 ? 0 : 0.33;
-    delete data.metrics.usage.providerCostReports;
+    delete data.metrics.usage.costFromProvider;
 
-    if (provider !== undefined) {
-      data.metrics.usage.providerCostReports = provider;
+    if (fromProvider !== undefined) {
+      data.metrics.usage.costFromProvider = fromProvider;
     }
 
-    const rendered = card({ data }, true, 140).join("\n");
-    expect(rendered).toContain(
-      `Cost $${data.metrics.usage.cost.toFixed(4)} (${label})`
-    );
+    expect(card({ data }, true, 140).join("\n")).toContain(line);
   });
 
   it("names a single tool call in the singular", () => {

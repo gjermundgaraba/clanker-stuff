@@ -18,7 +18,7 @@ export const UsageSchema = Type.Object(
     reasoning: count,
     reports: count,
     reasoningReports: count,
-    providerCostReports: Type.Optional(count),
+    costFromProvider: Type.Optional(Type.Boolean()),
     cost: amount,
   },
   closed
@@ -61,7 +61,7 @@ export const emptyUsage = (): ReportedUsage => ({
   reasoning: 0,
   reports: 0,
   reasoningReports: 0,
-  providerCostReports: 0,
+  costFromProvider: true,
   cost: 0,
 });
 
@@ -73,12 +73,7 @@ export const addUsage = (total: ReportedUsage, usage: Usage): void => {
   total.cost += usage.cost.total;
   total.reports += 1;
 
-  if (
-    total.providerCostReports !== undefined &&
-    usage.cost.totalFromProvider === true
-  ) {
-    total.providerCostReports += 1;
-  }
+  total.costFromProvider &&= usage.cost.totalFromProvider === true;
 
   if (usage.reasoning !== undefined) {
     total.reasoning += usage.reasoning;

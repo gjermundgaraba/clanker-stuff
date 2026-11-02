@@ -345,10 +345,10 @@ describe("turn recap runtime", () => {
     );
   });
 
-  it("restores older cards and recaps without inventing cost provenance", async () => {
+  it("restores older cards and recaps saved without a cost source", async () => {
     const env = await started();
     const legacy = snapshot();
-    delete legacy.metrics.usage.providerCostReports;
+    delete legacy.metrics.usage.costFromProvider;
     env.session.appendCustomEntry(ENTRY_TYPE, legacy);
     env.session.appendCustomEntry(RECAP_ENTRY_TYPE, {
       runId: legacy.runId,
@@ -360,11 +360,9 @@ describe("turn recap runtime", () => {
     });
 
     await env.reload();
-    expect(env.card(true)).toContain("Cost $0.3300 (source unknown)");
+    expect(env.card(true)).toContain("Cost $0.3300 · Reasoning");
     expect(env.card(true)).toContain("Older recap");
-    expect(env.card(true)).toContain(
-      "$0.3300 (source unknown; excluded above)"
-    );
+    expect(env.card(true)).toContain("$0.3300 (excluded above)");
   });
 
   it("keeps timing across retries", async () => {

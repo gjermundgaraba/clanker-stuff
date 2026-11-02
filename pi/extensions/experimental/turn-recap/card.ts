@@ -26,24 +26,15 @@ const compact = new Intl.NumberFormat("en", {
 const number = (value: number): string =>
   value < 1000 ? String(value) : compact.format(value).replace("K", "k");
 
-const costSource = (usage: ReportedUsage): string => {
-  if (usage.reports === 0) {
-    return "no usage";
+const costSource = ({
+  reports,
+  costFromProvider,
+}: ReportedUsage): string | undefined => {
+  if (reports === 0 || costFromProvider === undefined) {
+    return undefined;
   }
 
-  const reported = usage.providerCostReports;
-
-  if (reported === undefined || reported > usage.reports) {
-    return "source unknown";
-  }
-
-  if (reported === 0) {
-    return "includes estimates";
-  }
-
-  return reported === usage.reports
-    ? "provider-reported"
-    : "mixed: provider-reported and estimated";
+  return costFromProvider ? "provider-reported" : "includes estimates";
 };
 
 const clock = (timestamp: number): string =>
@@ -225,18 +216,22 @@ export const renderCard = (
       ? "not reported"
       : `${number(usage.reasoning)}${usage.reasoningReports < usage.reports ? " (partially reported)" : ""} (included in output)`;
 
+  const source = costSource(usage);
+
   add(
     theme.fg(
       "muted",
-      `Cost $${usage.cost.toFixed(4)} (${costSource(usage)}) · Reasoning ${reasoning}`
+      `Cost $${usage.cost.toFixed(4)}${source === undefined ? "" : ` (${source})`} · Reasoning ${reasoning}`
     )
   );
 
   if (recap?.status !== "generating" && recap?.usage) {
+    const recapSource = costSource(recap.usage);
+
     add(
       theme.fg(
         "dim",
-        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} (${costSource(recap.usage)}; excluded above)`
+        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} (${recapSource === undefined ? "" : `${recapSource}; `}excluded above)`
       )
     );
   }
