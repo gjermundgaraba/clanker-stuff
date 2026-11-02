@@ -12,6 +12,8 @@ const BRANCH_AB_PATTERN = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/u;
 
 const GIT_TIMEOUT_MS = 1000;
 
+const GIT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+
 export const parseGitDetails = (output: string): GitDetails => {
   const details: GitDetails = {
     ahead: 0,
@@ -57,11 +59,11 @@ export const readGitDetails = async (
   const result = await runtime.exec(
     "git",
     ["--no-optional-locks", "status", "--porcelain=v2", "--branch"],
-    { cwd, timeout: GIT_TIMEOUT_MS }
+    { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES }
   );
 
   if (result.truncated) {
-    throw new Error("git status output exceeded Pi's buffer limit");
+    throw new Error("git status output exceeded the 8 MiB limit");
   }
 
   if (result.killed) {
