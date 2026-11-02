@@ -13,7 +13,6 @@ import type {
   KeyId,
   OverlayHandle,
   OverlayUnfocusOptions,
-  ProgramStatus,
   Terminal,
   TUI,
 } from "@earendil-works/pi-tui";
@@ -35,7 +34,6 @@ type CustomUiFactory<T> = (
 
 interface MockTuiOptions {
   rows?: number;
-  programStatus?: ProgramStatus[];
 }
 
 interface CustomUiDriverOptions {
@@ -177,9 +175,7 @@ const createTerminal = (options: MockTuiOptions): Terminal => ({
   kittyProtocolActive: false,
   moveBy: ignore,
   rows: options.rows ?? 40,
-  setProgramStatus(status: ProgramStatus) {
-    options.programStatus?.push(status);
-  },
+  setProgramStatus: ignore,
   setProgress: ignore,
   setTitle: ignore,
   showCursor: ignore,
