@@ -48,7 +48,7 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
-    "@effect/tsgo": "^0.63.0",
+    "@effect/tsgo": "^0.64.1",
     "oxlint": "^1.89.0",
     "ultracite": "^8.1.0",
     "vite-plus": "^1.4.0"
