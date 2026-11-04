@@ -2,16 +2,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { recommended as effect } from "@effect/tsgo/oxlint-presets";
+import antiSlop from "ultracite/oxlint/anti-slop";
+import core from "ultracite/oxlint/core";
+import vitest from "ultracite/oxlint/vitest";
 import type {
   DummyRuleMap,
   ExternalPluginEntry,
   OxlintConfig,
   OxlintEnv,
   OxlintOverride,
-} from "oxlint";
-import antiSlop from "ultracite/oxlint/anti-slop";
-import core from "ultracite/oxlint/core";
-import vitest from "ultracite/oxlint/vitest";
+} from "vite-plus/lint";
 
 export interface Options {
   /** Presets applied after core and anti-slop, before Vitest and Effect, such as `ultracite/oxlint/solid`. */

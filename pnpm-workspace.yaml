@@ -22,7 +22,6 @@ overrides:
   "@earendil-works/pi-tui": "catalog:"
   "typebox": "catalog:"
   vite@*: "catalog:"
-  vitest@*: "catalog:"
 catalog:
   "@earendil-works/pi-agent-core": 1.5.0
   "@earendil-works/pi-ai": 1.5.0
@@ -32,24 +31,19 @@ catalog:
   "@earendil-works/pi-coding-agent": 1.5.0
   "@earendil-works/pi-telemetry": 1.5.0
   "@earendil-works/pi-tui": 1.5.0
-  "@effect/tsgo": 0.64.1
+  "@effect/tsgo": 0.67.1
   "@types/node": 26.6.6
-  oxfmt: 0.74.0
-  oxlint: 1.89.0
   typebox: 1.4.3
   typescript: 7.0.2
-  ultracite: 8.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  vite-plus: 1.4.0
-  vitest: 5.0.5
+  ultracite: 8.1.1
+  vite: npm:@voidzero-dev/vite-plus-core@1.5.0
+  vite-plus: 1.5.0
   xstate: 6.0.0-alpha.71
 peerDependencyRules:
   allowAny:
     - vite
-    - vitest
   allowedVersions:
     vite: "*"
-    vitest: "*"
 allowBuilds:
   "@google/genai": true
   esbuild: true

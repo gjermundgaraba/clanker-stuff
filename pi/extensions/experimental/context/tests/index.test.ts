@@ -99,10 +99,7 @@ describe("context command", () => {
           const observed = component.render(120).join("\n");
           expect(observed.includes("REQUEST ONLY")).toBe(present);
           expect(observed).not.toContain("LATER MUTATION");
-
-          if (!present) {
-            expect(observed).toContain("No request observed yet");
-          }
+          expect(observed.includes("No request observed yet")).toBe(!present);
         },
       });
 

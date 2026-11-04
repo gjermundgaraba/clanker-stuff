@@ -92,9 +92,7 @@ export const resolveQuotaProvider = (
     ?.provider;
 };
 
-export const quotaUnavailableMessage = (
-  provider: string | undefined
-): string =>
+export const quotaUnavailableMessage = (provider: string | undefined): string =>
   provider === undefined
     ? "usage: no physical provider resolved for the current model"
     : `usage: quota reporting is unsupported for ${provider}`;

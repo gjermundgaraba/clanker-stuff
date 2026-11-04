@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import type { OxlintConfig } from "oxlint";
+import type { OxlintConfig } from "vite-plus/lint";
 import { describe, expect, it } from "vite-plus/test";
 
 import { config } from "../src/index.ts";
