@@ -51,19 +51,7 @@ const setup = async (fallback: DelegationPolicy = "explicit", flag = false) => {
 };
 
 describe("branch delegation", () => {
-  it("ignores retired Ultra metadata and fails closed for malformed owned policy", () => {
-    expect(
-      readDelegation(
-        { getBranch: () => [entry("ultra", { enabled: true })] },
-        "explicit"
-      )
-    ).toBe("explicit");
-    expect(
-      readDelegation(
-        { getBranch: () => [entry("ultra", { enabled: false })] },
-        "proactive"
-      )
-    ).toBe("proactive");
+  it("fails closed for malformed owned policy", () => {
     expect(
       readDelegation(
         { getBranch: () => [entry("subagents-delegation", "other")] },

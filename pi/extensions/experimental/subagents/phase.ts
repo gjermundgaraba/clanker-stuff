@@ -1,20 +1,8 @@
 import { setup, types } from "xstate/fsm";
 
-import { MAX_STATUS_TEXT } from "./protocol.js";
+import { bound, MAX_STATUS_TEXT } from "./protocol.js";
 import type { AgentNode } from "./protocol.js";
 import type { ChildRuntime, ChildTurnOutcome } from "./runtime.js";
-
-export const bound = (value: string, maximum: number): string => {
-  if (value.length <= maximum) {
-    return value;
-  }
-
-  const end = /[\uD800-\uDBFF]/u.test(value[maximum - 2] ?? "")
-    ? maximum - 2
-    : maximum - 1;
-
-  return `${value.slice(0, end)}…`;
-};
 
 export interface Turn {
   readonly retired: PromiseWithResolvers<undefined>;

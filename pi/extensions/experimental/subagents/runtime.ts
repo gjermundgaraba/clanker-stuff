@@ -25,13 +25,12 @@ import type {
   SessionEntry,
   ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { Value } from "typebox/value";
 
 import type { AgentThinkingLevel } from "./config.js";
 import {
   envelopeText,
+  mailDetails,
   mailMessage,
-  MailDetailsSchema,
   SUBAGENT_MESSAGE_TYPE,
 } from "./protocol.js";
 import type { Envelope, Mail } from "./protocol.js";
@@ -370,13 +369,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       turn.run = session.agent.signal;
     }
 
-    if (
-      event.type === "message_end" &&
-      event.message.role === "custom" &&
-      event.message.customType === SUBAGENT_MESSAGE_TYPE &&
-      Value.Check(MailDetailsSchema, event.message.details)
-    ) {
-      const { id } = event.message.details;
+    const id =
+      event.type === "message_end" && event.message.role === "custom"
+        ? mailDetails(event.message)?.id
+        : undefined;
+
+    if (id !== undefined) {
       const read = steered.get(id);
 
       if (read === undefined) {

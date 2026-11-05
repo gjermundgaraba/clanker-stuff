@@ -16,7 +16,7 @@ The configured `delegation` value in `~/.pi/agent/subagents.json` is the fallbac
 
 Fresh children snapshot their initial caller's effective policy, regardless of model selection, role or explicit effort. A proactive caller therefore produces a proactive child even when that child's thinking is explicitly set; an explicit caller produces an explicit child even when the child uses highest thinking. Existing children retain their own policy when an ancestor toggles its policy. Cold reload restores the child's saved branch policy rather than resnapshotting the parent.
 
-Policy is stored as `explicit` or `proactive` in `subagents-delegation` session entries. The `proactive` status indicates active delegation policy, not a highest-thinking lock. Historical `ultra` entries are ignored, not migrated or aliased; native thinking is left unchanged during cutover. There is no global Ultra state and no live policy propagation through the tree.
+Policy is stored as `explicit` or `proactive` in `subagents-delegation` session entries. The `proactive` status indicates active delegation policy, not a highest-thinking lock. There is no global Ultra state and no live policy propagation through the tree.
 
 ## Native thinking
 
