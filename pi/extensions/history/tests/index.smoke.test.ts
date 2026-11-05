@@ -5,7 +5,7 @@ import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createExtensionSmokeHarness } from "../../../tests/harness/extension-smoke.js";
 
 describe("history package discovery", () => {
-  it("loads the renamed package through Pi's extension loader", async () => {
+  it("loads through Pi's extension loader", async () => {
     const directory = path.resolve(import.meta.dirname, "..");
 
     const harness = await createExtensionSmokeHarness({
