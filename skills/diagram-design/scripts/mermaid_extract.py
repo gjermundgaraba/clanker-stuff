@@ -19,6 +19,7 @@ Exit codes: 0 success, 2 unreadable, unsupported, malformed, or over limits.
 
 from __future__ import annotations
 
+from digest_text import configure_stdout_utf8, escape_markdown
 from graph_analysis import finalize_degrees, has_directed_cycle
 
 import argparse
@@ -64,13 +65,6 @@ ER_IDENTIFIER = r"[^\W\d][\w.-]*"
 
 def _er_name(name: str) -> bool:
     return name[:1] == "_" or name[:1].isalpha()
-
-
-def _configure_stdout_utf8() -> None:
-    """Emit digests as UTF-8 even when Windows selects a legacy codepage."""
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        reconfigure(encoding="utf-8", errors="strict")
 
 
 def _fail(message: str) -> NoReturn:
@@ -1304,13 +1298,8 @@ def analyze(diagram: Diagram) -> dict[str, Any]:
     }
 
 
-def _escape_markdown(text: str) -> str:
-    encoded = html.escape(text, quote=False)
-    return re.sub(r"([\\`*{}\[\]()#+\-.!_|>])", r"\\\1", encoded)
-
-
 def _escape_table(text: str) -> str:
-    return _escape_markdown(text.replace("\n", " ⏎ "))
+    return escape_markdown(text.replace("\n", " ⏎ "))
 
 
 # The keyword that opens each extra region of a fragment: `else` in alt, `and` in par, `option` in critical.
@@ -1333,7 +1322,7 @@ def digest(
     output.append(
         f"{len(blocks)} diagram(s): "
         + ", ".join(
-            f"[{block.index}] {_escape_markdown(declared_kind(block))} (line {block.source_line})"
+            f"[{block.index}] {escape_markdown(declared_kind(block))} (line {block.source_line})"
             for block in blocks
         )
     )
@@ -1374,34 +1363,34 @@ def digest(
             output.append(f"- autonumber: {numbering}")
         if diagram.notes:
             output.append(
-                f"- notes: {'; '.join(_escape_markdown(note) for note in diagram.notes[:6])}"
+                f"- notes: {'; '.join(escape_markdown(note) for note in diagram.notes[:6])}"
             )
         if info["hubs"]:
             output.append(
                 "- hubs (focal candidates): "
                 + ", ".join(
-                    f"{_escape_markdown(hub['label'])}({hub['degree']})"
+                    f"{escape_markdown(hub['label'])}({hub['degree']})"
                     for hub in info["hubs"]
                 )
             )
         if info["entry_points"]:
             output.append(
-                f"- entry points: {', '.join(_escape_markdown(label) for label in info['entry_points'])}"
+                f"- entry points: {', '.join(escape_markdown(label) for label in info['entry_points'])}"
             )
         if info["terminals"]:
             output.append(
-                f"- terminals: {', '.join(_escape_markdown(label) for label in info['terminals'])}"
+                f"- terminals: {', '.join(escape_markdown(label) for label in info['terminals'])}"
             )
         if info["orphans"]:
             output.append(
-                f"- unconnected: {', '.join(_escape_markdown(label) for label in info['orphans'])}"
+                f"- unconnected: {', '.join(escape_markdown(label) for label in info['orphans'])}"
             )
         if info["collapsible_groups"]:
             output.append("- collapsible groups (simplify here first):")
             for group in info["collapsible_groups"]:
                 output.append(
-                    f"  - {_escape_markdown(group['label'])} — {group['children']} children: "
-                    + ", ".join(_escape_markdown(label) for label in group["child_labels"])
+                    f"  - {escape_markdown(group['label'])} — {group['children']} children: "
+                    + ", ".join(escape_markdown(label) for label in group["child_labels"])
                 )
 
         output.extend(
@@ -1547,5 +1536,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    _configure_stdout_utf8()
+    configure_stdout_utf8()
     raise SystemExit(main())

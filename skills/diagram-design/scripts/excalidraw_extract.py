@@ -22,10 +22,10 @@ unsupported / over limits.
 
 from __future__ import annotations
 
+from digest_text import configure_stdout_utf8, escape_inline, escape_markdown, escape_table
 from graph_analysis import finalize_degrees, has_directed_cycle
 
 import argparse
-import html
 import json
 import math
 import re
@@ -55,13 +55,6 @@ NODE_SHAPES = {
 }
 EDGE_TYPES = {"arrow", "line"}
 CONTAINER_TYPES = {"frame", "magicframe"}
-
-
-def _configure_stdout_utf8() -> None:
-    """Emit digests as UTF-8 even when Windows selects a legacy codepage."""
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        reconfigure(encoding="utf-8", errors="strict")
 
 
 def _fail(message: str) -> NoReturn:
@@ -485,23 +478,6 @@ def analyze(scene: Scene) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def _escape_markdown(text: str) -> str:
-    encoded = html.escape(text, quote=False)
-    return re.sub(r"([\\`*{}\[\]()#+\-.!_|>])", r"\\\1", encoded)
-
-
-def _fold_lines(text: str, replacement: str) -> str:
-    return replacement.join(text.splitlines())
-
-
-def _escape_inline(text: str) -> str:
-    return _escape_markdown(_fold_lines(text, " · "))
-
-
-def _escape_table(text: str) -> str:
-    return _escape_markdown(_fold_lines(text, " ⏎ "))
-
-
 def scene_bounds(scene: Scene) -> tuple[float, float, float, float]:
     boxes = [(n.x, n.y, n.x + n.w, n.y + n.h) for n in scene.nodes if n.w and n.h]
     if any(not math.isfinite(value) for box in boxes for value in box):
@@ -525,14 +501,14 @@ def digest(path: Path, scene: Scene, max_rows: int) -> str:
     info = analyze(scene)
     x0, y0, x1, y1 = scene_bounds(scene)
     out: list[str] = []
-    out.append(f"# Excalidraw IR — {_escape_inline(path.name)}")
+    out.append(f"# Excalidraw IR — {escape_inline(path.name)}")
     out.append("")
     out.append(
-        f"1 scene: {_escape_inline(scene.name)} "
+        f"1 scene: {escape_inline(scene.name)} "
         f"({len(scene.nodes)}n/{len(scene.edges)}e)"
     )
     out.append("")
-    out.append(f"## Scene — {_escape_inline(scene.name)}")
+    out.append(f"## Scene — {escape_inline(scene.name)}")
     out.append("")
     out.append(
         f"- source canvas: {int(x1 - x0)}×{int(y1 - y0)} px "
@@ -564,28 +540,28 @@ def digest(path: Path, scene: Scene, max_rows: int) -> str:
         )
     if info["hubs"]:
         hubs = ", ".join(
-            f"{_escape_inline(h['label'] or h['id'])}({h['degree']})"
+            f"{escape_inline(h['label'] or h['id'])}({h['degree']})"
             for h in info["hubs"]
         )
         out.append(f"- hubs (focal candidates): {hubs}")
     if info["entry_points"]:
         out.append(
-            f"- entry points: {', '.join(_escape_inline(label) for label in info['entry_points'])}"
+            f"- entry points: {', '.join(escape_inline(label) for label in info['entry_points'])}"
         )
     if info["terminals"]:
         out.append(
-            f"- terminals: {', '.join(_escape_inline(label) for label in info['terminals'])}"
+            f"- terminals: {', '.join(escape_inline(label) for label in info['terminals'])}"
         )
     if info["orphans"]:
         out.append(
-            f"- unconnected: {', '.join(_escape_inline(label) for label in info['orphans'])}"
+            f"- unconnected: {', '.join(escape_inline(label) for label in info['orphans'])}"
         )
     if info["collapsible_groups"]:
         out.append("- collapsible groups (simplify here first):")
         for group in info["collapsible_groups"]:
-            kids = ", ".join(_escape_inline(label) for label in group["child_labels"])
+            kids = ", ".join(escape_inline(label) for label in group["child_labels"])
             out.append(
-                f"  - {_escape_inline(group['label'])} — "
+                f"  - {escape_inline(group['label'])} — "
                 f"{group['children']} children: {kids}"
             )
 
@@ -597,9 +573,9 @@ def digest(path: Path, scene: Scene, max_rows: int) -> str:
     listed = [n for n in scene.nodes if n.label or n.children]
     for node in listed[:max_rows]:
         out.append(
-            f"| {_escape_table(node.id)} | {_escape_table(node.label)} | "
-            f"{_escape_table(node.shape)} | {node.depth} | "
-            f"{_escape_table(node.parent or '-')} | {node.in_degree}/{node.out_degree} | "
+            f"| {escape_table(node.id)} | {escape_table(node.label)} | "
+            f"{escape_table(node.shape)} | {node.depth} | "
+            f"{escape_table(node.parent or '-')} | {node.in_degree}/{node.out_degree} | "
             f"{int(node.x)},{int(node.y)} {int(node.w)}×{int(node.h)} |"
         )
     if len(listed) > max_rows:
@@ -620,9 +596,9 @@ def digest(path: Path, scene: Scene, max_rows: int) -> str:
         if edge.undirected:
             marks.append("undirected")
         out.append(
-            f"| {_escape_table(names.get(edge.source or '', '?'))} | "
-            f"{_escape_table(names.get(edge.target or '', '?'))} | "
-            f"{_escape_table(edge.label) or '-'} | {' '.join(marks) or '-'} |"
+            f"| {escape_table(names.get(edge.source or '', '?'))} | "
+            f"{escape_table(names.get(edge.target or '', '?'))} | "
+            f"{escape_table(edge.label) or '-'} | {' '.join(marks) or '-'} |"
         )
     if len(scene.edges) > max_rows:
         out.append(f"| … | +{len(scene.edges) - max_rows} more (use --json) | | |")
@@ -679,5 +655,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    _configure_stdout_utf8()
+    configure_stdout_utf8()
     raise SystemExit(main())
