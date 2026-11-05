@@ -13,9 +13,7 @@ import type {
 import type { Fields, Interaction } from "../interaction.js";
 import { answered } from "../interaction.js";
 import type { Question } from "../request.js";
-import { draftRows, plainText } from "../summary.js";
-
-const oneLine = (text: string) => displayText(text).replaceAll(/\s+/gu, " ");
+import { draftRows, oneLine, plainText } from "../summary.js";
 
 export const progressLine = (
   item: Interaction,

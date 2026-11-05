@@ -11,11 +11,9 @@ import { Text } from "@earendil-works/pi-tui";
 import { readOutcome } from "./delivery.js";
 import type { Outcome } from "./delivery.js";
 import type { QuestionnaireSchema } from "./request.js";
-import { answersRows, plainText } from "./summary.js";
+import { answersRows, oneLine, plainText } from "./summary.js";
 
 type Definition = ToolDefinition<typeof QuestionnaireSchema>;
-
-const oneLine = (text: string) => displayText(text).replaceAll(/\s+/gu, " ");
 
 export const renderCall: NonNullable<Definition["renderCall"]> = (
   args,
