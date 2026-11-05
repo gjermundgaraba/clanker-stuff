@@ -26,6 +26,7 @@ import { CONTINUE_PROMPT, streamClaudeCode } from "../provider.js";
 import { Sessions } from "../sessions.js";
 import {
   assistantMessage,
+  readToolCall,
   init,
   successResult,
   textBlock,
@@ -38,8 +39,6 @@ const model = testModel();
 const SESSION = "pi-session";
 
 const CHILD = "pi-child";
-
-const READ = "mcp__custom-tools__read";
 
 const readTool = {
   name: "read",
@@ -81,11 +80,6 @@ const toolResult = (id: string, text: string): ToolResultMessage => ({
   isError: false,
   timestamp: (clock += 1),
 });
-
-const toolCall = (id: string) =>
-  assistantMessage(`msg_${id}`, [
-    { type: "tool_use", id, name: READ, input: {} },
-  ]);
 
 let configDir: string;
 
@@ -294,7 +288,7 @@ describe("streamClaudeCode", () => {
 
       expect(handler).toBe(true);
 
-      q1.push(toolCall("toolu_1"));
+      q1.push(readToolCall("toolu_1"));
 
       const a1 = await first.result();
 
@@ -319,7 +313,7 @@ describe("streamClaudeCode", () => {
       const q1 = await query(0);
 
       q1.push(init("cc-1"));
-      q1.push(toolCall("toolu_1"));
+      q1.push(readToolCall("toolu_1"));
 
       const a1 = await first.result();
 
@@ -343,7 +337,7 @@ describe("streamClaudeCode", () => {
       const first = call([u1], { signal: controller.signal });
       const q1 = await query(0);
 
-      q1.push(toolCall("toolu_1"));
+      q1.push(readToolCall("toolu_1"));
 
       const a1 = await first.result();
 
@@ -366,7 +360,7 @@ describe("streamClaudeCode", () => {
       const first = call([u1]);
       const q1 = await query(0);
 
-      q1.push(toolCall("toolu_1"));
+      q1.push(readToolCall("toolu_1"));
 
       const a1 = await first.result();
       const side = call([user("summarize this for a status line")]);
@@ -433,7 +427,7 @@ describe("streamClaudeCode", () => {
       const q1 = await query(0);
 
       q1.push(init("cc-1"));
-      q1.push(toolCall("toolu_1"));
+      q1.push(readToolCall("toolu_1"));
 
       const a1 = await first.result();
       const summary = user("<summary>the user asked to read a</summary>");
@@ -475,7 +469,7 @@ describe("streamClaudeCode", () => {
     const q1 = await query(0);
 
     q1.push(init("cc-1"));
-    q1.push(toolCall("toolu_1"));
+    q1.push(readToolCall("toolu_1"));
 
     const a1 = await first.result();
     const summary = user("<summary>the user asked to read a</summary>");
@@ -557,7 +551,7 @@ describe("streamClaudeCode", () => {
       const reply = call([user("Summarize.")], { cacheRetention: "none" });
       const q = await query(0);
 
-      q.push(toolCall("toolu_1"));
+      q.push(readToolCall("toolu_1"));
       answer(q, "the summary");
 
       const result = await reply.result();

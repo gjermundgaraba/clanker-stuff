@@ -1,22 +1,10 @@
-import type {
-  ImageContent,
-  Message,
-  TextContent,
-  UserMessage,
-} from "@earendil-works/pi-ai";
+import type { ImageContent, Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
 import { newAssistantOutput } from "../translate.js";
 import { turnStart, userTurnBlocks } from "../turn.js";
 import { testModel } from "./helpers.js";
-
-const user = (content: UserMessage["content"]): UserMessage => ({
-  role: "user",
-  content,
-  timestamp: 0,
-});
-
-const text = (value: string): TextContent => ({ type: "text", text: value });
+import { text, user } from "./session/messages.js";
 
 const image = (data: string, mimeType = "image/png"): ImageContent => ({
   type: "image",

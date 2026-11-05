@@ -328,3 +328,8 @@ export const rateLimitEvent = (info: SDKRateLimitInfo): SDKRateLimitEvent => ({
   uuid: envelope.uuid,
   session_id: SESSION_ID,
 });
+
+export const readToolCall = (id: string) =>
+  assistantMessage(`msg_${id}`, [
+    { type: "tool_use", id, name: "mcp__custom-tools__read", input: {} },
+  ]);

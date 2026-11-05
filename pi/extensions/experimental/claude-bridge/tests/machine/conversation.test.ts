@@ -2,11 +2,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai";
-import type {
-  Message,
-  ToolResultMessage,
-  UserMessage,
-} from "@earendil-works/pi-ai";
+import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 import { createActor, SimulatedClock, waitFor } from "xstate";
@@ -24,6 +20,7 @@ import { resolveServedTools } from "../../tools.js";
 import { Turn } from "../../translate.js";
 import {
   assistantMessage,
+  readToolCall,
   blockStop,
   init,
   messageDelta,
@@ -38,6 +35,7 @@ import {
 import type { RecordingStream } from "../fixtures/sdk.js";
 import { fakeQueryFunction, testModel } from "../helpers.js";
 import type { FakeQuery } from "../helpers.js";
+import { user } from "../session/messages.js";
 
 const model = testModel();
 
@@ -46,12 +44,6 @@ const { names: served } = resolveServedTools([
 ]);
 
 const READ = "mcp__custom-tools__read";
-
-const user = (text: string): UserMessage => ({
-  role: "user",
-  content: text,
-  timestamp: 0,
-});
 
 const prompt = user("read a");
 
@@ -63,11 +55,6 @@ const toolResult = (id: string, text: string): ToolResultMessage => ({
   isError: false,
   timestamp: 0,
 });
-
-const toolCall = (id: string) =>
-  assistantMessage(`msg_${id}`, [
-    { type: "tool_use", id, name: READ, input: {} },
-  ]);
 
 const textOf = (result: McpResult): string =>
   result.content
@@ -309,7 +296,7 @@ describe("the conversation machine", () => {
       const first = start();
       const call = handler("toolu_1");
 
-      query().push(toolCall("toolu_1"));
+      query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
 
       expect(lastEvent(first.pi)).toMatchObject({
@@ -350,7 +337,7 @@ describe("the conversation machine", () => {
       const call = handler("toolu_1");
 
       start();
-      query().push(toolCall("toolu_1"));
+      query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
       deliver([toolResult("toolu_1", "early")]);
       actor.send(call.event);
@@ -399,7 +386,7 @@ describe("the conversation machine", () => {
       const input = stdin(query());
 
       await input.next();
-      query().push(toolCall("toolu_1"));
+      query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
       actor.send(call.event);
       void call.answer.then(() => order.push("result"));
@@ -429,7 +416,7 @@ describe("the conversation machine", () => {
       const call = handler("toolu_1");
       const { promptStream } = start();
 
-      query().push(toolCall("toolu_1"));
+      query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
       actor.send(call.event);
       promptStream.fail(new Error("stdin gone"));
@@ -451,7 +438,7 @@ describe("the conversation machine", () => {
       const call = handler("toolu_1");
 
       start(controller.signal);
-      query().push(toolCall("toolu_1"));
+      query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
       actor.send(call.event);
       controller.abort();
@@ -481,7 +468,7 @@ describe("the conversation machine", () => {
       const controller = new AbortController();
 
       start();
-      query().push(toolCall("toolu_1"));
+      query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
 
       const { pi } = deliver(
@@ -547,7 +534,7 @@ describe("the conversation machine", () => {
     const call = handler("toolu_1");
 
     start();
-    query().push(toolCall("toolu_1"));
+    query().push(readToolCall("toolu_1"));
     await settle({ active: "parked" });
     actor.send(call.event);
     actor.send({ type: "pi.discard" });
