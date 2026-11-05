@@ -12,7 +12,7 @@ import type { Answers, Interaction } from "./interaction.js";
 /** Custom message type of answers and dismissals that arrive outside a waiting tool call. */
 export const MESSAGE_TYPE = "ask-question";
 
-export const OutcomeSchema = Type.Object(
+const OutcomeSchema = Type.Object(
   {
     type: Type.Literal("questionnaire"),
     interaction_id: Type.String(),

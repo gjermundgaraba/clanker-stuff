@@ -73,9 +73,9 @@ const PackageJsonSchema = Type.Object(
   { additionalProperties: true }
 );
 
-export type PackageJson = Static<typeof PackageJsonSchema>;
+type PackageJson = Static<typeof PackageJsonSchema>;
 
-export interface WorkspacePackage {
+interface WorkspacePackage {
   dir: string;
   name: string;
   packageJson: PackageJson;

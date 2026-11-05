@@ -7,9 +7,9 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-export const MAX_QUESTIONS = 5;
+const MAX_QUESTIONS = 5;
 
-export const MAX_OPTIONS = 5;
+const MAX_OPTIONS = 5;
 
 export const MAX_TEXT = 4000;
 
@@ -19,7 +19,7 @@ export const Id = Type.String({ pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" });
 
 const text = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 
-export const QuestionSchema = Type.Object(
+const QuestionSchema = Type.Object(
   {
     id: Id,
     header: text(64),

@@ -8,7 +8,7 @@ import type { Activity } from "../monitor.js";
 import { parentAgentPath, ROOT_AGENT_PATH } from "../protocol.js";
 import type { AgentNode, AgentUsage } from "../protocol.js";
 
-export type AgentStatus = AgentNode["status"];
+type AgentStatus = AgentNode["status"];
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -283,7 +283,7 @@ export const treeRows = <Item extends { path: string }>(
   return rows;
 };
 
-export type StatusCounts = Record<AgentStatus, number>;
+type StatusCounts = Record<AgentStatus, number>;
 
 export const countStatuses = (nodes: readonly AgentNode[]): StatusCounts => {
   const counts: StatusCounts = {

@@ -103,7 +103,7 @@ export const parseFooterConfig = (text: string): FooterConfig => {
 export const formatFooterConfig = (config: FooterConfig): string =>
   `${JSON.stringify(config, null, 2)}\n`;
 
-export interface LoadedFooterConfig {
+interface LoadedFooterConfig {
   config: FooterConfig;
   text?: string;
   error?: string;

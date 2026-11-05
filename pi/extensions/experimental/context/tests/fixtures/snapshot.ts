@@ -31,7 +31,7 @@ export const fixtureMessage = (
   sourceEntryId: label,
 });
 
-export const recordedBranch = (prompt: string) => {
+const recordedBranch = (prompt: string) => {
   const session = SessionManager.inMemory();
   session.appendMessage({ role: "system", content: prompt, timestamp: 0 });
 

@@ -95,7 +95,7 @@ export const renderUsageBar = (
   );
 };
 
-export const renderUsageLine = (
+const renderUsageLine = (
   theme: Theme,
   usage: ContextUsage | undefined
 ): string => {
@@ -121,10 +121,7 @@ export const renderUsageLine = (
 const sum = (parts: ReadonlyArray<{ estimatedTokens: number }>) =>
   parts.reduce((total, part) => total + part.estimatedTokens, 0);
 
-export const renderLegend = (
-  theme: Theme,
-  snapshot: ContextSnapshot
-): string => {
+const renderLegend = (theme: Theme, snapshot: ContextSnapshot): string => {
   const estimates = [
     ["system", snapshot.system.estimatedTokens],
     ["tools", sum(snapshot.tools)],
@@ -248,7 +245,7 @@ export const renderScrollbar = (
   );
 };
 
-export interface FooterKey {
+interface FooterKey {
   readonly key: string;
   readonly label: string;
 }

@@ -109,7 +109,7 @@ export interface DroppedContent {
   other: Map<string, number>;
 }
 
-export interface ConvertedMessages {
+interface ConvertedMessages {
   anthropicMessages: SessionMessage[];
   sanitizedIds: Map<string, string>;
   dropped: DroppedContent;

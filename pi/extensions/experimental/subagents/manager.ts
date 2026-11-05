@@ -27,7 +27,7 @@ import { openTree } from "./store.js";
 import { registerTools } from "./tools.js";
 import type { ViewerSource } from "./ui/viewer.js";
 
-export interface SubagentManagerOptions {
+interface SubagentManagerOptions {
   config: SubagentsConfig;
   configError: string | undefined;
   dataDir: string;

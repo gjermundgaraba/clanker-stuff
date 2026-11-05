@@ -59,7 +59,7 @@ export interface ServerStatus {
   declined: DeclinedSkill[];
 }
 
-export interface ServerContext {
+interface ServerContext {
   agentDir: string;
   cwd: string;
   providerToken: (provider: string) => Promise<string | undefined>;

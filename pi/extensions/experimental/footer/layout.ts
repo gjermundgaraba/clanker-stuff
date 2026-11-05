@@ -18,7 +18,7 @@ export interface LiveWidget {
   truncate?: "start";
 }
 
-export interface FooterLayout {
+interface FooterLayout {
   lines: string[];
   truncated: string[];
 }

@@ -44,18 +44,9 @@ import { Value } from "typebox/value";
 
 import { createTempDir } from "../helpers/fs.js";
 
-export type {
-  FauxModelDefinition,
-  FauxProviderRegistration,
-  FauxResponseStep,
-} from "@earendil-works/pi-ai";
+export type { FauxModelDefinition } from "@earendil-works/pi-ai";
 
-export type {
-  AgentSession,
-  AgentSessionEvent,
-  ExtensionUIContext,
-  PromptOptions as AgentSessionPromptOptions,
-} from "@earendil-works/pi-coding-agent";
+export type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 interface AgentSessionHarnessOptions {
   api?: string;

@@ -46,7 +46,7 @@ export const enqueueResumeCommand = async (
   await rename(temporaryPath, finalPath);
 };
 
-export type ResumeRecording = "queued" | "skipped" | "inbox-unwritable";
+type ResumeRecording = "queued" | "skipped" | "inbox-unwritable";
 
 export const recordResumeCommand = async (
   reason: SessionShutdownEvent["reason"],

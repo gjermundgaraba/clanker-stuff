@@ -88,7 +88,7 @@ const record = (node: AgentNode, agent: AgentSnapshot): void => {
   }
 };
 
-export type CallerContext = Pick<
+type CallerContext = Pick<
   ExtensionContext,
   | "cwd"
   | "isProjectTrusted"
@@ -109,13 +109,13 @@ export interface SpawnInput {
   tools: readonly string[];
 }
 
-export interface SpawnResult {
+interface SpawnResult {
   model: string;
   task_name: string;
   thinkingLevel: AgentThinkingLevel;
 }
 
-export interface AgentListing {
+interface AgentListing {
   agent_name: string;
   agent_status: PublicAgentStatus;
 }

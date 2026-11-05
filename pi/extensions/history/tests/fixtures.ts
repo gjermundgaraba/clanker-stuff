@@ -64,7 +64,7 @@ export const nonPromptEntries = (
   },
 ];
 
-export const editorTheme: EditorTheme = {
+const editorTheme: EditorTheme = {
   borderColor: (text) => text,
   selectList: {
     description: (text) => text,

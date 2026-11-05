@@ -113,7 +113,7 @@ const creditBalance = (credits: CodexUsage["credits"]): number | undefined => {
     : available;
 };
 
-export const mapCodexUsagePayload = (
+const mapCodexUsagePayload = (
   payload: CodexUsage,
   nowMs: number
 ): UsageFetchResult => {

@@ -1,7 +1,7 @@
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { decodeKittyPrintable, matchesKey } from "@earendil-works/pi-tui";
 
-export type Keys = Pick<KeybindingsManager, "matches" | "getKeys">;
+type Keys = Pick<KeybindingsManager, "matches" | "getKeys">;
 
 export const keyLabel = (
   keys: Keys,
@@ -9,7 +9,7 @@ export const keyLabel = (
 ): string =>
   keys.getKeys(action).join("/") || action.slice(action.lastIndexOf(".") + 1);
 
-export type Intent =
+type Intent =
   | "confirm"
   | "close"
   | "up"

@@ -13,7 +13,7 @@ import type {
 import type { IconFamily } from "./config.js";
 import type { GitDetails } from "./git.js";
 
-export interface Span {
+interface Span {
   text: string;
   tone: Tone;
 }
@@ -25,14 +25,14 @@ export interface BuiltinWidget {
   truncate?: "start";
 }
 
-export interface BuiltinWidgetOptions {
+interface BuiltinWidgetOptions {
   branch: string | null;
   details: GitDetails | undefined;
   now: number;
   thinkingLevel: string;
 }
 
-export interface SessionTotals {
+interface SessionTotals {
   cacheRead: number;
   cacheWrite: number;
   cost: number;

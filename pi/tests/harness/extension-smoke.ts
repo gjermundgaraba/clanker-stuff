@@ -9,7 +9,7 @@ import type {
   FauxModelDefinition,
 } from "./agent-session.js";
 
-export interface ExtensionSmokeHarnessOptions {
+interface ExtensionSmokeHarnessOptions {
   extensions?: string[];
   packages?: string[];
   skillPaths?: string[];

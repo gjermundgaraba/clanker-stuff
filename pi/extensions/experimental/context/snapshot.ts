@@ -19,7 +19,7 @@ import type { ToolsSnapshot } from "./tools.js";
 
 export type BodyFormat = "markdown" | "json" | "text";
 
-export type NodeTone = "text" | "accent" | "muted" | "error" | "code";
+type NodeTone = "text" | "accent" | "muted" | "error" | "code";
 
 export interface ContextPart {
   readonly label: string;
