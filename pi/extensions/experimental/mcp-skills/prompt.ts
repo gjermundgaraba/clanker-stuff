@@ -25,16 +25,12 @@ export const addSkillsToPrompt = async (
   await skills.prepareRun(ctx, STARTUP_WAIT_MS);
 
   for (const skill of skills.catalog()) {
-    if (skill.entry.disableModelInvocation) {
-      continue;
-    }
-
     const description = `[MCP server "${skill.server}", untrusted] ${inlineText(skill.entry.description)}`;
 
     options.skills.push({
       baseDir: skill.dir,
       description: description.slice(0, AGENT_SKILLS_MAX_DESCRIPTION),
-      disableModelInvocation: false,
+      disableModelInvocation: skill.entry.disableModelInvocation,
       filePath: skill.path,
       name: skill.name,
       sourceInfo: createSyntheticSourceInfo(skill.path, {

@@ -126,22 +126,24 @@ export class McpSkills {
     return buildCatalog(this.mountRoot, this.servers.statuses(), local);
   }
 
-  serversInUse(ctx: ExtensionContext): Set<string> {
+  otherServersInUse(ctx: ExtensionContext, server: string): string[] {
     const servers = new Set<string>();
 
     for (const entry of ctx.sessionManager.getBranch()) {
       for (const part of messageText(entry)
         .split(`${this.mountRoot}${path.sep}`)
         .slice(1)) {
-        const server = part.split(path.sep)[0] ?? "";
+        const inUse = part.split(path.sep)[0] ?? "";
 
-        if (SERVER_NAME.test(server)) {
-          servers.add(server);
+        if (SERVER_NAME.test(inUse)) {
+          servers.add(inUse);
         }
       }
     }
 
-    return servers;
+    servers.delete(server);
+
+    return [...servers];
   }
 
   async load(
@@ -155,9 +157,7 @@ export class McpSkills {
       return { error: `MCP server "${skill.server}" is not connected.` };
     }
 
-    const others = [...this.serversInUse(ctx)].filter(
-      (server) => server !== skill.server
-    );
+    const others = this.otherServersInUse(ctx, skill.server);
 
     if (!(await this.approvals.allow(ctx, origin, skill, others))) {
       return {
