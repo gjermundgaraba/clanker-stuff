@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import type { JsonObject } from "@earendil-works/pi-ai";
+import { DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vite-plus/test";
@@ -16,7 +17,6 @@ import { resultOf } from "../phase.js";
 import { registerTaskTools } from "../register.js";
 import { TaskRuntime } from "../runtime.js";
 import { taskSummary, unread } from "../supervisor.js";
-import { MAX_TEXT_BYTES } from "../task.js";
 
 const runtimes: TaskRuntime[] = [];
 
@@ -86,7 +86,9 @@ describe("registerTaskTools", () => {
       ).toBe(true);
       expect(result.structuredContent).toStrictEqual(JSON.parse(text.text));
       expect(result.structuredContent).toStrictEqual(result.details);
-      expect(Buffer.byteLength(text.text)).toBeLessThanOrEqual(MAX_TEXT_BYTES);
+      expect(Buffer.byteLength(text.text)).toBeLessThanOrEqual(
+        DEFAULT_MAX_BYTES
+      );
 
       return result.structuredContent;
     };

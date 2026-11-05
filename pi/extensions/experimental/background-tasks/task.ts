@@ -69,13 +69,11 @@ export const idSchema = Type.Object(
 
 export const listSchema = Type.Object({}, { additionalProperties: false });
 
-export const MAX_TEXT_BYTES = DEFAULT_MAX_BYTES;
-
 export const startParameters = structuralSchema(startSchema);
 
 export const inspectParameters = structuralSchema(inspectSchema);
 
-const PREVIEW_NOTE = `\n[Incomplete preview: the output exceeds ${MAX_TEXT_BYTES} bytes. task_inspect cuts only log tails, so a smaller tailBytes fits; Code Mode, where enabled, receives the complete structured value.]`;
+const PREVIEW_NOTE = `\n[Incomplete preview: the output exceeds ${DEFAULT_MAX_BYTES} bytes. task_inspect cuts only log tails, so a smaller tailBytes fits; Code Mode, where enabled, receives the complete structured value.]`;
 
 const truncateUtf8 = (bytes: Buffer, maxBytes: number): string => {
   let end = maxBytes;
@@ -91,9 +89,9 @@ export const toolResult = <Details extends ToolOutput>(details: Details) => {
   const json = Buffer.from(jsonText(details));
   let text = json.toString("utf-8");
 
-  if (json.length > MAX_TEXT_BYTES) {
+  if (json.length > DEFAULT_MAX_BYTES) {
     text =
-      truncateUtf8(json, MAX_TEXT_BYTES - Buffer.byteLength(PREVIEW_NOTE)) +
+      truncateUtf8(json, DEFAULT_MAX_BYTES - Buffer.byteLength(PREVIEW_NOTE)) +
       PREVIEW_NOTE;
   }
 
