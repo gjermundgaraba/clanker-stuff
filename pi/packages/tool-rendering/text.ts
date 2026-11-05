@@ -22,3 +22,6 @@ export const jsonText = (value: unknown): string =>
   JSON.stringify(value)
     .replaceAll(UNSAFE_DISPLAY_CHARACTERS, unicodeEscape)
     .replaceAll(/[\u2028\u2029]/gu, unicodeEscape);
+
+export const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

@@ -9,6 +9,7 @@ import type {
   LoadedSkill,
   ProvidedSkill,
 } from "@clanker-stuff/pi-skill-providers";
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -155,7 +156,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       names.has(candidate.name)
     )) {
       const result = await skill.load(ctx).catch((error: unknown) => ({
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       }));
 
       if ("error" in result) {

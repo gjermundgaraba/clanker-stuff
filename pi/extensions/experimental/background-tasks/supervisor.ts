@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
+import { errorMessage, safeText } from "@clanker-stuff/pi-tool-rendering/text";
 
 import { TaskLogs } from "./logs.js";
 import { TaskNotices } from "./notices.js";
@@ -62,10 +62,7 @@ export const unread = (task: Task): Unread | undefined =>
   );
 
 const describe = (error: unknown) =>
-  safeText(error instanceof Error ? error.message : String(error)).slice(
-    0,
-    500
-  );
+  safeText(errorMessage(error)).slice(0, 500);
 
 export class Supervisor {
   private readonly tasks = new Map<string, Task>();

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   AgentSessionEvent,
   BuildSystemPromptOptions,
@@ -46,10 +47,7 @@ import { TreeStore } from "./store.js";
 import { registerTools } from "./tools.js";
 
 const errorText = (cause: unknown): string =>
-  bound(
-    cause instanceof Error ? cause.message : String(cause),
-    MAX_STATUS_TEXT
-  );
+  bound(errorMessage(cause), MAX_STATUS_TEXT);
 
 const waitUnlessAborted = async (
   work: Promise<void>,

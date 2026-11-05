@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@clanker-stuff/oxlint-config": "workspace:*",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-tui": "catalog:",

@@ -1,3 +1,4 @@
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
@@ -60,7 +61,7 @@ class SharedEditor extends CustomEditor {
     try {
       this.document = connect(this);
     } catch (error) {
-      this.unsupported = error instanceof Error ? error.message : String(error);
+      this.unsupported = errorMessage(error);
     }
 
     let change: typeof this.onChange;

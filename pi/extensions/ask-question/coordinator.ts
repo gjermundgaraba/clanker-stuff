@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   AgentSettledEvent,
   ExtensionAPI,
@@ -281,9 +282,6 @@ export class Coordinator {
     this.ctx = undefined;
   }
   private static report(cause: unknown, ctx: ExtensionContext): void {
-    ctx.ui.notify(
-      cause instanceof Error ? cause.message : String(cause),
-      "error"
-    );
+    ctx.ui.notify(errorMessage(cause), "error");
   }
 }

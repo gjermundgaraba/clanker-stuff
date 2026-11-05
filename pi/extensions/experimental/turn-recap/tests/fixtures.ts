@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import {
   createAssistantMessageEventStream,
   fauxAssistantMessage,
@@ -54,8 +55,7 @@ export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
       } catch (error) {
         stream.end(
           fauxAssistantMessage("", {
-            errorMessage:
-              error instanceof Error ? error.message : String(error),
+            errorMessage: errorMessage(error),
             stopReason: "error",
           })
         );

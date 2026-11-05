@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import {
   McpAuthRequiredError,
   McpClient,
@@ -115,9 +116,6 @@ const createTransport = (
     stderr: "pipe",
   });
 };
-
-export const describeError = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 interface Connection {
   config: SkillServerConfig;
@@ -457,7 +455,7 @@ export class SkillServers {
         error:
           error instanceof McpAuthRequiredError
             ? `MCP server "${config.name}" needs sign-in; ${signInHint(config)}`
-            : describeError(error),
+            : errorMessage(error),
         skills: connection.status.skills,
         state:
           error instanceof McpAuthRequiredError ? "needs-sign-in" : "failed",

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   Api,
   AssistantMessageEventStream,
@@ -129,10 +130,9 @@ const wrapFauxProviderPayloadHooks = (
               outer.push(event);
             }
           } catch (error) {
-            const errorMessage = {
+            const failedMessage = {
               ...fauxAssistantMessage("", {
-                errorMessage:
-                  error instanceof Error ? error.message : String(error),
+                errorMessage: errorMessage(error),
                 stopReason: "error",
               }),
               api: model.api,
@@ -141,7 +141,7 @@ const wrapFauxProviderPayloadHooks = (
             };
 
             outer.push({
-              error: errorMessage,
+              error: failedMessage,
               reason: "error",
               type: "error",
             });

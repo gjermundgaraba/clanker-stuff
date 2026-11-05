@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "@clanker-stuff/editor": "workspace:^",
-    "@clanker-stuff/pi-skill-providers": "workspace:^"
+    "@clanker-stuff/pi-skill-providers": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

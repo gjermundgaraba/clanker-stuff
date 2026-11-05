@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
@@ -15,7 +16,7 @@ import type { CatalogSkill } from "./catalog.js";
 import { SERVER_NAME, loadServers } from "./config.js";
 import type { SkillFile } from "./entry.js";
 import { filePath, mountRoot } from "./mount.js";
-import { SkillServers, describeError } from "./servers.js";
+import { SkillServers } from "./servers.js";
 import { checkBytes, frontmatterMatches, verifyFile } from "./verify.js";
 
 type Loaded = { bytes: Buffer } | { error: string };
@@ -176,7 +177,7 @@ export class McpSkills {
       return { bytes: await readFile(skill.path) };
     } catch (error) {
       return {
-        error: `Could not load MCP skill ${skill.name}: ${describeError(error)}`,
+        error: `Could not load MCP skill ${skill.name}: ${errorMessage(error)}`,
       };
     }
   }
@@ -206,7 +207,7 @@ export class McpSkills {
               };
             } catch (error) {
               throw new Error(
-                `could not fetch ${file.uri}: ${describeError(error)}`,
+                `could not fetch ${file.uri}: ${errorMessage(error)}`,
                 {
                   cause: error,
                 }
@@ -255,7 +256,7 @@ export class McpSkills {
           }
 
           throw new Error(
-            `could not store its files in ${dir}: ${describeError(error)}`,
+            `could not store its files in ${dir}: ${errorMessage(error)}`,
             {
               cause: error,
             }
@@ -292,7 +293,7 @@ export class McpSkills {
         return `MCP skill ${name} changed on its server. Read ${current?.path ?? "its new SKILL.md"} to load the new version.`;
       }
     } catch (error) {
-      return `MCP skill ${name} failed verification: ${failure}. Refreshing it failed: ${describeError(error)}`;
+      return `MCP skill ${name} failed verification: ${failure}. Refreshing it failed: ${errorMessage(error)}`;
     }
 
     return `MCP skill ${name} failed verification: ${failure}.`;

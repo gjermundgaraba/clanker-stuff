@@ -1,6 +1,7 @@
 // Spawn model errors adapted from OpenAI Codex (https://github.com/openai/codex) under the Apache License 2.0; see ./NOTICE.
 import { readFile } from "node:fs/promises";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import {
   getSupportedThinkingLevels,
   modelsAreEqual,
@@ -100,7 +101,7 @@ export const loadConfig = async (
 
     return {
       config: DEFAULT_CONFIG,
-      error: `Invalid ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Invalid ${configPath}: ${errorMessage(error)}`,
     };
   }
 };

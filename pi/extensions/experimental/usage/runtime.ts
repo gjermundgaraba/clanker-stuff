@@ -1,4 +1,5 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   ExtensionCommandContext,
   ExtensionContext,
@@ -40,7 +41,7 @@ export const createUsageRuntime = (
     } catch (error) {
       if (!usage.isStopped()) {
         ctx.ui.notify(
-          `Usage failed to initialize: ${error instanceof Error ? error.message : String(error)}`,
+          `Usage failed to initialize: ${errorMessage(error)}`,
           "error"
         );
       }

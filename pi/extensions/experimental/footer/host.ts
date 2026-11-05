@@ -1,5 +1,6 @@
 import { acquireEditorHost, currentEditorHost } from "@clanker-stuff/editor";
 import type { EditorHost } from "@clanker-stuff/editor";
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -10,7 +11,6 @@ import { fuzzyFilter, stripTerminalSequences } from "@earendil-works/pi-tui";
 
 import {
   DEFAULT_CONFIG,
-  errorMessage,
   formatFooterConfig,
   parseFooterConfig,
   placedIds,

@@ -1,3 +1,4 @@
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import { createScheduledCheck } from "@clanker-stuff/scheduled-check";
 import type {
   BeforeAgentStartEvent,
@@ -317,7 +318,7 @@ export class SubagentManager {
 
   #report(cause: unknown): void {
     this.#ctx?.ui.notify(
-      `Subagent background failure: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `Subagent background failure: ${errorMessage(cause)}`,
       "error"
     );
   }

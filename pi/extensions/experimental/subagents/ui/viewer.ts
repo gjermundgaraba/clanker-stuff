@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 
 import { fit, renderScrollbar } from "@clanker-stuff/pi-tool-rendering/layout";
-import { inlineText, safeText } from "@clanker-stuff/pi-tool-rendering/text";
+import {
+  errorMessage,
+  inlineText,
+  safeText,
+} from "@clanker-stuff/pi-tool-rendering/text";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -282,7 +286,7 @@ export class AgentsViewer implements Component {
     };
 
     const fail = (error: unknown) => {
-      view.error = error instanceof Error ? error.message : String(error);
+      view.error = errorMessage(error);
       view.stale = true;
     };
 

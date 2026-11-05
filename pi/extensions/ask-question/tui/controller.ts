@@ -1,4 +1,7 @@
-import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
+import {
+  displayText,
+  errorMessage,
+} from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   ExtensionContext,
   Theme,
@@ -243,7 +246,7 @@ export class QuestionnaireView {
     try {
       this.processInput(data);
     } catch (error) {
-      this.hint = error instanceof Error ? error.message : String(error);
+      this.hint = errorMessage(error);
     }
 
     this.tui.requestRender();
@@ -258,7 +261,7 @@ export class QuestionnaireView {
         try {
           this.saveField(field.type === "custom");
         } catch (error) {
-          this.hint = `${component.getText().length}/${limit} · ${error instanceof Error ? error.message : String(error)}`;
+          this.hint = `${component.getText().length}/${limit} · ${errorMessage(error)}`;
 
           return;
         }

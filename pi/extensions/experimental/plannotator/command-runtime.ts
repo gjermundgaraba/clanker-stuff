@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CliStarter } from "./cli.js";
@@ -94,7 +95,7 @@ const notifyError = (
   label: string,
   cause: unknown
 ): void => {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = errorMessage(cause);
   ctx.ui.notify(`${label}: ${message}`, "error");
 };
 

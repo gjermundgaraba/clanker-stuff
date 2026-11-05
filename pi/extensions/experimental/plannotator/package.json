@@ -32,7 +32,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@clanker-stuff/lazy-singleton": "workspace:^"
+    "@clanker-stuff/lazy-singleton": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

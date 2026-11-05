@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -449,7 +450,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       return current.cancelled
         ? { status: "interrupted" }
         : {
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
             status: "errored",
           };
     }

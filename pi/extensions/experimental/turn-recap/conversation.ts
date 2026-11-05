@@ -1,4 +1,4 @@
-import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
+import { errorMessage, safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { contentText } from "@earendil-works/pi-ai";
 import type { ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
 
@@ -15,10 +15,7 @@ const clip = (text: string, max: number): string =>
 const ERROR_MAX_CHARS = 1000;
 
 export const errorText = (error: unknown): string =>
-  clip(
-    sanitizeRecapText(error instanceof Error ? error.message : String(error)),
-    ERROR_MAX_CHARS
-  );
+  clip(sanitizeRecapText(errorMessage(error)), ERROR_MAX_CHARS);
 
 export const RECAP_PROMPT_MAX_CHARS = 12_000;
 

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -114,9 +115,6 @@ export interface FooterConfigStore {
   load: () => Promise<LoadedFooterConfig>;
   save: (config: FooterConfig) => Promise<void>;
 }
-
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 export const createFooterConfigStore = (
   configPath = getExtensionStoragePaths("footer").configFile

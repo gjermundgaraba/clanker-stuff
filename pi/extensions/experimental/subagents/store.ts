@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
@@ -84,7 +85,7 @@ export const openTree = async (
 
     return fresh(
       store,
-      `Starting a new subagent tree; ${file} is unreadable: ${error instanceof Error ? error.message : String(error)}`
+      `Starting a new subagent tree; ${file} is unreadable: ${errorMessage(error)}`
     );
   }
 
