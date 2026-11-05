@@ -974,9 +974,7 @@ export const createExtensionHost = (
     emitSessionTree,
     emitTurnEnd,
     events,
-    getActiveTools() {
-      return [...activeTools];
-    },
+    getActiveTools: actions.getActiveTools,
     getAppendedEntries() {
       return [...appendedEntries];
     },
@@ -1028,9 +1026,7 @@ export const createExtensionHost = (
     getStatus(key: string) {
       return statuses.get(key);
     },
-    getThinkingLevel() {
-      return thinkingLevel;
-    },
+    getThinkingLevel: actions.getThinkingLevel,
     getWidget(key: string) {
       return widgetState.get(key);
     },
@@ -1038,12 +1034,8 @@ export const createExtensionHost = (
     runCommand,
     runShortcut,
     runTool,
-    setActiveTools(toolNames: string[]) {
-      activeTools = [...toolNames];
-    },
-    setThinkingLevel(level: ReturnType<ExtensionAPI["getThinkingLevel"]>) {
-      thinkingLevel = level;
-    },
+    setActiveTools: actions.setActiveTools,
+    setThinkingLevel: actions.setThinkingLevel,
     setLeafId(id: string | null) {
       leafId = id;
     },
