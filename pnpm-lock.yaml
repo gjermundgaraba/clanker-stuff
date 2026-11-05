@@ -183,8 +183,8 @@ catalogs:
       specifier: 1.5.0
       version: 1.5.0
     xstate:
-      specifier: 6.0.0-alpha.71
-      version: 6.0.0-alpha.71
+      specifier: 6.0.0-alpha.73
+      version: 6.0.0-alpha.73
 
 overrides:
   '@earendil-works/pi-agent-core': 1.5.0
@@ -344,7 +344,7 @@ importers:
         version: 1.4.3
       xstate:
         specifier: 'catalog:'
-        version: 6.0.0-alpha.71
+        version: 6.0.0-alpha.73
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -378,7 +378,7 @@ importers:
         version: 0.4.0
       xstate:
         specifier: 'catalog:'
-        version: 6.0.0-alpha.71
+        version: 6.0.0-alpha.73
     devDependencies:
       '@anthropic-ai/sdk':
         specifier: 1.3.0
@@ -582,7 +582,7 @@ importers:
         version: 1.4.3
       xstate:
         specifier: 'catalog:'
-        version: 6.0.0-alpha.71
+        version: 6.0.0-alpha.73
 
   pi/extensions/experimental/turn-recap:
     dependencies:
@@ -3280,8 +3280,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  xstate@6.0.0-alpha.71:
-    resolution: {integrity: sha512-ABNE8jHjqzpQd/gX8huQYvSlbrOEaJcvzBtt6qWMooQuvxKoarkEKT0JFr3ymhI5Jza72YmfsWnFEophersmhQ==}
+  xstate@6.0.0-alpha.73:
+    resolution: {integrity: sha512-Ru3g082hzyn2h1TspciGFgHplK35jZl6Sl808cspInc0xx/RsALM8sc3AoQpg2KusApD2HPlX7liaVnSxlMyHw==}
     hasBin: true
 
   yaml@2.9.0:
@@ -5509,7 +5509,7 @@ snapshots:
 
   ws@8.22.0: {}
 
-  xstate@6.0.0-alpha.71: {}
+  xstate@6.0.0-alpha.73: {}
 
   yaml@2.9.0: {}
 
