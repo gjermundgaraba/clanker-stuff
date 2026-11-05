@@ -10,7 +10,6 @@ import {
   createStatusIndicator,
 } from "../../../tests/harness/tui.js";
 import { acquireEditorHost } from "../index.js";
-import type { Editing } from "../index.js";
 
 const theme = createIdentityEditorTheme();
 
@@ -25,7 +24,7 @@ describe("unsupported editor layout", () => {
     });
 
     vi.mocked(ctx.ui.setEditorComponent).mockImplementationOnce((factory) => {
-      const member = "cancelAutocomplete";
+      const member = "buildVisualLineMap";
       const native = Object.getOwnPropertyDescriptor(Editor.prototype, member);
 
       expect(native?.value, `Pi's Editor defines ${member}`).toBeTypeOf(
@@ -48,17 +47,7 @@ describe("unsupported editor layout", () => {
     const editor = host.editor!;
     host.seedHistory(["older", "recalled"]);
 
-    const editing = {
-      input: vi.fn<Editing["input"]>(() => true),
-      changed: vi.fn<Editing["changed"]>(),
-      submitted() {},
-      selection: () => [],
-    };
-
-    host.contribute("editing", editing);
-    host.contribute("foreground", () => [
-      { start: 0, end: 1, foreground: "accent" },
-    ]);
+    host.contribute("highlight", () => [{ start: 0, end: 1 }]);
     host.contribute("border", {
       render: (line) => line.replace("busy", "BUSY"),
     });
@@ -68,19 +57,16 @@ describe("unsupported editor layout", () => {
         renderInBorder: () => "busy",
       })
     );
-    expect(editor.document).toBeUndefined();
     expect(stripTerminalSequences(editor.render(30)[0]!)).toContain("BUSY");
 
     editor.handleInput("\u001B[A");
     expect(editor.getText()).toBe("recalled");
-    expect(editing.input).not.toHaveBeenCalled();
-    expect(editing.changed).not.toHaveBeenCalled();
     expect(stripTerminalSequences(editor.render(30)[1]!).trimEnd()).toBe(
       "recalled"
     );
     expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(
       "shared-editor",
-      "Unsupported Pi editor layout: required document/undo APIs are unavailable"
+      "Unsupported Pi editor layout: required paste and layout APIs are unavailable"
     );
     expect(acquireEditorHost(ctx)).toBe(host);
     expect(ctx.ui.setEditorComponent).toHaveBeenCalledOnce();

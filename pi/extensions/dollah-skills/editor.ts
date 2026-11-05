@@ -13,7 +13,7 @@ export const installSkillMentionEditor = (
     return;
   }
 
-  host.contribute("foreground", (text) => {
+  host.contribute("highlight", (text) => {
     const names = new Set(getSkillNames());
 
     return text
@@ -22,7 +22,6 @@ export const installSkillMentionEditor = (
       .map((match) => ({
         start: match.index,
         end: match.index + match[0].length,
-        foreground: "accent" as const,
       }))
       .toArray();
   });
