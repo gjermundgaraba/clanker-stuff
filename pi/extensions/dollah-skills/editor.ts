@@ -1,7 +1,6 @@
 import { acquireEditorHost } from "@clanker-stuff/editor";
+import { SKILL_MENTION } from "@clanker-stuff/pi-skill-providers";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-export const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
 
 export const installSkillMentionEditor = (
   ctx: ExtensionContext,

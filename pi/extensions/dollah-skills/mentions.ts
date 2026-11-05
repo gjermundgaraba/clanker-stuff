@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   collectSkillProviders,
+  mentionedSkills,
   skillBlock,
 } from "@clanker-stuff/pi-skill-providers";
 import type {
@@ -19,7 +20,7 @@ import type {
 import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 
-import { SKILL_MENTION, installSkillMentionEditor } from "./editor.js";
+import { installSkillMentionEditor } from "./editor.js";
 
 const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
 
@@ -146,9 +147,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     text: string,
     ctx: ExtensionContext
   ): Promise<LoadedSkill[]> => {
-    const names = new Set(
-      text.matchAll(SKILL_MENTION).map((match) => match[0].slice(1))
-    );
+    const names = mentionedSkills(text);
 
     const loaded: LoadedSkill[] = [];
 

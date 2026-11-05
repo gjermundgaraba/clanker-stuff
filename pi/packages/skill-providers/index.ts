@@ -42,8 +42,21 @@ export interface SkillProvider {
   ): Promise<ProvidedSkill | { error: string }>;
 }
 
+/** A `$name` mention in a prompt; the name is the match without its `$`. */
+export const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
+
+/** The skill names `$` mentions in `text`. */
+export const mentionedSkills = (text: string): Set<string> =>
+  new Set(text.matchAll(SKILL_MENTION).map((match) => match[0].slice(1)));
+
+const NAME_SEPARATOR = ", ";
+
 const attribute = (values: readonly string[]): string =>
-  values.join(", ").replaceAll('"', "%22");
+  values.join(NAME_SEPARATOR).replaceAll('"', "%22");
+
+/** The skill names a block's `name` attribute lists; one name for a block Pi wrote. */
+export const skillBlockNames = (name: string): string[] =>
+  name.split(NAME_SEPARATOR);
 
 /**
  * The block Pi writes for `/skill:name`, which its chat view collapses when it leads a user message.

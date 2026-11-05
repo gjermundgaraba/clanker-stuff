@@ -1,3 +1,7 @@
+import {
+  mentionedSkills,
+  skillBlockNames,
+} from "@clanker-stuff/pi-skill-providers";
 import { parseSkillBlock } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -31,8 +35,6 @@ const EntryWireSchema = Type.Object({
   timestamp: Type.Optional(Type.String()),
 });
 
-const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
-
 export const typedPrompt = (text: string): string => {
   const skill = parseSkillBlock(text);
 
@@ -42,11 +44,9 @@ export const typedPrompt = (text: string): string => {
 
   const typed = skill.userMessage ?? "";
 
-  const mentioned = new Set(
-    typed.matchAll(SKILL_MENTION).map((match) => match[0].slice(1))
-  );
+  const mentioned = mentionedSkills(typed);
 
-  if (skill.name.split(", ").every((name) => mentioned.has(name))) {
+  if (skillBlockNames(skill.name).every((name) => mentioned.has(name))) {
     return typed;
   }
 

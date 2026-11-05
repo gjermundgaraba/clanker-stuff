@@ -666,6 +666,9 @@ importers:
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../packages/extension-paths
+      '@clanker-stuff/pi-skill-providers':
+        specifier: workspace:^
+        version: link:../../packages/skill-providers
       '@clanker-stuff/pi-tool-rendering':
         specifier: workspace:^
         version: link:../../packages/tool-rendering
