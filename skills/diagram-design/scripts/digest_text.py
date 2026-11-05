@@ -2,14 +2,6 @@
 
 import html
 import re
-import sys
-
-
-def configure_stdout_utf8() -> None:
-    """Emit digests as UTF-8 even when Windows selects a legacy codepage."""
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        reconfigure(encoding="utf-8", errors="strict")
 
 
 def escape_markdown(text: str) -> str:

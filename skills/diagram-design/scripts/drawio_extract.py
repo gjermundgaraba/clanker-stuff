@@ -21,7 +21,8 @@ Exit codes: 0 ok, 2 unreadable / unsupported input.
 from __future__ import annotations
 
 from canvas_digest import append_canvas_summary, append_graph_findings, append_graph_tables
-from digest_text import configure_stdout_utf8, escape_inline
+from digest_cli import add_output_arguments, configure_stdout_utf8, write_output
+from digest_text import escape_inline
 from graph_analysis import finalize_degrees, has_directed_cycle
 
 import argparse
@@ -808,14 +809,7 @@ def main(argv: list[str] | None = None) -> int:
         "--page",
         help="page index, page name, or 'all' (default: first page)",
     )
-    parser.add_argument("--json", action="store_true", help="emit the full IR as JSON")
-    parser.add_argument(
-        "--max-rows",
-        type=int,
-        default=40,
-        help="rows per table in the Markdown digest (default 40)",
-    )
-    parser.add_argument("--out", help="write to this path instead of stdout")
+    add_output_arguments(parser)
     args = parser.parse_args(argv)
 
     if args.max_rows < 1:
@@ -832,14 +826,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json
         else digest(path, pages, selected, args.max_rows)
     )
-    if args.out:
-        try:
-            Path(args.out).write_text(text, encoding="utf-8")
-        except OSError as error:
-            _fail(f"cannot write {args.out}: {error}")
-        print(f"wrote {args.out} ({len(text)} bytes)")
-    else:
-        sys.stdout.write(text if text.endswith("\n") else text + "\n")
+    write_output(text, args.out, _fail)
     return 0
 
 

@@ -19,7 +19,8 @@ Exit codes: 0 success, 2 unreadable, unsupported, malformed, or over limits.
 
 from __future__ import annotations
 
-from digest_text import configure_stdout_utf8, escape_markdown
+from digest_cli import add_output_arguments, configure_stdout_utf8, write_output
+from digest_text import escape_markdown
 from graph_analysis import finalize_degrees, has_directed_cycle
 
 import argparse
@@ -1502,14 +1503,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--diagram", help="diagram index or 'all' (default: first diagram)"
     )
-    parser.add_argument("--json", action="store_true", help="emit the full IR as JSON")
-    parser.add_argument(
-        "--max-rows",
-        type=int,
-        default=40,
-        help="rows per table in the Markdown digest (default 40)",
-    )
-    parser.add_argument("--out", help="write to this path instead of stdout")
+    add_output_arguments(parser)
     args = parser.parse_args(argv)
     if args.max_rows < 1:
         _fail("--max-rows must be at least 1")
@@ -1524,14 +1518,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json
         else digest(path, blocks, selected, args.max_rows)
     )
-    if args.out:
-        try:
-            Path(args.out).write_text(output, encoding="utf-8")
-        except OSError as error:
-            _fail(f"cannot write {args.out}: {error}")
-        print(f"wrote {args.out} ({len(output)} bytes)")
-    else:
-        sys.stdout.write(output if output.endswith("\n") else output + "\n")
+    write_output(output, args.out, _fail)
     return 0
 
 
