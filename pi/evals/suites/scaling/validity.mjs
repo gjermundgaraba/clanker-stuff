@@ -3,7 +3,7 @@ import {
   FIXTURE as fixtureId,
 } from "/opt/pi-evals/services.mjs";
 
-import { isRecord } from "../../verifiers/records.mjs";
+import { isRecord, trajectoryRecords } from "../../verifiers/records.mjs";
 import { readComparison } from "./comparison.mjs";
 import { validateNativeCodex } from "./native-codex.mjs";
 import { serviceMetrics } from "./service-metrics.mjs";
@@ -12,12 +12,7 @@ import { serviceMetrics } from "./service-metrics.mjs";
 export const validateNativeDiagnostic = (trajectory, events) => {
   const comparison = readComparison();
 
-  const agent =
-    isRecord(trajectory) && isRecord(trajectory["agent"])
-      ? trajectory["agent"]
-      : undefined;
-
-  const extra = isRecord(agent?.["extra"]) ? agent["extra"] : undefined;
+  const { agent, extra } = trajectoryRecords(trajectory);
 
   /** @type {unknown[]} */
   const audit = Array.isArray(extra?.["native_diagnostic_audit"])

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { fixture, FIXTURE, SERVICE_NAMES } from "/opt/pi-evals/services.mjs";
 
-import { isRecord } from "../../verifiers/records.mjs";
+import { isRecord, trajectoryRecords } from "../../verifiers/records.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
 import { validateToolMode } from "./tool-mode.mjs";
 import { validateNativeDiagnostic } from "./validity.mjs";
@@ -40,12 +40,7 @@ const trajectory = JSON.parse(
 
 const records = events.filter(isRecord);
 
-const agent =
-  isRecord(trajectory) && isRecord(trajectory["agent"])
-    ? trajectory["agent"]
-    : undefined;
-
-const extra = isRecord(agent?.["extra"]) ? agent["extra"] : undefined;
+const { extra } = trajectoryRecords(trajectory);
 
 const manifest = isRecord(extra?.["pi_evals"]) ? extra["pi_evals"] : undefined;
 

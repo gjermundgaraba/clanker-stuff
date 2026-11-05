@@ -1,4 +1,4 @@
-import { isRecord } from "./records.mjs";
+import { isRecord, trajectoryRecords } from "./records.mjs";
 
 /**
  * @param {unknown} value
@@ -32,12 +32,7 @@ const isManifest = (value) => {
 
 /** @param {unknown} trajectory @param {{expectedSegments: unknown}} options */
 export const validateCompaction = (trajectory, { expectedSegments }) => {
-  const agent =
-    isRecord(trajectory) && isRecord(trajectory["agent"])
-      ? trajectory["agent"]
-      : undefined;
-
-  const extra = isRecord(agent?.["extra"]) ? agent["extra"] : undefined;
+  const { extra } = trajectoryRecords(trajectory);
 
   const manifest = isRecord(extra?.["pi_evals"])
     ? extra["pi_evals"]
