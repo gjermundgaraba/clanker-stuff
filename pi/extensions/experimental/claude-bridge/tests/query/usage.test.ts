@@ -2,8 +2,8 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
 import { updateUsage } from "../../query/usage.js";
-import { newAssistantOutput } from "../../translate.js";
 import { testModel } from "../helpers.js";
+import { assistant } from "../session/messages.js";
 
 const model = testModel();
 
@@ -12,7 +12,7 @@ const pricedModel: Model<Api> = {
   cost: { input: 1_000_000, output: 2_000_000, cacheRead: 0, cacheWrite: 0 },
 };
 
-const emptyOutput = () => newAssistantOutput(model, "stop");
+const emptyOutput = () => assistant([]);
 
 describe("updateUsage", () => {
   it("maps the four flat counters and totals them", () => {

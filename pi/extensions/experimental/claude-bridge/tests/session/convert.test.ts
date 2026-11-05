@@ -396,6 +396,11 @@ describe("message structure", () => {
 
   it("marks tool-result blocks that are neither text nor image", () => {
     expect(
+      convert([toolResult("x", [offTypeBlock("document")])])
+    ).toStrictEqual([
+      { role: "user", content: [resultBlock("x", "[document]")] },
+    ]);
+    expect(
       convert([
         toolResult("x", [
           offTypeBlock("document"),

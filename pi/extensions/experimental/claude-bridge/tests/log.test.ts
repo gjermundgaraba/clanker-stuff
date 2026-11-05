@@ -6,13 +6,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { patchEnv } from "../../../../tests/helpers/env.js";
-import {
-  cliDebugOptions,
-  debug,
-  debugLogPath,
-  diagDump,
-  errorMessage,
-} from "../log.js";
+import { cliDebugOptions, debug, debugLogPath, errorMessage } from "../log.js";
 
 let dir: string;
 
@@ -74,7 +68,6 @@ describe("the debug log", () => {
         CLAUDE_BRIDGE_DEBUG: "true",
       });
       debug("secret prompt");
-      diagDump("never", { a: 1 });
 
       expect(existsSync(logFile)).toBe(false);
     });
@@ -84,13 +77,13 @@ describe("the debug log", () => {
 
       patchEnv({ CLAUDE_BRIDGE_DEBUG_PATH: logFile, CLAUDE_BRIDGE_DEBUG: "1" });
       debug("first", { n: 1 });
-      diagDump("orphan", { id: "toolu_1", pending: 2 });
+      debug("second");
 
       const lines = readLog(logFile).trimEnd().split("\n");
 
       expect(lines).toHaveLength(2);
       expect(lines[0]).toMatch(/ first \{"n":1\}$/u);
-      expect(lines[1]).toMatch(/ DIAG orphan \{"id":"toolu_1","pending":2\}$/u);
+      expect(lines[1]).toMatch(/ second$/u);
     });
   });
 

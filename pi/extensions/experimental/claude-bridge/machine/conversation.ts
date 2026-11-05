@@ -82,6 +82,8 @@ const IDLE = {
   results: NO_RESULTS,
 } as const;
 
+const DROPPED = { ...IDLE, held: [] } as const;
+
 interface QueryInput {
   run: QueryFunction;
   params: QueryParams;
@@ -438,7 +440,7 @@ export const conversationMachine = setup({
 
             return {
               target: ".closing",
-              context: { ...IDLE, query, held: [], rateLimit: null },
+              context: { ...DROPPED, query, rateLimit: null },
             };
           }
 
@@ -470,7 +472,7 @@ export const conversationMachine = setup({
             context.turn?.fail("Claude Code ended the query without a result");
           });
 
-          return { target: "idle", context: { ...IDLE, held: [] } };
+          return { target: "idle", context: DROPPED };
         },
         "cc.error": ({ context, event }, enq) => {
           debug(`conversation: query failed: ${event.message}`);
@@ -478,7 +480,7 @@ export const conversationMachine = setup({
             context.turn?.fail(event.message);
           });
 
-          return { target: "idle", context: { ...IDLE, held: [] } };
+          return { target: "idle", context: DROPPED };
         },
         "pi.abort": ({ context }, enq) => {
           debug("conversation: aborted");
@@ -486,14 +488,14 @@ export const conversationMachine = setup({
             context.turn?.fail("Operation aborted", "aborted");
           });
 
-          return { target: "idle", context: { ...IDLE, held: [] } };
+          return { target: "idle", context: DROPPED };
         },
         "turn.truncated": () => {
           debug(
             "conversation: tool calls cut off at the output limit, stopping the query"
           );
 
-          return { target: "idle", context: { ...IDLE, held: [] } };
+          return { target: "idle", context: DROPPED };
         },
         "pi.discard": ({ context }, enq) => {
           debug("conversation: discarding the running query");
@@ -503,7 +505,7 @@ export const conversationMachine = setup({
             );
           });
 
-          return { target: "idle", context: { ...IDLE, held: [] } };
+          return { target: "idle", context: DROPPED };
         },
       },
       initial: "streaming",
@@ -667,7 +669,7 @@ export const conversationMachine = setup({
               );
             });
 
-            return { target: "#idle", context: { ...IDLE, held: [] } };
+            return { target: "#idle", context: DROPPED };
           },
           on: {
             "cc.message": ({ event }) =>

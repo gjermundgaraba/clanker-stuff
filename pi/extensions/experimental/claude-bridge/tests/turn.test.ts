@@ -1,10 +1,12 @@
 import type { ImageContent, Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import { newAssistantOutput } from "../translate.js";
 import { turnStart, userTurnBlocks } from "../turn.js";
-import { testModel } from "./helpers.js";
-import { text, user } from "./session/messages.js";
+import {
+  assistant as assistantMessage,
+  text,
+  user,
+} from "./session/messages.js";
 
 const image = (data: string, mimeType = "image/png"): ImageContent => ({
   type: "image",
@@ -12,8 +14,7 @@ const image = (data: string, mimeType = "image/png"): ImageContent => ({
   mimeType,
 });
 
-const assistant = (value: string): Message =>
-  newAssistantOutput(testModel(), "stop", value);
+const assistant = (value: string): Message => assistantMessage([text(value)]);
 
 const pngBlock = (data: string) => ({
   type: "image",

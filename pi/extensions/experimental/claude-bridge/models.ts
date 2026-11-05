@@ -35,49 +35,6 @@ const familyTier = (id: string): number => {
   return tier === -1 ? FAMILY_ORDER.length : tier;
 };
 
-/** pi-ai's Anthropic models projected onto pi's provider registration, newest
- *  generation first. Costs are zero: usage is billed to the Claude subscription. */
-export const buildModels = (
-  catalog: ReadonlyArray<Model<Api>>
-): ProviderChatModelConfig[] =>
-  catalog
-    .filter((model) => !isDatedAlias(model.id))
-    .toSorted((a, b) => {
-      const tierDelta = familyTier(a.id) - familyTier(b.id);
-
-      if (tierDelta !== 0) {
-        return tierDelta;
-      }
-
-      const ra = versionRank(a.id);
-      const rb = versionRank(b.id);
-
-      if (ra.major !== rb.major) {
-        return rb.major - ra.major;
-      }
-
-      if (ra.minor !== rb.minor) {
-        return rb.minor - ra.minor;
-      }
-
-      return a.id.localeCompare(b.id);
-    })
-    .map((model) => ({
-      id: model.id,
-      name: model.name,
-      reasoning: model.reasoning,
-      input: model.input,
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-      ...(model.thinkingLevelMap === undefined
-        ? {}
-        : { thinkingLevelMap: model.thinkingLevelMap }),
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    }));
-
-export const catalogModels = (): ProviderChatModelConfig[] =>
-  buildModels(getBuiltinModels("anthropic"));
-
 interface ClaudeCodeRuntimeModel {
   cliModelId: string;
   contextWindow: number;
@@ -105,22 +62,63 @@ export const resolveClaudeCodeRuntimeModel = (
 export const claudeCodeModelId = (modelId: string): string =>
   resolveClaudeCodeRuntimeModel(modelId).cliModelId;
 
-/** Registered metadata must match the window the bridge requests from Claude Code. */
-export const applyLongContext = (
-  models: readonly ProviderChatModelConfig[]
-): ProviderChatModelConfig[] =>
-  models.map((model) => {
-    const { contextWindow } = resolveClaudeCodeRuntimeModel(model.id);
+const servedWindow = (
+  model: Model<Api>
+): Pick<ProviderChatModelConfig, "name" | "contextWindow"> => {
+  const { contextWindow } = resolveClaudeCodeRuntimeModel(model.id);
 
-    const name =
+  return {
+    name:
       contextWindow > TWO_HUNDRED_K_CONTEXT && !/\b1M\b/iu.test(model.name)
         ? `${model.name} 1M`
-        : model.name;
+        : model.name,
+    contextWindow,
+  };
+};
 
-    return contextWindow === model.contextWindow && name === model.name
-      ? model
-      : { ...model, contextWindow, name };
-  });
+/** pi-ai's Anthropic models projected onto pi's provider registration, newest
+ *  generation first, with the context window the bridge requests from Claude Code rather
+ *  than the one pi-ai declares. Costs are zero: usage is billed to the Claude
+ *  subscription. */
+export const buildModels = (
+  catalog: ReadonlyArray<Model<Api>>
+): ProviderChatModelConfig[] =>
+  catalog
+    .filter((model) => !isDatedAlias(model.id))
+    .toSorted((a, b) => {
+      const tierDelta = familyTier(a.id) - familyTier(b.id);
+
+      if (tierDelta !== 0) {
+        return tierDelta;
+      }
+
+      const ra = versionRank(a.id);
+      const rb = versionRank(b.id);
+
+      if (ra.major !== rb.major) {
+        return rb.major - ra.major;
+      }
+
+      if (ra.minor !== rb.minor) {
+        return rb.minor - ra.minor;
+      }
+
+      return a.id.localeCompare(b.id);
+    })
+    .map((model) => ({
+      id: model.id,
+      ...servedWindow(model),
+      reasoning: model.reasoning,
+      input: model.input,
+      maxTokens: model.maxTokens,
+      ...(model.thinkingLevelMap === undefined
+        ? {}
+        : { thinkingLevelMap: model.thinkingLevelMap }),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    }));
+
+export const catalogModels = (): ProviderChatModelConfig[] =>
+  buildModels(getBuiltinModels("anthropic"));
 
 const REASONING_TO_EFFORT: Record<ThinkingLevel, EffortLevel> = {
   minimal: "low",

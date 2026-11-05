@@ -96,7 +96,7 @@ const bridge = () => {
   sessions = new Sessions(fake.run);
   sessions.start(SESSION, cwd);
 
-  const deps = { sessions, toolGuidelines: () => new Map<string, string[]>() };
+  const deps = { sessions, piTools: () => [] };
 
   const call = (
     messages: Message[],

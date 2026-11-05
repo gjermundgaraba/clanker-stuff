@@ -1,13 +1,12 @@
 import type {
   ImageContent,
   Message as PiMessage,
-  TextContent,
+  ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
 import type { ContentBlock, Message as SessionMessage } from "cc-session-io";
 
-import { acceptedImageType, IMAGE_MARKER } from "../images.js";
-import type { ImageMediaType } from "../images.js";
+import { debug } from "../log.js";
 import { sdkToolName } from "../tools.js";
 
 export const PROVIDER_ID = "claude-bridge";
@@ -26,53 +25,47 @@ const sanitizeToolId = (id: string, cache: Map<string, string>): string => {
   return clean;
 };
 
-interface LooseBlock {
-  type: string;
-  text?: string;
-}
-
-const messageContentToText = (content: readonly LooseBlock[]): string => {
-  const parts: string[] = [];
-  let hasText = false;
-
-  for (const block of content) {
-    if (
-      block.type === "text" &&
-      block.text !== undefined &&
-      block.text !== ""
-    ) {
-      parts.push(block.text);
-      hasText = true;
-    } else if (block.type !== "text" && block.type !== "image") {
-      parts.push(`[${block.type}]`);
-    }
-  }
-
-  return hasText ? parts.join("\n") : "";
-};
+const IMAGE_MEDIA_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+] as const;
 
 /** A content block of a user turn, as Claude Code reads it in a prompt or a session. */
 export type UserBlock =
   | { type: "text"; text: string }
   | {
       type: "image";
-      source: { type: "base64"; media_type: ImageMediaType; data: string };
+      source: {
+        type: "base64";
+        media_type: (typeof IMAGE_MEDIA_TYPES)[number];
+        data: string;
+      };
     };
 
 const imageBlock = (block: ImageContent): UserBlock => {
-  const mediaType = acceptedImageType(block);
+  const mediaType = IMAGE_MEDIA_TYPES.find((type) => type === block.mimeType);
 
-  return mediaType === undefined
-    ? { type: "text", text: IMAGE_MARKER }
-    : {
-        type: "image",
-        source: { type: "base64", media_type: mediaType, data: block.data },
-      };
+  if (mediaType === undefined || block.data === "") {
+    debug(
+      `image block (${block.mimeType || "no mimeType"}) replaced by a marker`
+    );
+
+    return { type: "text", text: "[image]" };
+  }
+
+  return {
+    type: "image",
+    source: { type: "base64", media_type: mediaType, data: block.data },
+  };
 };
 
-/** A pi user message's content as blocks: its text, its images, and a marker for any
- *  block outside pi's types, so the model sees something was there. The same for a
- *  prompt, a steer and a rebuilt session. */
+/** Pi content as Claude's blocks: its text, its images, and a marker where the model
+ *  must see something was there. An image Claude rejects (another media type, or no
+ *  data) fails its request and every later one once it is in the session, so it becomes
+ *  a marker, as does a block outside pi's types. The same for a prompt, a steer, a tool
+ *  result and a rebuilt session. */
 export const userBlocks = (content: UserMessage["content"]): UserBlock[] => {
   if (typeof content === "string") {
     return content === "" ? [] : [{ type: "text", text: content }];
@@ -94,11 +87,16 @@ export const userBlocks = (content: UserMessage["content"]): UserBlock[] => {
 };
 
 const toolResultContent = (
-  content: ReadonlyArray<TextContent | ImageContent>
-): string | ContentBlock[] =>
-  content.some((block) => block.type === "image")
-    ? userBlocks([...content])
-    : messageContentToText(content);
+  content: ToolResultMessage["content"]
+): string | ContentBlock[] => {
+  const blocks = userBlocks(content);
+
+  const texts = blocks.flatMap((block) =>
+    block.type === "text" ? [block.text] : []
+  );
+
+  return texts.length === blocks.length ? texts.join("\n") : blocks;
+};
 
 /** What conversion discarded, for the debug trace: a stripped thinking block and one that
  *  never existed convert to the same thing, so without this the loss is invisible. */

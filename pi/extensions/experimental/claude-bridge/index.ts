@@ -1,10 +1,9 @@
-import { appendFileSync } from "node:fs";
-
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { recordStream } from "./child.js";
 import type { QueryFunction } from "./child.js";
-import { providerConfig } from "./provider.js";
+import { providerConfig, startSession } from "./provider.js";
 import { PROVIDER_ID } from "./session/convert.js";
 import { Sessions } from "./sessions.js";
 
@@ -16,27 +15,13 @@ export const createClaudeBridge =
 
     const config = providerConfig({
       sessions,
-      toolGuidelines: () =>
-        new Map(
-          pi
-            .getAllTools()
-            .map((tool) => [tool.name, tool.promptGuidelines ?? []])
-        ),
+      piTools: () => pi.getAllTools(),
     });
 
     pi.registerProvider(PROVIDER_ID, config);
 
     pi.on("session_start", (_event, ctx) => {
-      const sessionId = ctx.sessionManager.getSessionId();
-
-      sessions.start(sessionId, ctx.cwd, ctx.ui);
-
-      if (config.models?.length === 0) {
-        sessions.notify(
-          sessionId,
-          "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
-        );
-      }
+      startSession(sessions, config, ctx);
     });
 
     pi.on("session_shutdown", (_event, ctx) => {
@@ -44,29 +29,4 @@ export const createClaudeBridge =
     });
   };
 
-const recording =
-  (run: QueryFunction, recordPath: string): QueryFunction =>
-  (params) => {
-    const sdkQuery = run(params);
-
-    return {
-      interrupt: async () => await sdkQuery.interrupt(),
-      close: () => {
-        sdkQuery.close();
-      },
-      async *[Symbol.asyncIterator]() {
-        for await (const message of sdkQuery) {
-          appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
-          yield message;
-        }
-      },
-    };
-  };
-
-const recordPath = process.env["CLAUDE_BRIDGE_RECORD_STREAM"];
-
-export default createClaudeBridge(
-  recordPath === undefined || recordPath === ""
-    ? query
-    : recording(query, recordPath)
-);
+export default createClaudeBridge(recordStream(query));
