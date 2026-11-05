@@ -84,7 +84,7 @@ interface RunToolOptions {
   toolCallId?: Parameters<ToolExecute>[0];
 }
 
-export interface ExtensionHostOptions {
+interface ExtensionHostOptions {
   entries?: SessionEntry[];
   leafId?: string | null;
   hasUI?: boolean;
@@ -1061,5 +1061,3 @@ export const createExtensionHost = (
 };
 
 export type ExtensionHost = ReturnType<typeof createExtensionHost>;
-
-export type { ContextOverrides };

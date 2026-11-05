@@ -18,7 +18,7 @@ import { filePath, mountRoot } from "./mount.js";
 import { SkillServers, describeError } from "./servers.js";
 import { checkBytes, frontmatterMatches, verifyFile } from "./verify.js";
 
-export type Loaded = { bytes: Buffer } | { error: string };
+type Loaded = { bytes: Buffer } | { error: string };
 
 const messageText = (entry: SessionEntry): string => {
   if (entry.type !== "message") {

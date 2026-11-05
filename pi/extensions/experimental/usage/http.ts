@@ -4,7 +4,7 @@ import { Value } from "typebox/value";
 
 const USAGE_HTTP_TIMEOUT_MS = 12_000;
 
-export type FetchJsonResult<T> =
+type FetchJsonResult<T> =
   | { ok: true; json: T }
   | {
       ok: false;

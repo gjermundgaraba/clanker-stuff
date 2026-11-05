@@ -36,7 +36,7 @@ export interface FakeQuery extends BridgeQuery {
   readonly closed: boolean;
 }
 
-export const createFakeQuery = (params: QueryParams): FakeQuery => {
+const createFakeQuery = (params: QueryParams): FakeQuery => {
   const queue: SDKMessage[] = [];
   let wake: ((value: undefined) => void) | undefined;
   let done = false;

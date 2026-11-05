@@ -12,7 +12,7 @@ export interface PendingProcess {
   resolve: (result: CliCompletion) => void;
 }
 
-export const createStarter = () => {
+const createStarter = () => {
   const pending: PendingProcess[] = [];
 
   const starter = vi.fn<CliStarter>(async (args, options) => {

@@ -44,7 +44,7 @@ export interface UsageSnapshot {
   fetchedAt: number;
 }
 
-export interface UsageFetchError {
+interface UsageFetchError {
   message: string;
   kind: "unavailable" | "failure";
 }

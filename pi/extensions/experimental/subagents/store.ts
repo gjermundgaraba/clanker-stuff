@@ -48,7 +48,7 @@ export class TreeStore {
   }
 }
 
-export interface OpenedTree {
+interface OpenedTree {
   store: TreeStore;
   tree: Tree;
   warning: string | undefined;

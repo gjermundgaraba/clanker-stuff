@@ -2,7 +2,7 @@ import type { Tool } from "@earendil-works/pi-ai";
 
 export const MCP_SERVER_NAME = "custom-tools";
 
-export const MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
+const MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 
 /** A pi tool's name as Claude Code calls it. */
 export const sdkToolName = (name: string): string =>

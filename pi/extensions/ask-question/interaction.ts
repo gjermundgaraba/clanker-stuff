@@ -27,7 +27,7 @@ const FieldsSchema = Type.Object(
 
 const DraftSchema = record(FieldsSchema);
 
-export const AnswerSchema = Type.Object(
+const AnswerSchema = Type.Object(
   {
     question: Type.String(),
     header: Type.String(),
@@ -75,7 +75,7 @@ export const StateRecordSchema = Type.Object(
 
 export type RequestRecord = Static<typeof RequestRecordSchema>;
 
-export type StateRecord = Static<typeof StateRecordSchema>;
+type StateRecord = Static<typeof StateRecordSchema>;
 
 /** A questionnaire is open, and answerable, exactly while it has a draft. */
 export type Interaction = RequestRecord & StateRecord;

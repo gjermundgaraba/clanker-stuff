@@ -3,7 +3,7 @@ import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { draftAnswer } from "./interaction.js";
 import type { Answer, Answers, Interaction } from "./interaction.js";
 
-export type Row =
+type Row =
   | { kind: "question"; index: number; header: string }
   | { kind: "answer"; text: string; note?: string }
   | { kind: "missing" };

@@ -68,7 +68,7 @@ export const DEFAULT_CONFIG: SubagentsConfig = {
   wakeOnFinalAnswer: true,
 };
 
-export type SpawnModelRegistry = Pick<ModelRegistry, "find" | "getAvailable">;
+type SpawnModelRegistry = Pick<ModelRegistry, "find" | "getAvailable">;
 
 export const parseConfig = (value: unknown): SubagentsConfig => {
   if (!Value.Check(SubagentsConfigSchema, value)) {
@@ -140,13 +140,13 @@ export interface ChildSettings {
   thinking: AgentThinkingLevel | undefined;
 }
 
-export interface SpawnRequest {
+interface SpawnRequest {
   agentType: string | undefined;
   model: string | undefined;
   thinking: AgentThinkingLevel | undefined;
 }
 
-export interface ParentSettings {
+interface ParentSettings {
   model: Model<Api> | undefined;
   registry: SpawnModelRegistry;
   thinking: AgentThinkingLevel | undefined;

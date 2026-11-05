@@ -15,7 +15,7 @@ import { isJsonArray, isJsonObject } from "./json.js";
 
 const TOOL_USE_ID_META = "claudecode/toolUseId";
 
-export type McpContent = Array<
+type McpContent = Array<
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string }
 >;
@@ -126,7 +126,7 @@ const combinatorNote = (
   return `Input constraint: ${rule}: ${groups.map((group) => `(${group})`).join(" or ")}.`;
 };
 
-export const flattenRootCombinators = (schema: JsonObject) => {
+const flattenRootCombinators = (schema: JsonObject) => {
   const combinators = ROOT_COMBINATORS.filter((key) => key in schema);
 
   if (combinators.length === 0) {

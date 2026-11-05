@@ -5,7 +5,7 @@ import type { Theme as HighlightsTheme } from "@pierre/highlights";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-export const SyntaxRoleSchema = Type.Union([
+const SyntaxRoleSchema = Type.Union([
   Type.Literal("text"),
   Type.Literal("comment"),
   Type.Literal("keyword"),
@@ -65,7 +65,7 @@ const roles = new Map<string, SyntaxRole>(
   Object.values(palette).map((role) => [`var(--pi-${role})`, role])
 );
 
-export interface DiffLine {
+interface DiffLine {
   prefix: string;
   kind: " " | "+" | "-";
   number: number;

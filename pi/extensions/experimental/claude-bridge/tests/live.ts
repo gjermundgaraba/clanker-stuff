@@ -25,7 +25,7 @@ import claudeBridge from "../index.js";
 
 export const LIVE = process.env["CLAUDE_BRIDGE_LIVE"] === "1";
 
-export const LIVE_MODEL =
+const LIVE_MODEL =
   process.env["CLAUDE_BRIDGE_LIVE_MODEL"] ?? "claude-haiku-5-5";
 
 /** Real Claude Code round trips: process start, API latency, and tool waits. */
@@ -228,7 +228,7 @@ const SessionRecordSchema = Type.Object({
   ),
 });
 
-export type SessionRecord = Static<typeof SessionRecordSchema>;
+type SessionRecord = Static<typeof SessionRecordSchema>;
 
 /** Claude Code's own transcript of the last query in a debug-log slice, in write order. */
 export const sessionRecords = (
