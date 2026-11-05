@@ -61,7 +61,6 @@ const sharedRules: DummyRuleMap = {
   "anti-slop/no-conditional-empty-object-spread": "off",
   "func-names": ["error", "as-needed", { generators: "never" }],
   "no-redeclare": "off",
-  "promise/prefer-await-to-then": "off",
   "promise/prefer-await-to-callbacks": "off",
   "typescript/array-type": [
     "error",

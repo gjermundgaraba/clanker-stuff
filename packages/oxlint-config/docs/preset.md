@@ -96,7 +96,6 @@ Rules the presets enable that the preset turns off or narrows, and why:
 - `anti-slop/no-conditional-empty-object-spread`: optional DTO fields belong in their construction expression.
 - `func-names`, narrowed: generators passed to `Effect.gen` and `Effect.fn` are named by their span.
 - `no-redeclare`: a schema and its type share a name; `tsc` rejects real redeclarations.
-- `promise/prefer-await-to-then`: `Effect.catch` is not a promise chain.
 - `promise/prefer-await-to-callbacks`: Effect handlers are typed functions, not error-first callbacks.
 - `typescript/array-type`, narrowed: `readonly string[]`, but `ReadonlyArray<Html | string>` over `readonly (Html | string)[]`.
 - `unicorn/no-array-method-this-argument`: Effect's data-first `map(self, f)` and `filter(self, f)` take no `thisArg`.
@@ -136,7 +135,7 @@ Everything else belongs in a name, a type, a test title or the commit message.
 
 ## Migrating a repository
 
-1. Add the package and its peers as dev dependencies, except `oxlint`, which `vite-plus` brings. Remove a separate `oxlint` pin.
+1. Add the package and its peers as dev dependencies, and remove a separate `oxlint` pin: `vite-plus` brings Oxlint.
 2. Replace `testFiles`, `sharedRules`, `sharedTestOverride` and the `defineConfig` shell with `config({ ... })`. Pass the repository's test-block names as `testBlocks`, the extra names its `vitest/no-standalone-expect` list had as `expectBlocks`, and its assertion helpers beyond the defaults as `assertFunctions`.
 3. Drop what the preset now sets: the Vite+ plugin entry, `vite-plus/prefer-vite-plus-imports`, `anti-slop/no-unknown-parameters: "off"`, and `env: { node: true }`.
 4. A repository that configures lint in `vite.config.ts` with a vendored anti-slop under `tools/oxlint/anti-slop` drops it and its `anti-slop` and `anti-slop-effect` plugin entries, because the vendored `anti-slop` name collides with Ultracite's. One with its own `no-comments` plugin drops that too; the shared rule has no `// Why:` or reasoned-directive allowance.
