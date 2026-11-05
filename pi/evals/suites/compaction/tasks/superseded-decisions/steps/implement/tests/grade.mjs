@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 
-import { validateCompaction } from "./compaction.mjs";
+import { probe, readTrajectory, validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/deployment.js").planDeployment} */
 const missingCandidate = () => {
@@ -28,31 +28,9 @@ const tests = spawnSync("node", ["--test", "/app/test/deployment.test.js"], {
 
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
-const readTrajectory = () => {
-  try {
-    /** @type {unknown} */
-    const parsed = JSON.parse(
-      readFileSync("/logs/agent/trajectory.json", "utf-8")
-    );
-
-    return parsed;
-  } catch {
-    return {};
-  }
-};
-
-const trajectory = readTrajectory();
+const trajectory = readTrajectory("/logs/agent/trajectory.json");
 
 const validation = validateCompaction(trajectory, { expectedSegments: [4, 9] });
-
-/** @param {()=>boolean} fn */
-const probe = (fn) => {
-  try {
-    return Number(fn());
-  } catch {
-    return 0;
-  }
-};
 
 const base = { regions: [], service: "api", target: "prod" };
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { isRecord, trajectoryRecords } from "./records.mjs";
 
 /**
@@ -158,4 +160,25 @@ export const validateCompaction = (trajectory, { expectedSegments }) => {
     agent_errors: Number(agentErrors),
     manifest_valid: Number(manifestValid),
   };
+};
+
+/** @param {string} filePath */
+export const readTrajectory = (filePath) => {
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+
+/** @param {()=>boolean} fn */
+export const probe = (fn) => {
+  try {
+    return Number(fn());
+  } catch {
+    return 0;
+  }
 };

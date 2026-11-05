@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { validateCompaction } from "./compaction.mjs";
+import { probe, readTrajectory, validateCompaction } from "./compaction.mjs";
 
 /** @type {typeof import("../solution/route.js").parseRoute} */
 const missingCandidate = () => {
@@ -27,31 +27,9 @@ const tests = spawnSync("node", ["--test", "/app/test/route.test.js"], {
 
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
-const readTrajectory = () => {
-  try {
-    /** @type {unknown} */
-    const parsed = JSON.parse(
-      readFileSync("/logs/agent/trajectory.json", "utf-8")
-    );
-
-    return parsed;
-  } catch {
-    return {};
-  }
-};
-
-const trajectory = readTrajectory();
+const trajectory = readTrajectory("/logs/agent/trajectory.json");
 
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
-
-/** @param {()=>boolean} fn */
-const probe = (fn) => {
-  try {
-    return Number(fn());
-  } catch {
-    return 0;
-  }
-};
 
 /** @param {...unknown} inputs */
 const rejects = (...inputs) =>
