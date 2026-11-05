@@ -36,6 +36,17 @@ def ledger_comparison(model=None, thinking=None):
     return comparison(model, thinking, names)
 
 
+def copy_scaling_module(filename: str, destination: Path) -> None:
+    # Task assets share one directory; in the source tree verifiers are separate.
+    source = ASSETS / filename
+    shutil.copy(source, destination)
+    target = destination / filename
+    text = target.read_text()
+    relocated = text.replace('../../verifiers/records.mjs', './records.mjs')
+    if relocated != text:
+        target.write_text(relocated)
+
+
 def generate_task(output: Path, size: str, seed: str, replicate: int, expected=None) -> Path:
     expected = ledger_comparison() if expected is None else expected
     settings = {
@@ -53,7 +64,7 @@ def generate_task(output: Path, size: str, seed: str, replicate: int, expected=N
     write_json(task / "tests/comparison.json", expected)
     shutil.copy(ASSETS / "preflight.mjs", task / "environment")
     for filename in ("services.mjs", "tool-names.json", "pi-eval-tools.mjs"):
-        shutil.copy(ASSETS / filename, task / "environment")
+        copy_scaling_module(filename, task / "environment")
     for filename in (
         "scoring.mjs",
         "service-metrics.mjs",
@@ -65,10 +76,12 @@ def generate_task(output: Path, size: str, seed: str, replicate: int, expected=N
         "controls.mjs",
         "test.sh",
     ):
-        shutil.copy(ASSETS / filename, task / "tests")
+        copy_scaling_module(filename, task / "tests")
     shutil.copy(EVALS / "verifiers/tool-mode-core.mjs", task / "tests/tool-mode-core.mjs")
     shutil.copy(EVALS / "verifiers/native-codex.mjs", task / "tests")
     shutil.copy(EVALS / "verifiers/comparison.mjs", task / "tests")
+    for directory in ("environment", "tests"):
+        shutil.copy(EVALS / "verifiers/records.mjs", task / directory)
     shutil.copy(ASSETS / "solve.mjs", task / "solution")
     write_json(
         task / "tests/native-preflight.json",
@@ -133,7 +146,7 @@ def source_hashes():
             "pi-eval-compact.mjs",
         ),
         "profiles": ("code-mode.yaml", "native-codex.yaml"),
-        "verifiers": ("tool-mode-core.mjs", "native-codex.mjs", "comparison.mjs"),
+        "verifiers": ("tool-mode-core.mjs", "native-codex.mjs", "comparison.mjs", "records.mjs"),
         # The lockfile pins Harbor and the other Python execution dependencies.
         ".": ("pyproject.toml", "uv.lock"),
     }

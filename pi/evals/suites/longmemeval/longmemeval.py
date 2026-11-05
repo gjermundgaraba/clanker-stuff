@@ -464,10 +464,11 @@ def _write_task(
         + "\n",
     )
     _write(query / "tests/grade.mjs", _grader())
-    _write(
-        query / "tests/compaction.mjs",
-        COMPACTION_VERIFIER.read_text(encoding="utf-8"),
-    )
+    for name in ("compaction.mjs", "records.mjs"):
+        _write(
+            query / "tests" / name,
+            COMPACTION_VERIFIER.with_name(name).read_text(encoding="utf-8"),
+        )
     _write(
         query / "tests/test.sh",
         "#!/usr/bin/env bash\nset -eu\nnode /tests/grade.mjs\n",

@@ -3,9 +3,10 @@ import {
   FIXTURE as fixtureId,
 } from "/opt/pi-evals/services.mjs";
 
+import { isRecord } from "../../verifiers/records.mjs";
 import { readComparison } from "./comparison.mjs";
 import { validateNativeCodex } from "./native-codex.mjs";
-import { isRecord, serviceMetrics } from "./service-metrics.mjs";
+import { serviceMetrics } from "./service-metrics.mjs";
 
 /** @param {unknown} trajectory @param {unknown[]} events */
 export const validateNativeDiagnostic = (trajectory, events) => {

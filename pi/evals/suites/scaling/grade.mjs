@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { fixture, FIXTURE, SERVICE_NAMES } from "/opt/pi-evals/services.mjs";
 
+import { isRecord } from "../../verifiers/records.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
-import { isRecord } from "./service-metrics.mjs";
 import { validateToolMode } from "./tool-mode.mjs";
 import { validateNativeDiagnostic } from "./validity.mjs";
 

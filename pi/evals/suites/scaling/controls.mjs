@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 
 import { SETTINGS, fixture, createServices } from "/opt/pi-evals/services.mjs";
 
+import { isRecord } from "../../verifiers/records.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
-import { isRecord } from "./service-metrics.mjs";
 
 assert.equal(fixture().ledger.length, SETTINGS.count);
 

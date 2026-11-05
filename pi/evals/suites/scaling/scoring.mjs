@@ -2,7 +2,7 @@ import { isDeepStrictEqual as equal } from "node:util";
 
 import { fixture, SETTINGS } from "/opt/pi-evals/services.mjs";
 
-import { isRecord } from "./service-metrics.mjs";
+import { isRecord } from "../../verifiers/records.mjs";
 
 export { serviceMetrics } from "./service-metrics.mjs";
 

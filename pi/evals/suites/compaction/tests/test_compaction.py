@@ -104,7 +104,8 @@ class CompactionTest(TestCase):
             ]:
                 grader = grader.replace(original, replacement)
             (root / "grade.mjs").write_text(grader, encoding="utf-8")
-            (root / "compaction.mjs").write_bytes((grader_path.parent / "compaction.mjs").read_bytes())
+            for name in ("compaction.mjs", "records.mjs"):
+                (root / name).write_bytes((grader_path.parent / name).read_bytes())
             subprocess.run(["node", root / "grade.mjs"], check=True, capture_output=True, text=True)
             return json.loads((root / "logs/verifier/reward.json").read_text(encoding="utf-8"))
 
@@ -235,6 +236,7 @@ class CompactionTest(TestCase):
             with self.subTest(task=task):
                 grader_dir = TASKS_DIR / task / "steps/implement/tests"
                 self.assertEqual((grader_dir / "compaction.mjs").read_bytes(), source)
+                self.assertEqual((grader_dir / "records.mjs").read_bytes(), VERIFIER.with_name("records.mjs").read_bytes())
                 reward = self._grade(task, trajectory(manifest(), [attempt(segment) for segment in segments]))
                 self.assertEqual(reward["valid_experiment"], 1)
                 self.assertEqual(reward["reward"], reward["quality"])

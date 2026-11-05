@@ -8,8 +8,8 @@ import * as services from "/opt/pi-evals/services.mjs";
 import { solve } from "/solution/solve.mjs";
 import { oracle, score, serviceMetrics } from "/tests/scoring.mjs";
 
+import { isRecord } from "../../verifiers/records.mjs";
 import { readComparison } from "./comparison.mjs";
-import { isRecord } from "./service-metrics.mjs";
 
 const { fixture, SERVICE_NAMES } = services;
 

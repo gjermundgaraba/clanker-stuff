@@ -1,6 +1,4 @@
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+import { isRecord } from "./records.mjs";
 
 /** @param {unknown} trajectory @param {{model: string, thinking: string, directTools: string[]}} options */
 export const validateToolMode = (

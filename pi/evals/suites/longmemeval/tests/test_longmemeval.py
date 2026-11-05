@@ -353,10 +353,11 @@ class LongMemEvalTest(TestCase):
             )
             runnable = root / "grade.mjs"
             runnable.write_text(grader, encoding="utf-8")
-            (root / "compaction.mjs").write_text(
-                (task / "tests/compaction.mjs").read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
+            for name in ("compaction.mjs", "records.mjs"):
+                (root / name).write_text(
+                    (task / "tests" / name).read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
 
             def grade(
                 boundaries: list[int],

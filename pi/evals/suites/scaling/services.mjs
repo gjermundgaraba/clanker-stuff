@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { isRecord } from "../../verifiers/records.mjs";
+
 export { default as SERVICE_NAMES } from "./tool-names.json" with { type: "json" };
 
 /**
@@ -37,10 +39,6 @@ export const toolSpecs = (Type) => {
 const settings = JSON.parse(
   readFileSync(new URL("case.json", import.meta.url), "utf-8")
 );
-
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 if (
   !isRecord(settings) ||

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { isRecord } from "./records.mjs";
+
 const answerPath = "/app/answer.txt";
 
 const trajectoryPath = "/logs/agent/trajectory.json";
@@ -8,10 +10,6 @@ const trajectoryPath = "/logs/agent/trajectory.json";
 const answer =
   existsSync(answerPath) &&
   readFileSync(answerPath, "utf-8") === "CITRINE-47-EMBER\n";
-
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-const isRecord = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readSteps = () => {
   try {

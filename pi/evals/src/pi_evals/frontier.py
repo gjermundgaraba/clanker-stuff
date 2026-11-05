@@ -41,7 +41,7 @@ def sources():
                 'pi_evals/adapters/frontier.py', 'pi_evals/adapters/auth.py', 'pi_evals/protocol.py', 'pi_evals/comparison.py'),
         'runtime': ('Dockerfile', 'pi-eval-tools.mjs', 'eval-journal.mjs', 'codex-eval.mjs', 'pi-eval-compact.mjs'),
         'profiles': ('code-mode.yaml', 'native-codex.yaml'),
-        'verifiers': ('tool-mode-core.mjs', 'native-codex.mjs', 'comparison.mjs'),
+        'verifiers': ('tool-mode-core.mjs', 'native-codex.mjs', 'comparison.mjs', 'records.mjs'),
         # The lockfile pins Harbor and the other Python execution dependencies.
         '.': ('pyproject.toml', 'uv.lock'),
     }
@@ -153,7 +153,7 @@ docker_image = "{agent['tag']}"
 ''')
     shutil.copy(ASSETS/'submission.py', tests)
     write_json(tests/'comparison.json', expected)
-    for name in ('native-codex.mjs', 'tool-mode-core.mjs', 'comparison.mjs'):
+    for name in ('native-codex.mjs', 'tool-mode-core.mjs', 'comparison.mjs', 'records.mjs'):
         shutil.copy(EVALS/'verifiers'/name, tests)
     shutil.copy(ASSETS/'validity.mjs', tests)
     (tests/'test.sh').write_text('#!/bin/bash\nset -euo pipefail\npython3 /tests/submission.py\n')

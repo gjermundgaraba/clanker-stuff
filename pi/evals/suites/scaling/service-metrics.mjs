@@ -1,6 +1,4 @@
-/** @param {unknown} value @returns {value is Record<string, unknown>} */
-export const isRecord = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+import { isRecord } from "../../verifiers/records.mjs";
 
 /** @param {Record<string, unknown>} event @returns {event is import('./services.mjs').ServiceStart} */
 const isStart = (event) =>
