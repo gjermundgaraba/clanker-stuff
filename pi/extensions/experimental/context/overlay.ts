@@ -1,3 +1,4 @@
+import { fit, renderScrollbar } from "@clanker-stuff/pi-tool-rendering/layout";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type {
@@ -22,13 +23,11 @@ import type {
 import {
   countColumnWidth,
   estimate,
-  fit,
   layoutOverlay,
   overlayHeight,
   PAD,
   renderFooter,
   renderOverlay,
-  renderScrollbar,
   renderTreeRows,
 } from "./render.js";
 import type { Layout } from "./render.js";

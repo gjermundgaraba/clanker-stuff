@@ -1,5 +1,6 @@
 import { FRAME_INTERVAL_MS, wireframe } from "@clanker-stuff/pi-shape-glyphs";
 import type { Tone } from "@clanker-stuff/pi-tones";
+import { fit } from "@clanker-stuff/pi-tool-rendering/layout";
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -106,9 +107,6 @@ export const statusMark = (
 
   return `${mark}${" ".repeat(marks.width - 1)}`;
 };
-
-export const fit = (text: string, width: number): string =>
-  truncateToWidth(text, width, "…", true);
 
 export const fitRight = (text: string, width: number): string => {
   if (width <= 0) {

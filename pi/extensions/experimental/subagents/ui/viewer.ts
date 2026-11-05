@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { fit, renderScrollbar } from "@clanker-stuff/pi-tool-rendering/layout";
 import { inlineText, safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import {
   createBashToolDefinition,
@@ -41,7 +42,6 @@ import {
   countStatuses,
   countsText,
   elapsed,
-  fit,
   frameBottom,
   frameLine,
   frameTop,
@@ -165,26 +165,6 @@ const layoutViewer = (width: number, height: number): Layout => {
     tooSmall: width < 40 || height < MIN_HEIGHT,
     treeWidth,
   };
-};
-
-const scrollbar = (
-  theme: Theme,
-  height: number,
-  offset: number,
-  total: number
-): string[] => {
-  if (total <= height) {
-    return Array.from({ length: height }, () => " ");
-  }
-
-  const thumb = Math.max(1, Math.round((height / total) * height));
-  const start = Math.round((offset / (total - height)) * (height - thumb));
-
-  return Array.from({ length: height }, (_, index) =>
-    index >= start && index < start + thumb
-      ? theme.fg("scrollbarThumb", "┃")
-      : theme.fg("dim", "│")
-  );
 };
 
 /** A read-only overlay: the agent tree beside the selected agent's live transcript. */
@@ -592,7 +572,7 @@ export class AgentsViewer implements Component {
     view.scroll = view.follow
       ? view.maxScroll
       : Math.min(view.scroll, view.maxScroll);
-    const bar = scrollbar(theme, height, view.scroll, lines.length);
+    const bar = renderScrollbar(theme, height, view.scroll, lines.length);
 
     return Array.from(
       { length: height },
