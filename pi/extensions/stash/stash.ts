@@ -41,6 +41,10 @@ export const createStash = () => {
   };
 
   const pop = async (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) {
+      throw new Error("pop-stash requires interactive UI");
+    }
+
     const popped = stack.pop();
 
     if (popped === undefined) {
