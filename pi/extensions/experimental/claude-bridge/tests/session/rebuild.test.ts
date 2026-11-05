@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { patchEnv } from "../../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../../tests/helpers/fs.js";
 import { rebuildSession } from "../../session/rebuild.js";
+import { sessionContents } from "../fixtures/session.js";
 import { assistant, text, user } from "./messages.js";
 
 const MODEL = "claude-haiku-5-5";
@@ -48,11 +49,6 @@ describe(rebuildSession, () => {
 
   const rebuild = (priors: readonly Message[], previous?: string) =>
     rebuildSession({ priors, cwd, modelId: MODEL, previous });
-
-  const contents = (sessionId: string) =>
-    openSession({ sessionId, projectPath: cwd }).messages.map(
-      (record) => record.message.content
-    );
 
   it("writes a session holding every prior message", () => {
     const sessionId = rebuild([user("Hi"), assistant([text("Hello.")])]);
@@ -94,7 +90,7 @@ describe(rebuildSession, () => {
 
     expect(sessionId).toStrictEqual(expect.any(String));
     expect(sessionId).not.toBe(previous);
-    expect(contents(sessionId ?? "")).toStrictEqual([
+    expect(sessionContents(sessionId ?? "", cwd)).toStrictEqual([
       "Summary of earlier work",
       [{ type: "text", text: "Ok." }],
     ]);

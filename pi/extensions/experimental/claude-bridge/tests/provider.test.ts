@@ -31,6 +31,7 @@ import {
   successResult,
   textBlock,
 } from "./fixtures/sdk.js";
+import { sessionContents } from "./fixtures/session.js";
 import { fakeQueryFunction, testModel, transcript } from "./helpers.js";
 import type { FakeQuery } from "./helpers.js";
 
@@ -157,11 +158,6 @@ const answer = (query: FakeQuery, text: string, sessionId = "cc-1"): void => {
   query.push(successResult(text));
   query.end();
 };
-
-const sessionContents = (sessionId: string) =>
-  openSession({ sessionId, projectPath: cwd }).messages.map(
-    (record) => record.message.content
-  );
 
 const sessionPath = (sessionId: string) =>
   openSession({ sessionId, projectPath: cwd }).jsonlPath;
@@ -409,7 +405,7 @@ describe("streamClaudeCode", () => {
       const rebuilt = q2.params.options.resume ?? "";
 
       expect(rebuilt).not.toBe("cc-1");
-      expect(sessionContents(rebuilt)).toStrictEqual([
+      expect(sessionContents(rebuilt, cwd)).toStrictEqual([
         "hi",
         [{ type: "text", text: "hello" }],
         "now you, faux",
@@ -530,10 +526,9 @@ describe("streamClaudeCode", () => {
       const written = sessionPath(q.params.options.resume ?? "");
 
       expect(q.params.options.mcpServers).toBeUndefined();
-      expect(sessionContents(q.params.options.resume ?? "")).toStrictEqual([
-        "earlier",
-        [{ type: "text", text: "noted" }],
-      ]);
+      expect(sessionContents(q.params.options.resume ?? "", cwd)).toStrictEqual(
+        ["earlier", [{ type: "text", text: "noted" }]]
+      );
       await expect(promptOf(q)).resolves.toStrictEqual([
         { type: "text", text: "now" },
       ]);
