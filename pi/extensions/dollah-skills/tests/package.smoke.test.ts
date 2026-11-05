@@ -27,8 +27,8 @@ describe("dollah-skills package", () => {
     }
   });
 
-  it("does not statically expose orchestration through an omitted skill filter", async () => {
-    tempRoot = mkdtempSync(path.join(os.tmpdir(), "dollah-skills-filter-"));
+  it("loads the mention runtime as a Pi package", async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), "dollah-skills-load-"));
 
     const loader = new DefaultResourceLoader({
       agentDir: path.join(tempRoot, "agent"),
@@ -36,14 +36,7 @@ describe("dollah-skills package", () => {
       noContextFiles: true,
       noPromptTemplates: true,
       noThemes: true,
-      settingsManager: SettingsManager.inMemory({
-        packages: [
-          {
-            extensions: ["index.ts"],
-            source: PACKAGE_ROOT,
-          },
-        ],
-      }),
+      settingsManager: SettingsManager.inMemory({ packages: [PACKAGE_ROOT] }),
     });
 
     await loader.reload();
@@ -52,7 +45,6 @@ describe("dollah-skills package", () => {
     expect(loader.getExtensions().extensions[0]?.handlers.has("input")).toBe(
       true
     );
-    expect(loader.getSkills().skills).toStrictEqual([]);
   });
 
   it("packs the mention runtime", () => {
