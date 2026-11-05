@@ -5,29 +5,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type { CliStarter } from "./cli.js";
-import type { createCommandRuntime } from "./command-runtime.js";
-
-export type CommandRuntimeLoader = () => Promise<{
-  createCommandRuntime: typeof createCommandRuntime;
-}>;
-
-export const loadCommandRuntime: CommandRuntimeLoader = async () =>
-  await import("./command-runtime.js");
 
 export const createPlannotatorHost = (
   pi: ExtensionAPI,
-  loadRuntime: CommandRuntimeLoader,
   starter?: CliStarter
 ) => {
-  const active = createLazySingleton(async (signal) => {
+  const active = createLazySingleton(async () => {
     const [command, annotate, last, review] = await Promise.all([
-      loadRuntime(),
+      import("./command-runtime.js"),
       import("./commands/annotate.js"),
       import("./commands/last.js"),
       import("./commands/review.js"),
     ]);
-
-    signal.throwIfAborted();
 
     const runtime = command.createCommandRuntime(starter);
 

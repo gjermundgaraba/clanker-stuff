@@ -9,9 +9,8 @@ import { startPlannotatorCli } from "./cli.js";
 const SHUTDOWN_TIMEOUT_MS = 2500;
 
 interface LaunchOptions {
-  failureLabel: string;
+  label: string;
   onOutput: (stdout: string) => void;
-  openedMessage: string;
   stdin?: string;
 }
 
@@ -151,7 +150,7 @@ export const createCommandRuntime = (
         } else {
           notifyError(
             ctx,
-            options.failureLabel,
+            options.label,
             exitSignal
               ? `terminated by ${exitSignal}`
               : `exited with code ${code}`
@@ -159,7 +158,7 @@ export const createCommandRuntime = (
         }
       } catch (error) {
         if (!signal.aborted) {
-          notifyError(ctx, options.failureLabel, error);
+          notifyError(ctx, options.label, error);
         }
       }
     };
@@ -170,7 +169,7 @@ export const createCommandRuntime = (
 
     activeRuns.add(run);
 
-    ctx.ui.notify(options.openedMessage, "info");
+    ctx.ui.notify(`${options.label} opened.`, "info");
   };
 
   const shutdown = async (): Promise<void> => {
