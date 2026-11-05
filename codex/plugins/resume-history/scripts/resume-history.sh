@@ -5,9 +5,7 @@ inbox="${PI_SHELL_RESUME_HISTORY_DIR:-}"
 [ -d "$inbox" ] || exit 0
 
 sid=$(jq -r '.session_id // empty')
-case "$sid" in
-  "" | *[!a-zA-Z0-9_-]*) exit 0 ;;
-esac
+[[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
 name="$(date +%s)-$$-${RANDOM}.command"
 tmp="$inbox/.$name.tmp"

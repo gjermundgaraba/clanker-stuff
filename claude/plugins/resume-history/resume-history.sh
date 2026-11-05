@@ -10,4 +10,4 @@ sid=$(jq -r '.session_id // empty')
 name="$(date +%s)-$$-${RANDOM}.command"
 tmp="$inbox/.$name.tmp"
 printf 'claude --resume %s\n' "$sid" >"$tmp" || exit 0
-mv "$tmp" "$inbox/$name"
+mv "$tmp" "$inbox/$name" || rm -f "$tmp"
