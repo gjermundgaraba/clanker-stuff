@@ -45,13 +45,11 @@ describe("render", () => {
     "bounds the usage bar to %s columns, including overflow",
     (width) => {
       for (const tokens of [0, 2, 48, 64, 1000]) {
+        const percent = (tokens / 64) * 100;
+
         expect(
           visibleWidth(
-            renderUsageBar(
-              theme,
-              { tokens, contextWindow: 64, percent: 0 },
-              width
-            )
+            renderUsageBar(theme, { tokens, contextWindow: 64, percent }, width)
           )
         ).toBe(width);
       }

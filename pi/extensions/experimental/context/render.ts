@@ -66,11 +66,6 @@ export const layoutOverlay = (
 
 export type Layout = ReturnType<typeof layoutOverlay>;
 
-const usedPercent = (usage: ContextUsage | undefined): number | undefined =>
-  usage === undefined || usage.tokens === null || usage.contextWindow <= 0
-    ? undefined
-    : (usage.tokens / usage.contextWindow) * 100;
-
 export const renderUsageBar = (
   theme: Theme,
   usage: ContextUsage | undefined,
@@ -80,7 +75,7 @@ export const renderUsageBar = (
     return "";
   }
 
-  const percent = usedPercent(usage) ?? 0;
+  const percent = usage?.percent ?? 0;
 
   const filled = Math.max(
     0,
@@ -97,9 +92,7 @@ const renderUsageLine = (
   theme: Theme,
   usage: ContextUsage | undefined
 ): string => {
-  const percent = usedPercent(usage);
-
-  if (usage === undefined || usage.tokens === null || percent === undefined) {
+  if (usage === undefined || usage.tokens === null || usage.percent === null) {
     return theme.fg("muted", "Pi context usage: unknown");
   }
 
@@ -107,7 +100,7 @@ const renderUsageLine = (
     theme.bold(count(usage.tokens)),
     theme.fg("muted", ` / ${count(usage.contextWindow)} tokens`),
     theme.fg("dim", " · "),
-    theme.fg(percentTone(percent), `${percent.toFixed(1)}% used`),
+    theme.fg(percentTone(usage.percent), `${usage.percent.toFixed(1)}% used`),
     theme.fg("dim", " · "),
     theme.fg(
       "muted",
