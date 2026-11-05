@@ -46,12 +46,10 @@ export const enqueueResumeCommand = async (
   await rename(temporaryPath, finalPath);
 };
 
-type ResumeRecording = "queued" | "skipped" | "inbox-unwritable";
-
 export const recordResumeCommand = async (
   reason: SessionShutdownEvent["reason"],
   ctx: ExtensionContext
-): Promise<ResumeRecording> => {
+): Promise<void> => {
   const inbox = process.env[INBOX_ENV];
 
   if (
@@ -60,20 +58,14 @@ export const recordResumeCommand = async (
     inbox === undefined ||
     inbox.length === 0
   ) {
-    return "skipped";
+    return;
   }
 
   const command = formatResumeCommand(ctx.sessionManager);
 
   if (command === undefined) {
-    return "skipped";
+    return;
   }
 
-  try {
-    await enqueueResumeCommand(inbox, command);
-  } catch {
-    return "inbox-unwritable";
-  }
-
-  return "queued";
+  await enqueueResumeCommand(inbox, command).catch((): undefined => undefined);
 };
