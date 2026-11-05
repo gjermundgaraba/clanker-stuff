@@ -2,10 +2,11 @@ import type { Static, TSchema } from "typebox";
 
 import { accessToken } from "../auth.js";
 import type { GetAuth } from "../auth.js";
-import type { FetchJson } from "../http.js";
+import type { FetchJson, FetchJsonResult } from "../http.js";
 import { usageFailure } from "../providers.js";
 import type {
   SupportedProvider,
+  UsageFetchFailure,
   UsageFetchResult,
   UsageWindow,
 } from "../providers.js";
@@ -16,14 +17,50 @@ export interface AdapterDeps {
   now: () => number;
 }
 
-export interface UsageRequest<S extends TSchema> {
-  url: string;
-  schema: S;
+export interface UsageAuth {
   oauth?: boolean;
   /** Authorization scheme; GitHub's Copilot endpoint uses `token`. */
   scheme?: "Bearer" | "token";
   headers?: (token: string) => Record<string, string>;
 }
+
+export interface UsageRequest<S extends TSchema> extends UsageAuth {
+  url: string;
+  schema: S;
+}
+
+/** Request headers carrying the provider's credential, or why it cannot be used. */
+export const usageHeaders = async (
+  deps: AdapterDeps,
+  provider: SupportedProvider,
+  auth: UsageAuth
+): Promise<
+  { ok: true; headers: Record<string, string> } | UsageFetchFailure
+> => {
+  const token = await accessToken(deps.getAuth, provider, {
+    oauth: auth.oauth ?? false,
+  });
+
+  if (!token.ok) {
+    return token;
+  }
+
+  return {
+    ok: true,
+    headers: {
+      Accept: "application/json",
+      Authorization: `${auth.scheme ?? "Bearer"} ${token.token}`,
+      ...auth.headers?.(token.token),
+    },
+  };
+};
+
+/** A 403 means the credential lacks this entitlement, so the provider is unavailable rather than broken. */
+export const responseFailure = ({
+  message,
+  status,
+}: Extract<FetchJsonResult<unknown>, { ok: false }>): UsageFetchFailure =>
+  usageFailure(message, status === 403 ? "unavailable" : "failure");
 
 export const fetchUsage = async <S extends TSchema>(
   deps: AdapterDeps,
@@ -31,28 +68,21 @@ export const fetchUsage = async <S extends TSchema>(
   request: UsageRequest<S>,
   map: (payload: Static<S>, nowMs: number) => UsageFetchResult
 ): Promise<UsageFetchResult> => {
-  const auth = await accessToken(deps.getAuth, provider, {
-    oauth: request.oauth ?? false,
-  });
+  const auth = await usageHeaders(deps, provider, request);
 
   if (!auth.ok) {
     return auth;
   }
 
-  const response = await deps.fetchJson(request.url, request.schema, {
-    Accept: "application/json",
-    Authorization: `${request.scheme ?? "Bearer"} ${auth.token}`,
-    ...request.headers?.(auth.token),
-  });
-
-  if (response.ok) {
-    return map(response.json, deps.now());
-  }
-
-  return usageFailure(
-    response.message,
-    response.status === 403 ? "unavailable" : "failure"
+  const response = await deps.fetchJson(
+    request.url,
+    request.schema,
+    auth.headers
   );
+
+  return response.ok
+    ? map(response.json, deps.now())
+    : responseFailure(response);
 };
 
 export const isDefined = <T>(value: T | undefined): value is T =>
