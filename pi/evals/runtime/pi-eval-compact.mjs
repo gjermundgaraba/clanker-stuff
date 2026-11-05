@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
-import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
 
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -153,11 +151,7 @@ const run = async (configPath) => {
   }
 };
 
-if (
-  process.argv[1] !== undefined &&
-  process.argv[1] !== "" &&
-  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
-) {
+if (import.meta.main) {
   const [configPath] = process.argv.slice(2);
 
   if (process.argv.length !== 3 || configPath === undefined) {

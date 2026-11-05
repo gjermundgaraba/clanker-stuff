@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { appendFileSync, realpathSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
 
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -498,9 +497,7 @@ class RpcClient {
    * @returns {Promise<unknown>}
    */
   async request(method, params) {
-    if (this.failure !== undefined) {
-      throw this.failure;
-    }
+    this.assertHealthy();
 
     const id = this.nextId;
     this.nextId += 1;
@@ -531,9 +528,7 @@ class RpcClient {
    * @returns {Promise<RpcTurn>}
    */
   async waitForTurn(turnId) {
-    if (this.failure !== undefined) {
-      throw this.failure;
-    }
+    this.assertHealthy();
 
     const completed = this.completedTurns.get(turnId);
 
@@ -553,9 +548,7 @@ class RpcClient {
    * @returns {Promise<RpcTurn>}
    */
   async waitForTurnStart(threadId) {
-    if (this.failure !== undefined) {
-      throw this.failure;
-    }
+    this.assertHealthy();
 
     const index = this.turnStarts.findIndex(
       (entry) => entry.threadId === threadId
@@ -825,11 +818,7 @@ export const run = async (configPath, hooks = {}) => {
   socket.close();
 };
 
-if (
-  process.argv[1] !== undefined &&
-  process.argv[1] !== "" &&
-  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
-) {
+if (import.meta.main) {
   const [configPath] = process.argv.slice(2);
 
   if (process.argv.length !== 3 || configPath === undefined) {
