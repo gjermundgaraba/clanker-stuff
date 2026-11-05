@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
+  createIdentityEditorTheme,
   createKeybindings,
   createMockTui,
   createStatusIndicator,
@@ -11,18 +12,7 @@ import {
 import { acquireEditorHost } from "../index.js";
 import type { Editing } from "../index.js";
 
-const identity = (s: string) => s;
-
-const theme = {
-  borderColor: identity,
-  selectList: {
-    selectedPrefix: identity,
-    selectedText: identity,
-    description: identity,
-    scrollInfo: identity,
-    noMatch: identity,
-  },
-};
+const theme = createIdentityEditorTheme();
 
 describe("unsupported editor layout", () => {
   it("keeps public editor features when Pi's private layout is unsupported", () => {

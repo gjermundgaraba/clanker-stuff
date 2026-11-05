@@ -10,6 +10,7 @@ import type {
 import { Loader, matchesKey, TuiMainScreen } from "@earendil-works/pi-tui";
 import type {
   Component,
+  EditorTheme,
   KeyId,
   OverlayHandle,
   OverlayUnfocusOptions,
@@ -84,6 +85,17 @@ const createOverlayHandle = (): OverlayHandle => {
 };
 
 const identity = (text: string) => text;
+
+export const createIdentityEditorTheme = (): EditorTheme => ({
+  borderColor: identity,
+  selectList: {
+    description: identity,
+    noMatch: identity,
+    scrollInfo: identity,
+    selectedPrefix: identity,
+    selectedText: identity,
+  },
+});
 
 const TERMINAL_DEFAULT_FOREGROUNDS: ConstructorParameters<typeof Theme>[0] = {
   accent: "",

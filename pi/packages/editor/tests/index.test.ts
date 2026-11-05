@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
+  createIdentityEditorTheme,
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
@@ -20,16 +21,7 @@ const setup = (uiTheme = createIdentityTheme()) => {
   const ctx = fixture.createContext({ ui: { theme: uiTheme } });
   const host = acquireEditorHost(ctx)!;
 
-  const theme = {
-    borderColor: (s: string) => s,
-    selectList: {
-      selectedPrefix: (s: string) => s,
-      selectedText: (s: string) => s,
-      description: (s: string) => s,
-      scrollInfo: (s: string) => s,
-      noMatch: (s: string) => s,
-    },
-  };
+  const theme = createIdentityEditorTheme();
 
   const editor = host.create(createMockTui(), theme, createKeybindings());
   editor.render(80);

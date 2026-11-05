@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
+  createIdentityEditorTheme,
   createKeybindings,
   createMockTui,
 } from "../../../../tests/harness/tui.js";
@@ -14,7 +15,7 @@ import { DEFAULT_CONFIG, formatFooterConfig } from "../config.js";
 import type { FooterConfig, FooterConfigStore } from "../config.js";
 import type { GitDetails, readGitDetails } from "../git.js";
 import footerExtension from "../index.js";
-import { editorTheme, sessionReads } from "./helpers.js";
+import { sessionReads } from "./helpers.js";
 
 type FooterFactory = NonNullable<
   Parameters<ExtensionContext["ui"]["setFooter"]>[0]
@@ -23,6 +24,8 @@ type FooterFactory = NonNullable<
 type EditorFactory = NonNullable<
   ReturnType<ExtensionContext["ui"]["getEditorComponent"]>
 >;
+
+const editorTheme = createIdentityEditorTheme();
 
 const DETAILS: GitDetails = {
   ahead: 0,

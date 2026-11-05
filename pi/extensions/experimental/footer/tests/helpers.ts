@@ -2,7 +2,6 @@ import type {
   ExtensionContext,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type { EditorTheme } from "@earendil-works/pi-tui";
 
 export const sessionReads = (
   session: SessionManager
@@ -15,14 +14,3 @@ export const sessionReads = (
   getSessionId: () => session.getSessionId(),
   getSessionName: () => session.getSessionName(),
 });
-
-export const editorTheme: EditorTheme = {
-  borderColor: (text) => text,
-  selectList: {
-    description: (text) => text,
-    noMatch: (text) => text,
-    scrollInfo: (text) => text,
-    selectedPrefix: (text) => text,
-    selectedText: (text) => text,
-  },
-};

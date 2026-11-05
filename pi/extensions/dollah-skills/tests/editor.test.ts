@@ -1,9 +1,10 @@
-import type { EditorComponent, EditorTheme } from "@earendil-works/pi-tui";
+import type { EditorComponent } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
+  createIdentityEditorTheme,
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
@@ -15,18 +16,7 @@ const accent = (text: string) =>
     .map((c) => `\u001B[36m${c}\u001B[39m`)
     .join("");
 
-const identity = (text: string) => text;
-
-const editorTheme: EditorTheme = {
-  borderColor: identity,
-  selectList: {
-    description: identity,
-    noMatch: identity,
-    scrollInfo: identity,
-    selectedPrefix: identity,
-    selectedText: identity,
-  },
-};
+const editorTheme = createIdentityEditorTheme();
 
 const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   const factory = host.getEditorFactory();

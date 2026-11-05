@@ -1,10 +1,10 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { EditorTheme } from "@earendil-works/pi-tui";
 
 import type { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
   createCustomUiDriver,
+  createIdentityEditorTheme,
   createKeybindings,
   createMockTui,
 } from "../../../tests/harness/tui.js";
@@ -64,16 +64,7 @@ export const nonPromptEntries = (
   },
 ];
 
-const editorTheme: EditorTheme = {
-  borderColor: (text) => text,
-  selectList: {
-    description: (text) => text,
-    noMatch: (text) => text,
-    scrollInfo: (text) => text,
-    selectedPrefix: (text) => text,
-    selectedText: (text) => text,
-  },
-};
+const editorTheme = createIdentityEditorTheme();
 
 export const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   const factory = host.getEditorFactory();
