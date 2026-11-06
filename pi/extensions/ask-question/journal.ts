@@ -14,19 +14,13 @@ export const STATE_TYPE = "ask-question.state";
 type Writer = Pick<ExtensionAPI, "appendEntry">;
 
 export const recordRequest = (pi: Writer, item: Interaction): void => {
-  pi.appendEntry(REQUEST_TYPE, {
-    id: item.id,
-    request: item.request,
-    created_at: item.created_at,
-    tool_call_id: item.tool_call_id,
-  });
+  pi.appendEntry(REQUEST_TYPE, { id: item.id, request: item.request });
 };
 
 export const recordState = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(STATE_TYPE, {
     id: item.id,
     updated_at: item.updated_at,
-    status: item.status,
     ...(item.draft ? { draft: item.draft } : {}),
   });
 };
@@ -52,15 +46,11 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
     ) {
       const request = requests.get(entry.data.id);
 
-      if (request) {
+      if (request && entry.data.draft) {
         items.set(request.id, { ...request, ...entry.data });
+      } else {
+        items.delete(entry.data.id);
       }
-    }
-  }
-
-  for (const [id, item] of items) {
-    if (!item.draft) {
-      items.delete(id);
     }
   }
 

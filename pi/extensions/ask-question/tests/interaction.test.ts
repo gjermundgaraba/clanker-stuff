@@ -27,7 +27,7 @@ const request = {
 
 describe("questionnaire transitions", () => {
   it("requires explicit selection, retains deselected notes, and snapshots only selected answers", () => {
-    let item = createInteraction("question_test", request, "call1");
+    let item = createInteraction("question_test", request);
 
     const apply = (a: Action) => {
       item = transition(item, a);
@@ -37,7 +37,7 @@ describe("questionnaire transitions", () => {
     expect(() => {
       apply({ type: "submit" });
     }).toThrow("Answer required");
-    expect(item.status).toBe("open");
+    expect(item.draft).toBeDefined();
     apply({ type: "select", question: "target", option: "local" });
     apply({
       type: "note",
@@ -51,7 +51,6 @@ describe("questionnaire transitions", () => {
       { option_id: "remote", label: "Remote" },
     ]);
     apply({ type: "submit" });
-    expect(item.status).toBe("answered");
     expect(item.draft).toBeUndefined();
     expect(() => {
       apply({ type: "submit" });
@@ -59,7 +58,7 @@ describe("questionnaire transitions", () => {
   });
 
   it("dismisses an open draft and restores one that was taken back", () => {
-    let item = createInteraction("question_test", request, "call1");
+    let item = createInteraction("question_test", request);
     item = transition(item, {
       type: "select",
       question: "target",
@@ -69,7 +68,6 @@ describe("questionnaire transitions", () => {
     assert.ok(draft);
 
     const dismissed = transition(item, { type: "dismiss" });
-    expect(dismissed.status).toBe("dismissed");
     expect(dismissed.draft).toBeUndefined();
     expect(() =>
       transition(dismissed, {
@@ -81,12 +79,11 @@ describe("questionnaire transitions", () => {
 
     const answered = transition(item, { type: "submit" });
     const restored = transition(answered, { type: "restore", draft });
-    expect(restored.status).toBe("open");
     expect(restored.draft).toStrictEqual(draft);
   });
 
   it("rejects a persisted draft missing the question's answer record without mutating it", () => {
-    const item = createInteraction("question_test", request, "call1");
+    const item = createInteraction("question_test", request);
     assert.ok(item.draft);
     delete item.draft["target"];
     const before = structuredClone(item);
@@ -97,14 +94,10 @@ describe("questionnaire transitions", () => {
   });
 
   it("keeps custom text separate from notes and allows multi-select combinations", () => {
-    let item = createInteraction(
-      "question_test",
-      {
-        ...request,
-        questions: [{ ...request.questions[0], multi_select: true }],
-      },
-      "c"
-    );
+    let item = createInteraction("question_test", {
+      ...request,
+      questions: [{ ...request.questions[0], multi_select: true }],
+    });
 
     for (const action of [
       { type: "select", question: "target", option: "local" },
@@ -121,21 +114,17 @@ describe("questionnaire transitions", () => {
   });
 
   it("supports IDs that also name Object prototype members without inventing notes", () => {
-    let item = createInteraction(
-      "q_names",
-      {
-        wait: true,
-        questions: [
-          {
-            id: "constructor",
-            header: "ID",
-            question: "Choose",
-            options: [{ id: "toString", label: "Safe" }],
-          },
-        ],
-      },
-      "c"
-    );
+    let item = createInteraction("q_names", {
+      wait: true,
+      questions: [
+        {
+          id: "constructor",
+          header: "ID",
+          question: "Choose",
+          options: [{ id: "toString", label: "Safe" }],
+        },
+      ],
+    });
 
     item = transition(item, {
       type: "select",

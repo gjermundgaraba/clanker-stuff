@@ -44,7 +44,7 @@ const request = {
   ] satisfies [Question, Question],
 };
 
-const fresh = () => createInteraction("q_private_identifier", request, "call");
+const fresh = () => createInteraction("q_private_identifier", request);
 
 const theme = createIdentityTheme();
 

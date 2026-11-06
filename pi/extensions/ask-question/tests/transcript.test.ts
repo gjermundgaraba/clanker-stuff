@@ -37,7 +37,7 @@ const theme = createIdentityTheme();
 const context = { ...toolRenderContext({ toolCallId: "test" }), args: request };
 
 const answeredOutcome = (note = "Option note"): Outcome => {
-  let item = createInteraction("q_display", request, "call");
+  let item = createInteraction("q_display", request);
   item = transition(item, { type: "select", question: "q", option: "a" });
   item = transition(item, {
     type: "note",
@@ -108,7 +108,7 @@ describe("compact questionnaire transcript", () => {
       rows(renderCall(request, theme, { ...context, expanded: true }))
     ).toContain("Complete preview contents");
 
-    const item = createInteraction("q_x", request, "call");
+    const item = createInteraction("q_x", request);
 
     for (const [status, label] of [
       ["pending", "Pending · not answered yet"],
@@ -215,8 +215,8 @@ describe("compact questionnaire transcript", () => {
 
     for (const [isPartial, isError, details] of [
       [false, false, undefined],
-      [true, false, outcome(createInteraction("q_x", request, "c"), "pending")],
-      [false, true, outcome(createInteraction("q_x", request, "c"), "pending")],
+      [true, false, outcome(createInteraction("q_x", request), "pending")],
+      [false, true, outcome(createInteraction("q_x", request), "pending")],
     ] as const) {
       const rendered = rows(
         renderResult(

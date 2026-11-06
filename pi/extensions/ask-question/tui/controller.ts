@@ -283,11 +283,7 @@ export class QuestionnaireView {
       return;
     }
 
-    const action = intent(
-      this.keys,
-      data,
-      !!this.detail || this.question < this.item.request.questions.length
-    );
+    const action = intent(this.keys, data);
 
     if (action === "page_up" || action === "page_down") {
       this.viewport.pages(action === "page_up" ? -1 : 1);

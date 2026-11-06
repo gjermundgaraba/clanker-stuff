@@ -57,8 +57,6 @@ export const RequestRecordSchema = Type.Object(
   {
     id: Id,
     request: QuestionnaireSchema,
-    created_at: Type.String(),
-    tool_call_id: Type.String(),
   },
   { additionalProperties: false }
 );
@@ -67,7 +65,6 @@ export const StateRecordSchema = Type.Object(
   {
     id: Id,
     updated_at: Type.String(),
-    status: Type.Enum(["open", "answered", "dismissed"]),
     draft: Type.Optional(DraftSchema),
   },
   { additionalProperties: false }
@@ -100,7 +97,6 @@ export type Action =
 export const createInteraction = (
   id: string,
   input: unknown,
-  toolCallId: string,
   now = new Date().toISOString()
 ): Interaction => {
   const request = validateQuestionnaire(input);
@@ -108,10 +104,7 @@ export const createInteraction = (
   return {
     id,
     request,
-    tool_call_id: toolCallId,
-    created_at: now,
     updated_at: now,
-    status: "open",
     draft: Object.fromEntries(
       request.questions.map((q) => [
         q.id,
@@ -295,7 +288,6 @@ export const transition = (
   const next = structuredClone(item);
 
   if (action.type === "restore") {
-    next.status = "open";
     next.draft = structuredClone(action.draft);
   } else {
     const { draft } = next;
@@ -306,10 +298,8 @@ export const transition = (
 
     if (action.type === "submit") {
       collectAnswers(next);
-      next.status = "answered";
       delete next.draft;
     } else if (action.type === "dismiss") {
-      next.status = "dismissed";
       delete next.draft;
     } else {
       const q = next.request.questions.find(

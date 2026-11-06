@@ -38,7 +38,7 @@ const session = () => {
 describe("questionnaire journal", () => {
   it("stores the request once and restores the last state of open questionnaires", () => {
     const { sm, pi } = session();
-    const created = createInteraction("q_open", request, "call");
+    const created = createInteraction("q_open", request);
     recordRequest(pi, created);
     recordState(pi, created);
 
@@ -50,7 +50,7 @@ describe("questionnaire journal", () => {
 
     recordState(pi, selected);
 
-    const answered = createInteraction("q_answered", request, "call2");
+    const answered = createInteraction("q_answered", request);
     recordRequest(pi, answered);
     recordState(pi, answered);
     recordState(
@@ -82,12 +82,12 @@ describe("questionnaire journal", () => {
 
   it("skips unreadable entries and states without a request instead of blocking recovery", () => {
     const { sm, pi } = session();
-    const item = createInteraction("q_kept", request, "call");
+    const item = createInteraction("q_kept", request);
     recordRequest(pi, item);
     recordState(pi, item);
     sm.appendCustomEntry(STATE_TYPE, { id: "q_kept", retired: true });
     sm.appendCustomEntry(REQUEST_TYPE, { id: "q_broken" });
-    recordState(pi, createInteraction("q_orphan", request, "call"));
+    recordState(pi, createInteraction("q_orphan", request));
 
     const items = replay(sm.getBranch());
 

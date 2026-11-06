@@ -47,14 +47,10 @@ const setup = (
 ) => {
   initTheme("dark");
 
-  let item = createInteraction(
-    "q_ui",
-    {
-      wait: false,
-      ...(request ?? { questions: [{ ...question, multi_select: multi }] }),
-    },
-    "call"
-  );
+  let item = createInteraction("q_ui", {
+    wait: false,
+    ...(request ?? { questions: [{ ...question, multi_select: multi }] }),
+  });
 
   let mutations = 0;
   let result: Outcome | undefined;
@@ -549,7 +545,7 @@ describe("bounded questionnaire TUI", () => {
         { option_id: "second", label: "Second", note: "jk" },
       ]);
       expect(
-        intent(createKeybindings({ "tui.select.confirm": ["k"] }), "k", true)
+        intent(createKeybindings({ "tui.select.confirm": ["k"] }), "k")
       ).toBe("confirm");
     } finally {
       e.view.dispose();
@@ -578,7 +574,7 @@ describe("bounded questionnaire TUI", () => {
       expect(e.view.render(80).join("\n")).toContain("Review");
       e.press("\r", "\r");
       expect(e.finish).toHaveBeenCalledExactlyOnceWith("submit");
-      expect(e.item.status).toBe("answered");
+      expect(e.item.draft).toBeUndefined();
     } finally {
       e.view.dispose();
     }
@@ -787,7 +783,7 @@ describe("bounded questionnaire TUI", () => {
           interaction_id: "q_ui",
           status: "dismissed",
         });
-        expect(e.item.status).toBe("dismissed");
+        expect(e.item.draft).toBeUndefined();
       } finally {
         e.view.dispose();
       }

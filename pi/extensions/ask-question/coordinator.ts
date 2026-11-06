@@ -100,14 +100,13 @@ export class Coordinator {
     return this.save(transition(this.get(id), action));
   }
   async ask(
-    toolCallId: string,
     request: unknown,
     signal: AbortSignal | undefined,
     ctx: ExtensionContext
   ) {
     signal?.throwIfAborted();
 
-    const created = createInteraction(`q_${randomUUID()}`, request, toolCallId);
+    const created = createInteraction(`q_${randomUUID()}`, request);
     recordRequest(this.pi, created);
     const item = this.save(created);
 
