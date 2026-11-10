@@ -13,38 +13,43 @@ import { acquireEditorHost } from "../index.js";
 
 const theme = createIdentityEditorTheme();
 
-describe("unsupported editor layout", () => {
-  it("keeps public editor features when Pi's private layout is unsupported", () => {
-    const marking = Object.assign(createIdentityTheme(), {
-      fg: (_color: string, text: string) => `<${text}>`,
+const acquireWithout = (member: string) => {
+  const marking = Object.assign(createIdentityTheme(), {
+    fg: (_color: string, text: string) => `<${text}>`,
+  });
+
+  const ctx = createExtensionHost(() => {}).createContext({
+    ui: { theme: marking },
+  });
+
+  vi.mocked(ctx.ui.setEditorComponent).mockImplementationOnce((factory) => {
+    const native = Object.getOwnPropertyDescriptor(Editor.prototype, member);
+
+    expect(native?.value, `Pi's Editor defines ${member}`).toBeTypeOf(
+      "function"
+    );
+    Object.defineProperty(Editor.prototype, member, {
+      configurable: true,
+      value: undefined,
     });
 
-    const ctx = createExtensionHost(() => {}).createContext({
-      ui: { theme: marking },
-    });
+    try {
+      factory!(createMockTui(), theme, createKeybindings());
+    } finally {
+      Object.defineProperty(Editor.prototype, member, native!);
+    }
 
-    vi.mocked(ctx.ui.setEditorComponent).mockImplementationOnce((factory) => {
-      const member = "buildVisualLineMap";
-      const native = Object.getOwnPropertyDescriptor(Editor.prototype, member);
+    vi.mocked(ctx.ui.getEditorComponent).mockReturnValue(factory);
+  });
 
-      expect(native?.value, `Pi's Editor defines ${member}`).toBeTypeOf(
-        "function"
-      );
-      Object.defineProperty(Editor.prototype, member, {
-        configurable: true,
-        value: undefined,
-      });
+  const host = acquireEditorHost(ctx)!;
 
-      try {
-        factory!(createMockTui(), theme, createKeybindings());
-      } finally {
-        Object.defineProperty(Editor.prototype, member, native!);
-      }
+  return { ctx, host, editor: host.editor! };
+};
 
-      vi.mocked(ctx.ui.getEditorComponent).mockReturnValue(factory);
-    });
-    const host = acquireEditorHost(ctx)!;
-    const editor = host.editor!;
+describe("unsupported editor internals", () => {
+  it("keeps public editor features and single-pass pastes when Pi's private layout is unsupported", () => {
+    const { ctx, host, editor } = acquireWithout("buildVisualLineMap");
     host.seedHistory(["older", "recalled"]);
 
     host.contribute("highlight", () => [{ start: 0, end: 1 }]);
@@ -64,11 +69,35 @@ describe("unsupported editor layout", () => {
     expect(stripTerminalSequences(editor.render(30)[1]!).trimEnd()).toBe(
       "recalled"
     );
+
+    editor.setText("");
+    const first = `literal [paste #2] ${"A".repeat(1100)}`;
+    const second = "B".repeat(1100);
+
+    for (const text of [first, second]) {
+      editor.handleInput(`\u001B[200~${text}\u001B[201~`);
+    }
+
+    expect(editor.getExpandedText()).toBe(first + second);
     expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(
       "shared-editor",
-      "Unsupported Pi editor layout: required paste and layout APIs are unavailable"
+      "Unsupported Pi editor internals: layout"
     );
     expect(acquireEditorHost(ctx)).toBe(host);
     expect(ctx.ui.setEditorComponent).toHaveBeenCalledOnce();
+  });
+
+  it("keeps highlights when Pi's private paste expansion is unsupported", () => {
+    const { ctx, host, editor } = acquireWithout("expandPasteMarkers");
+    host.contribute("highlight", () => [{ start: 0, end: 1 }]);
+    editor.setText("recalled");
+
+    expect(stripTerminalSequences(editor.render(30)[1]!).trimEnd()).toBe(
+      "<r>ecalled"
+    );
+    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(
+      "shared-editor",
+      "Unsupported Pi editor internals: paste"
+    );
   });
 });

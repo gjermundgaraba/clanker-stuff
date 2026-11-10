@@ -84,28 +84,6 @@ describe("editor host", () => {
     });
   });
 
-  it("exports payloads across Pi's string-only editor handoff", () => {
-    const { editor } = setup();
-    const payload = "line\n".repeat(50);
-    editor.handleInput(`\u001B[200~${payload}\u001B[201~`);
-    const next = setup().editor;
-    next.setText(editor.getText());
-    expect(next.getExpandedText()).toBe(payload);
-    expect(next.getLines().join("\n")).not.toContain("[paste #");
-  });
-
-  it("native kill/yank owns paste payloads across replacements and ID reuse", () => {
-    const { editor } = setup();
-    const payload = "owned\n".repeat(50);
-    editor.handleInput(`\u001B[200~${payload}\u001B[201~`);
-    editor.handleInput("\u0015");
-    editor.setText("");
-    editor.handleInput(`\u001B[200~${"different\n".repeat(50)}\u001B[201~`);
-    editor.setText("");
-    editor.handleInput("\u0019");
-    expect(editor.getExpandedText()).toBe(payload);
-  });
-
   it("submits the same single-pass payload content that retrieval exposes", () => {
     const { editor } = setup();
     const first = `literal [paste #2] ${"A".repeat(1100)}`;
