@@ -8,12 +8,14 @@ export type Ended = { endedAt: number } & (
   | { outcome: "result"; result: JsonValue }
 );
 
+export type ProcessOutcome = Exclude<Outcome, "result" | "cancelled">;
+
 const endedContext = types<{ ended: Ended }>();
 
 export const taskMachine = setup({
   schemas: {
     events: {
-      "task.end": types<{ outcome: Exclude<Outcome, "result">; at: number }>(),
+      "task.end": types<{ outcome: ProcessOutcome; at: number }>(),
       "task.result": types<{ data: JsonValue; at: number }>(),
       "task.stop": types<{ at: number }>(),
       "cleanup.done": types<{ verdict: "clean" | "failed" }>(),

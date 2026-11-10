@@ -1,8 +1,8 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  applyLongContext,
   buildModels,
   catalogModels,
   claudeCodeModelId,
@@ -165,53 +165,39 @@ describe("resolveClaudeCodeRuntimeModel", () => {
   });
 });
 
-describe("applyLongContext", () => {
+describe("the registered context window", () => {
   const models = catalogModels();
 
-  it("registers the window the bridge requests", () => {
-    const pro = applyLongContext(models);
-
-    expect(find(pro, "claude-opus-5").contextWindow).toBe(1_000_000);
-    expect(find(pro, "claude-opus-4-7").contextWindow).toBe(1_000_000);
-    expect(find(pro, "claude-fable-5-1").contextWindow).toBe(1_000_000);
-    expect(find(pro, "claude-sonnet-4-5").contextWindow).toBe(200_000);
+  it("is the window the bridge requests", () => {
+    expect(find(models, "claude-opus-5").contextWindow).toBe(1_000_000);
+    expect(find(models, "claude-opus-4-7").contextWindow).toBe(1_000_000);
+    expect(find(models, "claude-fable-5-1").contextWindow).toBe(1_000_000);
+    expect(find(models, "claude-sonnet-4-5").contextWindow).toBe(200_000);
   });
 
-  it("leaves pi-ai's own table as it declared it", () => {
-    const registered = applyLongContext(models);
+  it("overrides the window pi-ai declares", () => {
+    const declared = getBuiltinModels("anthropic").find(
+      (model) => model.id === "claude-opus-4-6"
+    );
 
-    expect(find(registered, "claude-opus-4-6").contextWindow).toBe(200_000);
-    expect(find(models, "claude-opus-4-6").contextWindow).toBe(1_000_000);
+    expect(declared?.contextWindow).toBe(1_000_000);
+    expect(find(models, "claude-opus-4-6").contextWindow).toBe(200_000);
   });
 
-  it("labels exactly the registered 1M models", () => {
-    const registered = applyLongContext(models);
-
-    expect(find(registered, "claude-opus-5").name).toBe("Claude Opus 5 1M");
-    expect(find(registered, "claude-opus-4-6").name).toBe("Claude Opus 4.6");
-    expect(find(registered, "claude-haiku-4-5").name).toBe(
+  it("is named on exactly the 1M models", () => {
+    expect(find(models, "claude-opus-5").name).toBe("Claude Opus 5 1M");
+    expect(find(models, "claude-opus-4-6").name).toBe("Claude Opus 4.6");
+    expect(find(models, "claude-haiku-4-5").name).toBe(
       "Claude Haiku 4.5 (latest)"
     );
   });
 
-  it("does not label a name that already says 1M twice", () => {
-    const [labeled] = applyLongContext(
-      buildModels([{ ...oneM("claude-opus-5"), name: "Claude Opus 5 (1M)" }])
-    );
+  it("is not named twice when the name already says 1M", () => {
+    const [labeled] = buildModels([
+      { ...oneM("claude-opus-5"), name: "Claude Opus 5 (1M)" },
+    ]);
 
     expect(labeled?.name).toBe("Claude Opus 5 (1M)");
-  });
-
-  it("returns an entry that needs no change as is", () => {
-    const [unchanged] = buildModels([catalogEntry("claude-haiku-4-5")]);
-
-    if (unchanged === undefined) {
-      throw new Error("projection dropped claude-haiku-4-5");
-    }
-
-    const [registered] = applyLongContext([unchanged]);
-
-    expect(registered).toBe(unchanged);
   });
 });
 

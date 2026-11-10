@@ -1,4 +1,5 @@
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
+import { DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { describe, it, expect } from "vite-plus/test";
 
@@ -13,7 +14,6 @@ import {
   idSchema,
   listSchema,
   toolResult,
-  MAX_TEXT_BYTES,
 } from "../task.js";
 
 const inspection = ({
@@ -119,7 +119,7 @@ describe("task contracts", () => {
       const details = inspection(overrides);
       const output = toolResult(details);
       const [{ text }] = output.content;
-      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_TEXT_BYTES);
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(DEFAULT_MAX_BYTES);
       expect(text).toMatch(
         /^\{"task":\{"id":"t_test".*"diagnostic":"process failed"/u
       );
@@ -130,7 +130,7 @@ describe("task contracts", () => {
       expect(output.structuredContent).toStrictEqual(details);
       expect(
         Buffer.byteLength(jsonText(output.structuredContent))
-      ).toBeGreaterThan(MAX_TEXT_BYTES);
+      ).toBeGreaterThan(DEFAULT_MAX_BYTES);
     }
   );
 

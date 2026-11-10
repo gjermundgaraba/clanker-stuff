@@ -4,11 +4,10 @@ import { Value } from "typebox/value";
 
 const USAGE_HTTP_TIMEOUT_MS = 12_000;
 
-type FetchJsonResult<T> =
+export type FetchJsonResult<T> =
   | { ok: true; json: T }
   | {
       ok: false;
-      kind: "response" | "payload";
       message: string;
       status?: number;
     };
@@ -46,7 +45,6 @@ export const defaultFetchJson: FetchJson = async (url, schema, headers) => {
 
     if (!response.ok) {
       return {
-        kind: "response",
         message: messageFromErrorBody(text) ?? `HTTP ${response.status}`,
         ok: false,
         status: response.status,
@@ -58,22 +56,18 @@ export const defaultFetchJson: FetchJson = async (url, schema, headers) => {
 
       return Value.Check(schema, json)
         ? { json, ok: true }
-        : { kind: "payload", message: "invalid usage payload", ok: false };
+        : { message: "invalid usage payload", ok: false };
     } catch {
-      return {
-        kind: "response",
-        message: "invalid JSON response",
-        ok: false,
-      };
+      return { message: "invalid JSON response", ok: false };
     }
   } catch (error) {
     if (signal.aborted) {
-      return { kind: "response", message: "request timed out", ok: false };
+      return { message: "request timed out", ok: false };
     }
 
     const message =
       error instanceof Error ? error.message : "network request failed";
 
-    return { kind: "response", message, ok: false };
+    return { message, ok: false };
   }
 };

@@ -33,9 +33,6 @@ describe("taskMachine", () => {
 
     expect(clean.value).toBe("clean");
     expect(send(clean, { type: "task.stop", at: 30 })).toBe(clean);
-    expect(
-      send(clean, { type: "task.end", outcome: "cancelled", at: 30 })
-    ).toBe(clean);
     expect(outcomeOf(clean)).toBe("timeout");
     expect(resultOf(clean)).toBeUndefined();
   });
@@ -50,9 +47,6 @@ describe("taskMachine", () => {
     const failed = send(reaping, { type: "cleanup.done", verdict: "failed" });
 
     expect(failed.value).toBe("cleanupFailed");
-    expect(
-      send(failed, { type: "task.end", outcome: "cancelled", at: 20 })
-    ).toBe(failed);
 
     const retry = send(failed, { type: "task.stop", at: 20 });
 

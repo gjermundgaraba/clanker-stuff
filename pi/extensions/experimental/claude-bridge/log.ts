@@ -49,14 +49,6 @@ export const debug = (...args: unknown[]): void => {
   );
 };
 
-/** Snapshot for a "should never happen" path, kept in the debug log under one greppable tag. */
-export const diagDump = (
-  label: string,
-  data: Record<string, string | number | boolean | null>
-): void => {
-  debug(`DIAG ${label}`, data);
-};
-
 interface CliDebugOptions {
   debug?: boolean;
   debugFile?: string;

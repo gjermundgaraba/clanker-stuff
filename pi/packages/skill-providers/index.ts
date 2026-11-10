@@ -42,8 +42,49 @@ export interface SkillProvider {
   ): Promise<ProvidedSkill | { error: string }>;
 }
 
+const NAME_CHAR = String.raw`[A-Za-z0-9_:-]`;
+const NAME_END = String.raw`[A-Za-z0-9_-]`;
+const NAME = `${NAME_CHAR}*${NAME_END}`;
+
+const SKILL_NAME = new RegExp(`^${NAME}$`, "u");
+
+/** Whether `name` can be mentioned as `$name`: letters, digits, `_`, `-` and `:`, not ending in `:`, so `$name:` in prose mentions `name`. */
+export const isSkillName = (name: string): boolean => SKILL_NAME.test(name);
+
+/** The `$name` mentions in `text`, with the UTF-16 range each covers including its `$`. */
+export const skillMentions = (
+  text: string
+): Array<{ name: string; start: number; end: number }> =>
+  text
+    .matchAll(new RegExp(String.raw`\$${NAME}`, "gu"))
+    .map((match) => ({
+      name: match[0].slice(1),
+      start: match.index,
+      end: match.index + match[0].length,
+    }))
+    .toArray();
+
+/** The skill names `$` mentions in `text`. */
+export const mentionedSkills = (text: string): Set<string> =>
+  new Set(skillMentions(text).map((mention) => mention.name));
+
+const MENTION_QUERY = new RegExp(
+  String.raw`(?:^|[ \t])\$(?<query>${NAME_CHAR}*)$`,
+  "u"
+);
+
+/** The partial name after a `$` that ends `beforeCursor`, or undefined when no mention is being typed. */
+export const mentionQuery = (beforeCursor: string): string | undefined =>
+  MENTION_QUERY.exec(beforeCursor)?.groups?.["query"];
+
+const NAME_SEPARATOR = ", ";
+
 const attribute = (values: readonly string[]): string =>
-  values.join(", ").replaceAll('"', "%22");
+  values.join(NAME_SEPARATOR).replaceAll('"', "%22");
+
+/** The skill names a block's `name` attribute lists; one name for a block Pi wrote. */
+export const skillBlockNames = (name: string): string[] =>
+  name.split(NAME_SEPARATOR);
 
 /**
  * The block Pi writes for `/skill:name`, which its chat view collapses when it leads a user message.

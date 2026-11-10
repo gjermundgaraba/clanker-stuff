@@ -244,23 +244,39 @@ describe("Supervisor (real subprocesses)", () => {
     expect(alive(pid)).toBe(false);
   });
 
-  it("checks a failed cleanup again when the task is stopped again", async () => {
-    const supervisor = setup({ concurrency: 1, graceMs: 0, killMs: 0 });
-    const task = await supervisor.start(spec("setInterval(()=>{},1000)"));
-    await supervisor.stop(task.id);
-    expect(taskSummary(task).cleanup).toBe("failed");
-    await expect(supervisor.start(spec(""))).rejects.toThrow(
-      /Concurrent task limit/u
-    );
+  it.each([
+    [
+      "stopped",
+      async (supervisor: Supervisor, id: string) => {
+        await supervisor.stop(id);
+      },
+    ],
+    [
+      "discarded",
+      async (supervisor: Supervisor) => {
+        await supervisor.discard(() => true);
+      },
+    ],
+  ] as const)(
+    "checks a failed cleanup again when the task is %s",
+    async (_, retry) => {
+      const supervisor = setup({ concurrency: 1, graceMs: 0, killMs: 0 });
+      const task = await supervisor.start(spec("setInterval(()=>{},1000)"));
+      await supervisor.stop(task.id);
+      expect(taskSummary(task).cleanup).toBe("failed");
+      await expect(supervisor.start(spec(""))).rejects.toThrow(
+        /Concurrent task limit/u
+      );
 
-    await expect.poll(() => groupGone(task.child?.pid)).toBe(true);
-    await supervisor.stop(task.id);
-    expect(taskSummary(task).cleanup).toBe("clean");
-    expect(supervisor.activeCount).toBe(0);
-    await expect(
-      supervisor.start(spec("")).then(taskSummary)
-    ).resolves.toMatchObject({ cleanup: "pending" });
-  });
+      await expect.poll(() => groupGone(task.child?.pid)).toBe(true);
+      await retry(supervisor, task.id);
+      expect(taskSummary(task).cleanup).toBe("clean");
+      expect(supervisor.activeCount).toBe(0);
+      await expect(
+        supervisor.start(spec("")).then(taskSummary)
+      ).resolves.toMatchObject({ cleanup: "pending" });
+    }
+  );
 
   it("makes a stop during a failing cleanup wait for it instead of retrying it", async () => {
     const supervisor = setup({ graceMs: 0, killMs: 0 });

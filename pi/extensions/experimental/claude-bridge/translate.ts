@@ -19,59 +19,21 @@ import { piToolName } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
 
-interface OpenBlock {
-  index: number;
-  arguments: ToolCallArgumentsStream | undefined;
-}
+type OpenBlock =
+  | { index: number; block: Exclude<TurnBlock, ToolCall> }
+  | { index: number; block: ToolCall; arguments: ToolCallArgumentsStream };
 
-export const newAssistantOutput = (
-  model: Model<Api>,
-  stopReason: AssistantMessage["stopReason"],
-  text = ""
-): AssistantMessage => ({
-  role: "assistant",
-  content: text === "" ? [] : [{ type: "text", text }],
-  api: model.api,
-  provider: model.provider,
-  model: model.id,
-  usage: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  },
-  stopReason,
-  timestamp: Date.now(),
-});
-
+/** Claude Code's stop reason as pi's. The result message carries it untyped. */
 export const mapStopReason = (
-  reason: SDKAssistantMessage["message"]["stop_reason"]
+  reason: string | null
 ): "stop" | "length" | "toolUse" => {
-  switch (reason) {
-    case "tool_use": {
-      return "toolUse";
-    }
-
-    case "max_tokens":
-    case "model_context_window_exceeded": {
-      return "length";
-    }
-
-    case "end_turn":
-    case "stop_sequence":
-    case "pause_turn":
-    case "compaction":
-    case "refusal":
-    case null: {
-      return "stop";
-    }
-
-    default: {
-      return "stop";
-    }
+  if (reason === "tool_use") {
+    return "toolUse";
   }
+
+  return reason === "max_tokens" || reason === "model_context_window_exceeded"
+    ? "length"
+    : "stop";
 };
 
 const START_EVENT = {
@@ -101,7 +63,7 @@ export class Turn {
   private readonly openBlocks = new Map<TurnBlock, OpenBlock>();
 
   private readonly model: Model<Api>;
-  readonly stream: AssistantMessageEventStream;
+  private readonly stream: AssistantMessageEventStream;
   /** The pi names of the tools the query serves. */
   private readonly served: ReadonlySet<string>;
   /** A one-off asks for text: a reply without any is a failure, not an answer. */
@@ -117,7 +79,23 @@ export class Turn {
     this.stream = stream;
     this.served = served;
     this.options = options;
-    this.output = newAssistantOutput(model, "stop");
+    this.output = {
+      role: "assistant",
+      content: [],
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    };
   }
 
   private get blocks(): TurnBlock[] {
@@ -297,51 +275,33 @@ export class Turn {
         this.start();
 
         const block = event.content_block;
-        let opened: TurnBlock;
+        let opened: TurnBlock | undefined;
 
         if (block.type === "text") {
           opened = { type: "text", text: "" };
         } else if (block.type === "thinking") {
           opened = { type: "thinking", thinking: "", thinkingSignature: "" };
         } else if (block.type === "tool_use") {
-          const name = piToolName(block.name, this.served);
-
-          if (name === undefined) {
-            debug(
-              `turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`
-            );
-
-            return;
-          }
-
-          opened = {
-            type: "toolCall",
-            id: block.id,
-            name,
-            arguments: toJsonObject(block.input) ?? {},
-          };
+          opened = this.toolCall(block);
         } else {
           debug("turn: unhandled content_block_start type", block.type);
+        }
 
+        if (opened === undefined) {
           return;
         }
 
-        this.blocks.push(opened);
-        this.openBlocks.set(opened, {
-          index: event.index,
-          arguments:
-            opened.type === "toolCall"
-              ? new ToolCallArgumentsStream()
-              : undefined,
-        });
-
-        const contentIndex = this.blocks.length - 1;
-
-        this.push({
-          type: START_EVENT[opened.type],
-          contentIndex,
-          partial: output,
-        });
+        this.openBlocks.set(
+          opened,
+          opened.type === "toolCall"
+            ? {
+                index: event.index,
+                block: opened,
+                arguments: new ToolCallArgumentsStream(),
+              }
+            : { index: event.index, block: opened }
+        );
+        this.append(opened);
 
         return;
       }
@@ -378,12 +338,8 @@ export class Turn {
             delta: delta.thinking,
             partial: output,
           });
-        } else if (
-          delta.type === "input_json_delta" &&
-          block.type === "toolCall" &&
-          open.arguments !== undefined
-        ) {
-          block.arguments = open.arguments.append(delta.partial_json);
+        } else if (delta.type === "input_json_delta" && "arguments" in open) {
+          open.block.arguments = open.arguments.append(delta.partial_json);
 
           this.push({
             type: "toolcall_delta",
@@ -417,32 +373,11 @@ export class Turn {
 
         this.openBlocks.delete(block);
 
-        if (block.type === "text") {
-          this.push({
-            type: "text_end",
-            contentIndex,
-            content: block.text,
-            partial: output,
-          });
-        } else if (block.type === "thinking") {
-          this.push({
-            type: "thinking_end",
-            contentIndex,
-            content: block.thinking,
-            partial: output,
-          });
-        } else {
-          if (open.arguments !== undefined) {
-            Object.assign(block, open.arguments.finish());
-          }
-
-          this.push({
-            type: "toolcall_end",
-            contentIndex,
-            toolCall: block,
-            partial: output,
-          });
+        if ("arguments" in open) {
+          Object.assign(open.block, open.arguments.finish());
         }
+
+        this.end(block, contentIndex);
 
         return;
       }
@@ -508,65 +443,20 @@ export class Turn {
     for (const block of assistant.content) {
       if (block.type === "text") {
         if (block.text !== "") {
-          this.completeText(block.text);
+          this.appendWhole({ type: "text", text: block.text });
         }
       } else if (block.type === "thinking") {
-        this.start();
-        this.blocks.push({
+        this.appendWhole({
           type: "thinking",
           thinking: block.thinking,
           thinkingSignature: block.signature,
         });
-
-        const contentIndex = this.blocks.length - 1;
-
-        this.push({ type: "thinking_start", contentIndex, partial: output });
-
-        if (block.thinking !== "") {
-          this.push({
-            type: "thinking_delta",
-            contentIndex,
-            delta: block.thinking,
-            partial: output,
-          });
-        }
-
-        this.push({
-          type: "thinking_end",
-          contentIndex,
-          content: block.thinking,
-          partial: output,
-        });
       } else if (block.type === "tool_use") {
-        const name = piToolName(block.name, this.served);
+        const toolCall = this.toolCall(block);
 
-        if (name === undefined) {
-          debug(
-            `turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`
-          );
-          continue;
+        if (toolCall !== undefined) {
+          this.appendWhole(toolCall);
         }
-
-        this.start();
-
-        const toolCall: ToolCall = {
-          type: "toolCall",
-          id: block.id,
-          name,
-          arguments: toJsonObject(block.input) ?? {},
-        };
-
-        this.blocks.push(toolCall);
-
-        const contentIndex = this.blocks.length - 1;
-
-        this.push({ type: "toolcall_start", contentIndex, partial: output });
-        this.push({
-          type: "toolcall_end",
-          contentIndex,
-          toolCall,
-          partial: output,
-        });
       } else {
         debug("turn: unhandled assistant block type", block.type);
       }
@@ -590,10 +480,7 @@ export class Turn {
       return;
     }
 
-    if (
-      message.stop_reason === "max_tokens" ||
-      message.stop_reason === "model_context_window_exceeded"
-    ) {
+    if (mapStopReason(message.stop_reason) === "length") {
       this.output.stopReason = "length";
     }
 
@@ -607,27 +494,99 @@ export class Turn {
       return;
     }
 
-    this.completeText(message.result);
+    this.appendWhole({ type: "text", text: message.result });
   }
 
-  private completeText(text: string): void {
+  /** A tool_use block as pi's tool call, or undefined when the query does not serve the
+   *  tool: Claude Code answers that call itself. */
+  private toolCall(block: {
+    id: string;
+    name: string;
+    input: unknown;
+  }): ToolCall | undefined {
+    const name = piToolName(block.name, this.served);
+
+    if (name === undefined) {
+      debug(
+        `turn: skipping tool_use for unserved tool ${block.name} [${block.id}]`
+      );
+
+      return undefined;
+    }
+
+    return {
+      type: "toolCall",
+      id: block.id,
+      name,
+      arguments: toJsonObject(block.input) ?? {},
+    };
+  }
+
+  /** Add a block and announce its start. Returns its content index. */
+  private append(block: TurnBlock): number {
     this.start();
-    this.blocks.push({ type: "text", text });
+    this.blocks.push(block);
 
     const contentIndex = this.blocks.length - 1;
 
-    this.push({ type: "text_start", contentIndex, partial: this.output });
     this.push({
-      type: "text_delta",
+      type: START_EVENT[block.type],
       contentIndex,
-      delta: text,
       partial: this.output,
     });
-    this.push({
-      type: "text_end",
-      contentIndex,
-      content: text,
-      partial: this.output,
-    });
+
+    return contentIndex;
+  }
+
+  /** Announce a block's end with its final content. */
+  private end(block: TurnBlock, contentIndex: number): void {
+    const partial = this.output;
+
+    if (block.type === "text") {
+      this.push({
+        type: "text_end",
+        contentIndex,
+        content: block.text,
+        partial,
+      });
+    } else if (block.type === "thinking") {
+      this.push({
+        type: "thinking_end",
+        contentIndex,
+        content: block.thinking,
+        partial,
+      });
+    } else {
+      this.push({
+        type: "toolcall_end",
+        contentIndex,
+        toolCall: block,
+        partial,
+      });
+    }
+  }
+
+  /** A block that arrived complete: its start, its content as one delta, its end. */
+  private appendWhole(block: TurnBlock): void {
+    const contentIndex = this.append(block);
+    const partial = this.output;
+
+    if (block.type === "text" && block.text !== "") {
+      this.push({
+        type: "text_delta",
+        contentIndex,
+        delta: block.text,
+        partial,
+      });
+    } else if (block.type === "thinking" && block.thinking !== "") {
+      this.push({
+        type: "thinking_delta",
+        contentIndex,
+        delta: block.thinking,
+        partial,
+      });
+    }
+
+    this.end(block, contentIndex);
   }
 }

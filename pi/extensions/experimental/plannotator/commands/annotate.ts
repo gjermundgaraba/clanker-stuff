@@ -30,7 +30,7 @@ export const createAnnotateHandler =
     }
 
     runtime.launch(["annotate", ...tokens, "--json"], ctx, {
-      failureLabel: LABEL,
+      label: LABEL,
       onOutput(stdout) {
         const feedback = readAnnotationFeedback(stdout, ctx, LABEL);
 
@@ -43,6 +43,5 @@ export const createAnnotateHandler =
           { deliverAs: "followUp" }
         );
       },
-      openedMessage: "Plannotator annotation opened.",
     });
   };

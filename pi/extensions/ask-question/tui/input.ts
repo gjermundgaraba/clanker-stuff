@@ -22,11 +22,7 @@ type Intent =
   | "none"
   | `key:${string}`;
 
-export const intent = (
-  keys: Keys,
-  data: string,
-  vimNavigation = false
-): Intent => {
+export const intent = (keys: Keys, data: string): Intent => {
   if (keys.matches(data, "tui.select.cancel")) {
     return "close";
   }
@@ -73,11 +69,11 @@ export const intent = (
     return "next";
   }
 
-  if (vimNavigation && printable === "j") {
+  if (printable === "j") {
     return "down";
   }
 
-  if (vimNavigation && printable === "k") {
+  if (printable === "k") {
     return "up";
   }
 

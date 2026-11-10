@@ -61,7 +61,7 @@ export const createLastHandler =
     }
 
     runtime.launch(["annotate-last", "--stdin", "--json", ...tokens], ctx, {
-      failureLabel: LABEL,
+      label: LABEL,
       onOutput(stdout) {
         const feedback = readAnnotationFeedback(stdout, ctx, LABEL);
 
@@ -74,7 +74,6 @@ export const createLastHandler =
           { deliverAs: "followUp" }
         );
       },
-      openedMessage: "Plannotator message annotation opened.",
       stdin: message,
     });
   };

@@ -22,7 +22,12 @@ import {
 
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
-import { CONTINUE_PROMPT, streamClaudeCode } from "../provider.js";
+import {
+  catalogNotice,
+  CONTINUE_PROMPT,
+  providerConfig,
+  streamClaudeCode,
+} from "../provider.js";
 import { Sessions } from "../sessions.js";
 import {
   assistantMessage,
@@ -96,7 +101,7 @@ const bridge = () => {
   sessions = new Sessions(fake.run);
   sessions.start(SESSION, cwd);
 
-  const deps = { sessions, toolGuidelines: () => new Map<string, string[]>() };
+  const deps = { sessions, piTools: () => [] };
 
   const call = (
     messages: Message[],
@@ -161,6 +166,20 @@ const answer = (query: FakeQuery, text: string, sessionId = "cc-1"): void => {
 
 const sessionPath = (sessionId: string) =>
   openSession({ sessionId, projectPath: cwd }).jsonlPath;
+
+describe("the empty-catalog notice", () => {
+  it("warns only when pi-ai's catalog leaves no models to register", () => {
+    const config = providerConfig({
+      sessions: new Sessions(fakeQueryFunction().run),
+      piTools: () => [],
+    });
+
+    expect(catalogNotice(config)).toBeUndefined();
+    expect(catalogNotice({ ...config, models: [] })).toMatch(
+      /catalog has no models/u
+    );
+  });
+});
 
 describe("streamClaudeCode", () => {
   beforeEach(async () => {

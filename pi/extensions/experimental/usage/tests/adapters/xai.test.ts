@@ -151,7 +151,7 @@ describe("xai fetch", () => {
     const client = {
       fetchJson: async (url, schema, headers) => {
         if (url.includes("format=credits")) {
-          return { kind: "response", message: "HTTP 500", ok: false };
+          return { message: "HTTP 500", ok: false };
         }
 
         return await okFetch({
@@ -214,32 +214,52 @@ describe("xai fetch", () => {
     await expect(result).resolves.toMatchObject({ ok: true });
   });
 
-  it("returns a monthly failure without waiting for credits", async () => {
-    const creditsGate = Promise.withResolvers<never>();
+  it.each([
+    [503, "failure"],
+    [403, "unavailable"],
+  ] as const)(
+    "reports a monthly HTTP %s as %s when the credits request fails too",
+    async (status, kind) => {
+      const fetchJson: FetchJson = async (url) =>
+        url.includes("format=credits")
+          ? { message: "HTTP 500", ok: false, status: 500 }
+          : { message: `HTTP ${status}`, ok: false, status };
 
-    const getAuth = tokenAuth("oauth-token");
+      await expect(
+        fetchXaiUsage({
+          getAuth: tokenAuth("oauth-token"),
+          fetchJson,
+          now: () => 1,
+        })
+      ).resolves.toStrictEqual({
+        error: { kind, message: `HTTP ${status}` },
+        ok: false,
+      });
+    }
+  );
 
-    const client = {
-      fetchJson: async (url) => {
-        if (url.includes("format=credits")) {
-          return await creditsGate.promise;
-        }
-
-        return { kind: "response", message: "HTTP 500", ok: false };
+  it("keeps the credits window when the monthly request is refused", async () => {
+    await expect(
+      fetchXaiUsage({
+        getAuth: tokenAuth("oauth-token"),
+        fetchJson: async (url, schema, headers) =>
+          url.includes("format=credits")
+            ? await okFetch({ config: { creditUsagePercent: 20 } })(
+                url,
+                schema,
+                headers
+              )
+            : { message: "HTTP 403", ok: false, status: 403 },
+        now: () => 1,
+      })
+    ).resolves.toStrictEqual({
+      ok: true,
+      snapshot: {
+        fetchedAt: 1,
+        provider: "xai",
+        quotaWindows: [{ label: "week", remainingPercent: 80 }],
       },
-    } satisfies { fetchJson: FetchJson };
-
-    const result = await fetchXaiUsage({
-      getAuth,
-      fetchJson: client.fetchJson,
-      now: () => 1,
     });
-
-    expect(result).toStrictEqual({
-      error: { kind: "failure", message: "HTTP 500" },
-      ok: false,
-    });
-    creditsGate.reject(new Error("credits failed after monthly returned"));
   });
 });
 
@@ -338,48 +358,4 @@ describe("xai optional payload boundaries", () => {
       });
     }
   );
-
-  it("observes weekly rejection even when the monthly request rejects", async () => {
-    const weekly = Promise.withResolvers<never>();
-
-    const fetchJson: FetchJson = async (url) => {
-      if (url.includes("format=credits")) {
-        return await weekly.promise;
-      }
-
-      throw new Error("monthly failed");
-    };
-
-    await expect(
-      fetchXaiUsage({
-        getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-        fetchJson,
-        now: () => 1,
-      })
-    ).rejects.toThrow("monthly failed");
-    weekly.reject(new Error("weekly failed"));
-  });
-
-  it("keeps valid monthly windows when weekly rejects", async () => {
-    const result = await fetchXaiUsage({
-      getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
-      fetchJson: async (url, schema, headers) => {
-        if (url.includes("format=credits")) {
-          throw new Error("weekly failed");
-        }
-
-        return await okFetch({ config: { monthlyLimit: 100, used: 0 } })(
-          url,
-          schema,
-          headers
-        );
-      },
-      now: () => 1,
-    });
-
-    expect(result).toMatchObject({
-      ok: true,
-      snapshot: { quotaWindows: [{ remainingPercent: 100 }] },
-    });
-  });
 });

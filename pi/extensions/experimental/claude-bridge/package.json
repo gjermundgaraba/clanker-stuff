@@ -18,8 +18,8 @@
   },
   "files": [
     "child.ts",
+    "content.ts",
     "docs",
-    "images.ts",
     "index.ts",
     "json.ts",
     "log.ts",

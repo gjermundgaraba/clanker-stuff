@@ -16,7 +16,7 @@ import { forkHistory } from "./history.js";
 import type { ForkTurns } from "./history.js";
 import { KeyedSerialQueue } from "./keyed-queue.js";
 import { Monitor } from "./monitor.js";
-import { agentMachine, bound, holdsSlot, project, restore } from "./phase.js";
+import { agentMachine, holdsSlot, project, restore } from "./phase.js";
 import type { AgentEvent, AgentSnapshot, Turn } from "./phase.js";
 import {
   childPrompt,
@@ -24,6 +24,7 @@ import {
   errorCompletion,
 } from "./prompts.js";
 import {
+  bound,
   childAgentPath,
   emptyTree,
   emptyUsage,

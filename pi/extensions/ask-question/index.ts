@@ -23,8 +23,6 @@ export default function askQuestion(pi: ExtensionAPI) {
   });
   pi.on("session_start", (_event, ctx) => {
     withdrawOutsideTui(pi, coordinator, ctx);
-  });
-  pi.on("session_start", (_event, ctx) => {
     coordinator.attach(ctx);
   });
   pi.on("session_before_tree", () => {

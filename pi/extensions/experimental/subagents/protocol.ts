@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 import { ThinkingSchema } from "./config.js";
 
@@ -12,6 +13,19 @@ export const MAX_DURABLE_TEXT = 256 * 1024;
 
 /** A character limit for errors and the answers `list_agents` repeats; mail carries the full answer once. */
 export const MAX_STATUS_TEXT = 1000;
+
+/** Cuts text to `maximum` characters, ending in an ellipsis and never splitting a surrogate pair. */
+export const bound = (value: string, maximum: number): string => {
+  if (value.length <= maximum) {
+    return value;
+  }
+
+  const end = /[\uD800-\uDBFF]/u.test(value[maximum - 2] ?? "")
+    ? maximum - 2
+    : maximum - 1;
+
+  return `${value.slice(0, end)}…`;
+};
 
 const STRICT = { additionalProperties: false } as const;
 
@@ -81,8 +95,7 @@ export const TreeSchema = Type.Object(
   STRICT
 );
 
-/** Identifies delivered mail in a transcript; the outcome and other details are display-only. */
-export const MailDetailsSchema = Type.Object({
+const MailDetailsSchema = Type.Object({
   failed: Type.Optional(Type.Literal(true)),
   id: Type.String(),
 });
@@ -166,6 +179,16 @@ export const mailMessage = (mail: Mail) => ({
   },
   display: true,
 });
+
+/** Identifies delivered mail in a custom message or session entry; the outcome and other details are display-only. */
+export const mailDetails = (message: {
+  customType: string;
+  details?: unknown;
+}): Static<typeof MailDetailsSchema> | undefined =>
+  message.customType === SUBAGENT_MESSAGE_TYPE &&
+  Value.Check(MailDetailsSchema, message.details)
+    ? message.details
+    : undefined;
 
 export const publicStatus = (
   node: AgentNode | undefined

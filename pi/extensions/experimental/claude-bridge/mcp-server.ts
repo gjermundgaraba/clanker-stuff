@@ -10,7 +10,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { acceptedImageType, IMAGE_MARKER } from "./images.js";
+import { userBlocks } from "./content.js";
 import { isJsonArray, isJsonObject } from "./json.js";
 
 const TOOL_USE_ID_META = "claudecode/toolUseId";
@@ -25,26 +25,20 @@ export interface McpResult {
   isError?: boolean;
 }
 
+/** A tool result's content as Claude Code takes it over MCP: the blocks a prompt would
+ *  carry, in MCP's image shape, and never empty. */
 export const toolResultToMcpContent = (
   content: ToolResultMessage["content"]
 ): McpContent => {
-  const blocks: McpContent = [];
-
-  for (const block of content) {
-    if (block.type === "text") {
-      if (block.text !== "") {
-        blocks.push({ type: "text", text: block.text });
-      }
-    } else {
-      const mimeType = acceptedImageType(block);
-
-      blocks.push(
-        mimeType === undefined
-          ? { type: "text", text: IMAGE_MARKER }
-          : { type: "image", data: block.data, mimeType }
-      );
-    }
-  }
+  const blocks = userBlocks(content).map((block) =>
+    block.type === "text"
+      ? block
+      : {
+          type: "image" as const,
+          data: block.source.data,
+          mimeType: block.source.media_type,
+        }
+  );
 
   return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
 };

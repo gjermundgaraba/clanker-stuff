@@ -12,17 +12,20 @@ import type {
   SimpleStreamOptions,
   TranscriptContext,
 } from "@earendil-works/pi-ai";
-import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  ProviderConfig,
+  ToolInfo,
+} from "@earendil-works/pi-coding-agent";
 import { waitFor } from "xstate";
 
 import { childEnv } from "./child.js";
 import { toJsonObject } from "./json.js";
-import { cliDebugOptions, debug, diagDump, errorMessage } from "./log.js";
+import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { syncState } from "./machine/conversation.js";
 import { createToolServer } from "./mcp-server.js";
 import type { McpResult } from "./mcp-server.js";
 import {
-  applyLongContext,
   catalogModels,
   claudeCodeModelId,
   effortForReasoning,
@@ -51,8 +54,8 @@ export const CONTINUE_PROMPT =
 export interface ProviderDeps {
   /** The pi sessions this load of the extension serves, and how it starts queries. */
   sessions: Sessions;
-  /** Each pi tool's prompt guidelines by name, appended to its MCP description. */
-  toolGuidelines: () => ReadonlyMap<string, readonly string[]>;
+  /** Pi's registered tools, whose prompt guidelines extend their MCP descriptions. */
+  piTools: () => readonly ToolInfo[];
 }
 
 interface Request {
@@ -120,7 +123,7 @@ const firstMessage = (
     return userMessage([{ type: "text", text: CONTINUE_PROMPT }]);
   }
 
-  diagDump("empty_prompt", {
+  debug("DIAG empty_prompt", {
     contextLength: context.messages.length,
     lastMsgRole: context.messages.at(-1)?.role ?? null,
     messageRoles: context.messages
@@ -337,7 +340,7 @@ export const streamClaudeCode = (
   options: SimpleStreamOptions | undefined
 ): AssistantMessageEventStream => {
   const context = toBridgeContext(transcript);
-  const served = resolveServedTools(context.tools, deps.toolGuidelines());
+  const served = resolveServedTools(context.tools, deps.piTools());
   const stream = createAssistantMessageEventStream();
   let turn: Turn | undefined;
 
@@ -372,7 +375,29 @@ export const providerConfig = (deps: ProviderDeps): ProviderConfig => ({
   baseUrl: PROVIDER_ID,
   apiKey: "not-used",
   api: PROVIDER_ID,
-  models: applyLongContext(catalogModels()),
+  models: catalogModels(),
   streamSimple: (model, transcript, options) =>
     streamClaudeCode(deps, model, transcript, options),
 });
+
+/** The warning each session gets when pi-ai's Anthropic catalog left the provider no models
+ *  to register, or undefined when it has some. */
+export const catalogNotice = (config: ProviderConfig): string | undefined =>
+  config.models?.length === 0
+    ? "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
+    : undefined;
+
+/** Serve a pi session from its start, showing the catalog notice there when there is one. */
+export const startSession = (
+  sessions: Sessions,
+  notice: string | undefined,
+  ctx: ExtensionContext
+): void => {
+  const sessionId = ctx.sessionManager.getSessionId();
+
+  sessions.start(sessionId, ctx.cwd, ctx.ui);
+
+  if (notice !== undefined) {
+    sessions.notify(sessionId, notice);
+  }
+};

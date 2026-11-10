@@ -15,7 +15,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { isAgentPath, MailDetailsSchema, readEnvelope } from "./protocol.js";
+import { isAgentPath, mailDetails, readEnvelope } from "./protocol.js";
 import {
   agentName,
   isDisplayStatus,
@@ -337,10 +337,7 @@ export const mailRenderer: MessageRenderer = (message, options, theme) => {
     heading = `${theme.fg("muted", "▸ task from")} ${sender}`;
   } else if (envelope.kind === "MESSAGE") {
     heading = `${theme.fg("muted", "✉ message from")} ${sender}`;
-  } else if (
-    Value.Check(MailDetailsSchema, message.details) &&
-    message.details.failed === true
-  ) {
+  } else if (mailDetails(message)?.failed === true) {
     heading = `${theme.fg("error", "✗")} ${sender} ${theme.fg("error", "failed")}`;
   } else {
     heading = `${theme.fg("success", "✓")} ${sender} ${theme.fg("muted", "finished")}`;

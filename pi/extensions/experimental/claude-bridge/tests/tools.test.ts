@@ -38,7 +38,12 @@ describe("served tool descriptions", () => {
   it("carry each tool's prompt guidelines", () => {
     const served = resolveServedTools(
       [{ ...tool("task_start"), description: "Start a job." }, tool("read")],
-      new Map([["task_start", ["Do not poll task_list.", "  "]]])
+      [
+        {
+          name: "task_start",
+          promptGuidelines: ["Do not poll task_list.", "  "],
+        },
+      ]
     );
 
     expect(served.tools.map(({ description }) => description)).toStrictEqual([

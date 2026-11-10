@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/editor",
   "version": "0.2.0",
   "private": false,
-  "description": "Coordinates the native Pi editor, document transactions, and decorations.",
+  "description": "Shares the native Pi editor between extensions for text highlights, border content and seeded history.",
   "keywords": [
     "pi"
   ],

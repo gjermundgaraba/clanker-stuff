@@ -1,4 +1,5 @@
 import type { Tool } from "@earendil-works/pi-ai";
+import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 
 export const MCP_SERVER_NAME = "custom-tools";
 
@@ -30,8 +31,12 @@ const describeTool = (
 
 export const resolveServedTools = (
   tools: readonly Tool[],
-  guidelines: ReadonlyMap<string, readonly string[]> = new Map()
+  piTools: ReadonlyArray<Pick<ToolInfo, "name" | "promptGuidelines">> = []
 ): ServedTools => {
+  const guidelines = new Map(
+    piTools.map((tool) => [tool.name, tool.promptGuidelines])
+  );
+
   const served = tools.map((tool) => ({
     ...tool,
     description: describeTool(tool.description, guidelines.get(tool.name)),

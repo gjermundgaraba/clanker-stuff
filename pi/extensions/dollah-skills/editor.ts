@@ -1,7 +1,6 @@
 import { acquireEditorHost } from "@clanker-stuff/editor";
+import { skillMentions } from "@clanker-stuff/pi-skill-providers";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-export const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
 
 export const installSkillMentionEditor = (
   ctx: ExtensionContext,
@@ -13,17 +12,11 @@ export const installSkillMentionEditor = (
     return;
   }
 
-  host.contribute("foreground", (text) => {
+  host.contribute("highlight", (text) => {
     const names = new Set(getSkillNames());
 
-    return text
-      .matchAll(SKILL_MENTION)
-      .filter((match) => names.has(match[0].slice(1)))
-      .map((match) => ({
-        start: match.index,
-        end: match.index + match[0].length,
-        foreground: "accent" as const,
-      }))
-      .toArray();
+    return skillMentions(text)
+      .filter((mention) => names.has(mention.name))
+      .map(({ start, end }) => ({ start, end }));
   });
 };

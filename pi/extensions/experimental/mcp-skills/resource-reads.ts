@@ -22,9 +22,7 @@ export const checkResourceRead = async (
     return undefined;
   }
 
-  const others = [...skills.serversInUse(ctx)].filter(
-    (source) => source !== server
-  );
+  const others = skills.otherServersInUse(ctx, server);
 
   if (others.length === 0) {
     return undefined;

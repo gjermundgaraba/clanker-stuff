@@ -179,16 +179,19 @@ describe("durable questionnaires in AgentSession", () => {
       expect(outcomeMessages(env)).toHaveLength(0);
       const branch = env.harness.sessionManager.getBranch();
 
-      const answered = branch.findIndex((e) =>
-        JSON.stringify(e).includes('"status":"answered"')
+      const closed = branch.findIndex(
+        (e) =>
+          e.type === "custom" &&
+          e.customType === STATE_TYPE &&
+          !JSON.stringify(e.data).includes('"draft"')
       );
 
       const delivered = branch.findIndex(
         (e) => e.type === "message" && e.message.role === "toolResult"
       );
 
-      expect(answered).toBeGreaterThan(-1);
-      expect(answered).toBeLessThan(delivered);
+      expect(closed).toBeGreaterThan(-1);
+      expect(closed).toBeLessThan(delivered);
     } finally {
       await env.cleanup();
     }
@@ -320,7 +323,7 @@ describe("durable questionnaires in AgentSession", () => {
       await env.harness.session.abort();
       await running;
       expect(outcomeMessages(env)).toHaveLength(0);
-      expect(JSON.stringify(env.checkpoint())).toContain('"status":"open"');
+      expect(JSON.stringify(env.checkpoint())).toContain('"draft"');
       expect(env.uiContext.notify).toHaveBeenCalledWith(
         expect.stringContaining("/answers to send them again"),
         "warning"
@@ -360,9 +363,7 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       expect(env.harness.getPendingResponseCount()).toBe(0);
       expect(outcomeMessages(env)).toHaveLength(0);
-      expect(JSON.stringify(env.checkpoint())).toContain(
-        '"status":"dismissed"'
-      );
+      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
     } finally {
       await env.cleanup();
     }
@@ -419,7 +420,6 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       expect(env.harness.getPendingResponseCount()).toBe(1);
       expect(JSON.stringify(env.checkpoint())).toContain("kept note");
-      expect(JSON.stringify(env.checkpoint())).toContain('"status":"open"');
     } finally {
       await env.cleanup();
     }
@@ -441,7 +441,6 @@ describe("durable questionnaires in AgentSession", () => {
       await env.harness.session.abort();
       await running;
       expect(JSON.stringify(env.checkpoint())).toContain("last typed note");
-      expect(JSON.stringify(env.checkpoint())).toContain('"status":"open"');
     } finally {
       await env.cleanup();
     }

@@ -1,11 +1,16 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { accessToken } from "../auth.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
-import { usageFailure, usageResult } from "../providers.js";
+import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { isDefined, makeUsageWindow, parseIso } from "./util.js";
+import {
+  isDefined,
+  makeUsageWindow,
+  parseIso,
+  responseFailure,
+  usageHeaders,
+} from "./util.js";
 
 const BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
 
@@ -128,39 +133,27 @@ export const mapXaiUsagePayloads = (
 export const fetchXaiUsage = async (
   deps: AdapterDeps
 ): Promise<UsageFetchResult> => {
-  const auth = await accessToken(deps.getAuth, "xai", { oauth: true });
+  const auth = await usageHeaders(deps, "xai", {
+    oauth: true,
+    headers: () => ({ "x-xai-token-auth": "xai-grok-cli" }),
+  });
 
   if (!auth.ok) {
     return auth;
   }
 
-  const headers = {
-    Accept: "application/json",
-    Authorization: `Bearer ${auth.token}`,
-    "x-xai-token-auth": "xai-grok-cli",
-  };
+  const [monthly, weekly] = await Promise.all([
+    deps.fetchJson(BILLING_URL, XaiPayloadSchema, auth.headers),
+    deps.fetchJson(CREDITS_URL, XaiPayloadSchema, auth.headers),
+  ]);
 
-  const monthlyPromise = deps.fetchJson(BILLING_URL, XaiPayloadSchema, headers);
-
-  const weeklyPromise = (async () => {
-    try {
-      return await deps.fetchJson(CREDITS_URL, XaiPayloadSchema, headers);
-    } catch {
-      return null;
-    }
-  })();
-
-  const monthly = await monthlyPromise;
-
-  if (!monthly.ok && monthly.kind === "response") {
-    return usageFailure(monthly.message);
+  if (!monthly.ok && !weekly.ok) {
+    return responseFailure(monthly);
   }
-
-  const weekly = await weeklyPromise;
 
   return mapXaiUsagePayloads(
     monthly.ok ? monthly.json : undefined,
-    weekly !== null && weekly.ok ? weekly.json : undefined,
+    weekly.ok ? weekly.json : undefined,
     deps.now()
   );
 };

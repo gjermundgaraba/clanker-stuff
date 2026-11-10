@@ -28,7 +28,6 @@ const fetchCredits = async (deps: AdapterDeps) =>
 const failing =
   (status: number): FetchJson =>
   async () => ({
-    kind: "response",
     message: `HTTP ${status}`,
     ok: false,
     status,

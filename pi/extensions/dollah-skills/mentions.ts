@@ -3,6 +3,9 @@ import path from "node:path";
 
 import {
   collectSkillProviders,
+  isSkillName,
+  mentionedSkills,
+  mentionQuery,
   skillBlock,
 } from "@clanker-stuff/pi-skill-providers";
 import type {
@@ -19,11 +22,7 @@ import type {
 import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 
-import { SKILL_MENTION, installSkillMentionEditor } from "./editor.js";
-
-const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
-
-const SKILL_NAME = /^[A-Za-z0-9_:-]*[A-Za-z0-9_-]$/u;
+import { installSkillMentionEditor } from "./editor.js";
 
 const SKILL_COMMAND_PREFIX = "skill:";
 
@@ -49,7 +48,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     const local = pi.getCommands().flatMap((command): LoadableSkill[] => {
       const name = command.name.slice(SKILL_COMMAND_PREFIX.length);
 
-      if (command.source !== "skill" || !SKILL_NAME.test(name)) {
+      if (command.source !== "skill" || !isSkillName(name)) {
         return [];
       }
 
@@ -70,7 +69,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       provider
         .skills()
         .filter(
-          (skill) => SKILL_NAME.test(skill.name) && !localNames.has(skill.name)
+          (skill) => isSkillName(skill.name) && !localNames.has(skill.name)
         )
         .map((skill) => ({
           description: skill.description,
@@ -103,7 +102,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       async getSuggestions(lines, cursorLine, cursorCol, options) {
         const currentLine = lines[cursorLine] ?? "";
         const beforeCursor = currentLine.slice(0, cursorCol);
-        const query = SKILL_COMPLETION.exec(beforeCursor)?.groups?.["query"];
+        const query = mentionQuery(beforeCursor);
 
         if (query === undefined) {
           return await current.getSuggestions(
@@ -146,9 +145,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     text: string,
     ctx: ExtensionContext
   ): Promise<LoadedSkill[]> => {
-    const names = new Set(
-      text.matchAll(SKILL_MENTION).map((match) => match[0].slice(1))
-    );
+    const names = mentionedSkills(text);
 
     const loaded: LoadedSkill[] = [];
 

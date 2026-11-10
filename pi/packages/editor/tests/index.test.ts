@@ -14,7 +14,6 @@ import {
   createMockTui,
 } from "../../../tests/harness/tui.js";
 import { acquireEditorHost, currentEditorHost } from "../index.js";
-import type { Editing } from "../index.js";
 
 const setup = (uiTheme = createIdentityTheme()) => {
   const fixture = createExtensionHost(() => {});
@@ -51,41 +50,6 @@ describe("editor host", () => {
       expect(acquireEditorHost(ctx)).toBeUndefined();
     });
 
-    it("observes callbacks Pi assigns after factory construction", () => {
-      const { editor } = setup();
-      const changed = vi.fn<(text: string) => void>();
-      editor.onChange = changed;
-      editor.handleInput("hello");
-      expect(changed).toHaveBeenCalledWith("hello");
-    });
-
-    it("routes complete bracketed paste before modal input", () => {
-      const { host, editor } = setup();
-      const input = vi.fn<Editing["input"]>(() => true);
-      const changed = vi.fn<Editing["changed"]>();
-
-      const release = host.contribute("editing", {
-        input,
-        changed,
-        submitted() {},
-        selection: () => [],
-      });
-
-      editor.handleInput("\u001B[200~hello\nworld\u001B[201~");
-      expect(editor.getExpandedText()).toBe("hello\nworld");
-      expect(input).not.toHaveBeenCalled();
-      expect(changed).toHaveBeenCalledExactlyOnceWith(
-        "insert",
-        expect.anything()
-      );
-      editor.edit(0, 0, "x", 1);
-      editor.restoreView(editor.document!.view());
-      expect(changed).toHaveBeenCalledOnce();
-      release();
-      editor.handleInput("y");
-      expect(input).not.toHaveBeenCalled();
-    });
-
     it("leaves a later owner's contribution in place when an earlier one releases", () => {
       const { host, editor } = setup();
       const first = host.contribute("border", border("first"));
@@ -100,9 +64,7 @@ describe("editor host", () => {
       expect(stripTerminalSequences(editor.render(20)[0]!)).toBe(
         "─".repeat(20)
       );
-      host.contribute("foreground", () => [
-        { start: 0, end: 1, foreground: "accent" },
-      ]);
+      host.contribute("highlight", () => [{ start: 0, end: 1 }]);
       editor.setText("x");
       expect(stripTerminalSequences(editor.render(20)[0]!)).toBe(
         "─".repeat(20)
@@ -112,12 +74,12 @@ describe("editor host", () => {
     it("treats Pi's getText/setText round trip as no replacement", () => {
       const { editor } = setup();
       editor.handleInput(`\u001B[200~${"line\n".repeat(50)}\u001B[201~`);
-      editor.handleInput("\u0001");
-      const before = editor.document!.view();
+      const draft = editor.getLines();
       const changed = vi.fn<(text: string) => void>();
       editor.onChange = changed;
       editor.setText(editor.getText());
-      expect(editor.document!.view()).toStrictEqual(before);
+      expect(editor.getLines()).toStrictEqual(draft);
+      expect(editor.getExpandedText()).toBe("line\n".repeat(50));
       expect(changed).not.toHaveBeenCalled();
     });
   });
@@ -129,15 +91,7 @@ describe("editor host", () => {
     const next = setup().editor;
     next.setText(editor.getText());
     expect(next.getExpandedText()).toBe(payload);
-    expect(next.document!.text()).not.toContain("[paste #");
-  });
-
-  it("does not recursively expand marker-looking register payloads", () => {
-    const { editor } = setup();
-    const first = editor.document!.insertableOrMarker("secret\tvalue");
-    const literal = editor.document!.insertableOrMarker(first);
-    editor.edit(0, 0, literal, 0);
-    expect(editor.getExpandedText()).toBe(first);
+    expect(next.getLines().join("\n")).not.toContain("[paste #");
   });
 
   it("native kill/yank owns paste payloads across replacements and ID reuse", () => {
@@ -169,23 +123,7 @@ describe("editor host", () => {
     expect(editor.getText()).toBe("");
   });
 
-  it("restores a document checkpoint after native payload IDs are reused", () => {
-    const { editor } = setup();
-    const payload = `literal [paste #2] ${"A".repeat(1100)}`;
-    editor.handleInput(`\u001B[200~${payload}\u001B[201~`);
-    const checkpoint = editor.document!.view();
-    editor.setText("");
-    editor.handleInput(`\u001B[200~${"B".repeat(1100)}\u001B[201~`);
-    editor.restoreView(checkpoint);
-    expect(editor.document!.view()).toStrictEqual(checkpoint);
-    expect(editor.getText()).toBe(payload);
-    editor.handleInput(`\u001B[200~${"C".repeat(1100)}\u001B[201~`);
-    expect(editor.getText()).toBe(payload + "C".repeat(1100));
-    editor.restoreView(checkpoint);
-    expect(editor.getText()).toBe(payload);
-  });
-
-  it("keeps a focused editor's cursor marker whole and out of decoration offsets", () => {
+  it("keeps a focused editor's cursor marker whole and out of highlight offsets", () => {
     const { host, editor } = setup(
       Object.assign(createIdentityTheme(), {
         fg: (_color: string, text: string) => `<${text}>`,
@@ -194,9 +132,7 @@ describe("editor host", () => {
 
     editor.setText("this is a test");
     editor.handleInput("\u001B[D");
-    host.contribute("foreground", () => [
-      { start: 10, end: 14, foreground: "accent" },
-    ]);
+    host.contribute("highlight", () => [{ start: 10, end: 14 }]);
     editor.focused = true;
     const row = editor.render(40)[1]!;
     expect(row).toContain(CURSOR_MARKER + renderFakeCursor("<t>"));

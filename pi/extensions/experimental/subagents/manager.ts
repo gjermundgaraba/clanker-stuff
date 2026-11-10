@@ -11,18 +11,12 @@ import type {
   ExtensionContext,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { Value } from "typebox/value";
 
 import type { SubagentsConfig } from "./config.js";
 import { Controller } from "./controller.js";
 import { readDelegation } from "./delegation.js";
 import { COLLABORATION_SECTION, rootPrompt } from "./prompts.js";
-import {
-  mailMessage,
-  MailDetailsSchema,
-  ROOT_AGENT_PATH,
-  SUBAGENT_MESSAGE_TYPE,
-} from "./protocol.js";
+import { mailDetails, mailMessage, ROOT_AGENT_PATH } from "./protocol.js";
 import type { Mail } from "./protocol.js";
 import { openTree } from "./store.js";
 import { registerTools } from "./tools.js";
@@ -38,33 +32,13 @@ type RootContext = Pick<ExtensionContext, "isIdle" | "sessionManager" | "ui">;
 
 export const SUBAGENT_WAKE_TYPE = "subagents.wake";
 
-const mailIds = (entries: readonly SessionEntry[]): Set<string> =>
-  new Set(
-    entries.flatMap((entry) =>
-      entry.type === "custom_message" &&
-      entry.customType === SUBAGENT_MESSAGE_TYPE &&
-      Value.Check(MailDetailsSchema, entry.details)
-        ? [entry.details.id]
-        : []
-    )
-  );
-
-const messageMailIds = (
-  messages: Readonly<ContextEvent["messages"]>
+const mailIds = (
+  items: ReadonlyArray<ContextEvent["messages"][number] | SessionEntry>
 ): Set<string> =>
   new Set(
-    messages.flatMap((message) => {
-      if (
-        message.role !== "custom" ||
-        message.customType !== SUBAGENT_MESSAGE_TYPE
-      ) {
-        return [];
-      }
-
-      const details: unknown = message.details;
-
-      return Value.Check(MailDetailsSchema, details) ? [details.id] : [];
-    })
+    items.flatMap((item) =>
+      "customType" in item ? (mailDetails(item)?.id ?? []) : []
+    )
   );
 
 /** Durable delivery is acknowledged from the transcript; automatic handling tracks request opportunities. */
@@ -175,7 +149,7 @@ export class SubagentManager {
       return;
     }
 
-    const available = messageMailIds([
+    const available = mailIds([
       ...event.context.contextMessages,
       ...event.context.pendingMessages,
     ]);
@@ -237,7 +211,7 @@ export class SubagentManager {
 
     const received = mailIds(ctx.sessionManager.getBranch());
 
-    const visible = messageMailIds(
+    const visible = mailIds(
       ctx.sessionManager.buildSessionProjection().messages
     );
 

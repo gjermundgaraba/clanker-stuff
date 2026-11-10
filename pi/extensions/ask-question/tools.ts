@@ -28,8 +28,8 @@ export const registerQuestionTool = (
       "Use request_user_input for concrete clarification instead of prose-only questionnaires. Supply unique IDs, concise labels/descriptions and recommendation metadata, never an Other option or preselected answer.",
       "With request_user_input wait: false, continue only work that does not depend on the answers until they arrive. A dismissed questionnaire was not answered.",
     ],
-    execute: async (id, params, signal, _update, ctx) =>
-      await coordinator.ask(id, params, signal, ctx),
+    execute: async (_id, params, signal, _update, ctx) =>
+      await coordinator.ask(params, signal, ctx),
     renderCall,
     renderResult,
   });

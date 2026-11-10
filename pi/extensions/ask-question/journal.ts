@@ -14,24 +14,17 @@ export const STATE_TYPE = "ask-question.state";
 type Writer = Pick<ExtensionAPI, "appendEntry">;
 
 export const recordRequest = (pi: Writer, item: Interaction): void => {
-  pi.appendEntry(REQUEST_TYPE, {
-    id: item.id,
-    request: item.request,
-    created_at: item.created_at,
-    tool_call_id: item.tool_call_id,
-  });
+  pi.appendEntry(REQUEST_TYPE, { id: item.id, request: item.request });
 };
 
 export const recordState = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(STATE_TYPE, {
     id: item.id,
-    updated_at: item.updated_at,
-    status: item.status,
     ...(item.draft ? { draft: item.draft } : {}),
   });
 };
 
-/** Rebuilds the questionnaires still open on the active branch. */
+/** Rebuilds the questionnaires still open on the active branch, least recently changed first. */
 export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
   const requests = new Map<string, RequestRecord>();
   const items = new Map<string, Interaction>();
@@ -45,22 +38,20 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
       entry.customType === REQUEST_TYPE &&
       Value.Check(RequestRecordSchema, entry.data)
     ) {
-      requests.set(entry.data.id, entry.data);
+      requests.set(entry.data.id, {
+        id: entry.data.id,
+        request: entry.data.request,
+      });
     } else if (
       entry.customType === STATE_TYPE &&
       Value.Check(StateRecordSchema, entry.data)
     ) {
       const request = requests.get(entry.data.id);
+      items.delete(entry.data.id);
 
-      if (request) {
-        items.set(request.id, { ...request, ...entry.data });
+      if (request && entry.data.draft) {
+        items.set(request.id, { ...request, draft: entry.data.draft });
       }
-    }
-  }
-
-  for (const [id, item] of items) {
-    if (!item.draft) {
-      items.delete(id);
     }
   }
 

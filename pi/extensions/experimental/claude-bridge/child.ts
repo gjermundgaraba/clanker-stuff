@@ -1,3 +1,5 @@
+import { appendFileSync } from "node:fs";
+
 import type {
   Options,
   Query,
@@ -42,4 +44,31 @@ export const stopQuery = (query: BridgeQuery | undefined): void => {
   } catch {
     return;
   }
+};
+
+/** `run`, appending every SDK message it yields to `CLAUDE_BRIDGE_RECORD_STREAM` as a JSON
+ *  line when that is set: replay fixtures of what Claude Code emits. */
+export const recordStream = (run: QueryFunction): QueryFunction => {
+  const recordPath = process.env["CLAUDE_BRIDGE_RECORD_STREAM"];
+
+  if (recordPath === undefined || recordPath === "") {
+    return run;
+  }
+
+  return (params) => {
+    const sdkQuery = run(params);
+
+    return {
+      interrupt: async () => await sdkQuery.interrupt(),
+      close: () => {
+        sdkQuery.close();
+      },
+      async *[Symbol.asyncIterator]() {
+        for await (const message of sdkQuery) {
+          appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
+          yield message;
+        }
+      },
+    };
+  };
 };

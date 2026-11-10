@@ -24,6 +24,7 @@ import { showInbox } from "./tui/inbox.js";
 
 export class Coordinator {
   private ctx: ExtensionContext | undefined;
+  /** Every questionnaire seen on the branch, in the order of its latest change. */
   private items = new Map<string, Interaction>();
   private lifetime = new AbortController();
   private readonly listeners = new Set<() => void>();
@@ -56,7 +57,7 @@ export class Coordinator {
   list(): Interaction[] {
     return [...this.items.values()]
       .filter((item) => item.draft !== undefined)
-      .toSorted((a, b) => b.updated_at.localeCompare(a.updated_at));
+      .toReversed();
   }
   get(id: string): Interaction {
     const item = this.items.get(id);
@@ -85,6 +86,7 @@ export class Coordinator {
   }
   private save(item: Interaction): Interaction {
     recordState(this.pi, item);
+    this.items.delete(item.id);
     this.items.set(item.id, item);
     this.update();
 
@@ -100,14 +102,13 @@ export class Coordinator {
     return this.save(transition(this.get(id), action));
   }
   async ask(
-    toolCallId: string,
     request: unknown,
     signal: AbortSignal | undefined,
     ctx: ExtensionContext
   ) {
     signal?.throwIfAborted();
 
-    const created = createInteraction(`q_${randomUUID()}`, request, toolCallId);
+    const created = createInteraction(`q_${randomUUID()}`, request);
     recordRequest(this.pi, created);
     const item = this.save(created);
 

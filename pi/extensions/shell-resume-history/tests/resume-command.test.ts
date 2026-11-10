@@ -142,11 +142,11 @@ describe("resume command", () => {
     });
 
     sessionManager.appendMessage(fauxAssistantMessage("test"));
-    const host = createExtensionHost(() => {});
+    const host = createExtensionHost(extension);
 
     await expect(
-      recordResumeCommand("quit", host.createContext({ cwd, sessionManager }))
-    ).resolves.toBe("inbox-unwritable");
+      host.emitSessionShutdown(host.createContext({ cwd, sessionManager }))
+    ).resolves.toBeUndefined();
   });
 
   it("does not queue in-memory sessions", async () => {

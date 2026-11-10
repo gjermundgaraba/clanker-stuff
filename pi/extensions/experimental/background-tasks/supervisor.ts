@@ -9,9 +9,9 @@ import { errorMessage, safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { TaskLogs } from "./logs.js";
 import { TaskNotices } from "./notices.js";
 import type { Unread } from "./notices.js";
-import type { Outcome, TaskSummary } from "./output.js";
+import type { TaskSummary } from "./output.js";
 import { cleanupOf, outcomeOf, taskMachine } from "./phase.js";
-import type { TaskPhase, TaskPhaseEvent } from "./phase.js";
+import type { ProcessOutcome, TaskPhase, TaskPhaseEvent } from "./phase.js";
 import { WatchDecoder } from "./protocol.js";
 
 export interface StartTask {
@@ -239,7 +239,7 @@ export class Supervisor {
       });
 
       const abort = () => {
-        this.finish(task, "cancelled");
+        this.cancel(task);
       };
 
       signal?.addEventListener("abort", abort, { once: true });
@@ -255,7 +255,7 @@ export class Supervisor {
         await spawned.promise;
 
         if (signal?.aborted === true) {
-          this.finish(task, "cancelled");
+          this.cancel(task);
         }
       } finally {
         signal?.removeEventListener("abort", abort);
@@ -275,8 +275,12 @@ export class Supervisor {
     }
   }
 
-  private finish(task: Task, outcome: Exclude<Outcome, "result">): void {
+  private finish(task: Task, outcome: ProcessOutcome): void {
     this.send(task, { type: "task.end", outcome, at: Date.now() });
+  }
+
+  private cancel(task: Task): void {
+    this.send(task, { type: "task.stop", at: Date.now() });
   }
 
   private send(task: Task, event: TaskPhaseEvent): void {
@@ -407,7 +411,7 @@ export class Supervisor {
   }
   async stop(id: string): Promise<Task> {
     const task = this.get(id);
-    this.send(task, { type: "task.stop", at: Date.now() });
+    this.cancel(task);
     await task.cleanupPromise;
 
     return task;
@@ -421,7 +425,7 @@ export class Supervisor {
 
     await Promise.all(
       tasks.map(async (task) => {
-        this.finish(task, "cancelled");
+        this.cancel(task);
         await task.cleanupPromise;
 
         if (cleanupOf(task.phase) !== "clean") {

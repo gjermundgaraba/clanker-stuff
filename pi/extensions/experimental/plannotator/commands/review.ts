@@ -6,6 +6,8 @@ import type {
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
 
+const LABEL = "Plannotator code review";
+
 const REVIEW_CLOSED_SENTINEL = "Review session closed without feedback.";
 
 export const createReviewHandler =
@@ -18,21 +20,17 @@ export const createReviewHandler =
     }
 
     runtime.launch(["review", ...tokens], ctx, {
-      failureLabel: "Plannotator code review",
+      label: LABEL,
       onOutput(stdout) {
         const output = stdout.trim();
 
         if (output.length === 0 || output === REVIEW_CLOSED_SENTINEL) {
-          ctx.ui.notify(
-            "Plannotator code review closed without feedback.",
-            "info"
-          );
+          ctx.ui.notify(`${LABEL} closed without feedback.`, "info");
 
           return;
         }
 
         pi.sendUserMessage(output, { deliverAs: "followUp" });
       },
-      openedMessage: "Plannotator code review opened.",
     });
   };
