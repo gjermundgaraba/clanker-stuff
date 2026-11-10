@@ -1,4 +1,3 @@
-import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
@@ -9,7 +8,7 @@ import type {
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 
-import { connect } from "./adapter.js";
+import { connectLayout, expandPastesOnce } from "./adapter.js";
 import type { Layout } from "./adapter.js";
 import { highlightRows } from "./render.js";
 import type { Highlight } from "./render.js";
@@ -40,18 +39,21 @@ class SharedEditor extends CustomEditor {
     this.contributions = contributions;
     this.uiTheme = uiTheme;
 
-    try {
-      this.layout = connect(this);
-    } catch (error) {
-      this.unsupported = errorMessage(error);
-    }
-  }
-  override getText() {
-    return this.getExpandedText();
+    this.layout = connectLayout(this);
+
+    const missing = [
+      ...(expandPastesOnce(this) ? [] : ["paste"]),
+      ...(this.layout ? [] : ["layout"]),
+    ];
+
+    this.unsupported =
+      missing.length > 0
+        ? `Unsupported Pi editor internals: ${missing.join(" and ")}`
+        : undefined;
   }
   override setText(text: string) {
-    // Pi round-trips getText() through setText() when a custom view closes: https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts#L2940-L2950
-    if (text !== this.getExpandedText()) {
+    // Pi round-trips getText() through setText() when a dialog closes, and setText() drops paste payloads: https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts#L3044-L3054
+    if (text !== this.getText()) {
       super.setText(text);
     }
   }
@@ -71,7 +73,7 @@ class SharedEditor extends CustomEditor {
   override render(width: number) {
     let rows = super.render(width);
     const { layout } = this;
-    const text = super.getText();
+    const text = this.getText();
     const highlights = this.contributions.highlight?.(text) ?? [];
 
     if (layout && highlights.length > 0) {
