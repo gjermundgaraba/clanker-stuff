@@ -10,8 +10,8 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { userBlocks } from "./content.js";
 import { isJsonArray, isJsonObject } from "./json.js";
-import { userBlocks } from "./session/convert.js";
 
 const TOOL_USE_ID_META = "claudecode/toolUseId";
 

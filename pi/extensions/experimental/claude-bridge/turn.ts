@@ -1,7 +1,7 @@
 import type { Message } from "@earendil-works/pi-ai";
 
-import { userBlocks } from "./session/convert.js";
-import type { UserBlock } from "./session/convert.js";
+import { userBlocks } from "./content.js";
+import type { UserBlock } from "./content.js";
 
 /** Index of the first message of the current user turn; messages.length when the last
  *  message is not a user message. */

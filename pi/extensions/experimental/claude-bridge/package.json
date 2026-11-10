@@ -18,6 +18,7 @@
   },
   "files": [
     "child.ts",
+    "content.ts",
     "docs",
     "index.ts",
     "json.ts",

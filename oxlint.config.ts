@@ -131,6 +131,7 @@ export default config({
     {
       files: [
         "pi/evals/**/*.{js,mjs}",
+        "pi/extensions/experimental/claude-bridge/content.ts",
         "pi/extensions/experimental/claude-bridge/json.ts",
         "pi/extensions/experimental/claude-bridge/log.ts",
         "pi/extensions/experimental/claude-bridge/machine/conversation.ts",
