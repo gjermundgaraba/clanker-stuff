@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { recordStream } from "./child.js";
 import type { QueryFunction } from "./child.js";
-import { providerConfig, startSession } from "./provider.js";
+import { catalogNotice, providerConfig, startSession } from "./provider.js";
 import { PROVIDER_ID } from "./session/convert.js";
 import { Sessions } from "./sessions.js";
 
@@ -18,10 +18,12 @@ export const createClaudeBridge =
       piTools: () => pi.getAllTools(),
     });
 
+    const notice = catalogNotice(config);
+
     pi.registerProvider(PROVIDER_ID, config);
 
     pi.on("session_start", (_event, ctx) => {
-      startSession(sessions, config, ctx);
+      startSession(sessions, notice, ctx);
     });
 
     pi.on("session_shutdown", (_event, ctx) => {

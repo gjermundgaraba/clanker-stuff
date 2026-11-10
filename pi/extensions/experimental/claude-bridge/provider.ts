@@ -380,21 +380,24 @@ export const providerConfig = (deps: ProviderDeps): ProviderConfig => ({
     streamClaudeCode(deps, model, transcript, options),
 });
 
-/** Serve a pi session from its start, warning there when pi-ai's Anthropic catalog left
- *  the provider no models to register. */
+/** The warning each session gets when pi-ai's Anthropic catalog left the provider no models
+ *  to register, or undefined when it has some. */
+export const catalogNotice = (config: ProviderConfig): string | undefined =>
+  config.models?.length === 0
+    ? "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
+    : undefined;
+
+/** Serve a pi session from its start, showing the catalog notice there when there is one. */
 export const startSession = (
   sessions: Sessions,
-  config: ProviderConfig,
+  notice: string | undefined,
   ctx: ExtensionContext
 ): void => {
   const sessionId = ctx.sessionManager.getSessionId();
 
   sessions.start(sessionId, ctx.cwd, ctx.ui);
 
-  if (config.models?.length === 0) {
-    sessions.notify(
-      sessionId,
-      "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
-    );
+  if (notice !== undefined) {
+    sessions.notify(sessionId, notice);
   }
 };
