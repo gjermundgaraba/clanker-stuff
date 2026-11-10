@@ -19,10 +19,9 @@ import { piToolName } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
 
-interface OpenBlock {
-  index: number;
-  arguments: ToolCallArgumentsStream | undefined;
-}
+type OpenBlock =
+  | { index: number; block: Exclude<TurnBlock, ToolCall> }
+  | { index: number; block: ToolCall; arguments: ToolCallArgumentsStream };
 
 /** Claude Code's stop reason as pi's. The result message carries it untyped. */
 export const mapStopReason = (
@@ -292,13 +291,16 @@ export class Turn {
           return;
         }
 
-        this.openBlocks.set(opened, {
-          index: event.index,
-          arguments:
-            opened.type === "toolCall"
-              ? new ToolCallArgumentsStream()
-              : undefined,
-        });
+        this.openBlocks.set(
+          opened,
+          opened.type === "toolCall"
+            ? {
+                index: event.index,
+                block: opened,
+                arguments: new ToolCallArgumentsStream(),
+              }
+            : { index: event.index, block: opened }
+        );
         this.append(opened);
 
         return;
@@ -336,12 +338,8 @@ export class Turn {
             delta: delta.thinking,
             partial: output,
           });
-        } else if (
-          delta.type === "input_json_delta" &&
-          block.type === "toolCall" &&
-          open.arguments !== undefined
-        ) {
-          block.arguments = open.arguments.append(delta.partial_json);
+        } else if (delta.type === "input_json_delta" && "arguments" in open) {
+          open.block.arguments = open.arguments.append(delta.partial_json);
 
           this.push({
             type: "toolcall_delta",
@@ -375,8 +373,8 @@ export class Turn {
 
         this.openBlocks.delete(block);
 
-        if (block.type === "toolCall" && open.arguments !== undefined) {
-          Object.assign(block, open.arguments.finish());
+        if ("arguments" in open) {
+          Object.assign(open.block, open.arguments.finish());
         }
 
         this.end(block, contentIndex);
