@@ -85,7 +85,7 @@ describe("questionnaire journal", () => {
     const item = createInteraction("q_kept", request);
     recordRequest(pi, item);
     recordState(pi, item);
-    sm.appendCustomEntry(STATE_TYPE, { id: "q_kept", retired: true });
+    sm.appendCustomEntry(STATE_TYPE, { id: "q_kept", draft: "unreadable" });
     sm.appendCustomEntry(REQUEST_TYPE, { id: "q_broken" });
     recordState(pi, createInteraction("q_orphan", request));
 
@@ -93,5 +93,29 @@ describe("questionnaire journal", () => {
 
     expect([...items.keys()]).toStrictEqual(["q_kept"]);
     expect(items.get("q_kept")).toStrictEqual(item);
+  });
+
+  it("restores questionnaires recorded with the fields earlier versions wrote", () => {
+    const { sm } = session();
+    const { draft } = createInteraction("q_legacy", request);
+
+    sm.appendCustomEntry(REQUEST_TYPE, {
+      id: "q_legacy",
+      request,
+      created_at: "2026-10-01T00:00:00.000Z",
+      tool_call_id: "call_1",
+    });
+    sm.appendCustomEntry(STATE_TYPE, {
+      id: "q_legacy",
+      updated_at: "2026-10-01T00:00:00.000Z",
+      status: "open",
+      draft,
+    });
+
+    expect(replay(sm.getBranch()).get("q_legacy")).toStrictEqual({
+      id: "q_legacy",
+      request: createInteraction("q_legacy", request).request,
+      draft,
+    });
   });
 });

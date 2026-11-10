@@ -104,7 +104,7 @@ Pi's Stop clears the messages queued for the run it stops. When a run that recei
 
 Authored requests are recorded once as `ask-question.request` custom session entries; each draft change follows as an `ask-question.state` entry. A state without a draft closes the questionnaire; the tool result or message that carries the outcome records whether it was answered or dismissed. Pi writes these entries synchronously, so a failed write fails the action that caused it. Editor text is recorded when a field is saved and flushed on close, Stop, reload and navigation; text that cannot be saved, such as over-limit text, is reported and dropped. Pi's navigation commands cannot start while a questionnaire has focus. A hard crash can lose the text of an editor that is still open.
 
-Replay reads only the active branch; the last state of each request wins and only open questionnaires are kept. Unreadable entries are skipped rather than blocking the session. Branch changes close views opened on the previous branch. Forks inherit recorded state.
+Replay reads only the active branch; the last state of each request wins and only open questionnaires are kept, listed most recently changed first as they were before the reload. Fields that earlier versions recorded, such as `updated_at`, are ignored, and unreadable entries are skipped rather than blocking the session. Branch changes close views opened on the previous branch. Forks inherit recorded state.
 
 Historical transcripts are not rewritten and render as written. Pi never re-executes stored tool calls, so retired names and argument shapes have no argument preparation.
 

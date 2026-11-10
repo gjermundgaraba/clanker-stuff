@@ -53,22 +53,16 @@ const AnswerSchema = Type.Object(
 
 export const AnswersSchema = record(AnswerSchema);
 
-export const RequestRecordSchema = Type.Object(
-  {
-    id: Id,
-    request: QuestionnaireSchema,
-  },
-  { additionalProperties: false }
-);
+/** Readers ignore fields that earlier versions recorded, such as `updated_at`, so open questionnaires survive an upgrade. */
+export const RequestRecordSchema = Type.Object({
+  id: Id,
+  request: QuestionnaireSchema,
+});
 
-export const StateRecordSchema = Type.Object(
-  {
-    id: Id,
-    updated_at: Type.String(),
-    draft: Type.Optional(DraftSchema),
-  },
-  { additionalProperties: false }
-);
+export const StateRecordSchema = Type.Object({
+  id: Id,
+  draft: Type.Optional(DraftSchema),
+});
 
 export type RequestRecord = Static<typeof RequestRecordSchema>;
 
@@ -94,17 +88,12 @@ export type Action =
   | { type: "dismiss" }
   | { type: "restore"; draft: Draft };
 
-export const createInteraction = (
-  id: string,
-  input: unknown,
-  now = new Date().toISOString()
-): Interaction => {
+export const createInteraction = (id: string, input: unknown): Interaction => {
   const request = validateQuestionnaire(input);
 
   return {
     id,
     request,
-    updated_at: now,
     draft: Object.fromEntries(
       request.questions.map((q) => [
         q.id,
@@ -280,11 +269,7 @@ const edit = (
   }
 };
 
-export const transition = (
-  item: Interaction,
-  action: Action,
-  now = new Date().toISOString()
-): Interaction => {
+export const transition = (item: Interaction, action: Action): Interaction => {
   const next = structuredClone(item);
 
   if (action.type === "restore") {
@@ -315,8 +300,6 @@ export const transition = (
       edit(q, a, action);
     }
   }
-
-  next.updated_at = now;
 
   return next;
 };

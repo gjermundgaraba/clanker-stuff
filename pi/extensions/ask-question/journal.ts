@@ -20,12 +20,11 @@ export const recordRequest = (pi: Writer, item: Interaction): void => {
 export const recordState = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(STATE_TYPE, {
     id: item.id,
-    updated_at: item.updated_at,
     ...(item.draft ? { draft: item.draft } : {}),
   });
 };
 
-/** Rebuilds the questionnaires still open on the active branch. */
+/** Rebuilds the questionnaires still open on the active branch, least recently changed first. */
 export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
   const requests = new Map<string, RequestRecord>();
   const items = new Map<string, Interaction>();
@@ -39,17 +38,19 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
       entry.customType === REQUEST_TYPE &&
       Value.Check(RequestRecordSchema, entry.data)
     ) {
-      requests.set(entry.data.id, entry.data);
+      requests.set(entry.data.id, {
+        id: entry.data.id,
+        request: entry.data.request,
+      });
     } else if (
       entry.customType === STATE_TYPE &&
       Value.Check(StateRecordSchema, entry.data)
     ) {
       const request = requests.get(entry.data.id);
+      items.delete(entry.data.id);
 
       if (request && entry.data.draft) {
-        items.set(request.id, { ...request, ...entry.data });
-      } else {
-        items.delete(entry.data.id);
+        items.set(request.id, { ...request, draft: entry.data.draft });
       }
     }
   }
