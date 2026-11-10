@@ -12,40 +12,19 @@ export interface Layout {
 
 const markers = /\[paste #(?<id>\d+)(?: [^\]\n]*)?\]/gu;
 
-interface KillRing {
-  push: (
-    text: string,
-    options: { prepend: boolean; accumulate?: boolean }
-  ) => void;
-  peek: () => string | undefined;
-  rotate: () => void;
-  readonly length: number;
+interface NativePastes {
+  pastes: Map<number, string>;
+  expandPasteMarkers: (text: string) => string;
 }
 
-interface NativeEditor {
-  pastes: Map<number, string>;
-  pasteCounter: number;
-  killRing: KillRing;
+interface NativeLayout {
   scrollOffset: number;
   lastWidth: number;
   renderedVisibleLineCount: number;
-  expandPasteMarkers: (text: string) => string;
   buildVisualLineMap: (width: number) => Layout["rows"];
 }
 
-const isKillRing = (value: unknown): value is KillRing =>
-  typeof value === "object" &&
-  value !== null &&
-  "push" in value &&
-  typeof value.push === "function" &&
-  "peek" in value &&
-  typeof value.peek === "function" &&
-  "rotate" in value &&
-  typeof value.rotate === "function" &&
-  "length" in value &&
-  typeof value.length === "number";
-
-const isNativeEditor = (value: unknown): value is NativeEditor =>
+const hasNativePastes = (value: unknown): value is NativePastes =>
   typeof value === "object" &&
   value !== null &&
   "pastes" in value &&
@@ -54,84 +33,50 @@ const isNativeEditor = (value: unknown): value is NativeEditor =>
     (paste: [unknown, unknown]): paste is [number, string] =>
       typeof paste[0] === "number" && typeof paste[1] === "string"
   ) &&
-  "pasteCounter" in value &&
-  typeof value.pasteCounter === "number" &&
-  "killRing" in value &&
-  isKillRing(value.killRing) &&
+  "expandPasteMarkers" in value &&
+  typeof value.expandPasteMarkers === "function";
+
+const hasNativeLayout = (value: unknown): value is NativeLayout =>
+  typeof value === "object" &&
+  value !== null &&
   "scrollOffset" in value &&
   typeof value.scrollOffset === "number" &&
   "lastWidth" in value &&
   typeof value.lastWidth === "number" &&
   "renderedVisibleLineCount" in value &&
   typeof value.renderedVisibleLineCount === "number" &&
-  "expandPasteMarkers" in value &&
-  typeof value.expandPasteMarkers === "function" &&
   "buildVisualLineMap" in value &&
   typeof value.buildVisualLineMap === "function";
 
 /**
- * Keep paste payloads owned by the editor across Pi's string-only handoffs, and return the private
- * layout that decorations map onto. Throws when Pi's editor internals no longer match.
+ * Expand paste markers in one pass, so a paste whose content reads `[paste #N]` stays literal; Pi
+ * expands them one paste at a time. Returns false when Pi's paste internals no longer match.
  */
-export const connect = (editor: CustomEditor): (() => Layout) => {
+export const expandPastesOnce = (editor: CustomEditor): boolean => {
   const native: unknown = editor;
 
-  if (!isNativeEditor(native)) {
-    throw new TypeError(
-      "Unsupported Pi editor layout: required paste and layout APIs are unavailable"
-    );
+  if (!hasNativePastes(native)) {
+    return false;
   }
 
-  const expand = (input: string) =>
+  native.expandPasteMarkers = (input) =>
     input.replaceAll(
       markers,
       (marker, id: string) => native.pastes.get(Number(id)) ?? marker
     );
 
-  native.expandPasteMarkers = expand;
+  return true;
+};
 
-  const insertableOrMarker = (payload: string) => {
-    if (
-      !/\p{Cc}/u.test(payload.replaceAll("\n", "")) &&
-      !payload.includes("[paste #") &&
-      payload.length < 1000
-    ) {
-      return payload;
-    }
+/** Read the private layout that decorations map onto, or undefined when Pi's layout internals no longer match. */
+export const connectLayout = (
+  editor: CustomEditor
+): (() => Layout) | undefined => {
+  const native: unknown = editor;
 
-    native.pasteCounter += 1;
-    const id = native.pasteCounter;
-    native.pastes.set(id, payload);
-
-    return `[paste #${id} +${payload.split("\n").length} lines]`;
-  };
-
-  const ring = native.killRing;
-  let cached: { raw: string; encoded: string } | undefined;
-  native.killRing = {
-    push: (value, options) => {
-      ring.push(expand(value), options);
-    },
-    peek: () => {
-      const raw = ring.peek();
-
-      if (raw === undefined) {
-        return;
-      }
-
-      if (!cached || cached.raw !== raw || expand(cached.encoded) !== raw) {
-        cached = { raw, encoded: insertableOrMarker(raw) };
-      }
-
-      return cached.encoded;
-    },
-    rotate: () => {
-      ring.rotate();
-    },
-    get length() {
-      return ring.length;
-    },
-  };
+  if (!hasNativeLayout(native)) {
+    return undefined;
+  }
 
   return () => ({
     rows: native.buildVisualLineMap(native.lastWidth),

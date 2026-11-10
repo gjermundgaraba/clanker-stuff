@@ -14,4 +14,4 @@ Use `acquireEditorHost(ctx)` from cooperating extensions; it installs or joins t
 
 ## Requirements
 
-Tested against the repository’s [pinned Pi SDK](../../../pnpm-workspace.yaml). Editor conflicts and unsupported editor layouts appear as one shared status label. With an unsupported layout, highlights are skipped, while borders, working status, and seeded history keep working.
+Tested against the repository’s [pinned Pi SDK](../../../pnpm-workspace.yaml). The editor relies on two private parts of Pi's editor, checked separately: its paste store, so that pastes expand in one pass and a paste containing `[paste #N]` stays literal, and its layout, which highlights use. Editor conflicts and unsupported internals appear as one shared status label. Without the paste store, Pi's own expansion applies. Without the layout, highlights are skipped. Borders, working status and seeded history keep working either way.
