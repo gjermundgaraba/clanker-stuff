@@ -104,7 +104,6 @@ Use these for broad or cross-cutting changes, README policy changes, shared code
 - `vp test` — run all unit, integration, and smoke projects; use `--project <name>` to select one.
 - `vp run check:readmes` / `vp run check:tests` — run repository README or test-boundary policy checks.
 - `vp run ready` — run every static check, policy check, and test. The `check:*` tasks are separate so each caches on the files it reads; `ready` fans them out, then runs the tests.
-- `bash claude/plugins/resume-history/test.sh` / `bash codex/plugins/resume-history/test.sh` — self-check the resume-history hooks. Neither `vp run ready` nor CI runs them.
 
 ## Dependencies
 
