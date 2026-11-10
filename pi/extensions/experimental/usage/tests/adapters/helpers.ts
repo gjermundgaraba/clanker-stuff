@@ -20,4 +20,4 @@ export const okFetch =
   async (_url, schema) =>
     Value.Check(schema, json)
       ? { json, ok: true }
-      : { kind: "payload", message: "invalid usage payload", ok: false };
+      : { message: "invalid usage payload", ok: false };

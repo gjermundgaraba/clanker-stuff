@@ -565,7 +565,7 @@ describe("usage controller", () => {
         return await okFetch(json)(url, schema, headers);
       }
 
-      return { kind: "response", message: "unavailable", ok: false };
+      return { message: "unavailable", ok: false };
     });
     const host = createExtensionHost(extension, { model: radiusModel });
     const radiusContext = host.createContext({ model: radiusModel });
@@ -625,7 +625,7 @@ describe("usage controller", () => {
         return await successfulFetchJson(url, schema, headers);
       }
 
-      return { kind: "response", message: "boom\n[31mred", ok: false };
+      return { message: "boom\n[31mred", ok: false };
     });
     const host = createExtensionHost(extension, { model: claudeModel });
     const context = host.createContext({ model: claudeModel });

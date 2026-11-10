@@ -142,25 +142,14 @@ export const fetchXaiUsage = async (
     return auth;
   }
 
-  const monthlyPromise = deps.fetchJson(
-    BILLING_URL,
-    XaiPayloadSchema,
-    auth.headers
-  );
+  const [monthly, weekly] = await Promise.all([
+    deps.fetchJson(BILLING_URL, XaiPayloadSchema, auth.headers),
+    deps.fetchJson(CREDITS_URL, XaiPayloadSchema, auth.headers),
+  ]);
 
-  const weeklyPromise = deps.fetchJson(
-    CREDITS_URL,
-    XaiPayloadSchema,
-    auth.headers
-  );
-
-  const monthly = await monthlyPromise;
-
-  if (!monthly.ok && monthly.kind === "response") {
+  if (!monthly.ok && !weekly.ok) {
     return responseFailure(monthly);
   }
-
-  const weekly = await weeklyPromise;
 
   return mapXaiUsagePayloads(
     monthly.ok ? monthly.json : undefined,

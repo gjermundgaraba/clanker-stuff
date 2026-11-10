@@ -17,7 +17,6 @@ describe(defaultFetchJson, () => {
       await expect(
         defaultFetchJson("https://example.test", Type.Object({}), {})
       ).resolves.toStrictEqual({
-        kind: "response",
         message: "request timed out",
         ok: false,
       });
@@ -35,19 +34,18 @@ describe("usage HTTP boundaries", () => {
     {
       body: "",
       status: 200,
-      result: { ok: false, kind: "payload", message: "invalid usage payload" },
+      result: { ok: false, message: "invalid usage payload" },
     },
     {
       body: '{"remaining":5}',
       status: 401,
-      result: { ok: false, kind: "response", message: "HTTP 401", status: 401 },
+      result: { ok: false, message: "HTTP 401", status: 401 },
     },
     {
       body: '{"error":{"message":"OpenCode Go subscription required."}}',
       status: 403,
       result: {
         ok: false,
-        kind: "response",
         message: "OpenCode Go subscription required.",
         status: 403,
       },
@@ -55,17 +53,17 @@ describe("usage HTTP boundaries", () => {
     {
       body: "{}",
       status: 503,
-      result: { ok: false, kind: "response", message: "HTTP 503", status: 503 },
+      result: { ok: false, message: "HTTP 503", status: 503 },
     },
     {
       body: "{broken",
       status: 200,
-      result: { ok: false, kind: "response", message: "invalid JSON response" },
+      result: { ok: false, message: "invalid JSON response" },
     },
     {
       body: '{"remaining":"5"}',
       status: 200,
-      result: { ok: false, kind: "payload", message: "invalid usage payload" },
+      result: { ok: false, message: "invalid usage payload" },
     },
     {
       body: '{"remaining":5,"extra":true}',
@@ -97,7 +95,6 @@ describe("usage HTTP boundaries", () => {
         defaultFetchJson("https://example.test", schema, {})
       ).resolves.toStrictEqual({
         ok: false,
-        kind: "response",
         message: "connection reset",
       });
     } finally {

@@ -151,7 +151,7 @@ describe("xai fetch", () => {
     const client = {
       fetchJson: async (url, schema, headers) => {
         if (url.includes("format=credits")) {
-          return { kind: "response", message: "HTTP 500", ok: false };
+          return { message: "HTTP 500", ok: false };
         }
 
         return await okFetch({
@@ -218,42 +218,49 @@ describe("xai fetch", () => {
     [503, "failure"],
     [403, "unavailable"],
   ] as const)(
-    "reports a monthly HTTP %s as %s without waiting for credits",
+    "reports a monthly HTTP %s as %s when the credits request fails too",
     async (status, kind) => {
-      const creditsGate = Promise.withResolvers<{
-        kind: "response";
-        message: string;
-        ok: false;
-      }>();
+      const fetchJson: FetchJson = async (url) =>
+        url.includes("format=credits")
+          ? { message: "HTTP 500", ok: false, status: 500 }
+          : { message: `HTTP ${status}`, ok: false, status };
 
-      const client = {
-        fetchJson: async (url) => {
-          if (url.includes("format=credits")) {
-            return await creditsGate.promise;
-          }
-
-          return {
-            kind: "response",
-            message: `HTTP ${status}`,
-            ok: false,
-            status,
-          };
-        },
-      } satisfies { fetchJson: FetchJson };
-
-      const result = await fetchXaiUsage({
-        getAuth: tokenAuth("oauth-token"),
-        fetchJson: client.fetchJson,
-        now: () => 1,
-      });
-
-      expect(result).toStrictEqual({
+      await expect(
+        fetchXaiUsage({
+          getAuth: tokenAuth("oauth-token"),
+          fetchJson,
+          now: () => 1,
+        })
+      ).resolves.toStrictEqual({
         error: { kind, message: `HTTP ${status}` },
         ok: false,
       });
-      creditsGate.resolve({ kind: "response", message: "late", ok: false });
     }
   );
+
+  it("keeps the credits window when the monthly request is refused", async () => {
+    await expect(
+      fetchXaiUsage({
+        getAuth: tokenAuth("oauth-token"),
+        fetchJson: async (url, schema, headers) =>
+          url.includes("format=credits")
+            ? await okFetch({ config: { creditUsagePercent: 20 } })(
+                url,
+                schema,
+                headers
+              )
+            : { message: "HTTP 403", ok: false, status: 403 },
+        now: () => 1,
+      })
+    ).resolves.toStrictEqual({
+      ok: true,
+      snapshot: {
+        fetchedAt: 1,
+        provider: "xai",
+        quotaWindows: [{ label: "week", remainingPercent: 80 }],
+      },
+    });
+  });
 });
 
 describe("xai optional payload boundaries", () => {
