@@ -42,12 +42,40 @@ export interface SkillProvider {
   ): Promise<ProvidedSkill | { error: string }>;
 }
 
-/** A `$name` mention in a prompt; the name is the match without its `$`. */
-export const SKILL_MENTION = /\$[A-Za-z0-9_:-]*[A-Za-z0-9_-]/gu;
+const NAME_CHAR = String.raw`[A-Za-z0-9_:-]`;
+const NAME_END = String.raw`[A-Za-z0-9_-]`;
+const NAME = `${NAME_CHAR}*${NAME_END}`;
+
+const SKILL_NAME = new RegExp(`^${NAME}$`, "u");
+
+/** Whether `name` can be mentioned as `$name`: letters, digits, `_`, `-` and `:`, not ending in `:`, so `$name:` in prose mentions `name`. */
+export const isSkillName = (name: string): boolean => SKILL_NAME.test(name);
+
+/** The `$name` mentions in `text`, with the UTF-16 range each covers including its `$`. */
+export const skillMentions = (
+  text: string
+): Array<{ name: string; start: number; end: number }> =>
+  text
+    .matchAll(new RegExp(String.raw`\$${NAME}`, "gu"))
+    .map((match) => ({
+      name: match[0].slice(1),
+      start: match.index,
+      end: match.index + match[0].length,
+    }))
+    .toArray();
 
 /** The skill names `$` mentions in `text`. */
 export const mentionedSkills = (text: string): Set<string> =>
-  new Set(text.matchAll(SKILL_MENTION).map((match) => match[0].slice(1)));
+  new Set(skillMentions(text).map((mention) => mention.name));
+
+const MENTION_QUERY = new RegExp(
+  String.raw`(?:^|[ \t])\$(?<query>${NAME_CHAR}*)$`,
+  "u"
+);
+
+/** The partial name after a `$` that ends `beforeCursor`, or undefined when no mention is being typed. */
+export const mentionQuery = (beforeCursor: string): string | undefined =>
+  MENTION_QUERY.exec(beforeCursor)?.groups?.["query"];
 
 const NAME_SEPARATOR = ", ";
 
