@@ -44,6 +44,15 @@ class FakeRuntime implements ChildRuntime {
   readonly dispose = vi.fn<ChildRuntime["dispose"]>(async () => {
     await this.disposal;
   });
+  readonly discard = vi.fn<ChildRuntime["discard"]>(async () => {
+    try {
+      await this.dispose();
+    } finally {
+      if (this.request.sessionFile === undefined) {
+        await rm(this.sessionFile, { force: true });
+      }
+    }
+  });
   model = "provider/child";
   readonly request: ChildRuntimeRequest;
   readonly sessionFile: string;
@@ -705,6 +714,73 @@ describe(Controller, () => {
     );
     const { nodes } = await saved();
     expect(nodes).toStrictEqual([]);
+  });
+
+  it("retains a child file once a tree save commits, even if shutdown interrupts spawn", async () => {
+    const { controller, runtimes, saved, spawn } = await setup();
+    const held = await holdNextSave(controller);
+    const spawning = spawn("worker");
+
+    try {
+      await held.reached;
+      await controller.shutdown();
+    } finally {
+      held.release();
+    }
+
+    await expect(spawning).rejects.toThrow("The subagent tree was closed");
+    const [runtime] = runtimes;
+    expect(runtime?.dispose).toHaveBeenCalledWith();
+    expect(runtime?.discard).not.toHaveBeenCalled();
+    await expect(readFile(runtime?.sessionFile ?? "", "utf-8")).resolves.toBe(
+      ""
+    );
+    const tree = await saved();
+    expect(tree.nodes).toMatchObject([
+      { path: "/root/worker", sessionFile: runtime?.sessionFile },
+    ]);
+  });
+
+  it("retains an interrupted child when its tree publication fails", async () => {
+    const { controller, runtimes, spawn } = await setup();
+
+    class FailedOnceStore extends TreeStore {
+      private failed = false;
+
+      override async save(tree: Tree): Promise<void> {
+        if (!this.failed) {
+          this.failed = true;
+          throw new Error("synthetic tree write failure");
+        }
+
+        await super.save(tree);
+      }
+    }
+
+    const file = path.join(dataDir, "recovery-tree.json");
+    const failedStore = new FailedOnceStore(file);
+    await controller.open(failedStore, emptyTree());
+    await expect(spawn("worker")).rejects.toThrow(
+      "synthetic tree write failure"
+    );
+
+    const [runtime] = runtimes;
+    expect(runtime?.dispose).toHaveBeenCalledWith();
+    expect(runtime?.discard).not.toHaveBeenCalled();
+    await expect(readFile(runtime?.sessionFile ?? "", "utf-8")).resolves.toBe(
+      ""
+    );
+    const tree: unknown = JSON.parse(await readFile(file, "utf-8"));
+    expect(tree).toMatchObject({
+      nodes: [
+        {
+          path: "/root/worker",
+          sessionFile: runtime?.sessionFile,
+          status: "interrupted",
+        },
+      ],
+    });
+    await expect(spawn("worker")).rejects.toThrow("Agent already exists");
   });
 
   it("records each turn's start and end, and sums usage across turns", async () => {

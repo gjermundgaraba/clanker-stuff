@@ -10,6 +10,7 @@ const send = (agent: AgentSnapshot, event: AgentEvent): AgentSnapshot =>
 const runtime: ChildRuntime = {
   abort: vi.fn<ChildRuntime["abort"]>(),
   deliver: vi.fn<ChildRuntime["deliver"]>(),
+  discard: vi.fn<ChildRuntime["discard"]>(),
   dispose: vi.fn<ChildRuntime["dispose"]>(),
   model: "provider/child",
   sessionFile: "/child.jsonl",

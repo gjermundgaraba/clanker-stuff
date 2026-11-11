@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -508,6 +509,53 @@ describe("child runtime", () => {
         ]);
       } finally {
         await runtime.dispose();
+        harness.cleanup();
+      }
+    }
+  );
+
+  it.each(["physical", "virtual"] as const)(
+    "removes a new %s child directory when bridge loading fails after history was copied",
+    async (kind) => {
+      const harness = await createAgentSessionHarness();
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+      const physical = harness.faux.getModel();
+      harness.session.modelRuntime.registerVirtualModel({
+        provider: "parent-only",
+        id: "auto",
+        name: "Parent only",
+        route: () => ({ model: physical, thinkingLevel: "off" }),
+      });
+
+      const model =
+        kind === "physical"
+          ? physical
+          : harness.session.modelRuntime.getModel("parent-only", "auto");
+
+      assert.ok(model);
+
+      try {
+        await expect(
+          createChildRuntime({
+            ...runtimeRequest(harness),
+            model,
+            history: [
+              {
+                role: "user",
+                content: "copied history",
+                timestamp: Date.now(),
+              },
+            ],
+            bridge: () => {
+              throw new Error("synthetic bridge load failure");
+            },
+          })
+        ).rejects.toThrow("synthetic bridge load failure");
+
+        await expect(
+          readdir(path.join(harness.agentDir, "data", "subagents", "sessions"))
+        ).resolves.toStrictEqual([]);
+      } finally {
         harness.cleanup();
       }
     }

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
 
 import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
@@ -255,6 +254,8 @@ export class Controller {
 
     this.#reserve(path, { type: "spawn.reserve" });
     let runtime: ChildRuntime | undefined;
+    let published = false;
+    let publishedNode: AgentNode | undefined;
 
     try {
       const tools = [...input.tools];
@@ -289,6 +290,8 @@ export class Controller {
       const turn: Turn = { retired: Promise.withResolvers(), runtime };
 
       await this.#serial(path, epoch, async () => {
+        const tree = this.#tree;
+
         const node: AgentNode = {
           ...(input.agentType === undefined
             ? {}
@@ -303,7 +306,7 @@ export class Controller {
           usage: emptyUsage(),
         };
 
-        this.#tree.nodes.push(node);
+        tree.nodes.push(node);
 
         try {
           await this.#saveAndStart(
@@ -315,12 +318,17 @@ export class Controller {
               kind: "NEW_TASK",
               to: path,
             }),
-            epoch
+            epoch,
+            () => {
+              published = true;
+              publishedNode = node;
+            }
           );
         } catch (error) {
-          this.#tree.nodes = this.#tree.nodes.filter(
-            (candidate) => candidate !== node
-          );
+          if (!published) {
+            tree.nodes = tree.nodes.filter((candidate) => candidate !== node);
+          }
+
           throw error;
         }
       });
@@ -333,11 +341,35 @@ export class Controller {
     } catch (error) {
       if (epoch === this.#epoch) {
         this.#step(path, { type: "spawn.failed" });
+
+        if (publishedNode !== undefined) {
+          publishedNode.status = "interrupted";
+          this.#agents.set(path, restore(publishedNode));
+        }
       }
 
+      const failures: unknown[] = [error];
+
       if (runtime !== undefined) {
-        await runtime.dispose();
-        await rm(runtime.sessionFile, { force: true });
+        try {
+          await (published ? runtime.dispose() : runtime.discard());
+        } catch (cleanupError) {
+          failures.push(cleanupError);
+        }
+
+        if (epoch === this.#epoch && publishedNode !== undefined) {
+          try {
+            await this.#save();
+          } catch (saveError) {
+            failures.push(saveError);
+          }
+        }
+      }
+
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Child spawn and recovery failed", {
+          cause: error,
+        });
       }
 
       throw error;
@@ -730,11 +762,13 @@ export class Controller {
     node: AgentNode,
     event: Extract<AgentEvent, { type: "followup.started" | "spawn.started" }>,
     text: string,
-    epoch: symbol
+    epoch: symbol,
+    onPublishing?: () => void
   ): Promise<void> {
     const { path } = node;
     const [running] = agentMachine.transition(this.#phase(path), event);
     record(node, running);
+    onPublishing?.();
     await this.#save();
     this.#assertEpoch(epoch);
     this.#agents.set(path, running);

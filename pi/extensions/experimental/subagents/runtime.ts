@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { isVirtualModel } from "@clanker-stuff/model-history";
@@ -78,6 +78,8 @@ export interface ChildRuntime {
   /** Appends passive mail now, or at the end of the current turn while one is running. */
   deliver: (mail: Mail) => void;
   dispose: () => Promise<void>;
+  /** Disposes a failed new child and removes only its owned session directory. */
+  discard: () => Promise<void>;
   readonly model: string;
   readonly sessionFile: string;
   snapshot: () => ChildSnapshot;
@@ -229,45 +231,35 @@ interface Turn {
   run?: AbortSignal | undefined;
 }
 
-export const createChildRuntime: ChildRuntimeFactory = async (request) => {
-  const agentDir = getAgentDir();
+const initializeChildRuntime = async (
+  request: ChildRuntimeRequest,
+  setup: {
+    agentDir: string;
+    model: Model<Api>;
+    modelRuntime: ModelRuntime;
+    owned: boolean;
+    sessionDir: string;
+    virtual: boolean;
+  }
+): Promise<ChildRuntime> => {
+  const { agentDir, model, modelRuntime, owned, sessionDir, virtual } = setup;
 
-  const modelRuntime = await cloneModelRuntime(
-    request.modelRegistry,
-    request.model.provider
-  );
+  const sessionFile =
+    request.sessionFile ?? path.join(sessionDir, "session.jsonl");
 
-  const virtual = isVirtualModel(request.model);
-
-  const clonedModel = modelRuntime.getModel(
-    request.model.provider,
-    request.model.id
-  );
-
-  const model = virtual ? request.model : clonedModel;
-
-  if (model === undefined) {
-    throw new Error(
-      `Model ${request.model.provider}/${request.model.id} is not available to child sessions`
-    );
+  if (owned) {
+    // https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/core/session-manager.ts#L1035-L1046
+    await writeFile(sessionFile, "", { flag: "wx", mode: 0o600 });
   }
 
-  const sessionDir = path.join(request.dataDir, "sessions");
-  await mkdir(sessionDir, { mode: 0o700, recursive: true });
-
-  const sessionManager =
-    request.sessionFile === undefined
-      ? SessionManager.create(request.cwd, sessionDir)
-      : SessionManager.open(request.sessionFile, sessionDir, request.cwd);
+  const sessionManager = SessionManager.open(
+    sessionFile,
+    sessionDir,
+    request.cwd
+  );
 
   for (const message of request.history) {
     sessionManager.appendMessage(message);
-  }
-
-  const sessionFile = sessionManager.getSessionFile();
-
-  if (sessionFile === undefined) {
-    throw new Error("Child session is not persistent");
   }
 
   const { promptOptions } = request;
@@ -424,10 +416,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     } finally {
       unsubscribe();
       session.dispose();
-
-      if (virtual && request.sessionFile === undefined) {
-        await rm(sessionFile, { force: true });
-      }
     }
 
     throw error;
@@ -491,6 +479,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     }
 
     const { messages } = session.state;
+
     const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
 
     const outcome = finalFromMessages(
@@ -518,6 +507,31 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     session.abort().catch(request.onError);
   };
 
+  const dispose = async (): Promise<void> => {
+    disposal ??= (async () => {
+      abort();
+
+      try {
+        const [shutdown] = await Promise.allSettled([
+          session.extensionRunner.emit({
+            reason: "quit",
+            type: "session_shutdown",
+          }),
+          running,
+        ]);
+
+        if (shutdown.status === "rejected") {
+          throw shutdown.reason;
+        }
+      } finally {
+        unsubscribe();
+        session.dispose();
+      }
+    })();
+
+    await disposal;
+  };
+
   return {
     abort,
     deliver(mail) {
@@ -525,29 +539,15 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         .sendCustomMessage(mailMessage(mail), { triggerTurn: false })
         .catch(request.onError);
     },
-    async dispose() {
-      disposal ??= (async () => {
-        abort();
-
-        try {
-          const [shutdown] = await Promise.allSettled([
-            session.extensionRunner.emit({
-              reason: "quit",
-              type: "session_shutdown",
-            }),
-            running,
-          ]);
-
-          if (shutdown.status === "rejected") {
-            throw shutdown.reason;
-          }
-        } finally {
-          unsubscribe();
-          session.dispose();
+    dispose,
+    async discard() {
+      try {
+        await dispose();
+      } finally {
+        if (owned) {
+          await rm(sessionDir, { force: true, recursive: true });
         }
-      })();
-
-      await disposal;
+      }
     },
     get model() {
       const current = session.model ?? model;
@@ -589,4 +589,61 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         session.getToolDefinition(name)
       ),
   };
+};
+
+export const createChildRuntime: ChildRuntimeFactory = async (request) => {
+  const agentDir = getAgentDir();
+
+  const modelRuntime = await cloneModelRuntime(
+    request.modelRegistry,
+    request.model.provider
+  );
+
+  const virtual = isVirtualModel(request.model);
+
+  const model = virtual
+    ? request.model
+    : modelRuntime.getModel(request.model.provider, request.model.id);
+
+  if (model === undefined) {
+    throw new Error(
+      `Model ${request.model.provider}/${request.model.id} is not available to child sessions`
+    );
+  }
+
+  const root = path.join(request.dataDir, "sessions");
+  const owned = request.sessionFile === undefined;
+  let sessionDir: string;
+
+  if (request.sessionFile === undefined) {
+    await mkdir(root, { mode: 0o700, recursive: true });
+    sessionDir = await mkdtemp(path.join(root, "child-"));
+  } else {
+    sessionDir = path.dirname(request.sessionFile);
+  }
+
+  try {
+    return await initializeChildRuntime(request, {
+      agentDir,
+      model,
+      modelRuntime,
+      owned,
+      sessionDir,
+      virtual,
+    });
+  } catch (error) {
+    if (owned) {
+      try {
+        await rm(sessionDir, { force: true, recursive: true });
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Child initialization and session cleanup both failed",
+          { cause: cleanupError }
+        );
+      }
+    }
+
+    throw error;
+  }
 };
