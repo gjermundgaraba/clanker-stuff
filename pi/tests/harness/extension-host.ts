@@ -997,7 +997,7 @@ export const createExtensionHost = (
       return leafId;
     },
     getMarkdownTransformer(): MarkdownTransformer | undefined {
-      return extension?.markdownTransformer;
+      return extension?.markdownTransformer?.transformer;
     },
     getMessageRenderer(customType: string): MessageRenderer | undefined {
       return extension?.messageRenderers.get(customType);
