@@ -31,8 +31,8 @@ export default function askQuestion(pi: ExtensionAPI) {
   pi.on("session_tree", (_event, ctx) => {
     coordinator.attach(ctx);
   });
-  pi.on("agent_settled", (event, ctx) => {
-    coordinator.settled(event, ctx);
+  pi.on("agent_settled", (_event, ctx) => {
+    coordinator.settled(ctx);
   });
   pi.on("session_shutdown", () => {
     coordinator.shutdown();

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
-  AgentSettledEvent,
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -30,7 +29,7 @@ export class Coordinator {
   private readonly listeners = new Set<() => void>();
   /** Questionnaires whose tool call is still waiting for the outcome. */
   private readonly waiting = new Set<string>();
-  /** Drafts of answers handed to Pi while it ran, kept until the run settles. */
+  /** Drafts hidden while their outcomes are handed to Pi, until a turn boundary. */
   private readonly inFlight = new Map<string, Draft>();
   private flushView: (() => void) | undefined;
   private inboxOpen = false;
@@ -86,6 +85,10 @@ export class Coordinator {
   }
   private save(item: Interaction): Interaction {
     recordState(this.pi, item);
+
+    return this.remember(item);
+  }
+  private remember(item: Interaction): Interaction {
     this.items.delete(item.id);
     this.items.set(item.id, item);
     this.update();
@@ -189,9 +192,10 @@ export class Coordinator {
     ctx: ExtensionContext,
     lifetime: AbortSignal
   ): Outcome {
+    Coordinator.owner(lifetime);
     const before = this.get(id);
     const answers = kind === "submit" ? collectAnswers(before) : undefined;
-    const after = this.mutate(id, { type: kind }, lifetime);
+    const after = transition(before, { type: kind });
 
     const result = outcome(
       after,
@@ -200,34 +204,30 @@ export class Coordinator {
     );
 
     if (this.waiting.has(id)) {
+      this.save(after);
+
       return result;
     }
 
-    const running = !ctx.isIdle();
+    this.remember(after);
 
-    if (kind === "submit" && running && before.draft) {
+    if (before.draft) {
       this.inFlight.set(id, before.draft);
     }
 
+    const running = !ctx.isIdle();
     sendOutcome(this.pi, result, kind === "submit" || running);
     ctx.ui.notify(
-      kind === "submit" ? "Answers sent" : "Questionnaire dismissed",
+      kind === "submit" ? "Answers submitted" : "Questionnaire dismissed",
       "info"
     );
 
     return result;
   }
-  /**
-   * Stopping a run drops the messages Pi had queued for it. Reopens any answer sent during the run
-   * that never reached the session, so it can be sent again.
-   */
-  settled(event: AgentSettledEvent, ctx: ExtensionContext): void {
+  /** Reopen outcomes Pi did not record, including messages dropped when a run stops. */
+  settled(ctx: ExtensionContext): void {
     const sent = [...this.inFlight];
     this.inFlight.clear();
-
-    if (!event.aborted) {
-      return;
-    }
 
     const branch = ctx.sessionManager.getBranch();
 
@@ -235,9 +235,9 @@ export class Coordinator {
       const item = this.items.get(id);
 
       if (item && !item.draft && !delivered(branch, id)) {
-        this.save(transition(item, { type: "restore", draft }));
+        this.remember(transition(item, { type: "restore", draft }));
         ctx.ui.notify(
-          `The run stopped before your answers to ${item.request.title ?? "a questionnaire"} arrived · /answers to send them again`,
+          `The outcome for ${item.request.title ?? "a questionnaire"} did not reach the session · /answers to try again`,
           "warning"
         );
       }

@@ -24,7 +24,7 @@ import {
 } from "../../../tests/harness/tui.js";
 import { MESSAGE_TYPE } from "../delivery.js";
 import extension from "../index.js";
-import { STATE_TYPE } from "../journal.js";
+import { replay, STATE_TYPE } from "../journal.js";
 
 const question = {
   wait: true,
@@ -267,7 +267,7 @@ describe("durable questionnaires in AgentSession", () => {
 
       expect(rendered?.join("\n")).toContain("✓ Remote");
 
-      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
+      expect(replay(env.harness.sessionManager.getBranch()).size).toBe(0);
       await env.harness.prompt("/answers");
       expect(env.uiContext.notify).toHaveBeenLastCalledWith(
         "No questionnaires await you on this branch",
@@ -317,7 +317,16 @@ describe("durable questionnaires in AgentSession", () => {
       await expect.poll(() => !!env.component).toBe(true);
       await env.press("1", "\r");
       await answering;
-      expect(JSON.stringify(env.checkpoint())).not.toContain('"draft"');
+      expect(outcomeMessages(env)).toHaveLength(0);
+
+      const recovered = [
+        ...replay(env.harness.sessionManager.getBranch()).values(),
+      ];
+
+      expect(recovered).toHaveLength(1);
+      expect(recovered[0]?.draft?.["target"]?.selected).toStrictEqual([
+        "local",
+      ]);
 
       env.harness.session.clearQueue();
       await env.harness.session.abort();
@@ -325,7 +334,7 @@ describe("durable questionnaires in AgentSession", () => {
       expect(outcomeMessages(env)).toHaveLength(0);
       expect(JSON.stringify(env.checkpoint())).toContain('"draft"');
       expect(env.uiContext.notify).toHaveBeenCalledWith(
-        expect.stringContaining("/answers to send them again"),
+        expect.stringContaining("/answers to try again"),
         "warning"
       );
 
@@ -340,6 +349,53 @@ describe("durable questionnaires in AgentSession", () => {
       ]);
       expect(env.harness.getPendingResponseCount()).toBe(0);
     } finally {
+      await env.cleanup();
+    }
+  });
+
+  it("reopens an undelivered answer even when the run settles without an abort", async () => {
+    const env = await setup();
+    const providerStarted = Promise.withResolvers<undefined>();
+    const finishProvider = Promise.withResolvers<undefined>();
+
+    try {
+      env.harness.setResponses([
+        fauxAssistantMessage(
+          fauxToolCall("request_user_input", asyncQuestion),
+          {
+            stopReason: "toolUse",
+          }
+        ),
+        fauxAssistantMessage("Independent"),
+      ]);
+      await env.harness.prompt("Ask async");
+      env.harness.setResponses([
+        async () => {
+          providerStarted.resolve(undefined);
+          await finishProvider.promise;
+
+          return fauxAssistantMessage("Finished");
+        },
+      ]);
+
+      const running = env.harness.prompt("Independent work");
+      await providerStarted.promise;
+      const answering = env.harness.prompt("/answers");
+      await expect.poll(() => !!env.component).toBe(true);
+      await env.press("1", "\r");
+      await answering;
+      env.harness.session.clearQueue();
+      finishProvider.resolve(undefined);
+      await running;
+
+      expect(outcomeMessages(env)).toHaveLength(0);
+      expect(env.uiContext.notify).toHaveBeenCalledWith(
+        expect.stringContaining("/answers to try again"),
+        "warning"
+      );
+      expect(replay(env.harness.sessionManager.getBranch()).size).toBe(1);
+    } finally {
+      finishProvider.resolve(undefined);
       await env.cleanup();
     }
   });
@@ -391,6 +447,7 @@ describe("durable questionnaires in AgentSession", () => {
       expect(outcomeMessages(env)).toMatchObject([
         { details: { status: "dismissed" } },
       ]);
+      expect(replay(env.harness.sessionManager.getBranch()).size).toBe(0);
       expect(env.harness.getPendingResponseCount()).toBe(1);
       expect(env.uiContext.setWidget).toHaveBeenLastCalledWith(
         "questionnaires",

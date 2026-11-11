@@ -4,6 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
+import { MESSAGE_TYPE, readOutcome } from "./delivery.js";
 import { RequestRecordSchema, StateRecordSchema } from "./interaction.js";
 import type { Interaction, RequestRecord } from "./interaction.js";
 
@@ -30,6 +31,16 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
   const items = new Map<string, Interaction>();
 
   for (const entry of branch) {
+    if (entry.type === "custom_message" && entry.customType === MESSAGE_TYPE) {
+      const result = readOutcome(entry.details);
+
+      if (result?.status === "answered" || result?.status === "dismissed") {
+        items.delete(result.interaction_id);
+      }
+
+      continue;
+    }
+
     if (entry.type !== "custom") {
       continue;
     }

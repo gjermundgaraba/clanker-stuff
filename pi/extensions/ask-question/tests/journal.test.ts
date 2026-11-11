@@ -1,6 +1,7 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
+import { MESSAGE_TYPE, outcome } from "../delivery.js";
 import { createInteraction, transition } from "../interaction.js";
 import {
   REQUEST_TYPE,
@@ -78,6 +79,31 @@ describe("questionnaire journal", () => {
 
     expect([...items.keys()]).toStrictEqual(["q_open"]);
     expect(items.get("q_open")).toStrictEqual(selected);
+  });
+
+  it("keeps a submitted draft until its outcome message is recorded", () => {
+    const { sm, pi } = session();
+
+    const item = transition(createInteraction("q_pending", request), {
+      type: "select",
+      question: "q",
+      option: "yes",
+    });
+
+    recordRequest(pi, item);
+    recordState(pi, item);
+
+    expect(replay(sm.getBranch()).get(item.id)).toStrictEqual(item);
+
+    const result = outcome(item, "answered");
+    sm.appendCustomMessageEntry(
+      MESSAGE_TYPE,
+      JSON.stringify(result),
+      true,
+      result
+    );
+
+    expect(replay(sm.getBranch()).has(item.id)).toBe(false);
   });
 
   it("skips unreadable entries and states without a request instead of blocking recovery", () => {
