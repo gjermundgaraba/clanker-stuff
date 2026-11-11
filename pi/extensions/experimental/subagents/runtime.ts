@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
+import { isVirtualModel } from "@clanker-stuff/model-history";
 import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -236,7 +237,14 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     request.model.provider
   );
 
-  const model = modelRuntime.getModel(request.model.provider, request.model.id);
+  const virtual = isVirtualModel(request.model);
+
+  const clonedModel = modelRuntime.getModel(
+    request.model.provider,
+    request.model.id
+  );
+
+  const model = virtual ? request.model : clonedModel;
 
   if (model === undefined) {
     throw new Error(
@@ -394,9 +402,34 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
   try {
     await session.bindExtensions({ mode: "print" });
+
+    if (virtual) {
+      const registered = modelRuntime.getModel(
+        request.model.provider,
+        request.model.id
+      );
+
+      if (registered === undefined || !isVirtualModel(registered)) {
+        throw new Error(
+          `Virtual model ${request.model.provider}/${request.model.id} is not available to child sessions; its router must be discoverable by the child`
+        );
+      }
+    }
   } catch (error) {
-    unsubscribe();
-    session.dispose();
+    try {
+      await session.extensionRunner.emit({
+        reason: "quit",
+        type: "session_shutdown",
+      });
+    } finally {
+      unsubscribe();
+      session.dispose();
+
+      if (virtual && request.sessionFile === undefined) {
+        await rm(sessionFile, { force: true });
+      }
+    }
+
     throw error;
   }
 

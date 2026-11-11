@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setImmediate as tick } from "node:timers/promises";
 
@@ -436,6 +436,174 @@ describe("child runtime", () => {
       await runtime.dispose();
       parent.cleanup();
       other.cleanup();
+    }
+  });
+
+  it.each(["load", "session_start"] as const)(
+    "routes a child through a virtual model registered at %s",
+    async (registration) => {
+      const harness = await createAgentSessionHarness();
+      process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+
+      const physical = harness.faux.getModel();
+      harness.session.modelRuntime.registerVirtualModel({
+        provider: "child-router",
+        id: "auto",
+        name: "Child router",
+        route: () => ({ model: physical, thinkingLevel: "off" }),
+      });
+
+      const model = harness.session.modelRuntime.getModel(
+        "child-router",
+        "auto"
+      );
+
+      if (model === undefined) {
+        throw new Error("Parent router was not registered");
+      }
+
+      await mkdir(path.join(harness.agentDir, "extensions"));
+      await writeFile(
+        path.join(harness.agentDir, "extensions", "router.ts"),
+        `export default function (pi) {
+          const register = () => pi.registerVirtualModel({
+            provider: "child-router", id: "auto", name: "Child router",
+            route(_request, ctx) {
+              const model = ctx.modelRegistry.find(${JSON.stringify(physical.provider)}, ${JSON.stringify(physical.id)});
+              if (!model) throw new Error("Child physical model is missing");
+              return { model };
+            }
+          });
+          ${registration === "load" ? "register();" : 'pi.on("session_start", register);'}
+        }`
+      );
+      harness.setResponses([fauxAssistantMessage("routed child answer")]);
+
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        model,
+      });
+
+      try {
+        expect(runtime.model).toBe("child-router/auto");
+        await expect(runtime.startTurn("Routed work")).resolves.toStrictEqual({
+          status: "completed",
+          text: "routed child answer",
+        });
+
+        const responses = branchOf(runtime.sessionFile, harness).flatMap(
+          (entry) =>
+            entry.type === "message" && entry.message.role === "assistant"
+              ? [
+                  {
+                    provider: entry.message.provider,
+                    model: entry.message.model,
+                  },
+                ]
+              : []
+        );
+
+        expect(responses).toStrictEqual([
+          { provider: physical.provider, model: physical.id },
+        ]);
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    }
+  );
+
+  it("cleans up a child when a parent-only virtual router is unavailable", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+
+    const physical = harness.faux.getModel();
+    harness.session.modelRuntime.registerVirtualModel({
+      provider: "parent-only",
+      id: "auto",
+      name: "Parent only",
+      route: () => ({ model: physical, thinkingLevel: "off" }),
+    });
+
+    const model = harness.session.modelRuntime.getModel("parent-only", "auto");
+
+    if (model === undefined) {
+      throw new Error("Parent router was not registered");
+    }
+
+    let shutDown = false;
+
+    try {
+      await expect(
+        createChildRuntime({
+          ...runtimeRequest(harness),
+          model,
+          history: [
+            { role: "user", content: "copied history", timestamp: Date.now() },
+          ],
+          bridge: (pi) => {
+            pi.on("session_shutdown", () => {
+              shutDown = true;
+            });
+          },
+        })
+      ).rejects.toThrow("its router must be discoverable by the child");
+
+      expect(shutDown).toBe(true);
+
+      const sessionDir = path.join(
+        harness.agentDir,
+        "data",
+        "subagents",
+        "sessions"
+      );
+
+      await expect(readdir(sessionDir)).resolves.toStrictEqual([]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it("keeps an existing child session when its virtual router is unavailable", async () => {
+    const harness = await createAgentSessionHarness();
+    process.env["PI_CODING_AGENT_DIR"] = harness.agentDir;
+    harness.setResponses([fauxAssistantMessage("saved answer")]);
+
+    const first = await createChildRuntime(runtimeRequest(harness));
+
+    try {
+      await first.startTurn("saved task");
+      await first.dispose();
+
+      const physical = harness.faux.getModel();
+      harness.session.modelRuntime.registerVirtualModel({
+        provider: "parent-only",
+        id: "auto",
+        name: "Parent only",
+        route: () => ({ model: physical, thinkingLevel: "off" }),
+      });
+
+      const model = harness.session.modelRuntime.getModel(
+        "parent-only",
+        "auto"
+      );
+
+      if (model === undefined) {
+        throw new Error("Parent router was not registered");
+      }
+
+      await expect(
+        createChildRuntime({
+          ...runtimeRequest(harness),
+          model,
+          sessionFile: first.sessionFile,
+        })
+      ).rejects.toThrow("its router must be discoverable by the child");
+
+      expect(hasUserTask(first.sessionFile, harness, "saved task")).toBe(true);
+    } finally {
+      await first.dispose();
+      harness.cleanup();
     }
   });
 

@@ -562,6 +562,9 @@ importers:
 
   pi/extensions/experimental/subagents:
     dependencies:
+      '@clanker-stuff/model-history':
+        specifier: workspace:^
+        version: link:../../../packages/model-history
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../../packages/extension-paths
