@@ -22,7 +22,7 @@ Real `AgentSession` tests verify:
 - Native Code Mode calls and Pi permission blocking.
 - Literal working directories.
 - A completion during a busy run arrives as one new run after settlement.
-- Metadata-only notices in TUI and RPC, with payloads and logs pulled by inspection.
+- Metadata-only notices in TUI and RPC, with payloads and logs pulled by inspection; branch-confirmed acknowledgement, a dropped handoff without a retry loop, and events arriving during a wake.
 - Complete structured values through Code Mode.
 - Notices held while an extension dialog is open, and delivered after manual compaction succeeds, fails or is aborted.
 - An outcome read before cleanup finishes produces no later notice.

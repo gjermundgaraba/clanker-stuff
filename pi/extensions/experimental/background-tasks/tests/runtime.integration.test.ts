@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -320,6 +321,176 @@ describe("background tasks in a real AgentSession", () => {
     expect(h.getPendingResponseCount()).toBe(1);
     await expect(listed(h)).resolves.toStrictEqual([
       expect.objectContaining({ id, unread: false }),
+    ]);
+  });
+
+  it("waits for a new run when a wake is handed off during another handler's settlement", async () => {
+    const settling = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let first = true;
+    let handedOff = 0;
+
+    const slow: ExtensionFactory = (pi) => {
+      pi.on("agent_settled", async () => {
+        if (first) {
+          first = false;
+          settling.resolve(undefined);
+          await release.promise;
+        }
+      });
+    };
+
+    const background: ExtensionFactory = (pi) => {
+      extension({
+        ...pi,
+        sendMessage(message, options) {
+          if (message.customType === WAKE_TYPE) {
+            handedOff += 1;
+          }
+
+          pi.sendMessage(message, options);
+        },
+      });
+    };
+
+    const h = await createAgentSessionHarness({
+      mode: "tui",
+      extensionFactories: [slow, background],
+    });
+
+    harnesses.push(h);
+    h.setResponses([
+      start("console.log('done')"),
+      fauxAssistantMessage("Started"),
+      fauxAssistantMessage("Wake received"),
+      fauxAssistantMessage("Unexpected duplicate"),
+    ]);
+    const prompting = h.prompt("Run a task");
+
+    try {
+      await settling.promise;
+      await expect.poll(() => handedOff).toBe(1);
+      expect(wakes(h)).toHaveLength(0);
+    } finally {
+      release.resolve(undefined);
+    }
+
+    await prompting;
+    await expect.poll(() => wakes(h).length).toBe(1);
+    await expect.poll(() => h.session.isIdle).toBe(true);
+    await expect(listed(h)).resolves.toStrictEqual([
+      expect.objectContaining({ unread: false }),
+    ]);
+    expect(handedOff).toBe(1);
+    expect(h.getPendingResponseCount()).toBe(1);
+  });
+
+  it("keeps events arriving during a wake for a separate subsequent notice", async () => {
+    const h = await setup();
+    const blocked = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const first = path.join(h.tempDir, "first-event");
+    const second = path.join(h.tempDir, "second-event");
+    const written = path.join(h.tempDir, "second-written");
+
+    h.setResponses([fauxAssistantMessage("Ready")]);
+    await h.prompt("Create the session");
+    await callTool(h, "task_start", {
+      name: "overlap",
+      command: process.execPath,
+      protocol: "events-v1",
+      args: [
+        "-e",
+        `const fs=require('node:fs');let n=0;setInterval(()=>{
+        const file=n===0?${JSON.stringify(first)}:${JSON.stringify(second)};
+        if(n>=2 || !fs.existsSync(file))return;
+        n++;process.stdout.write(JSON.stringify({v:1,type:'event',data:n})+'\\n',()=>{if(n===2)fs.writeFileSync(${JSON.stringify(written)},'ok')});
+      },10)`,
+      ],
+    });
+    h.setResponses([
+      async () => {
+        blocked.resolve(undefined);
+        await release.promise;
+
+        return fauxAssistantMessage("First notice received");
+      },
+      fauxAssistantMessage("Second notice received"),
+    ]);
+
+    try {
+      await writeFile(first, "go");
+      await blocked.promise;
+      expect(wakes(h)).toHaveLength(1);
+      expect(wakes(h)[0]?.content).toContain("1 new event");
+      await writeFile(second, "go");
+      await expect.poll(() => existsSync(written)).toBe(true);
+      await delay(200);
+    } finally {
+      release.resolve(undefined);
+    }
+
+    await expect.poll(() => wakes(h).length).toBe(2);
+    await expect.poll(() => h.session.isIdle).toBe(true);
+    expect(wakes(h)[1]?.content).toContain("1 new event");
+    await expect(listed(h)).resolves.toStrictEqual([
+      expect.objectContaining({ unread: false }),
+    ]);
+  });
+
+  it("keeps a dropped handoff unread and retries after a later run without a retry loop", async () => {
+    let dropped = 0;
+
+    const dropping: ExtensionFactory = (pi) => {
+      extension({
+        ...pi,
+        sendMessage(message, options) {
+          if (message.customType === WAKE_TYPE && dropped === 0) {
+            dropped += 1;
+
+            return;
+          }
+
+          pi.sendMessage(message, options);
+        },
+      });
+    };
+
+    const h = await createAgentSessionHarness({
+      mode: "tui",
+      extensionFactories: [dropping],
+    });
+
+    harnesses.push(h);
+    h.setResponses([fauxAssistantMessage("Ready")]);
+    await h.prompt("Create the session");
+    await callTool(h, "task_start", {
+      name: "quick",
+      command: process.execPath,
+      args: ["-e", ""],
+    });
+    await expect.poll(() => dropped).toBe(1);
+    await expect(listed(h)).resolves.toStrictEqual([
+      expect.objectContaining({ unread: true }),
+    ]);
+
+    h.setResponses([fauxAssistantMessage("First independent run")]);
+    await h.prompt("Continue once");
+    await delay(250);
+    expect(wakes(h)).toHaveLength(0);
+    await expect(listed(h)).resolves.toStrictEqual([
+      expect.objectContaining({ unread: true }),
+    ]);
+
+    h.setResponses([
+      fauxAssistantMessage("Second independent run"),
+      fauxAssistantMessage("Notice received"),
+    ]);
+    await h.prompt("Continue again");
+    await expect.poll(() => wakes(h).length).toBe(1);
+    await expect.poll(() => h.session.isIdle).toBe(true);
+    await expect(listed(h)).resolves.toStrictEqual([
+      expect.objectContaining({ unread: false }),
     ]);
   });
 

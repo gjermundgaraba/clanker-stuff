@@ -12,12 +12,19 @@ export interface Unread {
   outcome?: Outcome;
 }
 
+export interface NoticeReservation {
+  readonly through: number;
+  readonly outcome: boolean;
+  dropped: number;
+}
+
 export class TaskNotices {
   private retained: Array<{ event: TaskEvent; bytes: number }> = [];
   private last = 0;
   private noticed = 0;
   private droppedUnread = 0;
   private outcomeNoticed = false;
+  private reserved: NoticeReservation | undefined;
   omitted = 0;
 
   get events(): TaskEvent[] {
@@ -51,6 +58,10 @@ export class TaskNotices {
 
       if (dropped !== undefined && dropped.event.seq > this.noticed) {
         this.droppedUnread += 1;
+
+        if (this.reserved && dropped.event.seq <= this.reserved.through) {
+          this.reserved.dropped += 1;
+        }
       }
 
       this.omitted += 1;
@@ -71,9 +82,48 @@ export class TaskNotices {
     return { events, ...(announce ? { outcome } : {}) };
   }
 
+  /** Reserve precisely the updates included in an in-flight wake. */
+  reserve(outcome: boolean): NoticeReservation {
+    if (this.reserved) {
+      throw new Error("Task already has a wake in flight");
+    }
+
+    this.reserved = {
+      through: this.last,
+      outcome,
+      dropped: this.droppedUnread,
+    };
+
+    return this.reserved;
+  }
+
+  /** Acknowledge only the reserved updates; later events and outcomes remain unread. */
+  acknowledge(reservation: NoticeReservation): void {
+    if (this.reserved !== reservation) {
+      throw new Error("Unknown task wake reservation");
+    }
+
+    this.noticed = Math.max(this.noticed, reservation.through);
+    this.droppedUnread -= reservation.dropped;
+    this.outcomeNoticed ||= reservation.outcome;
+    this.reserved = undefined;
+  }
+
+  release(reservation: NoticeReservation): void {
+    if (this.reserved !== reservation) {
+      throw new Error("Unknown task wake reservation");
+    }
+
+    this.reserved = undefined;
+  }
+
   clear(outcome: boolean): void {
     this.noticed = this.last;
     this.droppedUnread = 0;
+
+    if (this.reserved) {
+      this.reserved.dropped = 0;
+    }
 
     if (outcome) {
       this.outcomeNoticed = true;

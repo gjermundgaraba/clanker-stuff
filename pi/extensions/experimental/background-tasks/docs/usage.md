@@ -63,7 +63,11 @@ See the [authoring skill](../skills/watchers/SKILL.md) for a polling example.
 
 When a task finishes, or a watcher emits events, Pi is notified once it is idle: one `background-tasks:wake` message lists every task with unread updates and starts a new turn. A finished task is announced after its process cleanup, so its logs are complete. Notices name only host-assigned task IDs, event counts and outcomes; names, keys, logs, commands and payloads are pulled with `task_inspect` as **untrusted data**, not instructions. Message roles are not a prompt-injection boundary.
 
-Notices wait while the agent is busy, while an extension dialog is open, and during manual compaction, rechecking once per second. When a run settles, pending notices start the next turn immediately. Handing a notice to Pi marks it delivered; it is not retried. A task's state remains available through `task_list` and `task_inspect`.
+Notices wait while the agent is busy, while an extension dialog is open, and during manual compaction, rechecking once per second. When a run settles, pending notices normally start the next turn immediately. An in-flight notice remains unread until the next run settles and its uniquely identified message is found on the active session branch. Updates arriving in the meantime remain unread for a subsequent notice.
+
+If the message is absent at settlement, Pi warns and keeps the updates unread; it does not immediately retry. Automatic delivery resumes after a later independent run, preventing a retry loop. A handoff that never starts a run remains unconfirmed rather than being resent on a timer; Pi warns while idle, and a later run can reconcile it. When a stopped run settles, automatic delivery pauses until another run settles. Use `task_list` or `task_inspect` at any time. An already handed-off message cannot be cancelled by stopping a run, inspecting a task, or stopping a task.
+
+Tasks and their unread state are in memory only: reload, session replacement, or process loss ends ownership rather than restoring notifications.
 
 ## Ownership
 

@@ -71,6 +71,61 @@ describe("TaskNotices", () => {
     expect(notices.unread(undefined)).toStrictEqual({ events: 3 });
   });
 
+  it("acknowledges only reserved events, including ones evicted while a wake is in flight", () => {
+    const notices = new TaskNotices();
+
+    for (let n = 0; n < EVENT_RECORDS + 2; n += 1) {
+      notices.record(n);
+    }
+
+    const pending = notices.reserve(false);
+
+    for (let n = 0; n < EVENT_RECORDS + 3; n += 1) {
+      notices.record(`new ${n}`);
+    }
+
+    notices.acknowledge(pending);
+    expect(notices.unread("completed")).toStrictEqual({
+      events: EVENT_RECORDS + 3,
+      outcome: "completed",
+    });
+  });
+
+  it("keeps keyed replacements and events dropped after inspection unread", () => {
+    const notices = new TaskNotices();
+    notices.record("first", "key");
+    const pending = notices.reserve(false);
+    notices.record("replacement", "key");
+    notices.acknowledge(pending);
+    expect(notices.unread(undefined)).toStrictEqual({ events: 1 });
+
+    const another = notices.reserve(false);
+    notices.clear(false);
+
+    for (let n = 0; n < EVENT_RECORDS + 4; n += 1) {
+      notices.record(n);
+    }
+
+    notices.acknowledge(another);
+    expect(notices.unread(undefined)).toStrictEqual({
+      events: EVENT_RECORDS + 4,
+    });
+  });
+
+  it("releases failed reservations without clearing events or outcomes", () => {
+    const notices = new TaskNotices();
+    notices.record("first");
+    const pending = notices.reserve(true);
+    notices.record("second");
+    notices.release(pending);
+    expect(notices.unread("completed")).toStrictEqual({
+      events: 2,
+      outcome: "completed",
+    });
+    notices.acknowledge(notices.reserve(true));
+    expect(notices.unread("completed")).toBeUndefined();
+  });
+
   it("drops the oldest events beyond the record and byte caps", () => {
     const counted = new TaskNotices();
 

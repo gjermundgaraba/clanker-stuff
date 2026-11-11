@@ -32,7 +32,7 @@ Cleanup owns bounded TERM/KILL escalation of the process group and a bounded pip
 
 Each task records its retained events and how much of the task has been announced: the last announced event sequence and whether its outcome was announced. A task has an unread notice when it has newer events, counting those retention dropped before they were announced, or a decided outcome that has not been announced and whose cleanup has finished. Delivery, retention and the status count all derive from that one predicate.
 
-Delivery hands Pi one message listing every task with unread updates, then marks them announced. A successful `task_inspect` or `task_stop` marks the whole task read, including an outcome decided before cleanup finishes. Human commands and `task_list` only observe.
+Delivery reserves each task's current event watermark, dropped-event count and ready outcome. It acknowledges only that reservation after the wake is recorded on the active branch at a turn boundary; later events, retention drops and outcomes remain unread. A successful `task_inspect` or `task_stop` marks the whole task read, including an outcome decided before cleanup finishes; it cannot retract a wake already handed to Pi. Human commands and `task_list` only observe.
 
 Keyed events replace their own unannounced predecessor. Retention is per task (64 records / 16 KiB as rendered in tool text), with omitted counts; the newest event stays even when it alone is larger. Finished tasks are pruned only once clean and read; too many unread finished tasks block new starts instead of dropping notices.
 
@@ -40,7 +40,7 @@ Keyed events replace their own unannounced predecessor. Retention is per task (6
 
 Notices are delivered only when Pi is idle, through `pi.sendMessage(…, { triggerTurn: true })`. Delivery runs from `agent_settled`, where Pi defers the triggered prompt until every settled handler has finished, and from a 100 ms debounce after task changes. While the agent is busy, an extension dialog is open, or manual compaction runs, a one-second recheck waits; compaction and dialogs end without `agent_settled`.
 
-Handing a notice to Pi counts as delivery. There is no receipt tracking or retry: a notice lost before Pi records it is not repeated, but the task remains inspectable. Each delivery is its own run, so settlement consumers always see a boundary between notices.
+At most one wake is in flight. Each carries a unique ID in its message details; at the next `agent_settled`, the runtime checks the active branch for that ID and acknowledges only its reserved updates. If absent, it releases the reservations, warns, and pauses automatic delivery until another independent run settles. A handoff that does not start a run remains pending and is warned about, not retried on a timer: a delayed handoff might still arrive. Aborted runs also pause automatic delivery until a later run, respecting Stop. Each wake is its own run, so settlement consumers see a boundary between notices. This is in-memory reconciliation, not a guarantee across reload or process loss.
 
 ## Trust
 
