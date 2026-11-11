@@ -1,4 +1,4 @@
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS runtime
 
 RUN npm install --global pnpm@12.17.0
 WORKDIR /workspace
@@ -7,7 +7,7 @@ COPY pi/evals/runtime ./pi/evals/runtime
 RUN pnpm --filter @clanker-stuff/pi-evals-runtime deploy \
     --prod --legacy --frozen-lockfile --ignore-scripts /out
 
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates git ripgrep \
