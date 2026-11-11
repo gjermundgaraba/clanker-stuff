@@ -30,9 +30,6 @@ coverage/
 .agents/skills/bump-pi/agents/*
 !.agents/skills/bump-pi/agents/openai.yaml
 !.agents/skills/leverage-pi/SKILL.md
-!.agents/skills/leverage-codex/
-.agents/skills/leverage-codex/*
-!.agents/skills/leverage-codex/SKILL.md
 .claude/*
 !.claude/skills/
 .claude/skills/*
