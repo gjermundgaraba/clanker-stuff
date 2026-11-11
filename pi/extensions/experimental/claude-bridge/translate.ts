@@ -46,6 +46,11 @@ const START_EVENT = {
 const describeBlock = (block: TurnBlock): string =>
   block.type === "toolCall" ? `toolCall[${block.id}]` : block.type;
 
+interface TurnOptions {
+  requireText?: boolean;
+  onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
+}
+
 export class Turn {
   readonly output: AssistantMessage;
 
@@ -68,19 +73,13 @@ export class Turn {
   /** The pi names of the tools the query serves. */
   private readonly served: ReadonlySet<string>;
   /** A one-off asks for text: a reply without any is a failure, not an answer. */
-  private readonly options: {
-    requireText?: boolean;
-    onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
-  };
+  private readonly options: TurnOptions;
 
   constructor(
     model: Model<Api>,
     stream: AssistantMessageEventStream,
     served: ReadonlySet<string>,
-    options: {
-      requireText?: boolean;
-      onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
-    } = {}
+    options: TurnOptions = {}
   ) {
     this.model = model;
     this.stream = stream;

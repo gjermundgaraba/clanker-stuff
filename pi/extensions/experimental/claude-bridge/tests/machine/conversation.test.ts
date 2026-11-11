@@ -2,7 +2,11 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai";
-import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
+import type {
+  Message,
+  SimpleStreamOptions,
+  ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 import { createActor, SimulatedClock, waitFor } from "xstate";
@@ -30,6 +34,7 @@ import {
   recordingStream,
   successResult,
   textBlock,
+  textStart,
   toolUseStart,
 } from "../fixtures/sdk.js";
 import type { RecordingStream } from "../fixtures/sdk.js";
@@ -61,10 +66,15 @@ const textOf = (result: McpResult): string =>
     .map((block) => (block.type === "text" ? block.text : "[image]"))
     .join("");
 
-const turn = () => {
+const turn = (
+  onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"]
+) => {
   const pi = recordingStream();
 
-  return { turn: new Turn(model, pi.stream, served), pi };
+  return {
+    turn: new Turn(model, pi.stream, served, { onProviderStreamEvent }),
+    pi,
+  };
 };
 
 const conversation = (ignoresClose = false) => {
@@ -129,9 +139,10 @@ const conversation = (ignoresClose = false) => {
   const deliver = (
     results: ToolResultMessage[],
     steer: Message[] = [],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"]
   ) => {
-    const opened = turn();
+    const opened = turn(onProviderStreamEvent);
 
     actor.send({
       type: "pi.deliver",
@@ -373,6 +384,61 @@ describe("the conversation machine", () => {
       expect(pi.ended).toBe(true);
       expect(lastEvent(pi)).toMatchObject({ type: "error" });
     });
+  });
+
+  it("does not translate a parked event into the next turn across an asynchronous boundary", async () => {
+    const { actor, query, settle, start, deliver } = conversation();
+    const first = start();
+    query().push(readToolCall("toolu_1"));
+    await settle({ active: "parked" });
+
+    const observed: unknown[] = [];
+    const delivered = Promise.withResolvers<ReturnType<typeof turn>>();
+    const stale = textStart(0);
+    let scheduled = false;
+
+    Object.defineProperty(stale, "type", {
+      get() {
+        if (!scheduled) {
+          scheduled = true;
+          queueMicrotask(() => {
+            delivered.resolve(
+              deliver([toolResult("toolu_1", "ok")], [], undefined, (event) => {
+                observed.push(event);
+              })
+            );
+          });
+        }
+
+        return "stream_event";
+      },
+    });
+
+    query().push(stale);
+    const second = await delivered.promise;
+    await settle({ active: "streaming" });
+    await yieldToEventLoop();
+    expect(observed).toStrictEqual([]);
+    expect(second.pi.events).toStrictEqual([]);
+
+    const fresh = messageStart("fresh");
+    const block = textStart(0);
+    query().push(fresh);
+    query().push(block);
+    await expect
+      .poll(() => second.pi.events.map((event) => event.type))
+      .toStrictEqual(["start", "text_start"]);
+    expect(observed).toStrictEqual([fresh.event, block.event]);
+
+    actor.send({
+      type: "cc.message",
+      message: textStart(1),
+      turn: first.turn,
+    });
+    expect(second.pi.events.map((event) => event.type)).toStrictEqual([
+      "start",
+      "text_start",
+    ]);
   });
 
   describe("a steer", () => {

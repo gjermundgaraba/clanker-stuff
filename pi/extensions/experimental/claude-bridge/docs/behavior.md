@@ -32,7 +32,7 @@ Claude Code receives pi's messages as written: an `@file` mention is not expande
 
 ## Provider observations
 
-The bridge forwards Claude Agent SDK `stream_event` data to Pi's `provider_stream_event` observers before translating it, using the observer for the current Pi call even when a query continues across tool calls. These are the API events as delivered by the SDK, not a guarantee of a complete wire trace; SDK system, assistant, and result messages are not provider stream events.
+For each Claude Agent SDK `stream_event` read while a Pi call is streaming, the bridge awaits that call's `provider_stream_event` observer before translating it. The event stays bound to that call across the await; a stale event is not translated into a later call. Events read while the query is parked, delivering tool results, or closing are ignored. An event observed just before cancellation may not be translated. These SDK events are not a complete wire trace; SDK system, assistant, and result messages are not provider stream events.
 
 The SDK does not expose Claude Code's outgoing HTTP payload or response status and headers to the bridge at a replaceable boundary. The bridge therefore cannot call Pi's `before_provider_request` or `after_provider_response` hooks, including payload replacement, for those requests. In the experimental `/context` inspector, **Input** shows a separately labeled Pi-side context snapshot; it is not Claude Code's wire request and does not include Claude Code's own preset prompt or transformations.
 

@@ -1,6 +1,5 @@
 import type {
   SDKMessage,
-  SDKPartialAssistantMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -88,7 +87,7 @@ const DROPPED = { ...IDLE, held: [] } as const;
 interface QueryInput {
   run: QueryFunction;
   params: QueryParams;
-  observe: (message: SDKPartialAssistantMessage) => Promise<void>;
+  currentTurn: () => Turn | null;
 }
 
 const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
@@ -101,10 +100,28 @@ const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
 
         for await (const message of query) {
           if (message.type === "stream_event") {
-            await input.observe(message);
-          }
+            const turn = input.currentTurn();
 
-          sendBack({ type: "cc.message", message });
+            if (turn === null) {
+              continue;
+            }
+
+            try {
+              await turn.observeStreamEvent(message);
+            } catch (error) {
+              if (input.currentTurn() === turn) {
+                sendBack({ type: "cc.error", message: errorMessage(error) });
+
+                return;
+              }
+
+              continue;
+            }
+
+            sendBack({ type: "cc.message", message, turn });
+          } else {
+            sendBack({ type: "cc.message", message });
+          }
         }
 
         sendBack({ type: "cc.end" });
@@ -257,7 +274,7 @@ export const conversationMachine = setup({
       "pi.discard": types<object>(),
       "pi.abort": types<object>(),
       "cc.toolCall": types<{ id: string; resolve: ResolveToolCall }>(),
-      "cc.message": types<{ message: SDKMessage }>(),
+      "cc.message": types<{ message: SDKMessage; turn?: Turn }>(),
       "cc.end": types<object>(),
       "cc.error": types<{ message: string }>(),
       "steer.done": types<{ error: string | undefined }>(),
@@ -272,7 +289,7 @@ export const conversationMachine = setup({
       schemas: { context: types<{ query: null; turn: null; pending: null }>() },
     },
     active: {
-      schemas: { context: types<{ query: ActiveQuery }>() },
+      schemas: { context: types<{ query: ActiveQuery; turn: Turn | null }>() },
       states: {
         streaming: {
           schemas: { context: types<{ turn: Turn; pending: null }>() },
@@ -350,8 +367,12 @@ export const conversationMachine = setup({
         input: ({ context, self }) => ({
           run: context.run,
           params: context.query.params,
-          observe: async (message) => {
-            await self.getSnapshot().context.turn?.observeStreamEvent(message);
+          currentTurn: (): Turn | null => {
+            const { context: current, value } = self.getSnapshot();
+
+            return typeof value === "object" && value["active"] === "streaming"
+              ? current.turn
+              : null;
           },
         }),
       },
@@ -538,6 +559,10 @@ export const conversationMachine = setup({
               const { turn } = context;
 
               if (message.type === "stream_event") {
+                if (event.turn !== turn) {
+                  return {};
+                }
+
                 turn.streamEvent(message);
               } else if (message.type === "assistant") {
                 turn.assistantMessage(message);
