@@ -123,6 +123,71 @@ describe("context command", () => {
     }
   });
 
+  it("captures Pi-side input independently and clears a stale provider payload", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext({ getSystemPrompt: () => "STATE" });
+    await host.emitSessionStart(ctx);
+    await host.emit(
+      "before_provider_request",
+      {
+        type: "before_provider_request",
+        payload: { provider: "EARLIER PROVIDER" },
+      },
+      ctx
+    );
+
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "PI INPUT" },
+          {
+            type: "image" as const,
+            mimeType: "image/png",
+            data: "IMAGE BYTES",
+          },
+        ],
+        timestamp: 0,
+      },
+    ];
+
+    await host.emit(
+      "context_with_system",
+      { type: "context_with_system", messages },
+      ctx
+    );
+    messages[0]?.content.push({ type: "text", text: "LATER MUTATION" });
+
+    const inspect = async (present: boolean) => {
+      const ui = createCustomUiDriver({
+        keys: ["\u001B"],
+        keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
+        onComponent(component) {
+          component.handleInput?.("v");
+          const request = component.render(120).join("\n");
+          expect(request).toContain("No request observed yet");
+          expect(request).not.toContain("EARLIER PROVIDER");
+          component.handleInput?.("v");
+          component.handleInput?.("v");
+          const input = component.render(120).join("\n");
+          expect(input.includes("PI INPUT")).toBe(present);
+          expect(input).not.toContain("LATER MUTATION");
+          expect(input).not.toContain("IMAGE BYTES");
+          expect(input.includes("No Pi input observed yet")).toBe(!present);
+        },
+      });
+
+      await host.runCommand("context", "", {
+        ...ctx,
+        ui: { ...ctx.ui, custom: ui.custom },
+      });
+    };
+
+    await inspect(true);
+    await host.emit("session_tree", { type: "session_tree" }, ctx);
+    await inspect(false);
+  });
+
   it("captures registered tools and activation only when opened, without changing State", async () => {
     const host = createExtensionHost(extension, {
       allTools: ["read", "query"],
@@ -142,6 +207,10 @@ describe("context command", () => {
           expect(inventory).toContain("tools · registered inventory");
           expect(inventory).toContain(`2 registered · ${activeCount} active`);
           expect(inventory).toContain("query");
+          component.handleInput?.("v");
+          expect(component.render(120).join("\n")).toContain(
+            "No Pi input observed yet"
+          );
           component.handleInput?.("v");
           expect(component.render(120).join("\n")).toBe(state);
         },

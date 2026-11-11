@@ -269,6 +269,23 @@ const renderHeader = (
       };
     }
 
+    case "input": {
+      return {
+        subtitle: "input · Pi context observation",
+        summary: snapshot.input
+          ? `Captured ${new Date(snapshot.input.capturedAt).toISOString()}`
+          : "No Pi input observed yet",
+        note: theme.fg(
+          "muted",
+          "Messages at context_with_system: later hooks and the provider can change them; not a wire request"
+        ),
+        legend: theme.fg(
+          "muted",
+          `Memory-only · base64 media omitted · no token estimates${snapshot.input?.truncated === true ? " · truncated to 1 MiB" : ""}`
+        ),
+      };
+    }
+
     case "tools": {
       return {
         subtitle: "tools · registered inventory",

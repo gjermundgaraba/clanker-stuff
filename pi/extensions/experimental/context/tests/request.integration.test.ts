@@ -33,6 +33,7 @@ describe("context request observation", () => {
   it("observes transformed provider input/loadout separately from recorded state", async () => {
     const state: string[] = [];
     const request: string[] = [];
+    const input: string[] = [];
 
     const ui = createCustomUiDriver({
       keybindings: createKeybindings({
@@ -59,6 +60,16 @@ describe("context request observation", () => {
 
         component.handleInput?.("v");
         state.push(component.render(120).join("\n"));
+        component.handleInput?.("v");
+        component.render(120);
+        component.handleInput?.("\r");
+
+        for (let page = 0; page < 30; page += 1) {
+          input.push(component.render(120).join("\n"));
+          component.handleInput?.("\u001B[6~");
+        }
+
+        component.handleInput?.("\u001B");
         component.handleInput?.("\u001B");
       },
     });
@@ -109,6 +120,9 @@ describe("context request observation", () => {
     expect(request.join("\n")).toContain("REQUEST DESCRIPTION");
     expect(request.join("\n")).not.toContain("hidden-tool");
     expect(request.join("\n")).not.toContain("STORED DESCRIPTION");
+    expect(input.join("\n")).toContain("input · Pi context observation");
+    expect(input.join("\n")).toContain("TRANSIENT REQUEST MESSAGE");
+    expect(input.join("\n")).not.toContain("ORIGINAL STORED MESSAGE");
     expect(harness.sessionManager.getEntries()).toStrictEqual(entries);
     expect(
       harness.sessionManager

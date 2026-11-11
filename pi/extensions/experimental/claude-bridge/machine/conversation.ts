@@ -1,5 +1,6 @@
 import type {
   SDKMessage,
+  SDKPartialAssistantMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -87,6 +88,7 @@ const DROPPED = { ...IDLE, held: [] } as const;
 interface QueryInput {
   run: QueryFunction;
   params: QueryParams;
+  observe: (message: SDKPartialAssistantMessage) => Promise<void>;
 }
 
 const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
@@ -98,6 +100,10 @@ const claudeQuery = createCallbackLogic<EventObject, QueryInput>(
         query = input.run(input.params);
 
         for await (const message of query) {
+          if (message.type === "stream_event") {
+            await input.observe(message);
+          }
+
           sendBack({ type: "cc.message", message });
         }
 
@@ -341,9 +347,12 @@ export const conversationMachine = setup({
       invoke: {
         id: "query",
         src: "claudeQuery",
-        input: ({ context }) => ({
+        input: ({ context, self }) => ({
           run: context.run,
           params: context.query.params,
+          observe: async (message) => {
+            await self.getSnapshot().context.turn?.observeStreamEvent(message);
+          },
         }),
       },
       exit: ({ context }, enq) => {

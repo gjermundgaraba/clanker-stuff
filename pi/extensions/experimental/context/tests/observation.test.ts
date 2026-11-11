@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { MAX_REQUEST_BYTES, observeRequest } from "../observation.js";
+import { MAX_CAPTURE_BYTES, observe } from "../observation.js";
 
-describe(observeRequest, () => {
+describe(observe, () => {
   it("snapshots JSON without retaining it, omitting media but keeping credential-named arguments", () => {
     const payload = {
       model: "model",
@@ -32,7 +32,7 @@ describe(observeRequest, () => {
     };
 
     const before = structuredClone(payload);
-    const captured = observeRequest(payload);
+    const captured = observe(payload, "Provider payload");
     expect(payload).toStrictEqual(before);
     payload.messages[0] = { role: "user", content: "later mutation" };
 
@@ -71,8 +71,8 @@ describe(observeRequest, () => {
     };
 
     const json = JSON.stringify(payload, null, 2);
-    expect(Buffer.byteLength(json)).toBeLessThan(MAX_REQUEST_BYTES);
-    expect(observeRequest(payload)).toMatchObject({
+    expect(Buffer.byteLength(json)).toBeLessThan(MAX_CAPTURE_BYTES);
+    expect(observe(payload, "Provider payload")).toMatchObject({
       body: json,
       format: "json",
       truncated: false,
@@ -80,20 +80,20 @@ describe(observeRequest, () => {
   });
 
   it("caps retained UTF-8 bytes rather than prematurely clipping characters or fields", () => {
-    const suffix = "\n[request preview truncated]";
+    const suffix = "\n[preview truncated]";
 
     const payload = {
       text:
         "a".repeat(
-          MAX_REQUEST_BYTES -
+          MAX_CAPTURE_BYTES -
             Buffer.byteLength(suffix) -
             Buffer.byteLength('{\n  "text": "') -
             11
-        ) + "€🦄".repeat(MAX_REQUEST_BYTES),
+        ) + "€🦄".repeat(MAX_CAPTURE_BYTES),
     };
 
     const full = JSON.stringify(payload, null, 2);
-    const captured = observeRequest(payload);
+    const captured = observe(payload, "Provider payload");
 
     expect(captured.format).toBe("text");
     expect(captured.truncated).toBe(true);
@@ -104,14 +104,14 @@ describe(observeRequest, () => {
     const prefix = captured.body.slice(0, -suffix.length);
     expect(full.startsWith(prefix)).toBe(true);
     expect(Buffer.byteLength(captured.body)).toBeLessThanOrEqual(
-      MAX_REQUEST_BYTES
+      MAX_CAPTURE_BYTES
     );
     expect(Buffer.byteLength(captured.body)).toBeGreaterThan(
-      MAX_REQUEST_BYTES - 4
+      MAX_CAPTURE_BYTES - 4
     );
 
-    const exact = "x".repeat(MAX_REQUEST_BYTES - 2);
-    expect(observeRequest(exact)).toMatchObject({
+    const exact = "x".repeat(MAX_CAPTURE_BYTES - 2);
+    expect(observe(exact, "Provider payload")).toMatchObject({
       body: JSON.stringify(exact),
       truncated: false,
       format: "json",
@@ -130,7 +130,7 @@ describe(observeRequest, () => {
       serializable: { toJSON: () => ({ input: "toJSON value" }) },
     };
 
-    expect(observeRequest(payload).body).toBe(
+    expect(observe(payload, "Provider payload").body).toBe(
       JSON.stringify(
         {
           input: "getter value",
@@ -155,7 +155,7 @@ describe(observeRequest, () => {
         },
       },
     ]) {
-      expect(observeRequest(value)).toMatchObject({
+      expect(observe(value, "Provider payload")).toMatchObject({
         body: "Provider payload could not be serialized as JSON.",
         format: "text",
         truncated: false,
@@ -163,7 +163,9 @@ describe(observeRequest, () => {
     }
 
     for (const value of [null, false, 0, "hello"]) {
-      expect(observeRequest(value).body).toBe(JSON.stringify(value));
+      expect(observe(value, "Provider payload").body).toBe(
+        JSON.stringify(value)
+      );
     }
   });
 });

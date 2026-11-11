@@ -9,6 +9,7 @@ import type {
   AssistantMessage,
   AssistantMessageEventStream,
   Model,
+  SimpleStreamOptions,
   ToolCall,
 } from "@earendil-works/pi-ai";
 
@@ -67,13 +68,19 @@ export class Turn {
   /** The pi names of the tools the query serves. */
   private readonly served: ReadonlySet<string>;
   /** A one-off asks for text: a reply without any is a failure, not an answer. */
-  private readonly options: { requireText?: boolean };
+  private readonly options: {
+    requireText?: boolean;
+    onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
+  };
 
   constructor(
     model: Model<Api>,
     stream: AssistantMessageEventStream,
     served: ReadonlySet<string>,
-    options: { requireText?: boolean } = {}
+    options: {
+      requireText?: boolean;
+      onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
+    } = {}
   ) {
     this.model = model;
     this.stream = stream;
@@ -96,6 +103,11 @@ export class Turn {
       stopReason: "stop",
       timestamp: Date.now(),
     };
+  }
+
+  /** Observe the SDK's raw API event before this turn translates it. */
+  async observeStreamEvent(message: SDKPartialAssistantMessage): Promise<void> {
+    await this.options.onProviderStreamEvent?.(message.event, this.model);
   }
 
   private get blocks(): TurnBlock[] {

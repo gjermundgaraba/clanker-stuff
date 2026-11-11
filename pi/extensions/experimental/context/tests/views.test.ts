@@ -11,7 +11,7 @@ import {
   createIdentityTheme,
   createMockTui,
 } from "../../../../tests/harness/tui.js";
-import { observeRequest } from "../observation.js";
+import { observe } from "../observation.js";
 import type { OverlayServices } from "../overlay.js";
 import { buildToolsSnapshot } from "../tools.js";
 import { ContextViews } from "../views.js";
@@ -29,10 +29,17 @@ const setup = (captured = true) => {
     {
       kind: "request",
       request: captured
-        ? observeRequest({ model: "routed", input: "wire-only message" })
+        ? observe(
+            { model: "routed", input: "wire-only message" },
+            "Provider payload"
+          )
         : undefined,
     },
     buildToolsSnapshot([], []),
+    {
+      kind: "input",
+      input: observe([{ role: "user", content: "Pi-side input" }], "Pi input"),
+    },
     { notify: vi.fn<ExtensionUIContext["notify"]>() },
     {
       copyToClipboard: vi.fn<OverlayServices["copyToClipboard"]>(),
@@ -72,8 +79,13 @@ describe(ContextViews, () => {
     expect(t.render()).toContain("routed");
     t.press("v");
     expect(t.render()).toContain("tools · registered inventory");
-    expect(t.render()).toContain("v state");
+    expect(t.render()).toContain("v input");
     expect(t.render()).not.toContain("~");
+    t.press("v");
+    expect(t.render()).toContain("input · Pi context observation");
+    expect(t.render()).toContain("Pi-side input");
+    expect(t.render()).toContain("not a wire request");
+    expect(t.render()).toContain("v state");
     t.press("v");
     expect(t.render()).toContain("/needle");
     expect(t.render()).toContain("state-only instruction");

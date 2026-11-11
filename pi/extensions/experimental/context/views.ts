@@ -16,6 +16,7 @@ import type { OverlayServices } from "./overlay.js";
 import type {
   ContextSnapshot,
   RequestSnapshot,
+  InputSnapshot,
   InspectorSnapshot,
 } from "./snapshot.js";
 import type { ToolsSnapshot } from "./tools.js";
@@ -34,12 +35,19 @@ export class ContextViews implements Component, Focusable {
     state: ContextSnapshot,
     request: RequestSnapshot,
     tools: ToolsSnapshot,
+    input: InputSnapshot,
     ui: Pick<ExtensionUIContext, "notify">,
     services: OverlayServices,
     done: () => void
   ) {
     this.tui = tui;
-    const snapshots: readonly InspectorSnapshot[] = [state, request, tools];
+
+    const snapshots: readonly InspectorSnapshot[] = [
+      state,
+      request,
+      tools,
+      input,
+    ];
 
     this.views = snapshots.map((snapshot, index) => {
       const next = (index + 1) % snapshots.length;

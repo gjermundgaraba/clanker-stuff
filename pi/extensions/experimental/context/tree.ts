@@ -41,18 +41,24 @@ export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
     ];
   }
 
-  if (snapshot.kind === "request") {
-    return snapshot.request
+  if (snapshot.kind === "request" || snapshot.kind === "input") {
+    const observation =
+      snapshot.kind === "request" ? snapshot.request : snapshot.input;
+
+    return observation
       ? [
           leaf(
             {
-              label: "Provider payload",
-              body: snapshot.request.body,
-              format: snapshot.request.format,
+              label:
+                snapshot.kind === "request"
+                  ? "Provider payload"
+                  : "Pi input messages",
+              body: observation.body,
+              format: observation.format,
               tone: "code",
               estimatedTokens: 0,
             },
-            "payload"
+            snapshot.kind
           ),
         ]
       : [];

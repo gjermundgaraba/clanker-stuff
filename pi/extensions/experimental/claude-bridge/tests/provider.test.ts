@@ -33,6 +33,7 @@ import {
   assistantMessage,
   readToolCall,
   init,
+  messageStart,
   successResult,
   textBlock,
 } from "./fixtures/sdk.js";
@@ -199,6 +200,116 @@ describe("streamClaudeCode", () => {
   });
 
   describe("a session's turns", () => {
+    it("observes raw SDK stream events before translation for each tool and resumed turn", async () => {
+      const { call, query, fake } = bridge();
+
+      const observed: Array<{ turn: string; data: unknown; model: string }> =
+        [];
+
+      const gate = Promise.withResolvers<undefined>();
+      const onPayload = vi.fn<NonNullable<SimpleStreamOptions["onPayload"]>>();
+
+      const onResponse =
+        vi.fn<NonNullable<SimpleStreamOptions["onResponse"]>>();
+
+      const observe =
+        (
+          turn: string
+        ): NonNullable<SimpleStreamOptions["onProviderStreamEvent"]> =>
+        async (data, eventModel) => {
+          observed.push({ turn, data, model: eventModel.id });
+
+          if (turn === "first") {
+            await gate.promise;
+          }
+        };
+
+      const u1 = user("read a");
+
+      const first = call([u1], {
+        onProviderStreamEvent: observe("first"),
+        onPayload,
+        onResponse,
+      });
+
+      const q1 = await query(0);
+      const initial = messageStart("msg_initial");
+      q1.push(init("cc-1"));
+      q1.push(initial);
+      q1.push(readToolCall("toolu_1"));
+      let completed = false;
+
+      const firstResult = first.result().then((value) => {
+        completed = true;
+
+        return value;
+      });
+
+      await vi.waitFor(() => {
+        expect(observed).toHaveLength(1);
+      });
+      expect(completed).toBe(false);
+      gate.resolve(undefined);
+      const a1 = await firstResult;
+      expect(a1.stopReason).toBe("toolUse");
+
+      const second = call([u1, a1, toolResult("toolu_1", "contents")], {
+        onProviderStreamEvent: observe("tool-follow-up"),
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          sessions?.conversation(SESSION).getSnapshot().context.turn
+        ).not.toBeNull();
+      });
+      const followUp = messageStart("msg_follow_up");
+      q1.push(followUp);
+      q1.push(assistantMessage("msg_complete", [textBlock("read it")]));
+      q1.push(successResult("read it"));
+      q1.end();
+      const a2 = await second.result();
+
+      const third = call(
+        [u1, a1, toolResult("toolu_1", "contents"), a2, user("again")],
+        {
+          onProviderStreamEvent: observe("resumed"),
+        }
+      );
+
+      const q2 = await query(1);
+      expect(q2.params.options.resume).toBe("cc-1");
+      const resumed = messageStart("msg_resumed");
+      q2.push(resumed);
+      answer(q2, "done");
+      await third.result();
+
+      expect(observed).toStrictEqual([
+        { turn: "first", data: initial.event, model: model.id },
+        { turn: "tool-follow-up", data: followUp.event, model: model.id },
+        { turn: "resumed", data: resumed.event, model: model.id },
+      ]);
+      expect(fake.queries).toHaveLength(2);
+      expect(onPayload).not.toHaveBeenCalled();
+      expect(onResponse).not.toHaveBeenCalled();
+    });
+
+    it("fails the turn if its stream observer rejects", async () => {
+      const { call, query } = bridge();
+
+      const stream = call([user("hi")], {
+        onProviderStreamEvent: async () => {
+          throw new Error("observer failed");
+        },
+      });
+
+      const q = await query(0);
+      q.push(messageStart("msg_1"));
+      const result = await stream.result();
+      expect(result.stopReason).toBe("error");
+      expect(result.errorMessage).toContain("observer failed");
+      expect(q.closed).toBe(true);
+    });
+
     it("starts the first turn clean and resumes Claude Code's session for the next", async () => {
       const { call, query, fake } = bridge();
       const u1 = user("hi");

@@ -1,6 +1,6 @@
 import type { BodyFormat } from "./snapshot.js";
 
-export const MAX_REQUEST_BYTES = 1024 * 1024;
+export const MAX_CAPTURE_BYTES = 1024 * 1024;
 
 // oxlint-disable anti-slop/no-known-value-widening -- JSON.stringify must receive opaque non-string values unchanged; narrowing or normalizing them here would alter foreign payload serialization.
 const omitMedia = function (
@@ -27,41 +27,41 @@ const omitMedia = function (
 };
 // oxlint-enable anti-slop/no-known-value-widening
 
-export interface ObservedRequest {
+export interface Observation {
   readonly capturedAt: number;
   readonly body: string;
   readonly format: BodyFormat;
   readonly truncated: boolean;
 }
 
-const serializeRequest = (payload: unknown): string | undefined => {
+const serialize = (value: unknown): string | undefined => {
   try {
-    return JSON.stringify(payload, omitMedia, 2);
+    return JSON.stringify(value, omitMedia, 2);
   } catch {
     return undefined;
   }
 };
 
-export const observeRequest = (payload: unknown): ObservedRequest => {
-  let body = serializeRequest(payload);
+export const observe = (value: unknown, label: string): Observation => {
+  let body = serialize(value);
 
   if (body === undefined) {
     return {
       capturedAt: Date.now(),
-      body: "Provider payload could not be serialized as JSON.",
+      body: `${label} could not be serialized as JSON.`,
       format: "text",
       truncated: false,
     };
   }
 
   const bytes = Buffer.from(body, "utf-8");
-  const truncated = bytes.length > MAX_REQUEST_BYTES;
+  const truncated = bytes.length > MAX_CAPTURE_BYTES;
 
   if (truncated) {
-    const suffix = "\n[request preview truncated]";
+    const suffix = "\n[preview truncated]";
     body =
       new TextDecoder().decode(
-        bytes.subarray(0, MAX_REQUEST_BYTES - Buffer.byteLength(suffix)),
+        bytes.subarray(0, MAX_CAPTURE_BYTES - Buffer.byteLength(suffix)),
         {
           stream: true,
         }

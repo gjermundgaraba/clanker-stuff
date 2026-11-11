@@ -4,34 +4,47 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   BeforeProviderRequestEvent,
+  ContextWithSystemEvent,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { observeRequest } from "./observation.js";
-import type { ObservedRequest } from "./observation.js";
+import { observe } from "./observation.js";
+import type { Observation } from "./observation.js";
 import { OVERLAY_HEIGHT_RATIO } from "./render.js";
 import { buildSnapshot } from "./snapshot.js";
-import type { RequestSnapshot } from "./snapshot.js";
+import type { InputSnapshot, RequestSnapshot } from "./snapshot.js";
 import { buildToolsSnapshot } from "./tools.js";
 import { ContextViews } from "./views.js";
 
 export const createContextInspector = (
   pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools">
 ) => {
-  let captured: ObservedRequest | undefined;
+  let capturedInput: Observation | undefined;
+  let capturedRequest: Observation | undefined;
 
   const reset = (): void => {
-    captured = undefined;
+    capturedInput = undefined;
+    capturedRequest = undefined;
   };
 
-  const observe = (
+  const observeInput = (
+    event: ContextWithSystemEvent,
+    ctx: ExtensionContext
+  ): void => {
+    if (ctx.mode === "tui") {
+      capturedRequest = undefined;
+      capturedInput = observe(event.messages, "Pi input");
+    }
+  };
+
+  const observeRequest = (
     event: BeforeProviderRequestEvent,
     ctx: ExtensionContext
   ): void => {
     if (ctx.mode === "tui") {
-      captured = observeRequest(event.payload);
+      capturedRequest = observe(event.payload, "Provider payload");
     }
   };
 
@@ -51,7 +64,12 @@ export const createContextInspector = (
         : "unknown model",
     });
 
-    const request: RequestSnapshot = { kind: "request", request: captured };
+    const request: RequestSnapshot = {
+      kind: "request",
+      request: capturedRequest,
+    };
+
+    const input: InputSnapshot = { kind: "input", input: capturedInput };
     const tools = buildToolsSnapshot(pi.getAllTools(), pi.getActiveTools());
 
     await ctx.ui.custom(
@@ -63,6 +81,7 @@ export const createContextInspector = (
           snapshot,
           request,
           tools,
+          input,
           ctx.ui,
           { copyToClipboard, highlightCode },
           () => {
@@ -80,5 +99,5 @@ export const createContextInspector = (
     );
   };
 
-  return { open, observe, reset };
+  return { open, observeInput, observeRequest, reset };
 };

@@ -30,6 +30,12 @@ One-off requests (compaction and branch summaries, an extension's call without a
 
 Claude Code receives pi's messages as written: an `@file` mention is not expanded and a message starting with `/` is not a Claude Code command, as with any other pi provider.
 
+## Provider observations
+
+The bridge forwards Claude Agent SDK `stream_event` data to Pi's `provider_stream_event` observers before translating it, using the observer for the current Pi call even when a query continues across tool calls. These are the API events as delivered by the SDK, not a guarantee of a complete wire trace; SDK system, assistant, and result messages are not provider stream events.
+
+The SDK does not expose Claude Code's outgoing HTTP payload or response status and headers to the bridge at a replaceable boundary. The bridge therefore cannot call Pi's `before_provider_request` or `after_provider_response` hooks, including payload replacement, for those requests. In the experimental `/context` inspector, **Input** shows a separately labeled Pi-side context snapshot; it is not Claude Code's wire request and does not include Claude Code's own preset prompt or transformations.
+
 ## Debugging
 
 `CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, `finish` (a tool result after an abort), or `rebuild reason=none|diverged|tail|changed`. `CLAUDE_BRIDGE_RECORD_STREAM=<path>` appends every SDK message to that file as a JSON line, for capturing replay fixtures of what Claude Code emits.

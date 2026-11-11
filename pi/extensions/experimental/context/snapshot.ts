@@ -14,7 +14,7 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
-import type { ObservedRequest } from "./observation.js";
+import type { Observation } from "./observation.js";
 import type { ToolsSnapshot } from "./tools.js";
 
 export type BodyFormat = "markdown" | "json" | "text";
@@ -41,12 +41,18 @@ export interface ContextSnapshot {
 
 export interface RequestSnapshot {
   readonly kind: "request";
-  readonly request: ObservedRequest | undefined;
+  readonly request: Observation | undefined;
+}
+
+export interface InputSnapshot {
+  readonly kind: "input";
+  readonly input: Observation | undefined;
 }
 
 export type InspectorSnapshot =
   | ContextSnapshot
   | RequestSnapshot
+  | InputSnapshot
   | ToolsSnapshot;
 
 export interface ContextMessagePart extends ContextPart {
