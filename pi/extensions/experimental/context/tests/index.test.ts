@@ -94,6 +94,7 @@ describe("context command", () => {
         onComponent(component) {
           expect(component.render(120).join("\n")).toContain("STATE ONLY");
           component.handleInput?.("v");
+          component.handleInput?.("v");
           component.render(120);
           component.handleInput?.("j");
           const observed = component.render(120).join("\n");
@@ -164,16 +165,15 @@ describe("context command", () => {
         keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
         onComponent(component) {
           component.handleInput?.("v");
-          const request = component.render(120).join("\n");
-          expect(request).toContain("No request observed yet");
-          expect(request).not.toContain("EARLIER PROVIDER");
-          component.handleInput?.("v");
-          component.handleInput?.("v");
           const input = component.render(120).join("\n");
           expect(input.includes("PI INPUT")).toBe(present);
           expect(input).not.toContain("LATER MUTATION");
           expect(input).not.toContain("IMAGE BYTES");
           expect(input.includes("No Pi input observed yet")).toBe(!present);
+          component.handleInput?.("v");
+          const request = component.render(120).join("\n");
+          expect(request).toContain("No request observed yet");
+          expect(request).not.toContain("EARLIER PROVIDER");
         },
       });
 
@@ -202,15 +202,15 @@ describe("context command", () => {
           const state = component.render(120).join("\n");
           expect(state).not.toContain("query");
           component.handleInput?.("v");
+          expect(component.render(120).join("\n")).toContain(
+            "No Pi input observed yet"
+          );
+          component.handleInput?.("v");
           component.handleInput?.("v");
           const inventory = component.render(120).join("\n");
           expect(inventory).toContain("tools · registered inventory");
           expect(inventory).toContain(`2 registered · ${activeCount} active`);
           expect(inventory).toContain("query");
-          component.handleInput?.("v");
-          expect(component.render(120).join("\n")).toContain(
-            "No Pi input observed yet"
-          );
           component.handleInput?.("v");
           expect(component.render(120).join("\n")).toBe(state);
         },

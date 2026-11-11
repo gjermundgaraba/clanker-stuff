@@ -39,20 +39,15 @@ export interface ContextSnapshot {
   readonly messages: readonly ContextMessagePart[];
 }
 
-export interface RequestSnapshot {
-  readonly kind: "request";
-  readonly request: Observation | undefined;
-}
-
-export interface InputSnapshot {
-  readonly kind: "input";
-  readonly input: Observation | undefined;
+export interface ObservationSnapshot<Kind extends "request" | "input"> {
+  readonly kind: Kind;
+  readonly observation: Observation | undefined;
 }
 
 export type InspectorSnapshot =
   | ContextSnapshot
-  | RequestSnapshot
-  | InputSnapshot
+  | ObservationSnapshot<"request">
+  | ObservationSnapshot<"input">
   | ToolsSnapshot;
 
 export interface ContextMessagePart extends ContextPart {

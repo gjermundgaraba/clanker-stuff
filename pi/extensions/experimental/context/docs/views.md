@@ -1,6 +1,6 @@
 # Inspector views
 
-`/context` opens a snapshot on **State**. Press v to cycle through **State**, **Request**, **Tools**, and **Input**, including from a detail view. Each view preserves its own search, scroll, and selected details. While typing a search, v remains a search character.
+`/context` opens a snapshot on **State**. Press v to cycle through **State**, **Input**, **Request**, and **Tools**, including from a detail view. Each view preserves its own search, scroll, and selected details. While typing a search, v remains a search character.
 
 ## State
 

@@ -50,22 +50,20 @@ describe("context request observation", () => {
 
         component.handleInput?.("v");
         component.render(120);
+        component.handleInput?.("\r");
+
+        for (let page = 0; page < 30; page += 1) {
+          input.push(component.render(120).join("\n"));
+          component.handleInput?.("\u001B[6~");
+        }
+
+        component.handleInput?.("v");
+        component.render(120);
         component.handleInput?.("j");
         component.handleInput?.("\r");
 
         for (let page = 0; page < 30; page += 1) {
           request.push(component.render(120).join("\n"));
-          component.handleInput?.("\u001B[6~");
-        }
-
-        component.handleInput?.("v");
-        state.push(component.render(120).join("\n"));
-        component.handleInput?.("v");
-        component.render(120);
-        component.handleInput?.("\r");
-
-        for (let page = 0; page < 30; page += 1) {
-          input.push(component.render(120).join("\n"));
           component.handleInput?.("\u001B[6~");
         }
 

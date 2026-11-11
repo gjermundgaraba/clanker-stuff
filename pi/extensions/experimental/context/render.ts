@@ -252,36 +252,31 @@ const renderHeader = (
       };
     }
 
-    case "request": {
-      return {
-        subtitle: "request observation",
-        summary: snapshot.request
-          ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
-          : "No request observed yet",
-        note: theme.fg(
-          "muted",
-          "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay"
-        ),
-        legend: theme.fg(
-          "muted",
-          `Memory-only · base64 media omitted · no token estimates${snapshot.request?.truncated === true ? " · truncated to 1 MiB" : ""}`
-        ),
-      };
-    }
-
+    case "request":
     case "input": {
+      const request = snapshot.kind === "request";
+      const { observation } = snapshot;
+
+      const empty = request
+        ? "No request observed yet"
+        : "No Pi input observed yet";
+
       return {
-        subtitle: "input · Pi context observation",
-        summary: snapshot.input
-          ? `Captured ${new Date(snapshot.input.capturedAt).toISOString()}`
-          : "No Pi input observed yet",
+        subtitle: request
+          ? "request observation"
+          : "input · Pi context observation",
+        summary: observation
+          ? `Captured ${new Date(observation.capturedAt).toISOString()}`
+          : empty,
         note: theme.fg(
           "muted",
-          "Messages at context_with_system: later hooks and the provider can change them; not a wire request"
+          request
+            ? "Payload at before_provider_request: later hooks may change it, and it may be a cache-warming replay"
+            : "Messages at context_with_system: later hooks and the provider can change them; not a wire request"
         ),
         legend: theme.fg(
           "muted",
-          `Memory-only · base64 media omitted · no token estimates${snapshot.input?.truncated === true ? " · truncated to 1 MiB" : ""}`
+          `Memory-only · base64 media omitted · no token estimates${observation?.truncated === true ? " · truncated to 1 MiB" : ""}`
         ),
       };
     }

@@ -42,8 +42,7 @@ export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
   }
 
   if (snapshot.kind === "request" || snapshot.kind === "input") {
-    const observation =
-      snapshot.kind === "request" ? snapshot.request : snapshot.input;
+    const { observation } = snapshot;
 
     return observation
       ? [

@@ -14,7 +14,6 @@ import { observe } from "./observation.js";
 import type { Observation } from "./observation.js";
 import { OVERLAY_HEIGHT_RATIO } from "./render.js";
 import { buildSnapshot } from "./snapshot.js";
-import type { InputSnapshot, RequestSnapshot } from "./snapshot.js";
 import { buildToolsSnapshot } from "./tools.js";
 import { ContextViews } from "./views.js";
 
@@ -64,24 +63,18 @@ export const createContextInspector = (
         : "unknown model",
     });
 
-    const request: RequestSnapshot = {
-      kind: "request",
-      request: capturedRequest,
-    };
-
-    const input: InputSnapshot = { kind: "input", input: capturedInput };
-    const tools = buildToolsSnapshot(pi.getAllTools(), pi.getActiveTools());
-
     await ctx.ui.custom(
       (tui, theme, keybindings, done) =>
         new ContextViews(
           tui,
           theme,
           keybindings,
-          snapshot,
-          request,
-          tools,
-          input,
+          [
+            snapshot,
+            { kind: "input", observation: capturedInput },
+            { kind: "request", observation: capturedRequest },
+            buildToolsSnapshot(pi.getAllTools(), pi.getActiveTools()),
+          ],
           ctx.ui,
           { copyToClipboard, highlightCode },
           () => {
