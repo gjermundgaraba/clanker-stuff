@@ -17,7 +17,10 @@ export const showInbox = async (
     return;
   }
 
-  const labels = items.map(inboxLabel);
+  const labels = items.map(
+    (item, index) =>
+      `${inboxLabel(item, index)}${coordinator.isPending(item.id) ? " · unconfirmed" : ""}`
+  );
 
   const chosen = await coordinator.prompt(
     signal,
@@ -29,7 +32,27 @@ export const showInbox = async (
 
   const item = chosen === undefined ? undefined : items[labels.indexOf(chosen)];
 
-  if (item && !signal.aborted) {
-    await coordinator.open(item.id, ctx);
+  if (!item || signal.aborted) {
+    return;
   }
+
+  if (coordinator.isPending(item.id)) {
+    const retry = "Review and retry";
+
+    const choice = await coordinator.prompt(
+      signal,
+      async (active) =>
+        await ctx.ui.select(
+          "The previous outcome is unconfirmed and may still arrive. Retrying could send a duplicate.",
+          ["Keep waiting", retry],
+          { signal: active }
+        )
+    );
+
+    if (choice !== retry || signal.aborted) {
+      return;
+    }
+  }
+
+  await coordinator.open(item.id, ctx);
 };

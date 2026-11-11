@@ -22,19 +22,22 @@ export const recordState = (pi: Writer, item: Interaction): void => {
   pi.appendEntry(STATE_TYPE, {
     id: item.id,
     ...(item.draft ? { draft: item.draft } : {}),
+    ...(item.pending === true ? { pending: true } : {}),
   });
 };
 
-/** Rebuilds the questionnaires still open on the active branch, least recently changed first. */
-export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
+/** Projects open questionnaires and recorded outcomes on the active branch. */
+export const project = (branch: SessionEntry[]) => {
   const requests = new Map<string, RequestRecord>();
   const items = new Map<string, Interaction>();
+  const closed = new Set<string>();
 
   for (const entry of branch) {
     if (entry.type === "custom_message" && entry.customType === MESSAGE_TYPE) {
       const result = readOutcome(entry.details);
 
       if (result?.status === "answered" || result?.status === "dismissed") {
+        closed.add(result.interaction_id);
         items.delete(result.interaction_id);
       }
 
@@ -60,11 +63,15 @@ export const replay = (branch: SessionEntry[]): Map<string, Interaction> => {
       const request = requests.get(entry.data.id);
       items.delete(entry.data.id);
 
-      if (request && entry.data.draft) {
-        items.set(request.id, { ...request, draft: entry.data.draft });
+      if (request && entry.data.draft && !closed.has(request.id)) {
+        items.set(request.id, {
+          ...request,
+          draft: entry.data.draft,
+          ...(entry.data.pending === true ? { pending: true } : {}),
+        });
       }
     }
   }
 
-  return items;
+  return { items, closed };
 };

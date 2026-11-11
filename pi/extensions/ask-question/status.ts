@@ -1,6 +1,10 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const showInboxCount = (ctx: ExtensionContext, count: number): void => {
+export const showInboxCount = (
+  ctx: ExtensionContext,
+  count: number,
+  pending: number
+): void => {
   if (ctx.mode !== "tui") {
     return;
   }
@@ -9,7 +13,7 @@ export const showInboxCount = (ctx: ExtensionContext, count: number): void => {
     "questionnaires",
     count > 0
       ? [
-          `${count} questionnaire${count === 1 ? "" : "s"} awaiting you · /answers`,
+          `${count} questionnaire${count === 1 ? "" : "s"}${pending > 0 ? ` · ${pending} unconfirmed` : " awaiting you"} · /answers`,
         ]
       : undefined
   );

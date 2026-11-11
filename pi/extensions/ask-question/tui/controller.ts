@@ -111,6 +111,15 @@ export class QuestionnaireView {
     this.go(open === -1 ? item.request.questions.length : open);
     this.unsubscribe = port.subscribe(() => {
       this.item = port.current();
+
+      if (!this.item.draft) {
+        queueMicrotask(() => {
+          if (!this.item.draft) {
+            this.finish("stopped");
+          }
+        });
+      }
+
       tui.requestRender();
     });
     port.setFlush(() => {

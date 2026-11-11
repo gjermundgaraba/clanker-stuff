@@ -54,6 +54,7 @@ const setup = (
 
   let mutations = 0;
   let result: Outcome | undefined;
+  let changed: (() => void) | undefined;
   const abort = new AbortController();
   const done = vi.fn<(form: FormResult) => void>();
   const report = vi.fn<(cause: unknown) => void>();
@@ -61,6 +62,7 @@ const setup = (
   const finish = vi.fn<(kind: "submit" | "dismiss") => Outcome>((kind) => {
     const answers = kind === "submit" ? collectAnswers(item) : undefined;
     item = transition(item, { type: kind });
+    changed?.();
     result = outcome(
       item,
       kind === "submit" ? "answered" : "dismissed",
@@ -95,7 +97,13 @@ const setup = (
 
         return (item = transition(item, action));
       },
-      subscribe: () => () => {},
+      subscribe: (listener) => {
+        changed = listener;
+
+        return () => {
+          changed = undefined;
+        };
+      },
       setFlush: () => {},
       finish,
       waiting: false,
@@ -121,6 +129,10 @@ const setup = (
     abort,
     tui,
     press,
+    closeFromTranscript() {
+      item = transition(item, { type: "dismiss" });
+      changed?.();
+    },
     get item() {
       return item;
     },
@@ -575,6 +587,35 @@ describe("bounded questionnaire TUI", () => {
       e.press("\r", "\r");
       expect(e.finish).toHaveBeenCalledExactlyOnceWith("submit");
       expect(e.item.draft).toBeUndefined();
+    } finally {
+      e.view.dispose();
+    }
+  });
+
+  it("closes a retry editor when the original outcome is confirmed", async () => {
+    const e = setup();
+
+    try {
+      e.press("n", "unsent edit");
+      e.closeFromTranscript();
+      await Promise.resolve();
+      expect(e.done).toHaveBeenCalledExactlyOnceWith("stopped");
+      e.press("\r");
+      expect(e.finish).not.toHaveBeenCalled();
+      expect(e.mutations).toBe(0);
+    } finally {
+      e.view.dispose();
+    }
+  });
+
+  it("completes its own submission once even when closure notifies synchronously", async () => {
+    const e = setup();
+
+    try {
+      e.press("1", "\r");
+      await Promise.resolve();
+      expect(e.done).toHaveBeenCalledExactlyOnceWith(e.outcome);
+      expect(e.outcome?.status).toBe("answered");
     } finally {
       e.view.dispose();
     }

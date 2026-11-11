@@ -8,16 +8,20 @@ describe("questionnaire inbox count", () => {
     const host = createExtensionHost(() => {});
     const ctx = host.createContext();
 
-    showInboxCount(ctx, 3);
+    showInboxCount(ctx, 3, 0);
     expect(host.getWidget("questionnaires")).toBe(
       "3 questionnaires awaiting you · /answers"
     );
     expect(host.getStatus("ask-question")).toBe("✉ 3");
-    showInboxCount(ctx, 1);
+    showInboxCount(ctx, 1, 0);
     expect(host.getWidget("questionnaires")).toBe(
       "1 questionnaire awaiting you · /answers"
     );
-    showInboxCount(ctx, 0);
+    showInboxCount(ctx, 1, 1);
+    expect(host.getWidget("questionnaires")).toBe(
+      "1 questionnaire · 1 unconfirmed · /answers"
+    );
+    showInboxCount(ctx, 0, 0);
     expect(host.getWidget("questionnaires")).toBeUndefined();
     expect(host.getStatus("ask-question")).toBeUndefined();
   });
@@ -25,7 +29,7 @@ describe("questionnaire inbox count", () => {
   it("shows nothing outside the terminal", () => {
     const host = createExtensionHost(() => {});
 
-    showInboxCount(host.createContext({ mode: "rpc" }), 1);
+    showInboxCount(host.createContext({ mode: "rpc" }), 1, 1);
     expect(host.getWidget("questionnaires")).toBeUndefined();
     expect(host.getStatus("ask-question")).toBeUndefined();
   });

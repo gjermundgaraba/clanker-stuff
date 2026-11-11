@@ -57,18 +57,21 @@ describe("questionnaire transitions", () => {
     }).toThrow("no longer open");
   });
 
-  it("dismisses an open draft and restores one that was taken back", () => {
+  it("dismisses an open draft", () => {
     let item = createInteraction("question_test", request);
     item = transition(item, {
       type: "select",
       question: "target",
       option: "local",
     });
-    const { draft } = item;
-    assert.ok(draft);
 
-    const dismissed = transition(item, { type: "dismiss" });
+    const dismissed = transition(
+      { ...item, pending: true },
+      { type: "dismiss" }
+    );
+
     expect(dismissed.draft).toBeUndefined();
+    expect(dismissed.pending).toBeUndefined();
     expect(() =>
       transition(dismissed, {
         type: "select",
@@ -76,10 +79,6 @@ describe("questionnaire transitions", () => {
         option: "remote",
       })
     ).toThrow("no longer open");
-
-    const answered = transition(item, { type: "submit" });
-    const restored = transition(answered, { type: "restore", draft });
-    expect(restored.draft).toStrictEqual(draft);
   });
 
   it("rejects a persisted draft missing the question's answer record without mutating it", () => {

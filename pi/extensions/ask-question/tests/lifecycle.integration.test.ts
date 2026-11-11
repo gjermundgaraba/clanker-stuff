@@ -8,6 +8,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
+  ExtensionFactory,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
@@ -24,7 +25,7 @@ import {
 } from "../../../tests/harness/tui.js";
 import { MESSAGE_TYPE } from "../delivery.js";
 import extension from "../index.js";
-import { replay, STATE_TYPE } from "../journal.js";
+import { project, STATE_TYPE } from "../journal.js";
 
 const question = {
   wait: true,
@@ -56,7 +57,8 @@ const keys = createKeybindings({
 
 const setup = async (
   mode: ExtensionContext["mode"] = "tui",
-  persisted = true
+  persisted = true,
+  before: ExtensionFactory[] = []
 ) => {
   initTheme("dark");
   const dir = mkdtempSync(path.join(tmpdir(), "question-lifecycle-"));
@@ -89,7 +91,7 @@ const setup = async (
   );
 
   const harness = await createAgentSessionHarness({
-    extensionFactories: [extension],
+    extensionFactories: [...before, extension],
     mode,
     uiContext,
     ...(persisted ? { sessionDir: dir } : {}),
@@ -267,7 +269,9 @@ describe("durable questionnaires in AgentSession", () => {
 
       expect(rendered?.join("\n")).toContain("✓ Remote");
 
-      expect(replay(env.harness.sessionManager.getBranch()).size).toBe(0);
+      expect(project(env.harness.sessionManager.getBranch()).items.size).toBe(
+        0
+      );
       await env.harness.prompt("/answers");
       expect(env.uiContext.notify).toHaveBeenLastCalledWith(
         "No questionnaires await you on this branch",
@@ -320,7 +324,7 @@ describe("durable questionnaires in AgentSession", () => {
       expect(outcomeMessages(env)).toHaveLength(0);
 
       const recovered = [
-        ...replay(env.harness.sessionManager.getBranch()).values(),
+        ...project(env.harness.sessionManager.getBranch()).items.values(),
       ];
 
       expect(recovered).toHaveLength(1);
@@ -333,12 +337,15 @@ describe("durable questionnaires in AgentSession", () => {
       await running;
       expect(outcomeMessages(env)).toHaveLength(0);
       expect(JSON.stringify(env.checkpoint())).toContain('"draft"');
-      expect(env.uiContext.notify).toHaveBeenCalledWith(
-        expect.stringContaining("/answers to try again"),
-        "warning"
+      expect(env.uiContext.setWidget).toHaveBeenLastCalledWith(
+        "questionnaires",
+        ["1 questionnaire · 1 unconfirmed · /answers"]
       );
-
+      env.select.mockImplementationOnce(async (_title, choices) => choices[0]);
+      env.select.mockImplementationOnce(async (_title, choices) => choices[1]);
+      const previous = env.component;
       const resending = env.harness.prompt("/answers");
+      await expect.poll(() => env.component).not.toBe(previous);
       await expect.poll(env.screen).toContain("Send answers");
       expect(env.screen()).toContain("✓ Local");
       await env.press("\r");
@@ -353,7 +360,7 @@ describe("durable questionnaires in AgentSession", () => {
     }
   });
 
-  it("reopens an undelivered answer even when the run settles without an abort", async () => {
+  it("keeps an unconfirmed answer pending when a run settles normally", async () => {
     const env = await setup();
     const providerStarted = Promise.withResolvers<undefined>();
     const finishProvider = Promise.withResolvers<undefined>();
@@ -389,13 +396,107 @@ describe("durable questionnaires in AgentSession", () => {
       await running;
 
       expect(outcomeMessages(env)).toHaveLength(0);
-      expect(env.uiContext.notify).toHaveBeenCalledWith(
-        expect.stringContaining("/answers to try again"),
-        "warning"
+      expect(env.uiContext.setWidget).toHaveBeenLastCalledWith(
+        "questionnaires",
+        ["1 questionnaire · 1 unconfirmed · /answers"]
       );
-      expect(replay(env.harness.sessionManager.getBranch()).size).toBe(1);
+      expect(project(env.harness.sessionManager.getBranch()).items.size).toBe(
+        1
+      );
+      await env.harness.prompt("/answers");
+      expect(env.select).toHaveBeenLastCalledWith(
+        expect.stringContaining("could send a duplicate"),
+        ["Keep waiting", "Review and retry"],
+        expect.anything()
+      );
+      expect(outcomeMessages(env)).toHaveLength(0);
     } finally {
       finishProvider.resolve(undefined);
+      await env.cleanup();
+    }
+  });
+
+  it("does not mistake a yielding settlement handler for failed delivery", async () => {
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const intervening = Promise.withResolvers<undefined>();
+    const releaseIntervening = Promise.withResolvers<undefined>();
+    let block = false;
+
+    const env = await setup("tui", true, [
+      (pi) => {
+        pi.on("agent_settled", async () => {
+          if (block) {
+            block = false;
+            entered.resolve(undefined);
+            await release.promise;
+          }
+        });
+      },
+    ]);
+
+    try {
+      env.harness.setResponses([
+        fauxAssistantMessage(
+          fauxToolCall("request_user_input", asyncQuestion),
+          {
+            stopReason: "toolUse",
+          }
+        ),
+        fauxAssistantMessage("Independent"),
+        fauxAssistantMessage("Other work"),
+        async () => {
+          intervening.resolve(undefined);
+          await releaseIntervening.promise;
+
+          return fauxAssistantMessage("Intervening wake received");
+        },
+        fauxAssistantMessage("Answer received"),
+      ]);
+      await env.harness.prompt("Ask async");
+      block = true;
+      const running = env.harness.prompt("Other work");
+      await entered.promise;
+      expect(env.harness.session.isIdle).toBe(true);
+      await env.harness.session.sendCustomMessage(
+        { customType: "intervening", content: "Other wake", display: false },
+        { triggerTurn: true }
+      );
+
+      const runner = env.harness.session.extensionRunner;
+      const command = runner.getCommand("answers");
+      assert.ok(command);
+      const answering = command.handler("", runner.createCommandContext());
+      await expect.poll(() => !!env.component).toBe(true);
+      await env.press("1", "\r");
+      await answering;
+      expect(outcomeMessages(env)).toHaveLength(0);
+      expect(project(env.harness.sessionManager.getBranch()).items.size).toBe(
+        1
+      );
+
+      release.resolve(undefined);
+      await intervening.promise;
+      expect(outcomeMessages(env)).toHaveLength(0);
+      expect(env.uiContext.setWidget).toHaveBeenLastCalledWith(
+        "questionnaires",
+        ["1 questionnaire · 1 unconfirmed · /answers"]
+      );
+      releaseIntervening.resolve(undefined);
+      await running;
+      await expect.poll(() => outcomeMessages(env).length).toBe(1);
+      await expect.poll(() => env.harness.session.isIdle).toBe(true);
+      expect(project(env.harness.sessionManager.getBranch()).items.size).toBe(
+        0
+      );
+      await env.harness.prompt("/answers");
+      expect(env.uiContext.notify).toHaveBeenLastCalledWith(
+        "No questionnaires await you on this branch",
+        "info"
+      );
+    } finally {
+      release.resolve(undefined);
+      releaseIntervening.resolve(undefined);
       await env.cleanup();
     }
   });
@@ -425,7 +526,7 @@ describe("durable questionnaires in AgentSession", () => {
     }
   });
 
-  it("records an async dismissal for the agent without starting a turn while idle", async () => {
+  it("starts a turn for an async dismissal while idle", async () => {
     const env = await setup();
 
     try {
@@ -437,7 +538,7 @@ describe("durable questionnaires in AgentSession", () => {
           }
         ),
         fauxAssistantMessage("Independent"),
-        fauxAssistantMessage("Not expected"),
+        fauxAssistantMessage("Dismissal received"),
       ]);
       await env.harness.prompt("Ask async");
       const dismissing = env.harness.prompt("/answers");
@@ -447,8 +548,11 @@ describe("durable questionnaires in AgentSession", () => {
       expect(outcomeMessages(env)).toMatchObject([
         { details: { status: "dismissed" } },
       ]);
-      expect(replay(env.harness.sessionManager.getBranch()).size).toBe(0);
-      expect(env.harness.getPendingResponseCount()).toBe(1);
+      await expect.poll(() => env.harness.session.isIdle).toBe(true);
+      expect(project(env.harness.sessionManager.getBranch()).items.size).toBe(
+        0
+      );
+      expect(env.harness.getPendingResponseCount()).toBe(0);
       expect(env.uiContext.setWidget).toHaveBeenLastCalledWith(
         "questionnaires",
         undefined

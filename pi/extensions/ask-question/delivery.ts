@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -55,8 +52,7 @@ export const toolResult = (details: Outcome) => ({
  */
 export const sendOutcome = (
   pi: Pick<ExtensionAPI, "sendMessage">,
-  details: Outcome,
-  triggerTurn: boolean
+  details: Outcome
 ): void => {
   pi.sendMessage(
     {
@@ -65,14 +61,6 @@ export const sendOutcome = (
       display: true,
       details,
     },
-    { deliverAs: "steer", triggerTurn }
+    { deliverAs: "steer", triggerTurn: true }
   );
 };
-
-export const delivered = (branch: SessionEntry[], id: string): boolean =>
-  branch.some(
-    (entry) =>
-      entry.type === "custom_message" &&
-      entry.customType === MESSAGE_TYPE &&
-      readOutcome(entry.details)?.interaction_id === id
-  );

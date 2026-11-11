@@ -62,6 +62,7 @@ export const RequestRecordSchema = Type.Object({
 export const StateRecordSchema = Type.Object({
   id: Id,
   draft: Type.Optional(DraftSchema),
+  pending: Type.Optional(Type.Boolean()),
 });
 
 export type RequestRecord = Static<typeof RequestRecordSchema>;
@@ -85,8 +86,7 @@ export type Action =
   | { type: "toggle_custom"; question: string }
   | { type: "note"; question: string; option?: string; text: string }
   | { type: "submit" }
-  | { type: "dismiss" }
-  | { type: "restore"; draft: Draft };
+  | { type: "dismiss" };
 
 export const createInteraction = (id: string, input: unknown): Interaction => {
   const request = validateQuestionnaire(input);
@@ -272,33 +272,31 @@ const edit = (
 export const transition = (item: Interaction, action: Action): Interaction => {
   const next = structuredClone(item);
 
-  if (action.type === "restore") {
-    next.draft = structuredClone(action.draft);
-  } else {
-    const { draft } = next;
+  const { draft } = next;
 
-    if (!draft) {
-      throw new Error("This questionnaire is no longer open");
-    }
+  if (!draft) {
+    throw new Error("This questionnaire is no longer open");
+  }
 
+  if (action.type === "submit" || action.type === "dismiss") {
     if (action.type === "submit") {
       collectAnswers(next);
-      delete next.draft;
-    } else if (action.type === "dismiss") {
-      delete next.draft;
-    } else {
-      const q = next.request.questions.find(
-        (question) => question.id === action.question
-      );
-
-      const a = q && draft[q.id];
-
-      if (!q || !a) {
-        throw new Error(`Unknown question: ${action.question}`);
-      }
-
-      edit(q, a, action);
     }
+
+    delete next.draft;
+    delete next.pending;
+  } else {
+    const q = next.request.questions.find(
+      (question) => question.id === action.question
+    );
+
+    const a = q && draft[q.id];
+
+    if (!q || !a) {
+      throw new Error(`Unknown question: ${action.question}`);
+    }
+
+    edit(q, a, action);
   }
 
   return next;

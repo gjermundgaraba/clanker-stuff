@@ -6,15 +6,15 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { delivered, outcome, sendOutcome, toolResult } from "./delivery.js";
+import { outcome, sendOutcome, toolResult } from "./delivery.js";
 import type { Outcome } from "./delivery.js";
 import {
   collectAnswers,
   createInteraction,
   transition,
 } from "./interaction.js";
-import type { Action, Draft, Interaction } from "./interaction.js";
-import { recordRequest, recordState, replay } from "./journal.js";
+import type { Action, Interaction } from "./interaction.js";
+import { project, recordRequest, recordState } from "./journal.js";
 import { createPromptQueue } from "./prompts.js";
 import { showInboxCount } from "./status.js";
 import { showQuestionnaire } from "./tui/controller.js";
@@ -29,8 +29,6 @@ export class Coordinator {
   private readonly listeners = new Set<() => void>();
   /** Questionnaires whose tool call is still waiting for the outcome. */
   private readonly waiting = new Set<string>();
-  /** Drafts hidden while their outcomes are handed to Pi, until a turn boundary. */
-  private readonly inFlight = new Map<string, Draft>();
   private flushView: (() => void) | undefined;
   private inboxOpen = false;
   readonly prompt = createPromptQueue();
@@ -43,8 +41,7 @@ export class Coordinator {
     this.lifetime.abort();
     this.lifetime = new AbortController();
     this.ctx = ctx;
-    this.items = replay(ctx.sessionManager.getBranch());
-    this.inFlight.clear();
+    this.items = project(ctx.sessionManager.getBranch()).items;
     this.update();
   }
   private static owner(lifetime: AbortSignal): void {
@@ -57,6 +54,9 @@ export class Coordinator {
     return [...this.items.values()]
       .filter((item) => item.draft !== undefined)
       .toReversed();
+  }
+  isPending(id: string): boolean {
+    return this.items.get(id)?.pending === true;
   }
   get(id: string): Interaction {
     const item = this.items.get(id);
@@ -76,7 +76,12 @@ export class Coordinator {
   }
   private update(): void {
     if (this.ctx) {
-      showInboxCount(this.ctx, this.list().length);
+      const items = this.list();
+      showInboxCount(
+        this.ctx,
+        items.length,
+        items.filter((item) => item.pending === true).length
+      );
     }
 
     for (const listener of this.listeners) {
@@ -209,37 +214,28 @@ export class Coordinator {
       return result;
     }
 
-    this.remember(after);
-
-    if (before.draft) {
-      this.inFlight.set(id, before.draft);
-    }
-
-    const running = !ctx.isIdle();
-    sendOutcome(this.pi, result, kind === "submit" || running);
+    this.save({ ...before, pending: true });
+    sendOutcome(this.pi, result);
     ctx.ui.notify(
-      kind === "submit" ? "Answers submitted" : "Questionnaire dismissed",
+      `${kind === "submit" ? "Answers" : "Dismissal"} sent · awaiting confirmation`,
       "info"
     );
 
     return result;
   }
-  /** Reopen outcomes Pi did not record, including messages dropped when a run stops. */
+  /** Only a recorded outcome confirms a handoff; absence at a boundary is inconclusive. */
   settled(ctx: ExtensionContext): void {
-    const sent = [...this.inFlight];
-    this.inFlight.clear();
+    const pending = this.list().filter((item) => item.pending === true);
 
-    const branch = ctx.sessionManager.getBranch();
+    if (pending.length === 0) {
+      return;
+    }
 
-    for (const [id, draft] of sent) {
-      const item = this.items.get(id);
+    const { closed } = project(ctx.sessionManager.getBranch());
 
-      if (item && !item.draft && !delivered(branch, id)) {
-        this.remember(transition(item, { type: "restore", draft }));
-        ctx.ui.notify(
-          `The outcome for ${item.request.title ?? "a questionnaire"} did not reach the session · /answers to try again`,
-          "warning"
-        );
+    for (const item of pending) {
+      if (closed.has(item.id)) {
+        this.remember(transition(item, { type: "dismiss" }));
       }
     }
   }
@@ -277,7 +273,7 @@ export class Coordinator {
     this.listeners.clear();
 
     if (this.ctx) {
-      showInboxCount(this.ctx, 0);
+      showInboxCount(this.ctx, 0, 0);
     }
 
     this.ctx = undefined;

@@ -94,15 +94,15 @@ Every result and message carries one object: `type: "questionnaire"`, `interacti
 - Dismissing a waiting questionnaire returns `status: "dismissed"` and the run continues.
 - Closing a waiting questionnaire, or stopping its run, returns `status: "closed"` and stops the run. The draft stays open in `/answers`.
 - Answering a questionnaire nobody is waiting on sends the answers as an `ask-question` custom message with `deliverAs: "steer"`: it steers the current run or, while idle, starts a turn.
-- Dismissing one sends a `dismissed` message the same way, except that while idle it is recorded for the agent's next turn instead of starting one.
+- Dismissing one sends a `dismissed` message the same way, starting a turn while idle.
 
 Submitting sends at once; nothing is sent automatically. Background work, wakes, reopening the UI and ordinary prompts never do.
 
-Pi's Stop clears the messages queued for the run it stops. At settlement, an outcome that never reached the session reopens its draft with a warning; use `/answers` to try again. If Pi exits before delivery, the recorded draft reopens on replay. Outcomes are never sent again automatically.
+A handoff is unconfirmed until its outcome appears on the active branch. Pi's Stop can clear queued messages, but an absent outcome at settlement does not prove delivery failed: another settlement handler may still be delaying it. The inbox keeps the draft marked **unconfirmed**, including after reload. Choose **Review and retry** explicitly to edit or resend it; the original can still arrive, so retrying can send a duplicate. Outcomes are never sent again automatically.
 
 ## Persistence
 
-Authored requests are recorded once as `ask-question.request` custom session entries; each draft change follows as an `ask-question.state` entry. A waiting call records a state without a draft when its outcome is returned. For an asynchronous outcome, the last draft remains recorded until Pi records the outcome message; that message closes the questionnaire on replay. Pi writes state entries synchronously, so a failed write fails the action that caused it. Editor text is recorded when a field is saved and flushed on close, Stop, reload and navigation; text that cannot be saved, such as over-limit text, is reported and dropped. Pi's navigation commands cannot start while a questionnaire has focus. A hard crash can lose the text of an editor that is still open.
+Authored requests are recorded once as `ask-question.request` custom session entries; each draft change follows as an `ask-question.state` entry. A waiting call records a state without a draft when its outcome is returned. For an asynchronous outcome, a state marks the draft unconfirmed before handoff; the recorded outcome message closes it on replay. A later draft save from a retry cannot reopen an interaction whose outcome was already recorded. Pi writes state entries synchronously, so a failed write fails the action that caused it. Editor text is recorded when a field is saved and flushed on close, Stop, reload and navigation; text that cannot be saved, such as over-limit text, is reported and dropped. Pi's navigation commands cannot start while a questionnaire has focus. A hard crash can lose the text of an editor that is still open.
 
 Replay reads only the active branch; states and recorded outcome messages are applied in order, and only open questionnaires are kept, listed most recently changed first as they were before the reload. Fields that earlier versions recorded, such as `updated_at`, are ignored, and unreadable entries are skipped rather than blocking the session. Branch changes close views opened on the previous branch. Forks inherit recorded state.
 
@@ -110,6 +110,6 @@ Historical transcripts are not rewritten and render as written. Pi never re-exec
 
 ## Inbox indicator
 
-While questionnaires are open, a widget above the editor counts them, and the footer status `ask-question` shows a mail icon with the same count. Opening the inbox does not clear the indicator; answering or dismissing does. Press Alt+I or use `/answers` to open the inbox.
+While questionnaires are open or unconfirmed, a widget above the editor counts them, and the footer status `ask-question` shows a mail icon with the same count. Opening the inbox does not clear the indicator. A waiting call closes on its result; an asynchronous outcome closes when its recorded message is confirmed at a turn boundary or on replay. Press Alt+I or use `/answers` to open the inbox.
 
 Terminals that read Pi's program status (OSC 7501), such as Herdr, see Pi as blocked on a question while a waiting questionnaire is open. Pi restores the appropriate run status when it closes.
