@@ -380,8 +380,8 @@ importers:
         specifier: 1.32.2
         version: 1.32.2(zod@4.6.7)
       cc-session-io:
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.4.1
+        version: 0.4.1
       xstate:
         specifier: 'catalog:'
         version: 6.0.0-alpha.73
@@ -2187,8 +2187,8 @@ packages:
     resolution: {integrity: sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==}
     engines: {node: '>= 0.4'}
 
-  cc-session-io@0.4.0:
-    resolution: {integrity: sha512-U8N+bA6GhKmBokGx+QBy19u3v7xhNIIawKEIECysFV6tjNwoKmHGrx+EXOuTTDj20sCwjfWKIY3Xs2EjcdX3EQ==}
+  cc-session-io@0.4.1:
+    resolution: {integrity: sha512-AkQ32phSY9pxF1qdD0VrHAVOdVXTAQj8OJlkP3KvJL4od383i+clH2t2VgMOgMgocmyoSkWSHR+EaEupnh0ROw==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -4418,7 +4418,7 @@ snapshots:
       call-bind-apply-helpers: 1.0.2
       get-intrinsic: 1.3.0
 
-  cc-session-io@0.4.0: {}
+  cc-session-io@0.4.1: {}
 
   chai@6.3.0: {}
 

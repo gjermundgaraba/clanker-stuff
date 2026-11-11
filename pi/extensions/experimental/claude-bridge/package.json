@@ -46,7 +46,7 @@
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "cc-session-io": "0.4.0",
+    "cc-session-io": "0.4.1",
     "xstate": "catalog:"
   },
   "devDependencies": {
