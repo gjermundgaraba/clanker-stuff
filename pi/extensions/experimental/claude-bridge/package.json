@@ -50,7 +50,7 @@
     "xstate": "catalog:"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "1.3.0",
+    "@anthropic-ai/sdk": "1.7.0",
     "typebox": "catalog:"
   },
   "peerDependencies": {
