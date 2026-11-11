@@ -19,7 +19,7 @@ Use Node.js 26.13+, Pi 1.0.0+, and a POSIX host (macOS/Linux). Windows is reject
 
 Ordinary jobs treat stdout and stderr as logs. Successful exit produces `completed`; a nonzero exit produces `process_error`.
 
-`task_list({})` lists retained tasks with name, status, cleanup state and whether each has an unread notification.
+`task_list({})` lists retained tasks with name, status, cleanup state and whether each has uninspected updates.
 
 `task_inspect({id, tailBytes?})` returns the task summary, diagnostic, terminal `result`, retained watcher `events` (`seq`, optional `key`, `data`), the omitted-event count, and log tails of `tailBytes` source bytes per stream (default 6,000, maximum 131,072). Direct-model text is the same JSON, cut at 51,200 bytes, Pi's own tool-output limit, with an explicit marker. Log tails come last and everything else fits ahead of them, so only logs are cut and a smaller `tailBytes` fits. Code Mode, where enabled, receives the complete structured value.
 
@@ -49,7 +49,7 @@ Write an ordinary script with Pi's file tools. Launch it with `protocol: "events
 
 Every record requires `v`, `type`, and `data`; unknown fields are rejected. Only events may have an optional `key` (up to 128 characters). Send diagnostics to stderr. The host does not parse service-specific statuses, retry network requests, or evaluate predicates.
 
-- Events continue observation. A key replaces that key's unannounced event; announced events stay inspectable.
+- Events continue observation. A key replaces that key's event until it has been inspected or covered by a wake attempt; covered events stay inspectable.
 - The first result finishes observation and starts process cleanup. Later records and exit callbacks cannot overwrite it, so an observed CI failure is a valid result, not a watcher crash.
 - Successful exit without a result is `result_missing`; nonzero exit without a result is `process_error`.
 - Invalid UTF-8/JSON, unknown versions or fields, oversized records, a missing final LF, and more than 256 records per second produce `protocol_error`. A record is oversized when its line, or its `data` rendered as tool-output JSON after parsing, exceeds 16 KiB; numbers such as `1e20` and escaped characters such as bidi controls render larger than they are written.
@@ -61,11 +61,11 @@ See the [authoring skill](../skills/watchers/SKILL.md) for a polling example.
 
 ## Notifications and trust
 
-When a task finishes, or a watcher emits events, Pi is notified once it is idle: one `background-tasks:wake` message lists every task with unread updates and starts a new turn. A finished task is announced after its process cleanup, so its logs are complete. Notices name only host-assigned task IDs, event counts and outcomes; names, keys, logs, commands and payloads are pulled with `task_inspect` as **untrusted data**, not instructions. Message roles are not a prompt-injection boundary.
+When a task finishes, or a watcher emits events, the extension attempts a `background-tasks:wake` when Pi is idle. A finished task is eligible after process cleanup, so its logs are complete. Notices name only host-assigned task IDs; names, keys, logs, commands and payloads are pulled with `task_inspect` as **untrusted data**, not instructions. Message roles are not a prompt-injection boundary.
 
-Notices wait while the agent is busy, while an extension dialog is open, and during manual compaction, rechecking once per second. When a run settles, pending notices normally start the next turn immediately. An in-flight notice remains unread until the next run settles and its uniquely identified message is found on the active session branch. Updates arriving in the meantime remain unread for a subsequent notice.
+Notices wait while the agent is busy, while an extension dialog is open, and during manual compaction, rechecking once per second. A wake is best effort: handing it to Pi is not confirmation that it was recorded or consumed. An attempt does not clear unread status, and the same updates are not automatically retried if the handoff is dropped. Later updates can produce another wake; delayed wakes can overlap. Use `task_list` or `task_inspect` at any time.
 
-If the message is absent at settlement, Pi warns and keeps the updates unread; it does not immediately retry. Automatic delivery resumes after a later independent run, preventing a retry loop. A handoff that never starts a run remains unconfirmed rather than being resent on a timer; Pi warns while idle, and a later run can reconcile it. When a stopped run settles, automatic delivery pauses until another run settles. Use `task_list` or `task_inspect` at any time. An already handed-off message cannot be cancelled by stopping a run, inspecting a task, or stopping a task.
+When a stopped run settles, existing updates remain unread but do not trigger another wake on their own. Updates that arrive later are eligible. An already handed-off message cannot be cancelled by stopping a run, inspecting a task, or stopping a task.
 
 Tasks and their unread state are in memory only: reload, session replacement, or process loss ends ownership rather than restoring notifications.
 

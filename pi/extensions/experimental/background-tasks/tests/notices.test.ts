@@ -11,119 +11,73 @@ const renderedBytes = (notices: TaskNotices) =>
   );
 
 describe("TaskNotices", () => {
-  it("announces new events and a ready outcome once, until cleared", () => {
+  it("keeps updates unread after a wake and only retries newer updates", () => {
     const notices = new TaskNotices();
-    expect(notices.unread(undefined)).toBeUndefined();
     notices.record(1);
-    notices.record(null);
-    expect(notices.unread(undefined)).toStrictEqual({ events: 2 });
-    notices.clear(false);
-    expect(notices.unread(undefined)).toBeUndefined();
-    expect(notices.unread("completed")).toStrictEqual({
-      events: 0,
+    expect(notices.wake(undefined)).toStrictEqual({ events: true });
+    notices.cover(false);
+    expect(notices.wake(undefined)).toBeUndefined();
+    expect(notices.unread(undefined)).toStrictEqual({ events: true });
+
+    notices.record(2);
+    expect(notices.wake("completed")).toStrictEqual({
+      events: true,
       outcome: "completed",
     });
-    notices.record(2);
+    notices.cover(true);
+    expect(notices.wake("completed")).toBeUndefined();
+    expect(notices.unread("completed")).toStrictEqual({
+      events: true,
+      outcome: "completed",
+    });
+
     notices.clear(true);
     expect(notices.unread("completed")).toBeUndefined();
-    expect(notices.events.map((event) => event.data)).toStrictEqual([
-      1,
-      null,
-      2,
-    ]);
+    expect(notices.wake("completed")).toBeUndefined();
+    notices.record(3);
+    expect(notices.wake("completed")).toStrictEqual({ events: true });
   });
 
-  it("replaces only an unannounced snapshot with the same key, moving it last", () => {
+  it("lets inspection of a decided outcome suppress its later cleanup notice", () => {
+    const notices = new TaskNotices();
+    notices.clear(true);
+    expect(notices.unread("completed")).toBeUndefined();
+    expect(notices.wake("completed")).toBeUndefined();
+  });
+
+  it("replaces keyed snapshots only until they are inspected or covered by a wake", () => {
     const notices = new TaskNotices();
     notices.record("a1", "a");
-    notices.clear(false);
-    notices.record("b1", "b");
+    notices.cover(false);
     notices.record("a2", "a");
     notices.record("a3", "a");
-    notices.record("plain");
+    notices.clear(false);
+    notices.record("a4", "a");
+    notices.record("a5", "a");
     expect(notices.events).toStrictEqual([
       { seq: 1, key: "a", data: "a1" },
-      { seq: 2, key: "b", data: "b1" },
-      { seq: 4, key: "a", data: "a3" },
-      { seq: 5, data: "plain" },
+      { seq: 3, key: "a", data: "a3" },
+      { seq: 5, key: "a", data: "a5" },
     ]);
-    expect(notices.unread(undefined)).toStrictEqual({ events: 3 });
+    expect(notices.unread(undefined)).toStrictEqual({ events: true });
     expect(notices.omitted).toBe(0);
   });
 
-  it("counts unannounced events that retention dropped, but not announced ones", () => {
+  it("keeps evicted updates unread until inspection and recognizes new updates after it", () => {
     const notices = new TaskNotices();
 
     for (let n = 0; n < EVENT_RECORDS + 3; n += 1) {
       notices.record(n);
     }
 
-    expect(notices.unread(undefined)).toStrictEqual({
-      events: EVENT_RECORDS + 3,
-    });
+    notices.cover(false);
+    expect(notices.omitted).toBe(3);
+    expect(notices.unread(undefined)).toStrictEqual({ events: true });
+    expect(notices.wake(undefined)).toBeUndefined();
     notices.clear(false);
-
-    for (let n = 0; n < 3; n += 1) {
-      notices.record(n);
-    }
-
-    expect(notices.omitted).toBe(6);
-    expect(notices.unread(undefined)).toStrictEqual({ events: 3 });
-  });
-
-  it("acknowledges only reserved events, including ones evicted while a wake is in flight", () => {
-    const notices = new TaskNotices();
-
-    for (let n = 0; n < EVENT_RECORDS + 2; n += 1) {
-      notices.record(n);
-    }
-
-    const pending = notices.reserve(false);
-
-    for (let n = 0; n < EVENT_RECORDS + 3; n += 1) {
-      notices.record(`new ${n}`);
-    }
-
-    notices.acknowledge(pending);
-    expect(notices.unread("completed")).toStrictEqual({
-      events: EVENT_RECORDS + 3,
-      outcome: "completed",
-    });
-  });
-
-  it("keeps keyed replacements and events dropped after inspection unread", () => {
-    const notices = new TaskNotices();
-    notices.record("first", "key");
-    const pending = notices.reserve(false);
-    notices.record("replacement", "key");
-    notices.acknowledge(pending);
-    expect(notices.unread(undefined)).toStrictEqual({ events: 1 });
-
-    const another = notices.reserve(false);
-    notices.clear(false);
-
-    for (let n = 0; n < EVENT_RECORDS + 4; n += 1) {
-      notices.record(n);
-    }
-
-    notices.acknowledge(another);
-    expect(notices.unread(undefined)).toStrictEqual({
-      events: EVENT_RECORDS + 4,
-    });
-  });
-
-  it("releases failed reservations without clearing events or outcomes", () => {
-    const notices = new TaskNotices();
-    notices.record("first");
-    const pending = notices.reserve(true);
-    notices.record("second");
-    notices.release(pending);
-    expect(notices.unread("completed")).toStrictEqual({
-      events: 2,
-      outcome: "completed",
-    });
-    notices.acknowledge(notices.reserve(true));
-    expect(notices.unread("completed")).toBeUndefined();
+    expect(notices.unread(undefined)).toBeUndefined();
+    notices.record("new");
+    expect(notices.wake(undefined)).toStrictEqual({ events: true });
   });
 
   it("drops the oldest events beyond the record and byte caps", () => {

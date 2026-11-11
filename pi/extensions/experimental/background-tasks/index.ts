@@ -17,9 +17,6 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     runtime.startSession(ctx);
   });
-  pi.on("agent_start", () => {
-    runtime.started();
-  });
   pi.on("agent_settled", (event) => {
     runtime.settled(event.aborted);
   });

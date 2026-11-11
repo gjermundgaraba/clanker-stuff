@@ -8,23 +8,18 @@ export const EVENT_RECORDS = 64;
 export const EVENT_BYTES = 16 * 1024;
 
 export interface Unread {
-  events: number;
+  events: boolean;
   outcome?: Outcome;
 }
 
-export interface NoticeReservation {
-  readonly through: number;
-  readonly outcome: boolean;
-  dropped: number;
-}
-
+/** Bounded task data, with independent inspection and wake-attempt watermarks. */
 export class TaskNotices {
   private retained: Array<{ event: TaskEvent; bytes: number }> = [];
   private last = 0;
-  private noticed = 0;
-  private droppedUnread = 0;
-  private outcomeNoticed = false;
-  private reserved: NoticeReservation | undefined;
+  private inspectedThrough = 0;
+  private wakeThrough = 0;
+  private outcomeInspected = false;
+  private outcomeCovered = false;
   omitted = 0;
 
   get events(): TaskEvent[] {
@@ -33,8 +28,9 @@ export class TaskNotices {
 
   record(data: JsonValue, key?: string): void {
     if (key !== undefined) {
+      const covered = Math.max(this.inspectedThrough, this.wakeThrough);
       this.retained = this.retained.filter(
-        ({ event }) => event.key !== key || event.seq <= this.noticed
+        ({ event }) => event.key !== key || event.seq <= covered
       );
     }
 
@@ -54,79 +50,41 @@ export class TaskNotices {
         this.retained.reduce((total, { bytes }) => total + bytes, 0) >
           EVENT_BYTES)
     ) {
-      const dropped = this.retained.shift();
-
-      if (dropped !== undefined && dropped.event.seq > this.noticed) {
-        this.droppedUnread += 1;
-
-        if (this.reserved && dropped.event.seq <= this.reserved.through) {
-          this.reserved.dropped += 1;
-        }
-      }
-
+      this.retained.shift();
       this.omitted += 1;
     }
   }
 
   unread(outcome: Outcome | undefined): Unread | undefined {
+    const events = this.last > this.inspectedThrough;
+    const unseenOutcome = outcome !== undefined && !this.outcomeInspected;
+
+    return events || unseenOutcome
+      ? { events, ...(unseenOutcome ? { outcome } : {}) }
+      : undefined;
+  }
+
+  /** Only updates neither inspected nor covered by an earlier wake need a new attempt. */
+  wake(outcome: Outcome | undefined): Unread | undefined {
     const events =
-      this.droppedUnread +
-      this.retained.filter(({ event }) => event.seq > this.noticed).length;
+      this.last > Math.max(this.inspectedThrough, this.wakeThrough);
 
-    const announce = outcome !== undefined && !this.outcomeNoticed;
+    const unseenOutcome =
+      outcome !== undefined && !this.outcomeInspected && !this.outcomeCovered;
 
-    if (!events && !announce) {
-      return undefined;
-    }
-
-    return { events, ...(announce ? { outcome } : {}) };
+    return events || unseenOutcome
+      ? { events, ...(unseenOutcome ? { outcome } : {}) }
+      : undefined;
   }
 
-  /** Reserve precisely the updates included in an in-flight wake. */
-  reserve(outcome: boolean): NoticeReservation {
-    if (this.reserved) {
-      throw new Error("Task already has a wake in flight");
-    }
-
-    this.reserved = {
-      through: this.last,
-      outcome,
-      dropped: this.droppedUnread,
-    };
-
-    return this.reserved;
-  }
-
-  /** Acknowledge only the reserved updates; later events and outcomes remain unread. */
-  acknowledge(reservation: NoticeReservation): void {
-    if (this.reserved !== reservation) {
-      throw new Error("Unknown task wake reservation");
-    }
-
-    this.noticed = Math.max(this.noticed, reservation.through);
-    this.droppedUnread -= reservation.dropped;
-    this.outcomeNoticed ||= reservation.outcome;
-    this.reserved = undefined;
-  }
-
-  release(reservation: NoticeReservation): void {
-    if (this.reserved !== reservation) {
-      throw new Error("Unknown task wake reservation");
-    }
-
-    this.reserved = undefined;
+  /** Cover current updates on a wake attempt or Stop, without marking them inspected. */
+  cover(outcome: boolean): void {
+    this.wakeThrough = this.last;
+    this.outcomeCovered ||= outcome;
   }
 
   clear(outcome: boolean): void {
-    this.noticed = this.last;
-    this.droppedUnread = 0;
-
-    if (this.reserved) {
-      this.reserved.dropped = 0;
-    }
-
-    if (outcome) {
-      this.outcomeNoticed = true;
-    }
+    this.inspectedThrough = this.last;
+    this.outcomeInspected ||= outcome;
   }
 }

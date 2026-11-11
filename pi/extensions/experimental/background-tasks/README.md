@@ -10,7 +10,7 @@ Load `pi/extensions/experimental/background-tasks/index.ts` as a local extension
 
 ## Usage
 
-- Ask Pi to start a job with `task_start`; completions and watcher events notify Pi once it is idle. Use `/tasks` to list tasks.
+- Ask Pi to start a job with `task_start`; the extension attempts a notification for completions and watcher events once Pi is idle. Wakes are best effort. Use `/tasks` to list tasks.
 - Jobs stop on reload, quit, session replacement, and tree navigation to before their start—including dev servers.
 
 ## Configuration

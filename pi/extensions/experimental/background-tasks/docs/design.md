@@ -30,21 +30,19 @@ Cleanup owns bounded TERM/KILL escalation of the process group and a bounded pip
 
 ## Notices are task state
 
-Each task records its retained events and how much of the task has been announced: the last announced event sequence and whether its outcome was announced. A task has an unread notice when it has newer events, counting those retention dropped before they were announced, or a decided outcome that has not been announced and whose cleanup has finished. Delivery, retention and the status count all derive from that one predicate.
+Each task records its retained events, an inspection watermark and a separate wake-attempt watermark, plus corresponding outcome flags. A task is unread when events have arrived since inspection, including evicted events, or an uninspected outcome is ready after cleanup. Attempting a wake never marks data read. A successful `task_inspect` or `task_stop` marks the whole task read, including an outcome decided before cleanup finishes; it cannot retract a wake already handed to Pi. Human commands and `task_list` only observe.
 
-Delivery reserves each task's current event watermark, dropped-event count and ready outcome. It acknowledges only that reservation after the wake is recorded on the active branch at a turn boundary; later events, retention drops and outcomes remain unread. A successful `task_inspect` or `task_stop` marks the whole task read, including an outcome decided before cleanup finishes; it cannot retract a wake already handed to Pi. Human commands and `task_list` only observe.
-
-Keyed events replace their own unannounced predecessor. Retention is per task (64 records / 16 KiB as rendered in tool text), with omitted counts; the newest event stays even when it alone is larger. Finished tasks are pruned only once clean and read; too many unread finished tasks block new starts instead of dropping notices.
+Keyed events replace their predecessor until it has been inspected or covered by a wake attempt. Retention is per task (64 records / 16 KiB as rendered in tool text), with omitted counts; the newest event stays even when it alone is larger. Finished tasks are pruned only once clean and read; too many unread finished tasks block new starts instead of dropping notices.
 
 ## Delivery
 
-Notices are delivered only when Pi is idle, through `pi.sendMessage(…, { triggerTurn: true })`. Delivery runs from `agent_settled`, where Pi defers the triggered prompt until every settled handler has finished, and from a 100 ms debounce after task changes. While the agent is busy, an extension dialog is open, or manual compaction runs, a one-second recheck waits; compaction and dialogs end without `agent_settled`.
+Wake handoffs are attempted only when Pi is idle, through `pi.sendMessage(…, { triggerTurn: true })`. Attempts run from `agent_settled`, where Pi defers the triggered prompt until every settled handler has finished, and from a 100 ms debounce after task changes. While the agent is busy, an extension dialog is open, or manual compaction runs, a one-second recheck waits; compaction and dialogs end without `agent_settled`.
 
-At most one wake is in flight. Each carries a unique ID in its message details; at the next `agent_settled`, the runtime checks the active branch for that ID and acknowledges only its reserved updates. If absent, it releases the reservations, warns, and pauses automatic delivery until another independent run settles. A handoff that does not start a run remains pending and is warned about, not retried on a timer: a delayed handoff might still arrive. Aborted runs also pause automatic delivery until a later run, respecting Stop. Each wake is its own run, so settlement consumers see a boundary between notices. This is in-memory reconciliation, not a guarantee across reload or process loss.
+Wakes are best-effort handoffs, not proof of recording or model consumption. Each attempt covers only the updates present when sent, so those updates are not retried automatically; later updates can start another wake. Stop covers updates present at that settlement without marking them read, but does not suppress future updates. A delayed wake can overlap a later attempt; there is no one-in-flight guarantee. All task and watermark state is in memory.
 
 ## Trust
 
-Notices contain only host-authored task IDs, event counts and outcome names. Payloads, logs, names and keys are pulled on demand as untrusted data. Structured output and the text preview carry the same JSON; Code Mode receives the complete value. Pi converts custom messages into model-facing content, so roles are not a security boundary, and processes inherit local capabilities and credentials.
+Notices contain only host-authored task IDs. Payloads, logs, names and keys are pulled on demand as untrusted data. Structured output and the text preview carry the same JSON; Code Mode receives the complete value. Pi converts custom messages into model-facing content, so roles are not a security boundary, and processes inherit local capabilities and credentials.
 
 ## Ownership and storage
 
@@ -58,7 +56,7 @@ Modules follow the repository [extension structure](../../../../../docs/extensio
 - `register.ts`: tool registrations.
 - `supervisor.ts`: process ownership, lifecycle, admission, retention.
 - `phase.ts`: the task lifecycle table, which decides each outcome and cleanup status.
-- `notices.ts`: per-task events and announcement state.
+- `notices.ts`: per-task events, inspection and wake-attempt state.
 - `protocol.ts`: watcher record framing and the wake message type.
 - `logs.ts`: bounded log tails.
 - `task.ts`: input schemas, rows and the text preview.

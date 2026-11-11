@@ -60,7 +60,7 @@ const completed = async () => {
   const s = await setup();
   await expect.poll(() => taskSummary(s.task).status).toBe("result");
   await s.task.cleanupPromise;
-  expect(unread(s.task)).toStrictEqual({ events: 2, outcome: "result" });
+  expect(unread(s.task)).toStrictEqual({ events: true, outcome: "result" });
 
   return s;
 };
@@ -286,7 +286,7 @@ describe("registerTaskTools", () => {
       await expect(
         host.runTool("task_inspect", { id: "missing" }, { ctx })
       ).rejects.toThrow(/Unknown/u);
-      expect(unread(task)).toStrictEqual({ events: 2, outcome: "result" });
+      expect(unread(task)).toStrictEqual({ events: true, outcome: "result" });
       await host.runTool("task_inspect", { id: task.id }, { ctx });
       expect(unread(task)).toBeUndefined();
       expect(
@@ -309,11 +309,14 @@ describe("registerTaskTools", () => {
         "console.log(JSON.stringify({v:1,type:'event',data:1}));setInterval(()=>{},1000)"
       );
 
-      await expect.poll(() => unread(task)).toEqual({ events: 1 });
+      await expect.poll(() => unread(task)).toEqual({ events: true });
       await host.runTool("task_inspect", { id: task.id }, { ctx });
       expect(unread(task)).toBeUndefined();
       await runtime.supervisor.stop(task.id);
-      expect(unread(task)).toStrictEqual({ events: 0, outcome: "cancelled" });
+      expect(unread(task)).toStrictEqual({
+        events: false,
+        outcome: "cancelled",
+      });
     });
   });
 });
