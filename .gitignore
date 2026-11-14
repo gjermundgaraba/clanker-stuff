@@ -18,6 +18,7 @@ coverage/
 !.vscode/settings.json
 
 .agents/*
+!.agents/setup
 !.agents/skills/
 .agents/skills/*
 !.agents/skills/.gitignore
