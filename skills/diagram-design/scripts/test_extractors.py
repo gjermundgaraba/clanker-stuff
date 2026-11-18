@@ -14,6 +14,7 @@ from xml.etree import ElementTree as ET
 import drawio_extract as drawio
 import excalidraw_extract as excalidraw
 import mermaid_extract as mermaid
+import plantuml_extract as plantuml
 
 
 def drawio_page(cells):
@@ -115,6 +116,10 @@ class DrawioTests(unittest.TestCase):
                 self.assertEqual((edge.source, edge.target), endpoints)
                 self.assertEqual((edge.bidirectional, edge.undirected), (bidirectional, undirected))
 
+    def test_exact_shape_name_wins_over_a_prefix(self):
+        self.assertEqual(drawio.classify_shape({"shape": "tableRow"}), "table-row")
+        self.assertEqual(drawio.classify_shape({"shape": "table"}), "table")
+
 
 class GraphSemanticsTests(unittest.TestCase):
     def test_equivalent_formats_agree_on_degrees_endpoints_and_cycles(self):
@@ -156,6 +161,14 @@ class ExcalidrawTests(unittest.TestCase):
                         {"id": "A", "type": "rectangle", "isDeleted": deleted},
                     ]})
                 self.assertEqual(error.exception.code, 2)
+
+    def test_labels_come_from_typed_text_not_the_wrapped_copy(self):
+        scene = excalidraw.parse_scene(Path("fixture.excalidraw"), {"elements": [
+            {"id": "A", "type": "rectangle"},
+            {"id": "ta", "type": "text", "containerId": "A", "text": "Order\nservice", "originalText": "Order service"},
+            {"id": "free", "type": "text", "text": "Legacy", "originalText": ""},
+        ]})
+        self.assertEqual({node.id: node.label for node in scene.nodes}, {"A": "Order service", "free": "Legacy"})
 
 
 class MermaidTests(unittest.TestCase):
@@ -237,6 +250,47 @@ class MermaidTests(unittest.TestCase):
                 result = subprocess.run(command + ["--diagram", selection], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("unsupported diagram kind", result.stderr)
+
+    def test_flowchart_labels_ids_and_compact_links_match_mermaid(self):
+        diagram = mermaid_diagram("flowchart LR\nA[Bob's box] -->|it's| B\nuser-profile --> box-office\nA--f(x)-->C\nC==a b==>D\nE--orders-->F")
+        self.assertEqual(diagram.node_map["A"].label, "Bob's box")
+        edges = [(edge.source, edge.target, edge.label) for edge in diagram.edges]
+        self.assertEqual(edges[:4], [("A", "B", "it's"), ("user-profile", "box-office", ""), ("A", "C", "f(x)"), ("C", "D", "a b")])
+        self.assertIn("rders", diagram.node_map)
+
+    def test_older_state_header_reads_as_state_diagram(self):
+        body = "[*] --> Waiting\nWaiting --> Done : finish\n"
+        older, current = mermaid_diagram("stateDiagram\n" + body), mermaid_diagram("stateDiagram-v2\n" + body)
+        self.assertEqual(older.kind, "stateDiagram-v2")
+        self.assertEqual([(e.source, e.target, e.label) for e in older.edges], [(e.source, e.target, e.label) for e in current.edges])
+
+    def test_er_aliases_quoted_names_and_word_cardinalities(self):
+        diagram = mermaid_diagram('erDiagram\np[Person] {\n  string name\n}\n"Line Item" }|..|{ p : has\nCAR 1 to zero or more DRIVER : drives\n')
+        self.assertEqual((diagram.node_map["p"].label, diagram.node_map["p"].fields), ("Person", ["string name"]))
+        self.assertEqual([(e.source, e.target, e.label) for e in diagram.edges],
+                         [("Line Item", "p", "}| .. |{ · has"), ("CAR", "DRIVER", "|| -- o{ · drives")])
+
+
+class PlantUMLTests(unittest.TestCase):
+    def extract(self, source):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "source.puml"
+            path.write_text(source)
+            command = [sys.executable, "-B", str(Path(plantuml.__file__)), str(path), "--json"]
+            return subprocess.run(command, capture_output=True, text=True)
+
+    def test_sequence_and_class_diagrams_become_graphs(self):
+        sequence = json.loads(self.extract('@startuml\nactor User\nparticipant "Auth API" as API\nUser -> API : login\nAPI --> User : token\n@enduml\n').stdout)["diagrams"][0]
+        self.assertEqual([(n["id"], n["label"]) for n in sequence["nodes"]], [("User", "User"), ("API", "Auth API")])
+        self.assertEqual([(e["source"], e["target"], e["label"]) for e in sequence["edges"]], [("User", "API", "login"), ("API", "User", "token")])
+        classes = json.loads(self.extract('@startuml\nclass Order {\n  +id: int\n}\nclass Item\nOrder "1" *-- "many" Item : contains\n@enduml\n').stdout)["diagrams"][0]
+        self.assertEqual(classes["nodes"][0]["fields"], ["+id: int"])
+        self.assertEqual([(e["source"], e["target"], e["cardinality"]) for e in classes["edges"]], [("Order", "Item", "1 .. many")])
+
+    def test_includes_fail_closed(self):
+        result = self.extract("@startuml\n!include https://example.invalid/x.puml\nA -> B\n@enduml\n")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("include", result.stderr)
 
 
 if __name__ == "__main__":

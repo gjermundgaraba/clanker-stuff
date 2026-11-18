@@ -6,12 +6,12 @@ license: MIT
 metadata:
   upstream-source: "https://github.com/cathrynlavery/diagram-design"
   upstream-path: "skills/diagram-design/"
-  upstream-revision: "0cf73c3fcc56667ad91a9a04c439ac6ccfabc9d1"
+  upstream-revision: "bddddb607f0416815084b7db25255ee646076ca9"
   upstream-relationship: "adapted"
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
   upstream-baseline-kind: "reconciled"
-  upstream-release: "2.6.136"
+  upstream-release: "2.6.165"
 ---
 
 # Diagram Design
@@ -35,4 +35,4 @@ Default to static HTML with inline SVG when no format is specified. For SVG deli
 
 Unless the user specifies a destination, create a workspace with `python3 <skill-dir>/scripts/create_workspace.py <short-topic>` and keep generated files there. The helper prints the new directory's absolute path under `/tmp/diagram-design/YYYY-MM-DD/`. Reuse that workspace for revisions within the same task. Deliver links to the final artifacts. Files under `/tmp` are temporary; use a persistent destination when requested.
 
-Check HTML/SVG structure with `python3 <skill-dir>/scripts/self_check.py <file>`. For PNG delivery, run this check on the HTML/SVG source before rasterization and visually inspect the exported PNG. Inspect the rendered artifact at the intended display size and correct clipping, unreadable labels, and ambiguous connections. Deliver the requested artifact and briefly identify meaningful omissions or verification limitations.
+Check HTML/SVG structure with `python3 <skill-dir>/scripts/self_check.py <file>`; for box-and-arrow figures also run `python3 <skill-dir>/scripts/verify_geometry.py <file>`. For PNG delivery, run this check on the HTML/SVG source before rasterization and visually inspect the exported PNG. Inspect the rendered artifact at the intended display size and correct clipping, unreadable labels, and ambiguous connections. Deliver the requested artifact and briefly identify meaningful omissions or verification limitations.

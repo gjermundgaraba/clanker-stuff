@@ -68,4 +68,4 @@ Place a needed legend outside active routing space and include only used encodin
 
 Each informative SVG uses `role="img"`, a descriptive `<title>` and `<desc>`, and local `aria-labelledby`/`aria-describedby` references. Put the title first, prefix IDs per figure, and describe content and relationships rather than geometry. Decorative SVG may use `aria-hidden="true"`.
 
-Run `python3 <skill-dir>/scripts/self_check.py <file>` for supported structural errors, then inspect the rendered artifact. The checker cannot prove routing clearance, clipping, factual correctness, or readability.
+Run `python3 <skill-dir>/scripts/self_check.py <file>` for supported structural errors and boxed labels past the width budget (0.60em sans, 0.62em mono, 1em wide characters, plus letter-spacing; free labels and paper-colored masks are not measured). For box-and-arrow figures, `python3 <skill-dir>/scripts/verify_geometry.py <file>` reports label masks under later-painted nodes, diagonal or border-riding connectors, corner ports, crowded ports, and stacked connectors. Then inspect the rendered artifact; neither checker proves factual correctness or readability.

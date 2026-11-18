@@ -90,6 +90,38 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(painted('<rect class="moved" x="500" width="5" height="5"/>',
                                  '<style>.moved { transform: translateX(-500px) }</style>'), [])
 
+    def test_boxed_text_past_the_width_budget_is_reported(self):
+        box = '<rect x="0" y="12" width="100" height="40" fill="#ececec" stroke="#2d3142"/>'
+        long_label = '<text x="4" y="32" font-size="10">ABCDEFGHIJKLMNOPQRST</text>'
+
+        def overflow(markup, root=''):
+            errors = self.check(SVG.replace('role="img"', 'role="img"' + root).replace('</svg>', markup + '</svg>'))
+            return [error for error in errors if 'overflows its' in error]
+
+        for markup, root in ((box + long_label, ''),
+                             (box + '<text x="4" y="32">ABCDEFGHIJKLMNOPQRST</text>', ' font-size="10"'),
+                             ('<g fill="#ececec" stroke="#2d3142"><rect x="0" y="12" width="100" height="40"/></g>' + long_label, ''),
+                             ('<rect x="0" y="12" width="100" height="40" fill-opacity="0" stroke="#2d3142"/>' + long_label, ''),
+                             (box + '<text x="4" y="24" font-size="10">AB<tspan x="4" dy="12">ABCDEFGHIJKLMNOPQRST</tspan></text>', ''),
+                             (box + '<text x="4" y="32" font-size="10">注文注文注文注文注文注文</text>', '')):
+            self.assertTrue(any('overflows its 100px box' in error for error in overflow(markup, root)), markup)
+        for markup, root in ((box + '<text x="4" y="32" font-size="10">ABCDEFGHIJ</text>', ''),
+                             (box + '<text x="50" y="32" font-size="10">ABCDEFGHIJ</text>', ' text-anchor="middle"'),
+                             (long_label, ''),
+                             ('<rect x="0" y="12" width="100" height="40" fill="hsl(0 0% 50% / 0%)"/>' + long_label, ''),
+                             ('<g opacity="0"><rect x="0" y="12" width="100" height="40" fill="#ececec"/></g>' + long_label, ''),
+                             ('<rect width="100%" height="100%" fill="#f5f5f5"/><rect x="0" y="12" width="40" height="40" fill="#f5f5f5"/>' + long_label, ''),
+                             (box + '<text x="60" y="32" dx="-40" font-size="10">ABCDEFGHIJ</text>', ''),
+                             (box + '<text x="96" y="32" font-size="10">ABCDEFGHIJ</text>', ' direction="rtl"'),
+                             ('<style>text.w { font-size: 4px; }</style>' + box + '<text class="w" x="4" y="32">ABCDEFGHIJKLMNOPQRST</text>', ''),
+                             ('<style>.box { fill: #f5f5f5; }</style><rect class="box" x="0" y="12" width="100" height="40"/>' + long_label, '')):
+            self.assertEqual(overflow(markup, root), [], markup)
+
+    def test_shipped_assets_pass(self):
+        for asset in sorted(Path(__file__).resolve().parent.parent.glob('assets/*.html')):
+            with self.subTest(asset=asset.name):
+                self.assertEqual(verify(asset), [])
+
     def test_cli_status(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'diagram.svg'

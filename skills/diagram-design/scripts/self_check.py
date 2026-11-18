@@ -2,7 +2,8 @@
 """Check HTML/inline SVG or standalone SVG structure with the Python stdlib.
 
 Checks accessible diagram metadata, viewBox values, IDs and local references,
-that an HTML document is whole, and that static content stays inside its viewBox.
+that an HTML document is whole, that static content stays inside its viewBox,
+and that text inside a visible box fits the per-character width budget.
 --strict-offline also rejects static asset dependencies outside the file.
 This is not a renderer, HTML validator, JavaScript analyzer, or security audit.
 """
@@ -11,10 +12,12 @@ from __future__ import annotations
 import argparse
 import math
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Callable
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
@@ -38,6 +41,17 @@ UNSTATIC_CSS = {"transform", "translate", "rotate", "scale", "display", "visibil
 UNSTATIC_CSS_PREFIXES = ("animation", "offset", "clip", "mask")
 CSS_KEYFRAMES = re.compile(r"@(?:-[a-z]+-)?keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", re.I)
 CSS_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+# Width budget per character: 0.60em sans, 0.62em mono, 1em for wide and full-width.
+SANS_ADVANCE, MONO_ADVANCE, WIDE_ADVANCE = 0.60, 0.62, 1.0
+# Half a narrow glyph. The budget averages wider than most faces draw, so a smaller
+# overshoot is budget error on a label that fits; a whole character past the edge is not.
+TEXT_FIT_TOLERANCE_EM = 0.3
+TEXT_FIT_PROPERTIES = ("font-size", "font-family", "text-anchor", "letter-spacing")
+# Weight and style move real glyph widths, but the budget already averages over them.
+TEXT_FIT_IGNORED = {"font-weight", "font-style"}
+# Bidi, vertical and preserved-space text lays out in ways the left-to-right budget can't place.
+TEXT_LAYOUT_PROPERTIES = ("direction", "unicode-bidi", "writing-mode", "white-space", "xml:space")
+PAINT_PROPERTIES = frozenset({"fill", "stroke", "stroke-width", "fill-opacity", "stroke-opacity", "opacity"})
 
 
 @dataclass
@@ -46,9 +60,10 @@ class Node:
     attrs: dict[str, str]
     children: list[Node] = field(default_factory=list)
     text: str = ""
+    tail: str = ""
 
     def content(self) -> str:
-        return self.text + "".join(child.content() for child in self.children)
+        return self.text + "".join(child.content() + child.tail for child in self.children)
 
 
 class Document(HTMLParser):
@@ -75,16 +90,21 @@ class Document(HTMLParser):
             self.handle_endtag(tag)
 
     def handle_data(self, data):
-        self.stack[-1].text += data
+        parent = self.stack[-1]
+        if parent.children:
+            parent.children[-1].tail += data
+        else:
+            parent.text += data
 
 
 def xml_node(element: ET.Element) -> Node:
     def name(value):
-        if value.startswith("{http://www.w3.org/1999/xlink}"):
-            return "xlink:" + value.split("}", 1)[1].lower()
+        for namespace, prefix in (("http://www.w3.org/1999/xlink", "xlink:"), ("http://www.w3.org/XML/1998/namespace", "xml:")):
+            if value.startswith("{" + namespace + "}"):
+                return prefix + value.split("}", 1)[1].lower()
         return value.rsplit("}", 1)[-1].lower()
     return Node(name(element.tag), {name(k): v for k, v in element.attrib.items()},
-                [xml_node(child) for child in element], element.text or "")
+                [xml_node(child) for child in element], element.text or "", element.tail or "")
 
 
 def walk(node: Node):
@@ -162,9 +182,18 @@ def completeness_errors(source: str) -> list[str]:
     return errors
 
 
-def declares_unstatic_css(declarations: str) -> bool:
-    names = (declaration.split(":", 1)[0].strip().lower() for declaration in declarations.split(";"))
-    return any(name in UNSTATIC_CSS or name.startswith(UNSTATIC_CSS_PREFIXES) for name in names)
+def unstatic_property(name: str) -> bool:
+    return name in UNSTATIC_CSS or name.startswith(UNSTATIC_CSS_PREFIXES)
+
+
+def restyles_text_width(name: str) -> bool:
+    if name in TEXT_FIT_IGNORED:
+        return False
+    return name.startswith(("font", "letter-spacing", "word-spacing")) or name == "text-anchor" or name in TEXT_LAYOUT_PROPERTIES
+
+
+def declares(declarations: str, wanted: Callable[[str], bool]) -> bool:
+    return any(wanted(declaration.split(":", 1)[0].strip().lower()) for declaration in declarations.split(";"))
 
 
 def selector_subjects(selector: str) -> list[tuple[str, set[str], set[str], set[str]]]:
@@ -182,29 +211,35 @@ def selector_subjects(selector: str) -> list[tuple[str, set[str], set[str], set[
     return subjects
 
 
-def unstatic_subjects(sheet: str) -> list[tuple[str, set[str], set[str], set[str]]]:
-    """Subjects of rules that move, hide or clip what they match.
+def declaring_subjects(sheet: str, wanted: Callable[[str], bool]) -> list[tuple[str, set[str], set[str], set[str]]]:
+    """Subjects of rules that declare a property `wanted` accepts, such as one that moves,
+    hides or clips what it matches.
 
     Keeping only the last compound can match more elements than the browser does, which
     only skips checks; it never adds a finding.
     """
     sheet = CSS_KEYFRAMES.sub("", re.sub(r"/\*.*?\*/", "", sheet, flags=re.S))
     return [subject for selector, declarations in CSS_RULE.findall(sheet)
-            if declares_unstatic_css(declarations) for subject in selector_subjects(selector)]
+            if declares(declarations, wanted) for subject in selector_subjects(selector)]
+
+
+def matches(node: Node, subjects) -> bool:
+    attrs = node.attrs
+    classes = set(attrs.get("class", "").split())
+    return any(tag in {"", "*", node.tag} and required <= classes and ids <= {attrs.get("id", "")} and names <= set(attrs)
+               for tag, required, ids, names in subjects)
 
 
 def child_offset(node: Node, parent: tuple[float, float], subjects) -> tuple[float, float] | None:
     """Offset of an element in viewBox units, or None when its paint is not static."""
     attrs = node.attrs
-    if node.tag in UNPAINTED_TAGS or declares_unstatic_css(attrs.get("style", "")):
+    if node.tag in UNPAINTED_TAGS or declares(attrs.get("style", ""), unstatic_property):
         return None
     if attrs.get("display", "").strip().lower() == "none" or attrs.get("visibility", "").strip().lower() in {"hidden", "collapse"}:
         return None
     if any(attrs.get(key, "none").strip().lower() != "none" for key in ("clip-path", "mask")):
         return None
-    classes = set(attrs.get("class", "").split())
-    if any(tag in {"", "*", node.tag} and required <= classes and ids <= {attrs.get("id", "")} and names <= set(attrs)
-           for tag, required, ids, names in subjects):
+    if matches(node, subjects):
         return None
     if "transform" not in attrs:
         return parent
@@ -263,6 +298,184 @@ def clipped_errors(svg: Node, box: list[float], label: str, subjects) -> list[st
     visit(svg, (0.0, 0.0))
     return [f"{label}: <{tag}> paints {overshoot:g}px past the viewBox {side} edge and is clipped; grow the viewBox or move the content inside it"
             for side, (overshoot, tag) in worst.items()]
+
+
+def zero_alpha(value: str) -> bool | None:
+    """True for an opacity or colour that paints nothing; None when it can't be read."""
+    value = value.strip().lower()
+    if value in {"none", "transparent"}:
+        return True
+    number = re.fullmatch(rf"({NUMBER})(%?)", value)
+    if number:
+        return float(number[1]) <= 0
+    if re.fullmatch(r"#[0-9a-f]{4}|#[0-9a-f]{8}", value):
+        return int(value[4] if len(value) == 5 else value[7:], 16) == 0
+    function = re.fullmatch(r"(?:rgba?|hsla?)\((.*)\)", value)
+    if function:
+        parts = [part for part in re.split(r"[\s,/]+", function[1].strip()) if part]
+        return zero_alpha(parts[3]) if len(parts) == 4 else False
+    return False if value.startswith("#") or value.isalpha() else None
+
+
+def inline_values(attrs: dict[str, str], wanted: Callable[[str], bool]) -> dict[str, str]:
+    """Presentation attributes and inline style declarations, the style attribute winning."""
+    values = {name: value.strip() for name, value in attrs.items() if name != "style" and wanted(name)}
+    for declaration in attrs.get("style", "").split(";"):
+        name, _, value = declaration.partition(":")
+        if wanted(name.strip().lower()):
+            values[name.strip().lower()] = value.strip()
+    return values
+
+
+def font_size(style: dict[str, str]) -> float | None:
+    match = re.fullmatch(rf"\s*({NUMBER})\s*(?:px)?\s*", style.get("font-size", ""))
+    return float(match[1]) if match else None
+
+
+def run_width(text: str, style: dict[str, str]) -> float | None:
+    """Budgeted width in px of one run, or None when its style cannot be read statically."""
+    size = font_size(style)
+    spacing = style.get("letter-spacing", "normal").strip().lower()
+    tracking = re.fullmatch(rf"({NUMBER})\s*(em|px)?", spacing)
+    if size is None or (spacing != "normal" and tracking is None):
+        return None
+    glyphs = [char for char in text if unicodedata.category(char) not in {"Mn", "Me"}]
+    narrow = MONO_ADVANCE if "mono" in style.get("font-family", "").lower() else SANS_ADVANCE
+    advance = sum(WIDE_ADVANCE if unicodedata.east_asian_width(char) in {"W", "F"} else narrow for char in glyphs)
+    per_glyph = 0.0 if tracking is None else float(tracking[1]) * (size if tracking[2] == "em" else 1)
+    return advance * size + per_glyph * len(glyphs)
+
+
+def overflow_errors(svg: Node, label: str, subjects, text_subjects, paint_subjects) -> list[str]:
+    """Flag text whose budgeted width runs past the visible rect it sits in.
+
+    A line's box is the smallest rect painted before it that contains the line's anchor
+    point; a rect whose opacity, fill and stroke draw nothing is no box. Free labels, text
+    on a paper-coloured mask, bidi, vertical or space-preserving text, and text whose size,
+    spacing, layout, position or paint CSS can change are not checked. A style or paint of
+    None below means a stylesheet rule can change it, so its value is unknown here.
+    """
+    rects: list[tuple[float, float, float, float, str | None, bool]] = []
+    papers: set[str | None] = set()
+    errors: list[str] = []
+
+    def inherit(node: Node, style, paint):
+        if style is not None and not matches(node, text_subjects):
+            own = inline_values(node.attrs, lambda name: name in TEXT_FIT_PROPERTIES or name in TEXT_LAYOUT_PROPERTIES or restyles_text_width(name))
+            style = None if set(own) - set(TEXT_FIT_PROPERTIES) else {**style, **own}
+        else:
+            style = None
+        if paint is not None and not matches(node, paint_subjects):
+            own = {name: value.lower() for name, value in inline_values(node.attrs, PAINT_PROPERTIES.__contains__).items()}
+            hidden = paint.get("opacity") == "0" or zero_alpha(own.get("opacity", "1"))
+            paint = None if hidden is None else {**paint, **own, "opacity": "0" if hidden else "1"}
+        else:
+            paint = None
+        return style, paint
+
+    def add_rect(node: Node, offset, paint) -> None:
+        fill: str | None = None
+        stroked = False
+        if paint is not None:
+            fill, stroke = paint.get("fill", "black"), paint.get("stroke", "none")
+            stroked = stroke not in {"none", "transparent"} and paint.get("stroke-width") != "0"
+            faded = [zero_alpha(value) for value in (paint["opacity"], fill, paint.get("fill-opacity", "1"),
+                                                     stroke, paint.get("stroke-opacity", "1"))]
+            if None in faded:
+                fill, stroked = None, False
+            else:
+                fill = "none" if any(faded[:3]) else fill
+                stroked = stroked and not any((faded[0], *faded[3:]))
+            if node.attrs.get("width", "").strip() == "100%":
+                papers.add(fill)
+        points = painted_points(node)
+        if points and (fill not in {"none", "transparent"} or stroked):
+            (x0, y0), (x1, y1) = points
+            rects.append((x0 + offset[0], y0 + offset[1], x1 + offset[0], y1 + offset[1], fill, stroked))
+
+    def text_lines(node: Node, offset, style) -> list[dict] | None:
+        """Lines of a static text element, each with its anchor point and styled runs."""
+        attrs = node.attrs
+        x, y = length(attrs, "x"), length(attrs, "y")
+        if x is None or y is None or any(name in attrs for name in ("dx", "dy", "rotate", "textlength")):
+            return None
+        lines = [{"x": x + offset[0], "y": y + offset[1], "style": style, "runs": [], "rects": len(rects)}]
+
+        def collect(parent: Node, offset, style) -> bool:
+            if style is None and parent.text:
+                return False
+            lines[-1]["runs"].append((parent.text, style))
+            for child in parent.children:
+                child_at = child_offset(child, offset, subjects)
+                child_style, _paint = inherit(child, style, {})
+                attrs = child.attrs
+                if child_at is None or any(name in attrs for name in ("dx", "rotate", "textlength")):
+                    return False
+                if "x" in attrs:
+                    x, y = length(attrs, "x"), length(attrs, "y")
+                    if x is None:
+                        return False
+                    line_y = y + child_at[1] if y is not None else lines[-1]["y"] + (length(attrs, "dy", 0.0) or 0.0)
+                    lines.append({"x": x + child_at[0], "y": line_y, "style": child_style, "runs": [], "rects": len(rects)})
+                elif "y" in attrs or "dy" in attrs:
+                    return False
+                if not collect(child, child_at, child_style) or (style is None and child.tail):
+                    return False
+                lines[-1]["runs"].append((child.tail, style))
+            return True
+
+        return lines if style is not None and collect(node, offset, style) else None
+
+    def check_line(line: dict) -> None:
+        runs = [(re.sub(r"\s+", " ", run), style) for run, style in line["runs"] if run]
+        text = "".join(run for run, _style in runs)
+        if not text.strip():
+            return
+        runs[0] = (runs[0][0].lstrip(), runs[0][1])
+        runs[-1] = (runs[-1][0].rstrip(), runs[-1][1])
+        widths = [run_width(run, style) for run, style in runs if run]
+        if any(width is None for width in widths):
+            return
+        width = sum(widths)
+        size = max(font_size(style) or 0.0 for run, style in runs if run)
+        x, y = line["x"], line["y"]
+        behind = [rect for rect in rects[: line["rects"]] if rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]]
+        # A paper-coloured mask has no visible edge to overflow. Nodes paint such a mask under
+        # their tinted body, so it only decides when it is strictly the smallest rect around the anchor.
+        visible = [rect for rect in behind if rect[5] or (rect[4] is not None and rect[4] not in papers)]
+        if not visible:
+            return
+        box = min(visible, key=area)
+        if min(map(area, behind)) < area(box) or box[4] is None:
+            return
+        anchor = line["style"].get("text-anchor", "start").strip().lower()
+        start = x - width / 2 if anchor == "middle" else x - width if anchor == "end" else x
+        overshoot = max(box[0] - start, start + width - box[2])
+        if overshoot > TEXT_FIT_TOLERANCE_EM * size:
+            errors.append(f"{label}: text {text.strip()!r} at ({x:g}, {y:g}) is budgeted at {width:.0f}px and overflows its "
+                          f"{box[2] - box[0]:g}px box by {overshoot:.0f}px; widen the box or shorten the label "
+                          "(budget: 0.60em sans, 0.62em mono per char)")
+
+    def visit(parent: Node, offset, style, paint) -> None:
+        for node in parent.children:
+            child = child_offset(node, offset, subjects)
+            if child is None:
+                continue
+            node_style, node_paint = inherit(node, style, paint)
+            if node.tag == "text":
+                for line in text_lines(node, child, node_style) or []:
+                    check_line(line)
+                continue
+            if node.tag == "rect":
+                add_rect(node, child, node_paint)
+            visit(node, child, node_style, node_paint)
+
+    visit(svg, (0.0, 0.0), *inherit(svg, {}, {"opacity": "1"}))
+    return errors
+
+
+def area(rect: tuple) -> float:
+    return (rect[2] - rect[0]) * (rect[3] - rect[1])
 
 
 def verify(path: Path, strict_offline: bool = False) -> list[str]:
@@ -334,7 +547,10 @@ def verify(path: Path, strict_offline: bool = False) -> list[str]:
 
     if not accessible:
         errors.append("needs at least one nondecorative SVG (without aria-hidden=true)")
-    subjects = unstatic_subjects("\n".join(node.content() for node in nodes if node.tag == "style"))
+    sheet = "\n".join(node.content() for node in nodes if node.tag == "style")
+    subjects = declaring_subjects(sheet, unstatic_property)
+    text_subjects = declaring_subjects(sheet, restyles_text_width)
+    paint_subjects = declaring_subjects(sheet, PAINT_PROPERTIES.__contains__)
     for index, node in enumerate(accessible, 1):
         attrs = node.attrs
         label = f"svg {index}"
@@ -359,6 +575,7 @@ def verify(path: Path, strict_offline: bool = False) -> list[str]:
             errors.extend(clipped_errors(node, box, label, subjects))
         else:
             errors.append(f"{label} needs a finite viewBox with positive width and height")
+        errors.extend(overflow_errors(node, label, subjects, text_subjects, paint_subjects))
     return list(dict.fromkeys(errors))
 
 

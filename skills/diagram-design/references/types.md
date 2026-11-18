@@ -17,17 +17,22 @@ Route by the relationship the reader needs to understand. These are options, not
 | Quantities that split and merge | [Sankey](type-sankey.md) | — |
 | Parts of a whole, optionally hierarchical | [Treemap and marimekko](type-treemap.md) | Variable-width composition |
 | A total reconciled through signed contributions | [Waterfall](type-waterfall.md) | — |
+| One bounded whole counted in equal units out of 100 | [Unit grid](type-unit-grid.md) | — |
 | Decisions and control flow | [Flowchart](type-flowchart.md) | — |
 | Ordered steps and actor handoffs | [Process](type-process.md) | — |
+| A short ordered method on one rail | [Steps](type-steps.md) | — |
+| Commands, resulting events, and read models across stages | [Event modeling](type-event-modeling.md) | — |
 | Movement and transformation of payloads | [Data flow](type-data-flow.md) | — |
 | Ownership and handoffs through a workflow | [Swimlane](type-swimlane.md) | — |
 | Messages between participants over time | [Sequence](type-sequence.md) | OAuth conditional exchange |
 | States, events, and lifecycle transitions | [State machine](type-state.md) | Lifecycle phase map |
 | Recurring stages and feedback | [Loop / cycle](type-loop.md) | — |
-| What requires what | [Dependency graph](type-dependency.md) | — |
+| What requires what | [Dependency graph](type-dependency.md) | Arc diagram for skip-span imports |
 | Runtime placement and infrastructure boundaries | [Deployment](type-deployment.md) | — |
 | Entities and relationship cardinality | [ER / data model](type-er.md) | — |
 | Physical tables, keys, and referential constraints | [Database schema](type-db-schema.md) | — |
+| Requirements linked to sources, design elements, and tests | [Requirement traceability](type-requirement-traceability.md) | — |
+| A biological process as species and reactions | [SBGN process description](type-sbgn.md) | — |
 | Attributes, operations, and object relationships | [UML class](type-uml-class.md) | — |
 | Reporting and accountability | [Org chart / responsibility map](type-org-chart.md) | — |
 | Scopes and boundaries | [Nested containment](type-nested.md) | — |

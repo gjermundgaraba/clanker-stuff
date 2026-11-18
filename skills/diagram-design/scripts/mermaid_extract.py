@@ -6,9 +6,9 @@ fetches, or executes Mermaid, JavaScript, URLs, directives, or label content.
 Every label and directive value is untrusted data. Click targets and styling are
 counted and discarded; retained labels are emitted only as inert text.
 
-Supported grammars are flowchart/graph, sequenceDiagram, stateDiagram-v2, and
-erDiagram. Inputs may be .mmd, .mermaid, or Markdown files containing fenced
-``mermaid`` blocks.
+Supported grammars are flowchart/graph, sequenceDiagram, stateDiagram-v2 (or
+its older stateDiagram header), and erDiagram. Inputs may be .mmd, .mermaid, or
+Markdown files containing fenced ``mermaid`` blocks.
 
 Usage:
     python3 mermaid_extract.py <file> [--diagram N|all] [--json]
@@ -54,7 +54,6 @@ UNSUPPORTED_KINDS = {
     "gantt",
     "journey",
     "classdiagram",
-    "statediagram",
 }
 MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
 MERMAID_SUFFIXES = {".mmd", ".mermaid"}
@@ -66,6 +65,84 @@ ER_IDENTIFIER = r"[^\W\d][\w.-]*"
 
 def _er_name(name: str) -> bool:
     return name[:1] == "_" or name[:1].isalpha()
+
+
+# A quoted ER name may hold spaces and any character except these, as in
+# Mermaid's ER lexer. Mermaid drops the quotes to get the entity name.
+ER_QUOTED_NAME = r'"[^"%\r\n\v\b\\]+"'
+ER_NAME = rf"(?:{ER_QUOTED_NAME}|{ER_IDENTIFIER})"
+
+# Mermaid's ER cardinality tokens, each with the symbol it draws at the
+# (left, right) end of a relationship. Mermaid reads the words as
+# case-insensitive aliases for the symbols.
+_ER_ZERO_OR_ONE = ("|o", "o|")
+_ER_ONLY_ONE = ("||", "||")
+_ER_ZERO_OR_MORE = ("}o", "o{")
+_ER_ONE_OR_MORE = ("}|", "|{")
+ER_CARDINALITIES = {
+    "|o": _ER_ZERO_OR_ONE,
+    "o|": _ER_ZERO_OR_ONE,
+    "zero or one": _ER_ZERO_OR_ONE,
+    "one or zero": _ER_ZERO_OR_ONE,
+    "||": _ER_ONLY_ONE,
+    "1": _ER_ONLY_ONE,
+    "one": _ER_ONLY_ONE,
+    "only one": _ER_ONLY_ONE,
+    "}o": _ER_ZERO_OR_MORE,
+    "o{": _ER_ZERO_OR_MORE,
+    "0+": _ER_ZERO_OR_MORE,
+    "many": _ER_ZERO_OR_MORE,
+    "many(0)": _ER_ZERO_OR_MORE,
+    "zero or more": _ER_ZERO_OR_MORE,
+    "zero or many": _ER_ZERO_OR_MORE,
+    "}|": _ER_ONE_OR_MORE,
+    "|{": _ER_ONE_OR_MORE,
+    "1+": _ER_ONE_OR_MORE,
+    "many(1)": _ER_ONE_OR_MORE,
+    "one or more": _ER_ONE_OR_MORE,
+    "one or many": _ER_ONE_OR_MORE,
+    "u": ("u", "u"),
+}
+# Identifying relationships draw solid (`--`), non-identifying ones dashed (`..`).
+ER_IDENTIFICATIONS = {
+    "--": "--",
+    "to": "--",
+    "..": "..",
+    ".-": "..",
+    "-.": "..",
+    "optionally to": "..",
+}
+# Mermaid reads `1` as a cardinality only right before a link or before a
+# spaced word, and `u` (its MD_PARENT end) only right before `.`, `-` or `|`.
+_ER_TOKEN_CONTEXT = {
+    "1": r"1(?=\s+[A-Za-z_\"'0-9]|--|\.\.|\.-|-\.)",
+    "u": r"u(?=[.|-])",
+}
+
+
+def _er_tokens(tokens: dict[str, object]) -> str:
+    """Return a regex alternation over tokens, longest first like Mermaid's lexer.
+
+    As in Mermaid (jison), a token that ends in a word character must end at a
+    word boundary, so `to` does not match the start of `tomany`. Mermaid ignores
+    only ASCII case, so `(?a:...)` keeps `İ` and `ı` from matching `i`.
+    """
+    ordered = sorted(tokens, key=len, reverse=True)
+    return "|".join(
+        _ER_TOKEN_CONTEXT.get(token, "(?a:" + re.escape(token) + (r"\b" if token[-1].isalnum() else "") + ")")
+        for token in ordered
+    )
+
+
+ER_CARDINALITY = _er_tokens(ER_CARDINALITIES)
+ER_IDENTIFICATION = _er_tokens(ER_IDENTIFICATIONS)
+
+
+def _er_entity(token: str) -> str | None:
+    """Return the entity name of an ER name token, or None if it is not one."""
+    if token.startswith('"'):
+        return token[1:-1]
+    return token if _er_name(token) else None
 
 
 def _fail(message: str) -> NoReturn:
@@ -357,8 +434,12 @@ def _kind_and_direction(
         match = re.match(r"^(flowchart|graph)\s+(TD|TB|LR|RL|BT)\b", text, re.I)
         if match:
             return "flowchart", match.group(2).upper(), position, match.end()
-        for kind, direction in (("sequenceDiagram", "LR"), ("stateDiagram-v2", "TD"), ("erDiagram", "TD")):
-            match = re.match(rf"^{kind}\b", text, re.I)
+        for kind, direction, header in (
+            ("sequenceDiagram", "LR", r"sequenceDiagram\b"),
+            ("stateDiagram-v2", "TD", r"stateDiagram(?:-v2)?(?![\w-])"),
+            ("erDiagram", "TD", r"erDiagram\b"),
+        ):
+            match = re.match(rf"^{header}", text, re.I)
             if match:
                 return kind, direction, position, match.end()
         token = text.split(maxsplit=1)[0].split(";", 1)[0]
@@ -367,10 +448,23 @@ def _kind_and_direction(
         _fail(f"not a Mermaid file at line {line_number}")
     _fail("not a Mermaid file")
 
-def _top_level_mask(text: str) -> str:
+
+# Mermaid's flowchart lexer opens a string only at a double quote (a Markdown
+# string is "`...`"), so an apostrophe is label text: `A[Bob's box]`,
+# `A -->|it's| B`. Expanded `@{ ... }` attributes are YAML, where single
+# quotes do delimit values (`label: '['`), so the scanners switch to the
+# attribute quote set inside one. They count open `@{` entries alongside the
+# bracket stack, so that test stays constant-time at any nesting depth.
+FLOWCHART_QUOTES = "\"`"
+ATTRIBUTE_QUOTES = "\"'`"
+ATTRIBUTE_OPEN = "@{"
+
+
+def _top_level_mask(text: str, quotes: str = FLOWCHART_QUOTES) -> str:
     """Keep top-level syntax positions and blank quoted/bracketed content."""
     output = list(text)
     stack: list[str] = []
+    attributes = 0
     quote: str | None = None
     escaped = False
     pairs = {"]": "[", ")": "(", "}": "{"}
@@ -384,17 +478,22 @@ def _top_level_mask(text: str) -> str:
             elif character == quote:
                 quote = None
             continue
-        if character in "\"'`":
+        if character in (ATTRIBUTE_QUOTES if attributes else quotes):
             quote = character
             output[index] = " "
             continue
         if character in "[({":
-            stack.append(character)
+            if character == "{" and text[index - 1 : index] == "@":
+                stack.append(ATTRIBUTE_OPEN)
+                attributes += 1
+            else:
+                stack.append(character)
             output[index] = " "
             continue
         if character in "])}":
-            if stack and stack[-1] == pairs[character]:
-                stack.pop()
+            if stack and stack[-1][-1] == pairs[character]:
+                if stack.pop() == ATTRIBUTE_OPEN:
+                    attributes -= 1
             output[index] = " "
             continue
         if stack:
@@ -402,8 +501,10 @@ def _top_level_mask(text: str) -> str:
     return "".join(output)
 
 
-def _split_top_level(text: str, delimiter: str) -> list[str]:
-    mask = _top_level_mask(text)
+def _split_top_level(
+    text: str, delimiter: str, quotes: str = FLOWCHART_QUOTES
+) -> list[str]:
+    mask = _top_level_mask(text, quotes)
     parts: list[str] = []
     start = 0
     for index, character in enumerate(mask):
@@ -417,10 +518,11 @@ def _split_top_level(text: str, delimiter: str) -> list[str]:
 def _statement_complete(text: str) -> bool:
     """Return whether quotes and node delimiters close within a statement."""
     stack: list[str] = []
+    attributes = 0
     quote: str | None = None
     escaped = False
     pairs = {"]": "[", ")": "(", "}": "{"}
-    for character in text:
+    for index, character in enumerate(text):
         if quote is not None:
             if escaped:
                 escaped = False
@@ -429,13 +531,18 @@ def _statement_complete(text: str) -> bool:
             elif character == quote:
                 quote = None
             continue
-        if character in "\"'`":
+        if character in (ATTRIBUTE_QUOTES if attributes else FLOWCHART_QUOTES):
             quote = character
         elif character in "[({":
-            stack.append(character)
+            if character == "{" and text[index - 1 : index] == "@":
+                stack.append(ATTRIBUTE_OPEN)
+                attributes += 1
+            else:
+                stack.append(character)
         elif character in "])}":
-            if stack and stack[-1] == pairs[character]:
-                stack.pop()
+            if stack and stack[-1][-1] == pairs[character]:
+                if stack.pop() == ATTRIBUTE_OPEN:
+                    attributes -= 1
     return quote is None and not stack
 
 
@@ -582,7 +689,7 @@ def _parse_expanded_attributes(text: str) -> tuple[str, str] | None:
     if not text.startswith("@{") or not text.endswith("}"):
         return None
     values: dict[str, str] = {}
-    for raw_attribute in _split_top_level(text[2:-1], ","):
+    for raw_attribute in _split_top_level(text[2:-1], ",", ATTRIBUTE_QUOTES):
         key, separator, raw_value = raw_attribute.partition(":")
         if not separator:
             continue
@@ -664,20 +771,29 @@ def _edge_operators(text: str) -> list[_Operator]:
     # `A<--yes-->B` or `A o--yes--o B`. The spaced form consumes exactly one
     # whitespace character next to each operator; any further padding falls
     # inside the label span, which `clean_label` strips, so the operator
-    # boundaries are never ambiguous. For the dash and equals forms, the
-    # compact label may not contain whitespace, and the operator characters
-    # themselves may not open one (keeping `A----->B` unlabeled and
-    # `A --o B --> C` two separate links). The dotted form's closing operator
-    # always opens with a literal `.`, which a dash/equals label can't
-    # produce, so its compact label may contain internal whitespace (as in
-    # `A-.next candidate.->B`) without that ambiguity.
+    # boundaries are never ambiguous.
+    #
+    # A compact dash or equals label may contain whitespace, including the
+    # blanks the mask writes over brackets, so `A==a b==>B` and `A--f(x)-->B`
+    # stay one labeled link. `-`, `=`, `.`, or `>` immediately after the
+    # opening still continues an unlabeled operator (`A----->B`). Mermaid's
+    # lexer always reads `x` or `o` immediately after `--` or `==` as that
+    # link's arrowhead, so a compact label cannot start with either letter:
+    # `A--x marks-->B`, `A--x marks -->B`, and `A--orders-->B` are two links
+    # through a `marks` or `rders` node, like `A --o B --> C`. Mermaid
+    # rejects `A--x(a)-->B` outright. A spaced label (`A-- x marks -->B`)
+    # is unaffected. The dotted form's closing operator always opens with a
+    # literal `.`, so its compact label may contain internal whitespace and
+    # start with `x` or `o` (as in `A-.x y.->B`). An opening never starts
+    # inside a longer operator, so `A --- B-->C` stays two links.
     text_edge = re.compile(
         r"(?P<opening>"
         r"<(?:--|==)"
         r"|(?<![\w.:-])[xo](?:--|==)"
-        r"|(?:--|==)"
+        r"|(?<![-=])(?:--|==)"
         r")"
-        r"(?:\s(?P<spaced>.+?)\s|(?![-=.\s])(?P<compact>[^\s|<>]+?))"
+        r"(?![-=.>xo])"
+        r"(?:\s(?P<spaced>.+?)\s|(?P<compact>[^|<>]+?))"
         r"(?P<closing>-{2,}>|--[xo]|=+>|={2,}|-{3,})"
     )
     dotted_edge = re.compile(
@@ -726,11 +842,18 @@ def _edge_operators(text: str) -> list[_Operator]:
             )
             occupied.append((operator_start, match.end()))
 
+    # A dotted link grows by dots: `-.->`, `-..->`, `-...->` and `-.-`, `-..-`.
+    # A single dash before x/o belongs to a node id such as `node-x`.
     pattern = re.compile(
-        r"[xo][-=.]+[xo]|<[-=.]+>|-+\.-+>|=+>|-+(?:>|x|o)|-+\.-+|={3,}|-{3,}|~{3,}"
+        r"[xo][-=.]{2,}[xo]|<[-=.]+>|-+\.+-+>|=+>|-+>|-{2,}[xo]|={2,}[xo]|-+\.+-+|={3,}|-{3,}|~{3,}"
     )
     for match in pattern.finditer(mask):
-        if any(start <= match.start() < end for start, end in occupied):
+        # Overlap, not just a contained start. An unlabeled token can begin
+        # before a labeled operator and end inside it — `Ao-.x y.->B` offers
+        # `o-.x` to `[xo][-=.]{2,}[xo]`, one character ahead of the `-.x y.->`
+        # span already claimed above. Keeping both cuts the line into
+        # segments that no longer reconstruct it.
+        if any(match.start() < end and start < match.end() for start, end in occupied):
             continue
         token = match.group()
         end = match.end()
@@ -764,6 +887,9 @@ def _endpoint_group(
         if parsed is None:
             return None
         node_id, label, shape = parsed
+        # A link token outside any shape means a link that did not parse.
+        if shape != "asymmetric" and re.search(r"--|==|-\.|\s[-=][xo]", _top_level_mask(raw)):
+            return None
         diagram.add_node(node_id, label, shape, parent)
         identifiers.append(node_id)
     return identifiers or None
@@ -880,14 +1006,30 @@ def _parse_flowchart(
                             operator.undirected,
                         )
             continue
-        if re.search(r"(?:--|==|-.).*?(?:>|x|o|-)", _top_level_mask(text)):
-            _fail(f"malformed edge at line {line_number}")
         parsed = _parse_node_expression(text)
-        if parsed is not None:
+        # The mask blanks shaped labels, so a link token left in it sits
+        # outside any shape. The asymmetric `>` opener is not masked.
+        masked = _top_level_mask(text)
+        malformed_link = re.search(
+            r"(?:--|==|-\.).*?(?:>|x|o|-)|\s[-=][xo]",
+            masked,
+        )
+        bare_link_start = re.search(r"--|==|-\.", masked)
+        if parsed is not None and not (
+            parsed[2] != "asymmetric" and (malformed_link or bare_link_start)
+        ):
             node_id, label, shape = parsed
             diagram.add_node(node_id, label, shape, parent)
-        else:
-            _fail(f"unsupported flowchart statement at line {line_number}: {text}")
+            continue
+        if (
+            malformed_link
+            or bare_link_start
+            # Not a node but link-like (`A- >B`): fail instead of dropping it.
+            # The dot matches any character on purpose.
+            or (parsed is None and re.search(r"(?:==|-.).*?(?:>|x|o|-)", masked))
+        ):
+            _fail(f"malformed edge at line {line_number}")
+        _fail(f"unsupported flowchart statement at line {line_number}: {text}")
     if invisible_links:
         diagram.notes.append(f"{invisible_links} invisible layout links ignored")
 
@@ -1149,10 +1291,15 @@ def _parse_er(
     diagram: Diagram, lines: list[tuple[int, str]], header_position: int
 ) -> None:
     current: Node | None = None
+    aliased_names: set[str] = set()
     relationship = re.compile(
-        rf"^({ER_IDENTIFIER})\s+(\S*(?:--|\.\.)\S*)\s+"
-        rf"({ER_IDENTIFIER})\s*(?::\s*(.*))?$"
+        rf"^({ER_NAME})\s+"
+        rf"(?i:({ER_CARDINALITY})\s*({ER_IDENTIFICATION})\s*({ER_CARDINALITY}))\s+"
+        rf"({ER_NAME})\s*(?::\s*(.*))?$"
     )
+    # `p[Person]` shows the alias in place of the entity name. Relationships
+    # use the name, so an alias is valid only on a declaration.
+    declaration = re.compile(rf"^({ER_NAME})(?:\s*\[({ER_NAME})\])?\s*(\{{)?$")
     for line_number, raw in lines[header_position + 1 :]:
         text = raw.strip()
         if not text:
@@ -1166,22 +1313,22 @@ def _parse_er(
         if direction_match and current is None:
             diagram.direction = direction_match.group(1).upper()
             continue
-        entity = re.match(rf"^({ER_IDENTIFIER})\s*\{{$", text)
-        if entity and _er_name(entity.group(1)):
-            current = diagram.add_node(entity.group(1), entity.group(1), "table")
+        declared = _er_declaration(declaration.match(text))
+        if declared is not None and declared[3]:
+            current = _er_table(diagram, aliased_names, *declared[:3])
             continue
         if current is not None:
             current.fields.append(clean_label(text))
             continue
         edge = relationship.match(text)
-        if edge and _er_name(edge.group(1)) and _er_name(edge.group(3)):
-            source, cardinality, target, relationship_label = edge.groups()
-            diagram.add_node(source, source, "table")
-            diagram.add_node(target, target, "table")
-            left, separator, right = cardinality.partition("--")
-            if not separator:
-                left, separator, right = cardinality.partition("..")
-            label_parts = [f"{left} {separator} {right}".strip()]
+        if edge and _er_entity(edge.group(1)) and _er_entity(edge.group(5)):
+            source_token, left, link, right, target_token, relationship_label = edge.groups()
+            source = _er_table(diagram, aliased_names, _er_entity(source_token), _er_label(source_token)).id
+            target = _er_table(diagram, aliased_names, _er_entity(target_token), _er_label(target_token)).id
+            separator = ER_IDENTIFICATIONS[link.casefold()]
+            left = ER_CARDINALITIES[left.casefold()][0]
+            right = ER_CARDINALITIES[right.casefold()][1]
+            label_parts = [f"{left} {separator} {right}"]
             if relationship_label:
                 label_parts.append(clean_label(relationship_label))
             diagram.add_edge(
@@ -1193,10 +1340,53 @@ def _parse_er(
                 undirected=True,
             )
             continue
-        if "--" in text or ".." in text:
+        # A quoted name may contain `--` or `..` as plain text.
+        unquoted = re.sub(ER_QUOTED_NAME, '""', text)
+        if "--" in unquoted or ".." in unquoted:
             _fail(f"malformed edge at line {line_number}")
-        if re.fullmatch(ER_IDENTIFIER, text) and _er_name(text):
-            diagram.add_node(text, text, "table")
+        if declared is not None:
+            _er_table(diagram, aliased_names, *declared[:3])
+
+
+def _er_label(token: str) -> str:
+    """Return the display text of an ER name token."""
+    return clean_label(token) if token.startswith('"') else token
+
+
+def _er_declaration(
+    match: re.Match[str] | None,
+) -> tuple[str, str, bool, bool] | None:
+    """Return (name, label, aliased, opens_block) for an ER entity declaration."""
+    if match is None:
+        return None
+    name_token, alias_token, block = match.groups()
+    name = _er_entity(name_token)
+    if name is None:
+        return None
+    if alias_token is None:
+        return name, _er_label(name_token), False, block is not None
+    if _er_entity(alias_token) is None:
+        return None
+    return name, _er_label(alias_token), True, block is not None
+
+
+def _er_table(
+    diagram: Diagram,
+    aliased_names: set[str],
+    name: str,
+    label: str,
+    aliased: bool = False,
+) -> Node:
+    """Add an ER table. As in Mermaid, only an entity's first alias sets its label."""
+    existing = diagram.node_map.get(name)
+    if aliased and name not in aliased_names:
+        aliased_names.add(name)
+        if existing is not None:
+            existing.label = label
+            return existing
+    elif existing is not None:
+        return existing
+    return diagram.add_node(name, label, "table")
 
 
 def parse_block(block: SourceBlock) -> Diagram:

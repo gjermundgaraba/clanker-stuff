@@ -21,6 +21,12 @@ Useful starting points by visual grammar:
 | Box plot | 8 series, 8 outliers, 1 focal series |
 | Service blueprint | 6 stages; required customer, frontstage, and backstage layers; optional evidence and support; 1 focal cell |
 | Sequence | 5 lifelines, 12 messages; shallow combined fragments |
+| Steps | 3–7 stages, 1 focal stage |
+| Event modeling | 6 stages, one command, event, and read model each; 2 accent uses |
+| Requirement traceability | 6 rows, one primary design and verification link each, 1 focal row |
+| Unit grid | 100 equal cells in a 10 × 10 grid, 1 focal completed cell |
+| Arc diagram | 4–9 nodes, 14 arcs, 1 focal arc |
+| SBGN | 7 macromolecules, 6 processes, 1 compartment, 2 source/sink glyphs, 16 arcs; process squares are reaction markers, not nodes |
 | Swimlane | 5 lanes |
 | Nested, tree, org chart | 4–6 levels, with readable labels at each tier |
 | Layer stack | 6 bands |
