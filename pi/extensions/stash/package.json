@@ -19,6 +19,7 @@
   "files": [
     "index.ts",
     "stash.ts",
+    "storage.ts",
     "README.md",
     "LICENSE"
   ],

@@ -1,123 +1,97 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
-
-import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
   InputEvent,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 
-const MAX_STASHES = 10;
+import { LegacyStashError, popStash, pushStash } from "./storage.js";
 
-const StashFileSchema = Type.Object({ entries: Type.Array(Type.String()) });
+const warnOnStorageFailure = (
+  ctx: ExtensionContext,
+  message: string,
+  error: unknown
+): void => {
+  const detail = error instanceof LegacyStashError ? ` ${error.message}` : "";
+  ctx.ui.notify(`${message}${detail}`, "warning");
+};
 
-const getStorePath = (cwd: string) =>
-  path.join(
-    getExtensionStoragePaths("stash").dataDir,
-    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
-  );
+const restoreDraft = (
+  ctx: ExtensionContext,
+  trigger: "automatic" | "manual"
+): void => {
+  let draft: string | undefined;
 
-export const createStash = () => {
-  let stack: string[] = [];
-  let pendingSave = Promise.resolve();
+  try {
+    draft = popStash(ctx.cwd);
+  } catch (error) {
+    warnOnStorageFailure(ctx, "Could not restore stash.", error);
 
-  const save = async (ctx: ExtensionContext) => {
-    const filePath = getStorePath(ctx.cwd);
-    const content = `${JSON.stringify({ entries: stack }, null, 2)}\n`;
+    return;
+  }
 
-    pendingSave = withFileMutationQueue(filePath, async () => {
-      await mkdir(path.dirname(filePath), { recursive: true });
-      const tempPath = `${filePath}.tmp-${randomUUID()}`;
-      await writeFile(tempPath, content, "utf-8");
-      await rename(tempPath, filePath);
-    }).catch(() => {
-      ctx.ui.notify("Failed to persist stash.", "warning");
-    });
-    await pendingSave;
-  };
+  if (draft !== undefined) {
+    ctx.ui.setEditorText(draft);
+  } else if (trigger === "manual") {
+    ctx.ui.notify("Nothing stashed.", "info");
+  }
+};
 
-  const pop = async (ctx: ExtensionContext) => {
-    if (!ctx.hasUI) {
-      throw new Error("pop-stash requires interactive UI");
-    }
+export const popStashCommand = async (
+  _args: string,
+  ctx: ExtensionContext
+): Promise<void> => {
+  if (!ctx.hasUI || ctx.mode !== "tui") {
+    throw new Error("pop-stash requires the interactive terminal UI");
+  }
 
-    const popped = stack.pop();
+  if (ctx.ui.getEditorText() !== "") {
+    ctx.ui.notify(
+      "Stash or clear the editor before restoring a draft.",
+      "warning"
+    );
 
-    if (popped === undefined) {
-      ctx.ui.notify("Nothing stashed.", "info");
+    return;
+  }
 
-      return;
-    }
+  restoreDraft(ctx, "manual");
+};
 
-    ctx.ui.setEditorText(popped);
-    await save(ctx);
-  };
+export const autoRestoreStash = (
+  event: InputEvent,
+  ctx: ExtensionContext
+): void => {
+  if (
+    event.source === "interactive" &&
+    ctx.mode === "tui" &&
+    ctx.hasUI &&
+    ctx.ui.getEditorText() === ""
+  ) {
+    restoreDraft(ctx, "automatic");
+  }
+};
 
-  return {
-    dispose: async () => {
-      await pendingSave;
-    },
-    pop,
-    restore: async (event: InputEvent, ctx: ExtensionContext) => {
-      if (
-        event.source !== "interactive" ||
-        ctx.mode !== "tui" ||
-        stack.length === 0
-      ) {
-        return;
-      }
+export const toggleStash = (ctx: ExtensionContext): void => {
+  const text = ctx.ui.getEditorText();
 
-      await pop(ctx);
-    },
-    start: async (ctx: ExtensionContext) => {
-      try {
-        const data: unknown = JSON.parse(
-          await readFile(getStorePath(ctx.cwd), "utf-8")
-        );
+  if (!text.trim()) {
+    restoreDraft(ctx, "manual");
 
-        stack = Value.Check(StashFileSchema, data)
-          ? data.entries.slice(-MAX_STASHES)
-          : [];
-      } catch (error) {
-        stack = [];
+    return;
+  }
 
-        if (error instanceof SyntaxError) {
-          return;
-        }
+  let count: number;
 
-        if (
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ) {
-          return;
-        }
+  try {
+    count = pushStash(ctx.cwd, text);
+  } catch (error) {
+    warnOnStorageFailure(
+      ctx,
+      "Could not stash draft; editor text was kept.",
+      error
+    );
 
-        ctx.ui.notify("Failed to load persisted stash.", "warning");
-      }
-    },
-    toggle: async (ctx: ExtensionContext) => {
-      const text = ctx.ui.getEditorText();
+    return;
+  }
 
-      if (!text.trim()) {
-        await pop(ctx);
-
-        return;
-      }
-
-      stack.push(text);
-
-      if (stack.length > MAX_STASHES) {
-        stack.shift();
-      }
-
-      ctx.ui.setEditorText("");
-      ctx.ui.notify(`Stashed (${stack.length}).`, "info");
-      await save(ctx);
-    },
-  };
+  ctx.ui.setEditorText("");
+  ctx.ui.notify(`Stashed (${count}).`, "info");
 };

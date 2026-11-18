@@ -1,27 +1,18 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { createStash } from "./stash.js";
+import { autoRestoreStash, popStashCommand, toggleStash } from "./stash.js";
 
 export default function stashExtension(pi: ExtensionAPI): void {
-  const stash = createStash();
-
-  pi.on("session_start", async (_event, ctx) => {
-    await stash.start(ctx);
-  });
-
   pi.registerShortcut("ctrl+s", {
     description:
       "Stash current editor text, or pop the latest stash when empty",
-    handler: stash.toggle,
+    handler: toggleStash,
   });
 
   pi.registerCommand("pop-stash", {
     description: "Pop the most recent stashed editor text",
-    handler: async (_args, ctx) => {
-      await stash.pop(ctx);
-    },
+    handler: popStashCommand,
   });
 
-  pi.on("input", stash.restore);
-  pi.on("session_shutdown", stash.dispose);
+  pi.on("input", autoRestoreStash);
 }
