@@ -1,6 +1,7 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 
 const EXTENSION_ID = "claude-bridge";
@@ -35,73 +36,93 @@ const format = (value: unknown): string => {
   return JSON.stringify(value) ?? String(value);
 };
 
-export const debug = (...args: unknown[]): void => {
+/** Best effort, including formatting data used only for diagnostics. */
+export const debugLines = (formatLines: () => readonly string[]): void => {
   if (!isDebugEnabled()) {
     return;
   }
 
-  const logPath = debugLogPath();
+  try {
+    const lines = formatLines();
 
-  mkdirSync(path.dirname(logPath), { recursive: true });
-  appendFileSync(
-    logPath,
-    `[${new Date().toISOString()}] [${moduleInstanceId}] ${args.map(format).join(" ")}\n`
-  );
+    if (lines.length === 0) {
+      return;
+    }
+
+    const logPath = debugLogPath();
+    const prefix = `[${new Date().toISOString()}] [${moduleInstanceId}] `;
+
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    appendFileSync(logPath, lines.map((line) => `${prefix}${line}\n`).join(""));
+  } catch {
+    return;
+  }
 };
 
-interface CliDebugOptions {
-  debug?: boolean;
-  debugFile?: string;
-  stderr?: (data: string) => void;
-}
+export const debug = (...args: unknown[]): void => {
+  debugLines(() => [args.map(format).join(" ")]);
+};
+
+type CliDebugOptions = Pick<Options, "debug" | "debugFile" | "stderr">;
 
 let nextCliDebugSeq = 1;
 
-/** Claude Code's own debug log for one query, plus its stderr in the bridge trace. Without
- *  it, "No conversation found" and empty-error reports are unactionable. */
+/** Claude Code's own debug log for one query, plus its stderr in the bridge trace.
+ *  If we cannot create the log file, run the query without SDK diagnostics. */
 export const cliDebugOptions = (tag: string): CliDebugOptions => {
   if (!isDebugEnabled()) {
     return {};
   }
 
-  const seq = nextCliDebugSeq;
-  nextCliDebugSeq += 1;
-  const stamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
-  const logDir = path.join(path.dirname(debugLogPath()), "cc-cli");
+  try {
+    const seq = nextCliDebugSeq;
+    nextCliDebugSeq += 1;
+    const stamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
+    const logDir = path.resolve(path.dirname(debugLogPath()), "cc-cli");
+    const debugFile = path.join(logDir, `${stamp}-${tag}-${seq}.log`);
 
-  mkdirSync(logDir, { recursive: true });
+    mkdirSync(logDir, { recursive: true });
+    writeFileSync(debugFile, "", { flag: "wx" });
 
-  const debugFile = path.join(logDir, `${stamp}-${tag}-${seq}.log`);
+    debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
 
-  debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
-
-  return {
-    debug: true,
-    debugFile,
-    stderr: (data) => {
-      for (const line of data.split(/\r?\n/u)) {
-        if (line) {
-          debug(`[cli-stderr ${tag}#${seq}] ${line}`);
-        }
-      }
-    },
-  };
+    return {
+      debug: true,
+      debugFile,
+      stderr: (data) => {
+        debugLines(() =>
+          data
+            .split(/\r?\n/u)
+            .flatMap((line) =>
+              line === "" ? [] : [`[cli-stderr ${tag}#${seq}] ${line}`]
+            )
+        );
+      },
+    };
+  } catch {
+    return {};
+  }
 };
 
+/** Failure text for Pi, even when a backend or hook throws an unserializable value. */
 export const errorMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
+  try {
+    if (typeof error === "object" && error !== null) {
+      const message = "message" in error ? error.message : undefined;
 
-  if (typeof error === "object" && error !== null) {
-    if ("message" in error && typeof error.message === "string") {
-      return error.message;
+      if (typeof message === "string") {
+        return message;
+      }
+
+      const text = "error" in error ? error.error : undefined;
+
+      if (typeof text === "string") {
+        return text;
+      }
     }
 
-    if ("error" in error && typeof error.error === "string") {
-      return error.error;
-    }
+    return format(error);
+  } catch {
+    return "Claude bridge failed without a readable error message";
   }
-
-  return format(error);
 };

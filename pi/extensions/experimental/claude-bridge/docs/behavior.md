@@ -38,7 +38,7 @@ The SDK does not expose Claude Code's outgoing HTTP payload or response status a
 
 ## Debugging
 
-`CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, `finish` (a tool result after an abort), or `rebuild reason=none|diverged|tail|changed`. `CLAUDE_BRIDGE_RECORD_STREAM=<path>` appends every SDK message to that file as a JSON line, for capturing replay fixtures of what Claude Code emits.
+`CLAUDE_BRIDGE_DEBUG=1` writes a trace to `~/.pi/agent/data/claude-bridge/logs/debug.log` (override with `CLAUDE_BRIDGE_DEBUG_PATH`) and each query's Claude Code CLI log to `logs/cc-cli/` beside it. The trace contains prompts and conversation text and is never rotated; delete it when done. `sync:` lines show what each request did: `deliver` (tool results to the waiting turn), `resume`, `side`, `finish` (a tool result after an abort), or `rebuild reason=none|diverged|tail|changed`. `CLAUDE_BRIDGE_RECORD_STREAM=<path>` appends every SDK message to that file as a JSON line, for capturing replay fixtures of what Claude Code emits. These diagnostics are best effort: if a destination cannot be written, the request continues without that output.
 
 ## Tests
 

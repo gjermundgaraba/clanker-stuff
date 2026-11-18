@@ -193,11 +193,12 @@ export class Turn {
       }
     }
 
+    this.stream.end();
+    this.ended = true;
+
     debug(
       `turn: finish stopReason=${output.stopReason} error=${output.errorMessage ?? "none"}`
     );
-    this.stream.end();
-    this.ended = true;
   }
 
   fail(errorMessage: string, reason: "error" | "aborted" = "error"): void {

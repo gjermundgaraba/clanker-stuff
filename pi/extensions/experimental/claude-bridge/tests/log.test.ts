@@ -72,11 +72,12 @@ describe("the debug log", () => {
       expect(existsSync(logFile)).toBe(false);
     });
 
-    it("appends to the debug log when enabled", () => {
+    it("appends serializable entries and skips broken ones when enabled", () => {
       const logFile = path.join(dir, "nested", "debug.log");
 
       patchEnv({ CLAUDE_BRIDGE_DEBUG_PATH: logFile, CLAUDE_BRIDGE_DEBUG: "1" });
       debug("first", { n: 1 });
+      debug("unserializable", { n: 1n });
       debug("second");
 
       const lines = readLog(logFile).trimEnd().split("\n");
@@ -95,7 +96,10 @@ describe("the debug log", () => {
     it("puts Claude Code's debug log beside the bridge's and traces its stderr", () => {
       const logFile = path.join(dir, "debug.log");
 
-      patchEnv({ CLAUDE_BRIDGE_DEBUG_PATH: logFile, CLAUDE_BRIDGE_DEBUG: "1" });
+      patchEnv({
+        CLAUDE_BRIDGE_DEBUG_PATH: path.relative(process.cwd(), logFile),
+        CLAUDE_BRIDGE_DEBUG: "1",
+      });
 
       const options = cliDebugOptions("provider");
 
@@ -106,7 +110,7 @@ describe("the debug log", () => {
       expect(path.basename(options.debugFile ?? "")).toMatch(
         /-provider-\d+\.log$/u
       );
-      expect(existsSync(path.join(dir, "cc-cli"))).toBe(true);
+      expect(existsSync(options.debugFile ?? "")).toBe(true);
 
       options.stderr?.("warning one\r\n\nwarning two\n");
 
@@ -125,6 +129,10 @@ describe("the debug log", () => {
       expect(errorMessage({ error: "from error" })).toBe("from error");
       expect(errorMessage("plain")).toBe("plain");
       expect(errorMessage({ code: 1 })).toBe('{"code":1}');
+    });
+
+    it("returns fallback text for an unserializable thrown value", () => {
+      expect(errorMessage({ code: 1n })).toMatch(/without a readable error/u);
     });
   });
 });
