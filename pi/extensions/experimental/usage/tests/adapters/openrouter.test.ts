@@ -5,7 +5,7 @@ import {
   mapOpenRouterCreditsPayload,
 } from "../../adapters/openrouter.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, okFetch, tokenAuth } from "./helpers.js";
+import { NOW, okFetch, oauthCredential } from "./helpers.js";
 
 const creditsPayload = {
   data: {
@@ -39,7 +39,7 @@ describe("openrouter usage", () => {
     };
 
     const result = await fetchOpenRouterUsage({
-      getAuth: tokenAuth("sk-or-test"),
+      credential: oauthCredential("sk-or-test"),
       fetchJson,
       now: () => NOW,
     });

@@ -1,6 +1,6 @@
 import { Value } from "typebox/value";
 
-import type { GetAuth } from "../../auth.js";
+import type { UsageCredential } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 
 export const NOW = Date.parse("2026-07-21T12:00:00.000Z");
@@ -11,9 +11,10 @@ export const CODEX_TOKEN = `e30.${Buffer.from(
   })
 ).toString("base64url")}.signature`;
 
-export const tokenAuth =
-  (token: string): GetAuth =>
-  async () => ({ auth: { apiKey: token }, source: "OAuth" });
+export const oauthCredential = (token: string): UsageCredential => ({
+  token,
+  oauth: true,
+});
 
 export const okFetch =
   (json: unknown): FetchJson =>

@@ -5,7 +5,7 @@ import {
   mapOpenCodeGoUsagePayload,
 } from "../../adapters/opencode.js";
 import type { FetchJson } from "../../http.js";
-import { okFetch, NOW, tokenAuth } from "./helpers.js";
+import { okFetch, NOW, oauthCredential } from "./helpers.js";
 
 describe("opencode go usage", () => {
   const payload = {
@@ -94,7 +94,7 @@ describe("opencode go usage", () => {
     async (percent) => {
       await expect(
         fetchOpenCodeGoUsage({
-          getAuth: tokenAuth("token"),
+          credential: oauthCredential("token"),
           fetchJson: okFetch({ usage: { rolling: { percent } } }),
           now: () => NOW,
         })
@@ -113,10 +113,7 @@ describe("opencode go usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchOpenCodeGoUsage({
-      getAuth: async () => ({
-        auth: { apiKey: "opencode-key" },
-        source: "OPENCODE_API_KEY",
-      }),
+      credential: { token: "opencode-key", oauth: false },
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

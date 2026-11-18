@@ -5,7 +5,7 @@ import {
   mapClaudeUsagePayload,
 } from "../../adapters/claude.js";
 import type { FetchJson } from "../../http.js";
-import { okFetch, NOW, tokenAuth } from "./helpers.js";
+import { okFetch, NOW, oauthCredential } from "./helpers.js";
 
 describe("claude usage", () => {
   const payload = {
@@ -47,7 +47,7 @@ describe("claude usage", () => {
     async (emptyPayload) => {
       await expect(
         fetchClaudeUsage({
-          getAuth: tokenAuth("token"),
+          credential: oauthCredential("token"),
           fetchJson: okFetch(emptyPayload),
           now: () => NOW,
         })
@@ -63,7 +63,7 @@ describe("claude usage", () => {
     async (utilization) => {
       await expect(
         fetchClaudeUsage({
-          getAuth: tokenAuth("token"),
+          credential: oauthCredential("token"),
           fetchJson: okFetch({ five_hour: { utilization } }),
           now: () => NOW,
         })
@@ -82,7 +82,7 @@ describe("claude usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchClaudeUsage({
-      getAuth: tokenAuth("claude-token"),
+      credential: oauthCredential("claude-token"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });
@@ -101,10 +101,7 @@ describe("claude usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchClaudeUsage({
-      getAuth: async () => ({
-        auth: { apiKey: "api-key" },
-        source: "Environment",
-      }),
+      credential: { token: "api-key", oauth: false },
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

@@ -69,7 +69,6 @@ export const fetchCopilotUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "github-copilot",
     {
       url: COPILOT_USAGE_URL,
       schema: CopilotUsagePayloadSchema,

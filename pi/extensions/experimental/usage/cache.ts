@@ -1,18 +1,11 @@
-import type {
-  SupportedProvider,
-  UsageFetchResult,
-  UsageSnapshot,
-} from "./providers.js";
+import type { UsageFetchResult, UsageSnapshot } from "./providers.js";
 import { usageFailure } from "./providers.js";
 
 const CACHE_TTL_MS = 60_000;
 
 export class UsageCache {
-  private readonly success = new Map<SupportedProvider, UsageSnapshot>();
-  private readonly inflight = new Map<
-    SupportedProvider,
-    Promise<UsageFetchResult>
-  >();
+  private readonly success = new Map<string, UsageSnapshot>();
+  private readonly inflight = new Map<string, Promise<UsageFetchResult>>();
 
   private readonly now: () => number;
 
@@ -20,16 +13,16 @@ export class UsageCache {
     this.now = now;
   }
 
-  getLastSuccess(provider: SupportedProvider): UsageSnapshot | undefined {
-    return this.success.get(provider);
+  getLastSuccess(scope: string): UsageSnapshot | undefined {
+    return this.success.get(scope);
   }
 
   async getOrFetch(
-    provider: SupportedProvider,
+    scope: string,
     force: boolean,
     fetcher: () => Promise<UsageFetchResult>
   ): Promise<UsageFetchResult> {
-    const last = this.success.get(provider);
+    const last = this.success.get(scope);
 
     if (
       !force &&
@@ -39,31 +32,31 @@ export class UsageCache {
       return { ok: true, snapshot: last };
     }
 
-    const existing = this.inflight.get(provider);
+    const existing = this.inflight.get(scope);
 
     if (existing !== undefined) {
       return await existing;
     }
 
-    const promise = this.runFetch(provider, fetcher);
-    this.inflight.set(provider, promise);
+    const promise = this.runFetch(scope, fetcher);
+    this.inflight.set(scope, promise);
 
     try {
       return await promise;
     } finally {
-      this.inflight.delete(provider);
+      this.inflight.delete(scope);
     }
   }
 
   private async runFetch(
-    provider: SupportedProvider,
+    scope: string,
     fetcher: () => Promise<UsageFetchResult>
   ): Promise<UsageFetchResult> {
     try {
       const result = await fetcher();
 
       if (result.ok) {
-        this.success.set(provider, result.snapshot);
+        this.success.set(scope, result.snapshot);
       }
 
       return result;

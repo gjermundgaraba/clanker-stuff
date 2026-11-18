@@ -1,18 +1,16 @@
 import type { Static, TSchema } from "typebox";
 
-import { accessToken } from "../auth.js";
-import type { GetAuth } from "../auth.js";
+import type { UsageCredential } from "../auth.js";
 import type { FetchJson, FetchJsonResult } from "../http.js";
 import { usageFailure } from "../providers.js";
 import type {
-  SupportedProvider,
   UsageFetchFailure,
   UsageFetchResult,
   UsageWindow,
 } from "../providers.js";
 
 export interface AdapterDeps {
-  getAuth: GetAuth;
+  credential: UsageCredential;
   fetchJson: FetchJson;
   now: () => number;
 }
@@ -30,27 +28,23 @@ export interface UsageRequest<S extends TSchema> extends UsageAuth {
 }
 
 /** Request headers carrying the provider's credential, or why it cannot be used. */
-export const usageHeaders = async (
-  deps: AdapterDeps,
-  provider: SupportedProvider,
+export const usageHeaders = (
+  { token, oauth }: UsageCredential,
   auth: UsageAuth
-): Promise<
-  { ok: true; headers: Record<string, string> } | UsageFetchFailure
-> => {
-  const token = await accessToken(deps.getAuth, provider, {
-    oauth: auth.oauth ?? false,
-  });
-
-  if (!token.ok) {
-    return token;
+): { ok: true; headers: Record<string, string> } | UsageFetchFailure => {
+  if (auth.oauth === true && !oauth) {
+    return usageFailure(
+      "subscription usage requires OAuth login (not API key)",
+      "unavailable"
+    );
   }
 
   return {
     ok: true,
     headers: {
       Accept: "application/json",
-      Authorization: `${auth.scheme ?? "Bearer"} ${token.token}`,
-      ...auth.headers?.(token.token),
+      Authorization: `${auth.scheme ?? "Bearer"} ${token}`,
+      ...auth.headers?.(token),
     },
   };
 };
@@ -64,11 +58,10 @@ export const responseFailure = ({
 
 export const fetchUsage = async <S extends TSchema>(
   deps: AdapterDeps,
-  provider: SupportedProvider,
   request: UsageRequest<S>,
   map: (payload: Static<S>, nowMs: number) => UsageFetchResult
 ): Promise<UsageFetchResult> => {
-  const auth = await usageHeaders(deps, provider, request);
+  const auth = usageHeaders(deps.credential, request);
 
   if (!auth.ok) {
     return auth;

@@ -23,13 +23,6 @@ export type UsagePresentation =
   | { kind: "stale"; snapshot: UsageSnapshot }
   | { kind: "error"; provider: SupportedProvider };
 
-export const presentationProvider = (
-  presentation: UsagePresentation
-): SupportedProvider =>
-  presentation.kind === "ready" || presentation.kind === "stale"
-    ? presentation.snapshot.provider
-    : presentation.provider;
-
 const METER_CELLS = 10;
 
 const usedPercent = (window: UsageWindow): number =>

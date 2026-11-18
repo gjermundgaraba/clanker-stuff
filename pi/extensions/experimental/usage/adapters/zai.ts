@@ -126,7 +126,6 @@ export const fetchZaiUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "zai",
     { url: ZAI_QUOTA_URL, schema: ZaiQuotaPayloadSchema },
     mapZaiQuotaPayload
   );

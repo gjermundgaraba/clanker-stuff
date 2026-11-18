@@ -32,11 +32,15 @@ export const contextAuth =
     return await ctx.modelRegistry.getProviderAuth(provider);
   };
 
-export const accessToken = async (
+export interface UsageCredential {
+  token: string;
+  oauth: boolean;
+}
+
+export const resolveUsageCredential = async (
   getAuth: GetAuth,
-  provider: SupportedProvider,
-  { oauth = false }: { oauth?: boolean } = {}
-): Promise<{ ok: true; token: string } | UsageFetchFailure> => {
+  provider: SupportedProvider
+): Promise<{ ok: true; credential: UsageCredential } | UsageFetchFailure> => {
   let auth: AuthResult | undefined;
 
   try {
@@ -51,12 +55,5 @@ export const accessToken = async (
     return usageFailure("not logged in", "unavailable");
   }
 
-  if (oauth && auth?.source !== "OAuth") {
-    return usageFailure(
-      "subscription usage requires OAuth login (not API key)",
-      "unavailable"
-    );
-  }
-
-  return { ok: true, token };
+  return { ok: true, credential: { token, oauth: auth?.source === "OAuth" } };
 };

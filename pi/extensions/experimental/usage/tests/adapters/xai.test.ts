@@ -8,7 +8,7 @@ import {
 } from "../../adapters/xai.js";
 import type { FetchJson } from "../../http.js";
 import { defaultFetchJson } from "../../http.js";
-import { okFetch, tokenAuth } from "./helpers.js";
+import { okFetch, oauthCredential } from "./helpers.js";
 
 describe("xai monthly parsing", () => {
   it("computes remaining from used/monthlyLimit moneyish values", () => {
@@ -127,10 +127,7 @@ describe("xai fetch", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchXaiUsage({
-      getAuth: async () => ({
-        auth: { apiKey: "sk-test" },
-        source: "XAI_API_KEY",
-      }),
+      credential: { token: "sk-test", oauth: false },
       fetchJson: client.fetchJson,
       now: () => 1,
     });
@@ -146,8 +143,6 @@ describe("xai fetch", () => {
   });
 
   it("keeps monthly success when weekly request fails", async () => {
-    const getAuth = tokenAuth("oauth-token");
-
     const client = {
       fetchJson: async (url, schema, headers) => {
         if (url.includes("format=credits")) {
@@ -164,7 +159,7 @@ describe("xai fetch", () => {
     } satisfies { fetchJson: FetchJson };
 
     const result = await fetchXaiUsage({
-      getAuth,
+      credential: oauthCredential("oauth-token"),
       fetchJson: client.fetchJson,
       now: () => 9,
     });
@@ -181,8 +176,6 @@ describe("xai fetch", () => {
 
   it("starts independent billing requests concurrently", async () => {
     const monthlyGate = Promise.withResolvers<null>();
-
-    const getAuth = tokenAuth("oauth-token");
 
     const client = {
       fetchJson: async (url, schema, headers) => {
@@ -201,7 +194,7 @@ describe("xai fetch", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = fetchXaiUsage({
-      getAuth,
+      credential: oauthCredential("oauth-token"),
       fetchJson: client.fetchJson,
       now: () => 1,
     });
@@ -227,7 +220,7 @@ describe("xai fetch", () => {
 
       await expect(
         fetchXaiUsage({
-          getAuth: tokenAuth("oauth-token"),
+          credential: oauthCredential("oauth-token"),
           fetchJson,
           now: () => 1,
         })
@@ -241,7 +234,7 @@ describe("xai fetch", () => {
   it("keeps the credits window when the monthly request is refused", async () => {
     await expect(
       fetchXaiUsage({
-        getAuth: tokenAuth("oauth-token"),
+        credential: oauthCredential("oauth-token"),
         fetchJson: async (url, schema, headers) =>
           url.includes("format=credits")
             ? await okFetch({ config: { creditUsagePercent: 20 } })(
@@ -267,7 +260,7 @@ describe("xai optional payload boundaries", () => {
   it("keeps a reported zero credit balance when monthly metrics are unavailable", async () => {
     await expect(
       fetchXaiUsage({
-        getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+        credential: oauthCredential("token"),
         fetchJson: async (url, schema, headers) =>
           await okFetch(
             url.includes("format=credits")
@@ -300,7 +293,7 @@ describe("xai optional payload boundaries", () => {
 
       try {
         const result = await fetchXaiUsage({
-          getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+          credential: oauthCredential("token"),
           fetchJson: defaultFetchJson,
           now: () => 1,
         });
@@ -347,7 +340,7 @@ describe("xai optional payload boundaries", () => {
         );
 
       const result = await fetchXaiUsage({
-        getAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+        credential: oauthCredential("token"),
         fetchJson,
         now: () => 1,
       });

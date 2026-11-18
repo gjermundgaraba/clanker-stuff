@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchCodexUsage } from "../../adapters/codex.js";
-import type { GetAuth } from "../../auth.js";
-import { CODEX_TOKEN, NOW, okFetch, tokenAuth } from "./helpers.js";
+import { CODEX_TOKEN, NOW, oauthCredential, okFetch } from "./helpers.js";
 
 const resetAt = NOW / 1000 + 7200;
 
@@ -16,7 +15,7 @@ const window = (seconds: number, used = 25) => ({
 
 const fetchPayload = async (payload: unknown) =>
   await fetchCodexUsage({
-    getAuth: tokenAuth(CODEX_TOKEN),
+    credential: oauthCredential(CODEX_TOKEN),
     fetchJson: okFetch(payload),
     now: () => NOW,
   });
@@ -194,8 +193,6 @@ describe("Codex usage", () => {
   ])(
     "routes with the resolved Codex OAuth token's account claim ($token)",
     async ({ token, account }) => {
-      const getAuth = vi.fn<GetAuth>(tokenAuth(token));
-
       const client = {
         fetchJson: okFetch({ rate_limit: { primary_window: window(18_000) } }),
       };
@@ -203,12 +200,11 @@ describe("Codex usage", () => {
       const fetchJson = vi.spyOn(client, "fetchJson");
 
       await fetchCodexUsage({
-        getAuth,
+        credential: oauthCredential(token),
         fetchJson: client.fetchJson,
         now: () => NOW,
       });
 
-      expect(getAuth.mock.calls).toStrictEqual([["openai-codex"]]);
       expect(fetchJson).toHaveBeenCalledExactlyOnceWith(
         "https://chatgpt.com/backend-api/wham/usage",
         expect.any(Object),
@@ -227,10 +223,7 @@ describe("Codex usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchCodexUsage({
-      getAuth: async () => ({
-        auth: { apiKey: CODEX_TOKEN },
-        source: "Environment",
-      }),
+      credential: { token: CODEX_TOKEN, oauth: false },
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

@@ -142,7 +142,6 @@ export const fetchCodexUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "openai-codex",
     {
       url: CODEX_USAGE_URL,
       schema: CodexUsageSchema,

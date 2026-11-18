@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchZaiUsage, mapZaiQuotaPayload } from "../../adapters/zai.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, okFetch, tokenAuth } from "./helpers.js";
+import { NOW, okFetch, oauthCredential } from "./helpers.js";
 
 const creditPayload = {
   code: 200,
@@ -228,7 +228,7 @@ describe("zai usage", () => {
     const invalidCode = { code: "200" };
 
     const result = await fetchZaiUsage({
-      getAuth: tokenAuth("token"),
+      credential: oauthCredential("token"),
       fetchJson: okFetch(invalidCode),
       now: () => NOW,
     });
@@ -255,7 +255,7 @@ describe("zai usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchZaiUsage({
-      getAuth: tokenAuth("k"),
+      credential: oauthCredential("k"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

@@ -1,7 +1,7 @@
 import type { AuthResult } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { accessToken, contextAuth } from "../auth.js";
+import { contextAuth, resolveUsageCredential } from "../auth.js";
 import type { GetAuth } from "../auth.js";
 
 const auth =
@@ -35,15 +35,25 @@ describe(contextAuth, () => {
   });
 });
 
-describe(accessToken, () => {
-  it("returns the resolved token regardless of credential source", async () => {
-    await expect(
-      accessToken(auth("sk-ant-key", "ANTHROPIC_API_KEY"), "anthropic")
-    ).resolves.toStrictEqual({ ok: true, token: "sk-ant-key" });
-  });
+describe(resolveUsageCredential, () => {
+  it.each([
+    ["ANTHROPIC_API_KEY", false],
+    ["OAuth", true],
+  ] as const)(
+    "preserves whether the resolved token is OAuth (%s)",
+    async (source, oauth) => {
+      await expect(
+        resolveUsageCredential(auth("token", source), "anthropic")
+      ).resolves.toStrictEqual({
+        ok: true,
+        credential: { token: "token", oauth },
+      });
+    }
+  );
 
   it.each([
     ["missing", async () => {}],
+    ["empty", auth("", "ANTHROPIC_API_KEY")],
     [
       "failing",
       async () => {
@@ -53,25 +63,12 @@ describe(accessToken, () => {
   ] satisfies Array<[string, GetAuth]>)(
     "reports %s auth as not logged in",
     async (_name, getAuth) => {
-      await expect(accessToken(getAuth, "kimi-coding")).resolves.toStrictEqual({
+      await expect(
+        resolveUsageCredential(getAuth, "kimi-coding")
+      ).resolves.toStrictEqual({
         error: { kind: "unavailable", message: "not logged in" },
         ok: false,
       });
     }
   );
-
-  it("requires OAuth for subscription usage", async () => {
-    await expect(
-      accessToken(auth("sk-test", "XAI_API_KEY"), "xai", { oauth: true })
-    ).resolves.toStrictEqual({
-      error: {
-        kind: "unavailable",
-        message: "subscription usage requires OAuth login (not API key)",
-      },
-      ok: false,
-    });
-    await expect(
-      accessToken(auth("access-token", "OAuth"), "xai", { oauth: true })
-    ).resolves.toStrictEqual({ ok: true, token: "access-token" });
-  });
 });
