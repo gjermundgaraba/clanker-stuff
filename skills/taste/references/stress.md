@@ -28,17 +28,19 @@ Feed the UI values that real data allows and real users produce, to find where i
 
 - "0 seconds ago", dates in the future, the zero date (1970), and a time that falls on another day in another time zone.
 - Durations long enough that they must roll up into hours or days.
+- A relative time old enough that it should switch to a date (12 days ago, 3 years ago).
 - A locale whose calendar is not Gregorian (Solar Hijri, Hijri).
 
 ## Short and missing values
 
-- A one-character value that leaves a column looking empty.
+- A one-character value that leaves a column looking empty, and the shortest realistic email address.
 - An optional field present in some rows and absent in others. Leave the line out rather than showing a placeholder dash.
 
 ## Text from users and sources
 
 - Wide characters (CJK takes two cells in a terminal), joined emoji, stacked combining accents clipped by tight rows.
 - Strings with no break points: URLs, identifiers, long compound words.
+- Names that break naive initials: a suffix (Montgomery III), an emoji or accent first, one word only.
 - Translation growth of about a third, and right-to-left text, with zero-width non-joiners in Persian or Kurdish kept intact.
 - Markup or escape sequences inside data (HTML, ANSI codes in a title) shown as literal text, never interpreted.
 - A newline inside a value meant for one line.

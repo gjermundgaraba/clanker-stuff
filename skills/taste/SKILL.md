@@ -6,25 +6,25 @@ license: MIT AND Apache-2.0
 metadata:
   upstream-source: "https://github.com/Leonxlnx/taste-skill"
   upstream-path: "skills/"
-  upstream-revision: "12af471f627f866411b4bd785b19646d3672784c"
+  upstream-revision: "f6b76575f949707b4e3c37cd86cb44b0b98643e8"
   upstream-relationship: "adapted"
   upstream-license: "MIT"
   upstream-license-file: "LICENSE"
   upstream-baseline-kind: "reconciled"
   upstream-impeccable-source: "https://github.com/pbakaus/impeccable"
   upstream-impeccable-path: ".agents/skills/impeccable/"
-  upstream-impeccable-revision: "d34c87e1a00989ae8dbdd7f6b30b70f23319e860"
+  upstream-impeccable-revision: "d41d9860b0094dcb68030657da63461212835aaa"
   upstream-impeccable-relationship: "adapted"
   upstream-impeccable-license: "Apache-2.0"
   upstream-impeccable-license-file: "LICENSE.impeccable"
   upstream-impeccable-baseline-kind: "reconciled"
   upstream-emil-source: "https://github.com/emilkowalski/skills"
   upstream-emil-path: "skills/"
-  upstream-emil-revision: "2d228630ba1446365f614a108cb8252f1feda202"
+  upstream-emil-revision: "64eb3deb9a5fbfa041faf783e0bc3fd635872e9c"
   upstream-emil-relationship: "adapted"
   upstream-emil-license: "MIT"
   upstream-emil-license-file: "LICENSE.emil"
-  upstream-emil-baseline-kind: "recorded"
+  upstream-emil-baseline-kind: "reconciled"
 ---
 
 # Taste
@@ -54,6 +54,7 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - In five seconds a stranger can say, from words on the first screen, what this is and what to do next. When the title is a name, the line under it says what the thing is.
 - Put the one finding that most needs attention where it is read first, beside the action it drives. The most frequent job is one step from the first view; a screen with no control for its job is a report, not a tool.
 - Every region the user came for opens with a heading that names it, not a small label standing in for one.
+- Each region shows something new. One picture or object never carries region after region.
 - Use few levels, far apart. Two or three carry most screens; five is the ceiling. Levels that are almost the same read as noise, so merge them.
 - Emphasis is scarce. If every line is bold, coloured, or boxed, none is.
 - Secondary information is the same face at the same size in a softer ink, not a smaller or thinner one that stops being readable. A smaller size is for captions and metadata only.
@@ -73,7 +74,7 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - Size each region to its content. Blocks in one row end on the same line; get there by choosing counts and spans, not by stretching a short block until it holds a blank band.
 - Density is row pitch, padding, and type size moved together. Do not shrink the type and keep the padding.
 - Separate with space first, then a tone step, and only then a line. Do not box everything, and do not put a panel inside a panel.
-- Align optically, not only numerically: an icon beside text, a glyph in a circle, or a round letter at an edge often needs a small nudge to look right.
+- Align optically, not only numerically: an icon beside text, a glyph in a circle, or a round letter at an edge often needs a small nudge to look right. A label centred by its box often looks low, because most of it sits in the x-height, so check real labels.
 - Layout follows the space the UI is given, not the device: a split window is a small screen, a resized terminal is a new size.
 - The smallest and the largest sizes are compositions of their own. At the smallest, re-break lines, fold secondary parts, and keep the dominant element in view; at the largest, use the room (list beside detail) and cap the measure instead of stretching.
 - Fixed-size parts and trailing actions claim their space first; text gives way. Content cut at an edge shows that more follows.
@@ -88,16 +89,16 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - Leading and tracking tighten as size grows, from about 1.5 times the size for body to near 1 for the largest type. Set them per size, not once, where the medium lets you.
 - Keep running text to about 45 to 75 characters per line. Do not centre more than three lines; do not justify.
 - Sentence case for headings, labels, and buttons. Capitals only for a few words, and never as tiny decorative labels.
-- Use one family, or two with fixed jobs. Do not add a face for labels or numbers.
+- Use one family, or two with fixed jobs. Do not add a face for labels or numbers. Confirm in the render that every face you set has loaded; a silent fallback changes every measure.
 - Author line breaks in titles: no single orphan word, no break that splits a phrase, and check each break at every size the title renders at. Use the medium's own balancing where it has one. An uneven break is fine when it is deliberate and rare.
 - Use real characters where the medium renders them (curly quotes, an ellipsis, an en dash for ranges), and check their width where alignment depends on it.
 
 ## Colour and surfaces
 
-- Name roles before choosing values: ground, surface, ink, muted ink, one accent, the ink on the accent, and status colours if needed. Use only those roles; a raw value in a component starts a second palette.
+- Name roles before choosing values: ground, surface, ink, muted ink, one accent, the ink on the accent, and status colours if needed. Use only those roles; a raw value in a component starts a second palette. When you choose the palette, choose it for the subject and say in one sentence why it fits.
 - Ground holds most of the screen. The accent marks the primary action, the selection, or the current place, and covers under about five percent of a screen. Headings are ink, not accent. A tinted surface, such as a sidebar one tone step off the ground, is a surface, not the accent.
 - A surface differs from the ground by one tone step. Depth comes from a lighter or darker surface, never from glows.
-- Body text meets 4.5:1 contrast and large text or controls 3:1. Muted text on dark grounds fails first, so check it.
+- Body text meets 4.5:1 contrast and large text or controls 3:1. Muted text on dark grounds fails first, so check it. On a coloured surface, muted text is a shade of that colour, not grey and not transparency, whose contrast depends on whatever lies behind it.
 - Colour never carries meaning alone: pair it with a word, a symbol, or position, so the UI survives colour blindness, monochrome output, and a user's own theme.
 - Where the user owns the palette (terminal themes, system accent colours, dark mode), build from their colours and check both light and dark grounds.
 
@@ -112,6 +113,7 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 - Errors say what happened, why if known, and what to do next, with no "Oops" and no exclamation marks.
 - Loading text names the real operation.
 - Write messages as whole sentences, not pasted-together fragments, and leave room for text to grow by about a third.
+- Show the real thing: a photograph of the actual product, place, or people, or the product's own interface, over a render, a drawing, or a mood image. A stand-in shows the same kind of thing, and your report lists it.
 - No invented proof, customers, or metrics. Sample data is plausible, varied, and at the real density, and you name it as sample data in your report.
 
 ## Data and figures
@@ -124,25 +126,30 @@ Then state the purpose in one sentence: who uses this, how often, and the one ta
 
 ## States and interaction
 
-- Every control has visible resting, focused, pressed, disabled, and selected or current states. Keyboard focus is always visible. A disabled control stays legible and says why.
-- Every control has an accessible name: its visible label, or a name of its own when it shows only an icon.
+- Every control has visible resting, focused, pressed, disabled, and selected or current states. Keyboard focus is always visible, never under a fixed bar. A disabled control stays legible and says why.
+- Every control has an accessible name: its visible label, or a name of its own when it shows only an icon. A toggle exposes its state, a picture that carries meaning has a text alternative, and headings step down one level at a time.
 - Every view of data has designed loading, error, partial, and overflow states, and five distinct empty states: first use, no results, everything filtered out, no permission, and failed to load. Each says what belongs here and gives its own next step.
 - Loading is the final layout with a flat placeholder at each value's real size, so nothing jumps when content arrives. A refresh keeps the old values and says when they were last good. Progress is never invented.
 - The visible response lands on press, in the same frame as the input; only slow work comes after it. Anything slower than about a second shows progress.
 - New input changes course from wherever the screen is now. Never lock input while something moves, redraws, or loads.
 - A key that might start a sequence delays every press of it, so keep frequent keys out of sequences.
 - A cancelled gesture, lost focus, or a resize mid-action leaves no stuck state. A user who leaves mid-task returns to where they were.
-- An error keeps what the user entered, and a failure in one region degrades only that region, says what failed, and offers a retry there. Check a field as it is filled in, not only at submit.
+- An error keeps what the user entered, and a failure in one region degrades only that region, says what failed, and offers a retry there. Check a field as it is filled in, not only at submit, and show each error beside its field. Confirm success only after the work has succeeded.
 - Use a modal only when the task must interrupt or hold focus; try inline first. Passing feedback never blocks. A blocking task dims what is behind it; a panel used alongside the main view does not. A self-dismissing message pauses its timer while the screen is hidden or unfocused.
 - The user can always tell which product and scope (workspace, account) they are in, where they are, and how to go back. The platform's own way back (system back, edge swipe, Esc or q) is never disabled or overridden.
 - Destructive actions are undoable or confirmed in proportion to their cost.
-- Every action is reachable from every input the medium supports, with targets large enough for the coarsest one. Nothing works only on hover.
+- Every action is reachable from every input the medium supports, with targets large enough, and far enough apart, for the coarsest one. Nothing works only on hover.
+- A hover response never moves its target out from under the pointer or shifts a neighbour. A preview waits for the pointer to settle, and leaving is never delayed.
 - Never block the user's own scaling (zoom, text size, terminal font), and keep content out of areas the system owns (notches, system bars, the on-screen keyboard).
 - Error text, identifiers, paths, and addresses stay selectable and copyable.
 
 ## Motion
 
-Motion comes last and never rescues a weak layout. Animate only to show where something came from, confirm an action, or soften a change. The more often a user sees it, the shorter it is: actions repeated hundreds of times get none, and a pressed state is required but animating it is not. Things leave the way they came, toward the control that opened them; only something anchored to nothing comes from the centre. Entrances ease out, leaving is faster than arriving, and nothing bounces unless the user's gesture threw it. Never move what the user is reading for decoration, and let ongoing motion be stopped. Reduced-motion settings keep fades and colour changes and drop movement. Content is in place on the first frame: an entrance moves what is already there, and nothing ready waits behind a loading screen. Loops pause while off screen. The reduced-motion version is the finished screen. Judge motion on the slowest real target, slowed down, not on the development machine. In a terminal, redraw only what changed, without flicker, and show a spinner only for waits a user would notice.
+Motion comes last and never rescues a weak layout. Animate only to show where something came from, confirm an action, or soften a change. The more often a user sees it, the shorter it is: actions repeated hundreds of times, or started from the keyboard, get none, and a pressed state is required but animating it is not. As a guide, feedback takes about 100 to 150 ms, a routine change 150 to 300 ms, and an overlay, sheet, or view change up to about 500 ms. Things leave the way they came, toward the control that opened them; only something anchored to nothing comes from the centre. Entrances ease out, leaving is faster than arriving, and nothing bounces unless the user's gesture threw it.
+
+A group enters as one: one entrance per container, never the container's and then each child's. Any stagger is brief and uneven, and never on a surface opened many times a day; a group leaves all at once. Something that leaves gives up its space at once, so the gap closes while it fades, and a crossfade never dips in brightness. While the user drags, the element follows the pointer exactly, with no easing; on release it carries on at the gesture's speed, and a quick flick counts as much as distance. Data animates only a real change in value, never on every load or refresh.
+
+Never move what the user is reading for decoration, and give anything that moves for more than about five seconds a way to stop it. Reduced-motion settings keep fades, colour changes, and movement the user drives directly, and drop the rest. Content is in place on the first frame: an entrance moves what is already there, and nothing ready waits behind a loading screen. Loops pause while off screen. The reduced-motion version is the finished screen. Judge motion on the slowest real target, slowed down, not on the development machine: capture it as frames from before to settled, in normal and reduced motion, since one screenshot cannot show it. In a terminal, redraw only what changed, without flicker, and show a spinner only for waits a user would notice.
 
 ## Generated-default tells
 
@@ -153,15 +160,16 @@ These appear because they are defaults, not because the content asks for them. F
 - Tiny letter-spaced capital labels above headings, "New" or "Beta" pills, index numbering such as 01 / 02 / 03 or "Step 02", a second face brought in to make labels or numbers look "technical".
 - Hairline rules and outlined boxes everywhere; decorative chrome (crosshairs, status dots, version or time stamps, middle-dot strings).
 - Everything centred; nine nearly equal sizes; one word of a title styled differently.
-- Emoji as icons or bullets; icons that repeat the word beside them.
+- Emoji as icons or bullets; icons that repeat the word beside them; a drawn look-alike of a real logo.
 - Genre words (seamless, effortless, elevate, unlock, supercharge, powerful, all-in-one), "not just X, it's Y", three-part slogans, "Get started" and "Learn more" as labels, an em dash habit.
+- The newer copy tells: invented specifics as decoration ("Batch No. 047"), a strip of figures over one-word labels, two-fragment headings ("Twelve rooms. Three ways to stay."), virtue words (honest, calm, quiet, simply, thoughtful), a dry quip closing each paragraph, and copy about the page itself ("Below, you'll find"). A banned habit returns as its nearest substitute: "not X but Y" comes back as "rather than" or "without the".
 - Three of everything: three features, three stats, three steps. Use the number the content has.
 - Identical fade-and-rise on every block, hover lift on every card, bounce easing.
 - The dashboard kit: "Welcome back" with a waving hand; a metric tile with an icon in a tinted circle, a green "+12.5%" pill, and a sparkline; a smoothed gradient area chart with a dot on every point; zebra rows under tracked capital headers; a dark or saturated sidebar on a light screen; placeholder people (Acme, John Doe) and round vanity totals.
 
 ## Look at the render, then fix
 
-Judge the rendered output at the smallest, typical, and largest sizes, in light and dark, never the code: you wrote the code and will read your intentions into it. Judge what ships: with a build step, the production build, not only the development server. Form your own judgement before reading any linter or checker, whose findings anchor you. Let motion settle before capturing, then open every capture taken after the last change and confirm it shows what its name claims. A screenshot checks layout, not interaction: drive each interaction and say what drove it (simulated keys, a simulator, a real device). Load the UI with stress data from [references/stress.md](references/stress.md) through the same path real data takes. Restore any system setting you change for a check, such as theme or text size.
+Judge the rendered output at the smallest, typical, and largest sizes, in light and dark, never the code: you wrote the code and will read your intentions into it. Judge what ships: with a build step, the production build, not only the development server. Form your own judgement before reading any linter or checker, whose findings anchor you. Never game a check: fix the cause, or say why the finding is false. A check that could not run or finish is unmeasured, not passed. Let motion settle before capturing, then open every capture taken after the last change and confirm it shows what its name claims. A screenshot checks layout, not interaction: drive each interaction and say what drove it (simulated keys, a simulator, a real device). Load the UI with stress data from [references/stress.md](references/stress.md) through the same path real data takes. Restore any system setting you change for a check, such as theme or text size.
 
 For an existing UI, capture the before first. After the work, compare before and after at each size, re-drive everything that worked before, and report both.
 
@@ -197,4 +205,4 @@ Top three problems, each with where it shows and the fix:
 Remaining after this round:
 ```
 
-If problems remain after the last round, list them plainly; do not round up.
+If problems remain after the last round, list them plainly; do not round up. Also list what you could not check, every fact you assumed, and every stand-in the owner must replace.
