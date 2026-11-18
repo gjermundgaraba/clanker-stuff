@@ -153,6 +153,27 @@ describe("skill mentions", () => {
     }
   );
 
+  it("expands the same mention from interactive and RPC input but not from an extension", async () => {
+    const { host, loaded } = await writeSkills([
+      ["alpha", "Alpha instructions."],
+    ]);
+
+    const input = { text: "Use $alpha", type: "input" as const };
+
+    await expect(
+      host.emitInput({ ...input, source: "extension" })
+    ).resolves.toStrictEqual({ action: "continue" });
+
+    for (const source of ["interactive", "rpc"] as const) {
+      await expect(host.emitInput({ ...input, source })).resolves.toStrictEqual(
+        {
+          action: "transform",
+          text: `${skillBlock(loaded("alpha"))}\n\n${input.text}`,
+        }
+      );
+    }
+  });
+
   it("leaves input that invokes a command, template or skill to Pi, but not a leading path", async () => {
     const { host, loaded } = await writeSkills(
       [["alpha", "Alpha instructions."]],
