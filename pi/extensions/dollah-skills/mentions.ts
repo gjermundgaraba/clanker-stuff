@@ -173,7 +173,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     event: InputEvent,
     ctx: ExtensionContext
   ): Promise<InputEventResult | undefined> => {
-    if (invokesCommand(event.text)) {
+    if (event.source === "extension" || invokesCommand(event.text)) {
       return;
     }
 

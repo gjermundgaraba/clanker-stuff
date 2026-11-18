@@ -193,10 +193,7 @@ export const acquireEditorHost = (
       installed.create(tui, theme, keys);
 
     next[owner] = installed;
-    const draft = ui.getEditorText();
     ui.setEditorComponent(next);
-    // Pi's editor swap copies the previous editor's getText(), not its expanded text: https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts#L2836-L2854
-    installed.editor?.setText(draft);
   }
 
   ui.setStatus("shared-editor", host.editor?.unsupported);
