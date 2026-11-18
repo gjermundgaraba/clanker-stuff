@@ -46,14 +46,21 @@ export const stopQuery = (query: BridgeQuery | undefined): void => {
   }
 };
 
-/** `run`, appending every SDK message it yields to `CLAUDE_BRIDGE_RECORD_STREAM` as a JSON
- *  line when that is set: replay fixtures of what Claude Code emits. */
+/** `run`, with best-effort JSONL capture to `CLAUDE_BRIDGE_RECORD_STREAM` for replay fixtures. */
 export const recordStream = (run: QueryFunction): QueryFunction => {
   const recordPath = process.env["CLAUDE_BRIDGE_RECORD_STREAM"];
 
   if (recordPath === undefined || recordPath === "") {
     return run;
   }
+
+  const record = (message: SDKMessage): void => {
+    try {
+      appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
+    } catch {
+      return;
+    }
+  };
 
   return (params) => {
     const sdkQuery = run(params);
@@ -65,7 +72,7 @@ export const recordStream = (run: QueryFunction): QueryFunction => {
       },
       async *[Symbol.asyncIterator]() {
         for await (const message of sdkQuery) {
-          appendFileSync(recordPath, `${JSON.stringify(message)}\n`);
+          record(message);
           yield message;
         }
       },

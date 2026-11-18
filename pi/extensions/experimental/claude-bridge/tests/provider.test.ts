@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -22,6 +23,7 @@ import {
 
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
+import { recordStream } from "../child.js";
 import {
   catalogNotice,
   CONTINUE_PROMPT,
@@ -99,7 +101,7 @@ let sessions: Sessions | undefined;
 const bridge = () => {
   const fake = fakeQueryFunction();
 
-  sessions = new Sessions(fake.run);
+  sessions = new Sessions(recordStream(fake.run));
   sessions.start(SESSION, cwd);
 
   const deps = { sessions, piTools: () => [] };
@@ -186,7 +188,12 @@ describe("streamClaudeCode", () => {
   beforeEach(async () => {
     configDir = await createTempDir("claude-bridge-config-");
     cwd = await createTempDir("claude-bridge-cwd-");
-    restoreEnv = patchEnv({ CLAUDE_CONFIG_DIR: configDir });
+    restoreEnv = patchEnv({
+      CLAUDE_CONFIG_DIR: configDir,
+      CLAUDE_BRIDGE_DEBUG: undefined,
+      CLAUDE_BRIDGE_DEBUG_PATH: undefined,
+      CLAUDE_BRIDGE_RECORD_STREAM: undefined,
+    });
   });
 
   afterEach(async () => {
@@ -197,6 +204,81 @@ describe("streamClaudeCode", () => {
     restoreEnv();
     await rm(configDir, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });
+  });
+
+  describe("optional diagnostics", () => {
+    it("streams a complete reply when the debug and recording paths cannot be opened", async () => {
+      const parent = path.join(configDir, "not-a-directory");
+      await writeFile(parent, "a file where a directory would have to be");
+      patchEnv({
+        CLAUDE_BRIDGE_DEBUG: "1",
+        CLAUDE_BRIDGE_DEBUG_PATH: path.join(parent, "debug.log"),
+        CLAUDE_BRIDGE_RECORD_STREAM: path.join(parent, "stream.jsonl"),
+      });
+
+      const { call, query } = bridge();
+      const stream = call([user("hi")]);
+      const q = await query(0);
+      expect(q.params.options.debugFile).toBeUndefined();
+      expect(q.params.options.debug).toBeUndefined();
+
+      answer(q, "hello");
+
+      const events = await Array.fromAsync(stream);
+      expect(events.map(({ type }) => type)).toStrictEqual([
+        "start",
+        "text_start",
+        "text_delta",
+        "text_end",
+        "done",
+      ]);
+      await expect(stream.result()).resolves.toMatchObject({
+        stopReason: "stop",
+        content: [{ type: "text", text: "hello" }],
+      });
+      await vi.waitFor(() => {
+        expect(q.closed).toBe(true);
+      });
+    });
+
+    it("preserves the backend error when the trace stops accepting stderr", async () => {
+      const logFile = path.join(configDir, "debug.log");
+      const recordFile = path.join(configDir, "stream.jsonl");
+      patchEnv({
+        CLAUDE_BRIDGE_DEBUG: "1",
+        CLAUDE_BRIDGE_DEBUG_PATH: logFile,
+        CLAUDE_BRIDGE_RECORD_STREAM: recordFile,
+      });
+
+      const { call, query } = bridge();
+      const stream = call([user("hi")]);
+      const q = await query(0);
+      const { stderr } = q.params.options;
+      expect(stderr).toBeTypeOf("function");
+      stderr?.("before the log broke");
+      await expect(readFile(logFile, "utf8")).resolves.toContain(
+        "before the log broke"
+      );
+
+      await rm(logFile);
+      await mkdir(logFile);
+      expect(() => stderr?.("after the log broke")).not.toThrow();
+
+      const initial = init("cc-1");
+      q.push(initial);
+      q.fail(new Error("backend failure"));
+
+      const events = await Array.fromAsync(stream);
+      expect(events.map(({ type }) => type)).toStrictEqual(["start", "error"]);
+      await expect(stream.result()).resolves.toMatchObject({
+        stopReason: "error",
+        errorMessage: "backend failure",
+      });
+      expect(q.closed).toBe(true);
+      await expect(readFile(recordFile, "utf8")).resolves.toBe(
+        `${JSON.stringify(initial)}\n`
+      );
+    });
   });
 
   describe("a session's turns", () => {
@@ -571,18 +653,25 @@ describe("streamClaudeCode", () => {
     });
   });
 
-  it("fails the turn without a query when the gate refuses the prompt", async () => {
+  it("fails the turn without a query when the gate refuses the prompt, even if logging fails", async () => {
+    patchEnv({
+      CLAUDE_BRIDGE_DEBUG: "1",
+      CLAUDE_BRIDGE_DEBUG_PATH: configDir,
+    });
     const { call, fake } = bridge();
 
-    const reply = await call(
+    const stream = call(
       [user("hi")],
       {},
       {
         systemPrompt:
           "You are a coding assistant running inside pi, a harness.",
       }
-    ).result();
+    );
 
+    const events = await Array.fromAsync(stream);
+    expect(events.map(({ type }) => type)).toStrictEqual(["start", "error"]);
+    const reply = await stream.result();
     expect(reply.stopReason).toBe("error");
     expect(reply.errorMessage).toMatch(/refusing to send this prompt/u);
     expect(fake.queries).toHaveLength(0);

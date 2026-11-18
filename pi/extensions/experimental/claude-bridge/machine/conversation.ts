@@ -419,10 +419,7 @@ export const conversationMachine = setup({
           }
 
           if (message.type === "rate_limit_event") {
-            debug(
-              "conversation: rate_limit_event",
-              JSON.stringify(message.rate_limit_info)
-            );
+            debug("conversation: rate_limit_event", message.rate_limit_info);
 
             const rejection = rateLimitRejection(message.rate_limit_info);
 
@@ -461,11 +458,11 @@ export const conversationMachine = setup({
                 ? failure
                 : describeRateLimitFailure(context.rateLimit, failure);
 
-            debug(
-              `conversation: error result, subtype=${message.subtype}, error=${text}`
-            );
             enq(() => {
               turn?.fail(text);
+              debug(
+                `conversation: error result, subtype=${message.subtype}, error=${text}`
+              );
             });
 
             return {
@@ -505,17 +502,17 @@ export const conversationMachine = setup({
           return { target: "idle", context: DROPPED };
         },
         "cc.error": ({ context, event }, enq) => {
-          debug(`conversation: query failed: ${event.message}`);
           enq(() => {
             context.turn?.fail(event.message);
+            debug(`conversation: query failed: ${event.message}`);
           });
 
           return { target: "idle", context: DROPPED };
         },
         "pi.abort": ({ context }, enq) => {
-          debug("conversation: aborted");
           enq(() => {
             context.turn?.fail("Operation aborted", "aborted");
+            debug("conversation: aborted");
           });
 
           return { target: "idle", context: DROPPED };
@@ -528,11 +525,11 @@ export const conversationMachine = setup({
           return { target: "idle", context: DROPPED };
         },
         "pi.discard": ({ context }, enq) => {
-          debug("conversation: discarding the running query");
           enq(() => {
             context.turn?.fail(
               "claude-bridge: pi's history moved on without this query"
             );
+            debug("conversation: discarding the running query");
           });
 
           return { target: "idle", context: DROPPED };
