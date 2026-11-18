@@ -51,7 +51,6 @@ export const fetchRadiusUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "radius",
     { url: billingUrl, schema: RadiusBillingPayloadSchema },
     mapRadiusBillingPayload
   );

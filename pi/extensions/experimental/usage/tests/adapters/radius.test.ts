@@ -5,7 +5,7 @@ import {
   mapRadiusBillingPayload,
 } from "../../adapters/radius.js";
 import type { FetchJson } from "../../http.js";
-import { NOW, okFetch, tokenAuth } from "./helpers.js";
+import { NOW, okFetch, oauthCredential } from "./helpers.js";
 
 const BILLING_URL = "https://radius.pi.dev/v1/billing";
 
@@ -26,7 +26,7 @@ const payload = {
 const fetchPayload = async (value: unknown) =>
   await fetchRadiusUsage(
     {
-      getAuth: tokenAuth("token"),
+      credential: oauthCredential("token"),
       fetchJson: okFetch(value),
       now: () => NOW,
     },
@@ -102,7 +102,7 @@ describe("radius usage", () => {
 
     const result = await fetchRadiusUsage(
       {
-        getAuth: tokenAuth("token"),
+        credential: oauthCredential("token"),
         fetchJson: client.fetchJson,
         now: () => NOW,
       },

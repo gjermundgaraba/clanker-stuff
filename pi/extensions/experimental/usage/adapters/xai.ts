@@ -133,7 +133,7 @@ export const mapXaiUsagePayloads = (
 export const fetchXaiUsage = async (
   deps: AdapterDeps
 ): Promise<UsageFetchResult> => {
-  const auth = await usageHeaders(deps, "xai", {
+  const auth = usageHeaders(deps.credential, {
     oauth: true,
     headers: () => ({ "x-xai-token-auth": "xai-grok-cli" }),
   });

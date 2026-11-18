@@ -5,7 +5,7 @@ import {
   mapCopilotUsagePayload,
 } from "../../adapters/copilot.js";
 import type { FetchJson } from "../../http.js";
-import { okFetch, NOW, tokenAuth } from "./helpers.js";
+import { okFetch, NOW, oauthCredential } from "./helpers.js";
 
 describe("copilot usage", () => {
   const payload = {
@@ -66,7 +66,7 @@ describe("copilot usage", () => {
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchCopilotUsage({
-      getAuth: tokenAuth("copilot-token"),
+      credential: oauthCredential("copilot-token"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });

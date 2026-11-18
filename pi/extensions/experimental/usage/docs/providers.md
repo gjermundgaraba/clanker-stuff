@@ -28,7 +28,13 @@ The target is account relevance, not proof of a billable HTTP request. An unsupp
 
 The status summarizes the most-used main account window, or accounting when no main window is reported. Supplementary feature quotas appear only in `/usage`; the footer is an account summary, not a prediction of whether the selected model can continue. Detail output preserves each adapter's window order.
 
-If only feature quotas are reported, the footer says “account quota not reported” while `/usage` shows those quotas. A response without any metrics counts as a failed refresh, since it cannot be told apart from an upstream format change. Failed refreshes retain the latest successful snapshot and mark the status with `!`. Pi's footer and the footer extension both render it.
+If only feature quotas are reported, the footer says “account quota not reported” while `/usage` shows those quotas. A response without any metrics counts as a failed refresh, since it cannot be told apart from an upstream format change. Failed refreshes retain the latest successful snapshot for the same billing scope and mark the status with `!`. Pi's footer and the footer extension both render it.
+
+## Cache and credential changes
+
+Usage snapshots and in-flight requests are shared only for the same provider, resolved usage credential, and (for Radius) resolved billing URL. The session-local cache uses a keyed fingerprint rather than storing the credential. A missing credential or ambiguous gateway cannot reuse an older snapshot. OAuth token rotation may cause a new usage request even when the account has not changed.
+
+Pi 1.5.2 does not expose a login/logout event to extensions. The extension checks the credential Pi resolves at the next status refresh or `/usage` invocation; an idle footer is not updated immediately on login or logout. Even a cache hit may run Pi's configured credential resolver. A server-side account reassignment that leaves the request credential and URL unchanged cannot be detected from Pi's auth result. Use `/usage refresh` to request a new snapshot in that case.
 
 ## OpenAI Codex
 

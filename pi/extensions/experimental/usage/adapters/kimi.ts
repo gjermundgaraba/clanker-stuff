@@ -112,7 +112,6 @@ export const fetchKimiUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "kimi-coding",
     {
       url: KIMI_USAGE_URL,
       schema: KimiUsagePayloadSchema,

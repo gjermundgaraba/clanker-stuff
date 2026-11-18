@@ -1,9 +1,11 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { radiusProvider } from "@earendil-works/pi-ai/providers/all";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { contextAuth } from "../auth.js";
 import type { GetAuth } from "../auth.js";
 import { resolveRadiusBillingUrl } from "../controller.js";
 import type { FetchJson } from "../http.js";
@@ -34,6 +36,42 @@ const oauth: GetAuth = async () => ({
   auth: { apiKey: "fake-token" },
   source: "OAuth",
 });
+
+const radiusPayload = (available: number) => ({
+  balance: { available, credit_balance: available, reserved: 0 },
+  currency: "USD",
+  current_period: { actual_charged: 30, ends_at: "2026-10-01T00:00:00Z" },
+  ok: true,
+});
+
+const radiusHost = (fetchJson: FetchJson) => {
+  const host = createExtensionHost(
+    createUsageExtension({
+      fetchJson,
+      now: () => 1000,
+      getAuth: () => async (provider) =>
+        provider === "radius" ? await oauth(provider) : undefined,
+    })
+  );
+
+  const contextFor = (baseUrl: string) => {
+    const provider = {
+      ...radiusProvider(),
+      getModels: () => [
+        { ...radiusModel, api: "pi-messages" as const, baseUrl },
+      ],
+    };
+
+    return host.createContext({
+      model: radiusModel,
+      modelRegistry: {
+        getProvider: (id) => (id === "radius" ? provider : undefined),
+      },
+    });
+  };
+
+  return { host, contextFor };
+};
 
 const successfulFetchJson: FetchJson = okFetch({
   five_hour: { utilization: 32 },
@@ -68,30 +106,24 @@ describe("usage controller", () => {
       timestamp: 1000,
     });
 
-    const auth = vi.fn<GetAuth>(async () => ({
-      auth: { apiKey: "token" },
-      source: "OAuth",
-    }));
+    const urls: string[] = [];
+
+    const fetchJson: FetchJson = async (url, schema, headers) => {
+      urls.push(url);
+
+      return await okFetch(
+        url.includes("/v1/billing")
+          ? radiusPayload(0)
+          : { five_hour: { utilization: 30 } }
+      )(url, schema, headers);
+    };
 
     const host = createExtensionHost(
       createUsageExtension({
         now: () => 1000,
-        getAuth: () => auth,
+        getAuth: () => oauth,
         radiusBillingUrl: () => "https://gateway.example/v1/billing",
-        fetchJson: async (url, schema, headers) =>
-          await okFetch(
-            url.includes("/v1/billing")
-              ? {
-                  balance: { available: 0, credit_balance: 0, reserved: 0 },
-                  currency: "USD",
-                  current_period: {
-                    actual_charged: 30,
-                    ends_at: "2026-10-01T00:00:00.000Z",
-                  },
-                  ok: true,
-                }
-              : { five_hour: { utilization: 30 } }
-          )(url, schema, headers),
+        fetchJson,
       }),
       {
         model: {
@@ -144,9 +176,9 @@ describe("usage controller", () => {
     });
     await host.emitSessionTree(ctx);
     expect(active()).toBe("Radius $0.00 available");
-    expect(auth.mock.calls.map(([provider]) => provider)).toStrictEqual([
-      "anthropic",
-      "radius",
+    expect(urls).toStrictEqual([
+      "https://api.anthropic.com/api/oauth/usage",
+      "https://gateway.example/v1/billing",
     ]);
 
     const physical = host.createContext({
@@ -159,7 +191,9 @@ describe("usage controller", () => {
       { type: "model_select", model: claudeModel },
       physical
     );
-    expect(active()).toMatch(/^Claude 5h /u);
+    await vi.waitFor(() => {
+      expect(active()).toMatch(/^Claude 5h /u);
+    });
 
     session.branch(original);
     await host.emitSessionTree(ctx);
@@ -512,6 +546,163 @@ describe("usage controller", () => {
       "https://gateway.example/v1/billing"
     );
     await host.emitSessionShutdown(context);
+  });
+
+  it("does not reuse fresh or stale usage from a different Radius gateway", async () => {
+    const firstUrl = "https://first.example/v1/billing";
+    const secondUrl = "https://second.example/v1/billing";
+    const urls: string[] = [];
+    let secondAvailable = false;
+
+    const fetchJson: FetchJson = async (url, schema, headers) => {
+      urls.push(url);
+
+      if (url === secondUrl && !secondAvailable) {
+        return { message: "HTTP 503", ok: false, status: 503 };
+      }
+
+      return await okFetch(radiusPayload(url === firstUrl ? 12 : 34))(
+        url,
+        schema,
+        headers
+      );
+    };
+
+    const { host, contextFor } = radiusHost(fetchJson);
+    const first = contextFor("https://first.example/v1");
+    const second = contextFor("https://second.example/v1");
+    const notification = () => host.getNotifications().at(-1)?.message;
+
+    await host.runCommand("usage", "", first);
+    expect(host.getStatus("usage")).toBe("Radius $12.00 available");
+    expect(notification()).toContain("available  $12.00");
+
+    await host.runCommand("usage", "", second);
+    expect(host.getStatus("usage")).toBe("Radius usage unavailable");
+    expect(notification()).toBe("usage: radius: HTTP 503");
+
+    secondAvailable = true;
+    await host.runCommand("usage", "", second);
+    expect(host.getStatus("usage")).toBe("Radius $34.00 available");
+    expect(notification()).toContain("available  $34.00");
+
+    await host.runCommand(
+      "usage",
+      "",
+      contextFor("https://second.example/another-path")
+    );
+    expect(notification()).toContain("available  $34.00");
+    expect(urls).toStrictEqual([firstUrl, secondUrl, secondUrl]);
+    await host.emitSessionShutdown(second);
+  });
+
+  it("deduplicates concurrent Radius reads only within the same billing scope", async () => {
+    const firstUrl = "https://first.example/v1/billing";
+    const secondUrl = "https://second.example/v1/billing";
+    const firstGate = Promise.withResolvers<undefined>();
+    const secondGate = Promise.withResolvers<undefined>();
+    const urls: string[] = [];
+
+    const fetchJson: FetchJson = async (url, schema, headers) => {
+      urls.push(url);
+      const first = url === firstUrl;
+      await (first ? firstGate.promise : secondGate.promise);
+
+      return await okFetch(radiusPayload(first ? 12 : 34))(
+        url,
+        schema,
+        headers
+      );
+    };
+
+    const { host, contextFor } = radiusHost(fetchJson);
+    const first = contextFor("https://first.example/v1");
+    const second = contextFor("https://second.example/v1");
+    const readFirst = host.runCommand("usage", "", first);
+
+    try {
+      await vi.waitFor(() => {
+        expect(urls).toStrictEqual([firstUrl]);
+      });
+      const readSecond = host.runCommand("usage", "refresh", second);
+      const readSameScope = host.runCommand("usage", "refresh", second);
+      await vi.waitFor(() => {
+        expect(urls).toStrictEqual([firstUrl, secondUrl]);
+      });
+      secondGate.resolve(undefined);
+      await Promise.all([readSecond, readSameScope]);
+      const messages = host.getNotifications().map(({ message }) => message);
+      expect(messages).toHaveLength(2);
+      expect(
+        messages.every((message) => message.includes("available  $34.00"))
+      ).toBe(true);
+
+      firstGate.resolve(undefined);
+      await readFirst;
+      expect(host.getNotifications().at(-1)?.message).toContain(
+        "available  $12.00"
+      );
+      expect(host.getStatus("usage")).toBe("Radius $34.00 available");
+      expect(urls).toStrictEqual([firstUrl, secondUrl]);
+    } finally {
+      firstGate.resolve(undefined);
+      secondGate.resolve(undefined);
+      await host.emitSessionShutdown(second);
+    }
+  });
+
+  it("rechecks Pi's resolved credential before reusing quota data", async () => {
+    let token: string | undefined = "initial-login";
+    const authorizations: Array<string | undefined> = [];
+
+    const fetchJson: FetchJson = async (url, schema, headers) => {
+      const authorization = headers["Authorization"];
+      authorizations.push(authorization);
+
+      return await okFetch({
+        five_hour: {
+          utilization: authorization === "Bearer initial-login" ? 12 : 34,
+        },
+      })(url, schema, headers);
+    };
+
+    const host = createExtensionHost(
+      createUsageExtension({
+        fetchJson,
+        getAuth: (ctx) => contextAuth(ctx, () => undefined),
+        now: () => 1000,
+        radiusBillingUrl: () => undefined,
+      })
+    );
+
+    const ctx = host.createContext({
+      model: claudeModel,
+      modelRegistry: {
+        getProviderAuth: async (provider) =>
+          provider === "anthropic" && token !== undefined
+            ? { auth: { apiKey: token }, source: "OAuth" }
+            : undefined,
+      },
+    });
+
+    await host.runCommand("usage", "", ctx);
+    expect(host.getStatus("usage")).toMatch(/^Claude 5h .* 12%$/u);
+    token = "replacement-login";
+    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toMatch(/^Claude 5h .* 34%$/u);
+    });
+    token = undefined;
+    await host.runCommand("usage", "", ctx);
+    expect(host.getStatus("usage")).toBe("Claude usage unavailable");
+    expect(host.getNotifications().at(-1)?.message).toBe(
+      "usage: anthropic: not logged in"
+    );
+    expect(authorizations).toStrictEqual([
+      "Bearer initial-login",
+      "Bearer replacement-login",
+    ]);
+    await host.emitSessionShutdown(ctx);
   });
 
   it("does not send a Radius credential without an unambiguous gateway", async () => {

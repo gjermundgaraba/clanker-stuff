@@ -1,3 +1,5 @@
+import { createHmac, randomBytes } from "node:crypto";
+
 import type {
   ExtensionCommandContext,
   ExtensionContext,
@@ -13,7 +15,7 @@ import { fetchRadiusUsage } from "./adapters/radius.js";
 import type { AdapterDeps } from "./adapters/util.js";
 import { fetchXaiUsage } from "./adapters/xai.js";
 import { fetchZaiUsage } from "./adapters/zai.js";
-import { contextAuth } from "./auth.js";
+import { contextAuth, resolveUsageCredential } from "./auth.js";
 import type { GetAuth } from "./auth.js";
 import { UsageCache } from "./cache.js";
 import { parseUsageArgs } from "./command.js";
@@ -30,8 +32,12 @@ import {
   SUPPORTED_PROVIDERS,
   usageFailure,
 } from "./providers.js";
-import type { SupportedProvider, UsageFetchResult } from "./providers.js";
-import { presentationProvider, STATUS_KEY, statusText } from "./status.js";
+import type {
+  SupportedProvider,
+  UsageFetchResult,
+  UsageSnapshot,
+} from "./providers.js";
+import { STATUS_KEY, statusText } from "./status.js";
 import type { UsagePresentation } from "./status.js";
 
 const REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -91,6 +97,25 @@ const defaultDependencies: UsageControllerDependencies = {
   getAuth: contextAuth,
 };
 
+const fixedEndpointFetchers = {
+  anthropic: fetchClaudeUsage,
+  "openai-codex": fetchCodexUsage,
+  "github-copilot": fetchCopilotUsage,
+  "kimi-coding": fetchKimiUsage,
+  "opencode-go": fetchOpenCodeGoUsage,
+  openrouter: fetchOpenRouterUsage,
+  xai: fetchXaiUsage,
+  zai: fetchZaiUsage,
+} satisfies Record<
+  Exclude<SupportedProvider, "radius">,
+  (deps: AdapterDeps) => Promise<UsageFetchResult>
+>;
+
+interface UsageReading {
+  result: UsageFetchResult;
+  snapshot?: UsageSnapshot;
+}
+
 export const createUsageController = (
   dependencies: UsageControllerDependencies = defaultDependencies
 ) => {
@@ -100,45 +125,38 @@ export const createUsageController = (
     dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
 
   const cache = new UsageCache(now);
+  const scopeSecret = randomBytes(32);
 
-  const usageFetchers = {
-    anthropic: fetchClaudeUsage,
-    "openai-codex": fetchCodexUsage,
-    "github-copilot": fetchCopilotUsage,
-    "kimi-coding": fetchKimiUsage,
-    "opencode-go": fetchOpenCodeGoUsage,
-    openrouter: fetchOpenRouterUsage,
-    radius: async (deps: AdapterDeps, ctx: ExtensionContext) => {
-      const billingUrl = radiusBillingUrl(ctx);
+  const resolveEndpoint = (
+    provider: SupportedProvider,
+    ctx: ExtensionContext
+  ) => {
+    if (provider !== "radius") {
+      return {
+        billingUrl: undefined,
+        fetchUsage: fixedEndpointFetchers[provider],
+      };
+    }
 
-      return billingUrl === undefined
-        ? usageFailure("could not determine Radius gateway", "unavailable")
-        : await fetchRadiusUsage(deps, billingUrl);
-    },
-    xai: fetchXaiUsage,
-    zai: fetchZaiUsage,
-  } satisfies Record<
-    SupportedProvider,
-    (deps: AdapterDeps, ctx: ExtensionContext) => Promise<UsageFetchResult>
-  >;
+    const billingUrl = radiusBillingUrl(ctx);
+
+    return billingUrl === undefined
+      ? undefined
+      : {
+          billingUrl,
+          fetchUsage: async (deps: AdapterDeps) =>
+            await fetchRadiusUsage(deps, billingUrl),
+        };
+  };
 
   let generation = 0;
   let disposed = false;
 
   let current:
-    | { context: ExtensionContext; presentation: UsagePresentation }
+    | { context: ExtensionContext; provider: SupportedProvider }
     | undefined;
 
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
-
-  const publish = (): void => {
-    if (current?.context.mode === "tui") {
-      current.context.ui.setStatus(
-        STATUS_KEY,
-        statusText(current.presentation, now(), current.context.ui.theme)
-      );
-    }
-  };
 
   const clear = (ctx: ExtensionContext | undefined): void => {
     if (ctx?.mode === "tui") {
@@ -148,67 +166,101 @@ export const createUsageController = (
     current = undefined;
   };
 
-  const getOrFetch = async (
+  const readUsage = async (
     provider: SupportedProvider,
     ctx: ExtensionContext,
-    force: boolean
-  ): Promise<UsageFetchResult> =>
-    await cache.getOrFetch(
-      provider,
+    force: boolean,
+    onScopeResolved?: (last: UsageSnapshot | undefined) => void
+  ): Promise<UsageReading> => {
+    const endpoint = resolveEndpoint(provider, ctx);
+
+    if (endpoint === undefined) {
+      return {
+        result: usageFailure(
+          "could not determine Radius gateway",
+          "unavailable"
+        ),
+      };
+    }
+
+    const auth = await resolveUsageCredential(getAuth(ctx), provider);
+
+    if (!auth.ok) {
+      return { result: auth };
+    }
+
+    const { credential } = auth;
+
+    const scopeFingerprint = createHmac("sha256", scopeSecret)
+      .update(
+        JSON.stringify([
+          provider,
+          endpoint.billingUrl,
+          credential.oauth,
+          credential.token,
+        ])
+      )
+      .digest("hex");
+
+    onScopeResolved?.(cache.getLastSuccess(scopeFingerprint));
+
+    const result = await cache.getOrFetch(
+      scopeFingerprint,
       force,
-      async () =>
-        await usageFetchers[provider](
-          { getAuth: getAuth(ctx), fetchJson, now },
-          ctx
-        )
+      async () => await endpoint.fetchUsage({ credential, fetchJson, now })
     );
+
+    const snapshot = result.ok
+      ? result.snapshot
+      : cache.getLastSuccess(scopeFingerprint);
+
+    return { result, ...(snapshot === undefined ? {} : { snapshot }) };
+  };
 
   const refresh = (
     ctx: ExtensionContext,
     provider: string | undefined,
     force = false
-  ): void => {
+  ): Promise<UsageReading> | undefined => {
     generation += 1;
+    const refreshGeneration = generation;
 
     if (!isSupportedProvider(provider)) {
       clear(ctx);
 
-      return;
+      return undefined;
     }
 
-    const last = cache.getLastSuccess(provider);
-    current = {
-      context: ctx,
-      presentation: last
-        ? { kind: "ready", snapshot: last }
-        : { kind: "loading", provider },
+    const show = (presentation: UsagePresentation): void => {
+      if (refreshGeneration === generation && ctx.mode === "tui") {
+        ctx.ui.setStatus(
+          STATUS_KEY,
+          statusText(presentation, now(), ctx.ui.theme)
+        );
+      }
     };
-    publish();
-    const refreshGeneration = generation;
-    void (async () => {
-      const result = await getOrFetch(provider, ctx, force);
 
-      if (refreshGeneration !== generation) {
-        return;
-      }
+    if (current?.provider !== provider) {
+      show({ kind: "loading", provider });
+    }
 
-      if (result.ok) {
-        current = {
-          context: ctx,
-          presentation: { kind: "ready", snapshot: result.snapshot },
-        };
+    current = { context: ctx, provider };
+
+    return readUsage(provider, ctx, force, (snapshot) => {
+      show(
+        snapshot ? { kind: "ready", snapshot } : { kind: "loading", provider }
+      );
+    }).then((reading) => {
+      const { result, snapshot } = reading;
+
+      if (snapshot === undefined) {
+        show({ kind: "error", provider });
       } else {
-        const snapshot = cache.getLastSuccess(provider);
-        current = {
-          context: ctx,
-          presentation: snapshot
-            ? { kind: "stale", snapshot }
-            : { kind: "error", provider },
-        };
+        show({ kind: result.ok ? "ready" : "stale", snapshot });
       }
 
-      publish();
-    })();
+      return reading;
+    });
   };
 
   const stopTimer = (): void => {
@@ -238,13 +290,17 @@ export const createUsageController = (
       }
 
       const target = resolveQuotaProvider(ctx);
-      refresh(ctx, target, parsed.refresh);
+      const active = refresh(ctx, target, parsed.refresh);
 
       const results = await Promise.all(
-        SUPPORTED_PROVIDERS.map(async (provider) => ({
-          provider,
-          result: await getOrFetch(provider, ctx, parsed.refresh),
-        }))
+        SUPPORTED_PROVIDERS.map(async (provider) => {
+          const reading =
+            provider === target && active !== undefined
+              ? await active
+              : await readUsage(provider, ctx, parsed.refresh);
+
+          return { provider, ...reading };
+        })
       );
 
       if (disposed) {
@@ -278,11 +334,7 @@ export const createUsageController = (
 
       const lines: string[] = note === undefined ? [] : [note];
 
-      for (const { provider, result } of available) {
-        const snapshot = result.ok
-          ? result.snapshot
-          : cache.getLastSuccess(provider);
-
+      for (const { provider, result, snapshot } of available) {
         if (snapshot) {
           const [header = "", ...details] = formatDetail(snapshot, now()).split(
             "\n"
@@ -312,17 +364,17 @@ export const createUsageController = (
         return;
       }
 
-      refresh(ctx, resolveQuotaProvider(ctx));
+      void refresh(ctx, resolveQuotaProvider(ctx));
       stopTimer();
       refreshTimer = setInterval(() => {
         if (current) {
-          refresh(current.context, presentationProvider(current.presentation));
+          void refresh(current.context, current.provider);
         }
       }, REFRESH_INTERVAL_MS);
     },
     refresh: (ctx: ExtensionContext): void => {
       if (ctx.mode === "tui") {
-        refresh(ctx, resolveQuotaProvider(ctx));
+        void refresh(ctx, resolveQuotaProvider(ctx));
       }
     },
   };

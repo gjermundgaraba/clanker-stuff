@@ -50,7 +50,6 @@ export const fetchClaudeUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "anthropic",
     {
       url: CLAUDE_USAGE_URL,
       schema: ClaudeUsagePayloadSchema,

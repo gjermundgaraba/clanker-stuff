@@ -34,7 +34,6 @@ export const fetchOpenRouterUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "openrouter",
     { url: OPENROUTER_CREDITS_URL, schema: OpenRouterCreditsPayloadSchema },
     mapOpenRouterCreditsPayload
   );

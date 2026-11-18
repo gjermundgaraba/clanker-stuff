@@ -54,7 +54,6 @@ export const fetchOpenCodeGoUsage = async (
 ): Promise<UsageFetchResult> =>
   await fetchUsage(
     deps,
-    "opencode-go",
     { url: OPENCODE_GO_USAGE_URL, schema: OpenCodeGoUsagePayloadSchema },
     mapOpenCodeGoUsagePayload
   );
