@@ -10,6 +10,7 @@ import type {
   ExtensionContext,
   ThemeAppearance,
 } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -99,9 +100,12 @@ const openDialog = async (
         component.handleInput?.(key);
       }
     },
-    render: () => component.render(80).join("\n"),
+    render: (width = 80) => component.render(width).join("\n"),
   };
 };
+
+const previewLine = (rendered: string) =>
+  rendered.split("\n").find((row) => row.includes("Working"));
 
 describe("shape spinner", () => {
   it("only sets Pi's working indicator, at startup and for each run", async () => {
@@ -173,10 +177,13 @@ describe("shape spinner", () => {
     expect(dialog.render()).toContain("rubik · orange");
 
     dialog.press(up, space, space);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(
-      looped(wireframe("cube", "orange", "light"))
+    const cube = wireframe("cube", "orange", "light");
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(looped(cube));
+    const line = previewLine(dialog.render());
+    expect(line).toContain("cube · orange");
+    expect(cube.frames.some((frame) => line?.includes(frame) === true)).toBe(
+      true
     );
-    expect(dialog.render()).toContain("cube · orange");
     await dialog.close();
     await expect(loadConfig()).resolves.toStrictEqual({
       color: "orange",
@@ -220,9 +227,9 @@ describe("shape spinner", () => {
     expect(setWorkingIndicator).toHaveBeenLastCalledWith(
       resting(wireframe("cube", "cyan", "dark"))
     );
-    expect(dialog.render()).toContain(
-      `${wireframe("cube", "cyan", "dark").still} cube · cyan`
-    );
+    const line = previewLine(dialog.render());
+    expect(line).toContain(wireframe("cube", "cyan", "dark").still);
+    expect(line).toContain("cube · cyan");
     expect(existsSync(configPath())).toBe(false);
     await dialog.close();
 
@@ -237,7 +244,7 @@ describe("shape spinner", () => {
     const { ctx, driver, host, setWorkingIndicator } = setup();
     const dialog = await openDialog(host, driver, ctx);
     const rendered = dialog.render();
-    const line = rendered.split("\n").find((row) => row.includes("Working"));
+    const line = previewLine(rendered);
 
     expect(line).toContain("orb · cyan");
     expect(
@@ -260,19 +267,59 @@ describe("shape spinner", () => {
     expect(existsSync(configPath())).toBe(false);
   });
 
-  it("advances the preview at the playback rate and stops its timer on close", async () => {
+  it("keeps the glyph and settings label visible at narrow widths", async () => {
+    const { ctx, driver, host } = setup();
+    const dialog = await openDialog(host, driver, ctx);
+
+    try {
+      const width = 16;
+      const rendered = dialog.render(width);
+      const line = previewLine(rendered);
+
+      for (const row of rendered.split("\n")) {
+        expect(visibleWidth(row), row).toBeLessThanOrEqual(width);
+      }
+
+      expect(
+        wireframe("orb", "cyan", "dark").frames.some(
+          (frame) => line?.includes(frame) === true
+        )
+      ).toBe(true);
+      expect(rendered).toContain("orb · cyan");
+    } finally {
+      await dialog.close();
+    }
+  });
+
+  it("animates at the playback rate, pauses in static mode, and stops on close", async () => {
     vi.useFakeTimers();
 
     try {
       const { ctx, driver, host } = setup();
       const dialog = await openDialog(host, driver, ctx);
-      const { frames } = wireframe("orb", "cyan", "dark");
+      const { frames, still } = wireframe("orb", "cyan", "dark");
       const before = dialog.render();
       const index = frames.findIndex((frame) => before.includes(frame));
       expect(index).toBeGreaterThanOrEqual(0);
       vi.advanceTimersByTime(400);
       expect(dialog.render()).toContain(frames[(index + 20) % frames.length]);
+
+      dialog.press(space);
+      const paused = dialog.render();
+      expect(previewLine(paused)).toContain(still);
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(400);
+      expect(dialog.render()).toBe(paused);
+
+      dialog.press(space);
+      const resumed = dialog.render();
+      const resumedIndex = frames.findIndex((frame) => resumed.includes(frame));
+      expect(resumedIndex).toBeGreaterThanOrEqual(0);
       expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(20);
+      expect(dialog.render()).toContain(
+        frames[(resumedIndex + 1) % frames.length]
+      );
 
       await dialog.close();
       expect(vi.getTimerCount()).toBe(0);

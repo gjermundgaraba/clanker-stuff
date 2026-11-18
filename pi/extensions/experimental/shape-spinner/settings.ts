@@ -1,10 +1,16 @@
 import { fileURLToPath } from "node:url";
 
-import { FRAME_INTERVAL_MS, manifest } from "@clanker-stuff/pi-shape-glyphs";
+import { manifest } from "@clanker-stuff/pi-shape-glyphs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import { Container, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
-import type { Component, SettingItem } from "@earendil-works/pi-tui";
+import {
+  Container,
+  Loader,
+  SettingsList,
+  Spacer,
+  Text,
+} from "@earendil-works/pi-tui";
+import type { SettingItem } from "@earendil-works/pi-tui";
 import { Value } from "typebox/value";
 
 import { colors, ConfigSchema, motions, shapes, styleFor } from "./config.js";
@@ -46,45 +52,6 @@ export const updateSetting = (
   }
 };
 
-class SpinnerPreview implements Component {
-  private tick = 0;
-  private readonly timer: ReturnType<typeof setInterval>;
-
-  private readonly config: Config;
-  frames: readonly string[];
-  private readonly accent: (text: string) => string;
-
-  constructor(
-    config: Config,
-    frames: readonly string[],
-    accent: (text: string) => string,
-    requestRender: () => void
-  ) {
-    this.config = config;
-    this.frames = frames;
-    this.accent = accent;
-    this.timer = setInterval(() => {
-      this.tick += 1;
-      requestRender();
-    }, FRAME_INTERVAL_MS);
-  }
-
-  dispose(): void {
-    clearInterval(this.timer);
-  }
-
-  invalidate(): void {
-    return;
-  }
-
-  render(): string[] {
-    const { shape, color } = this.config;
-    const frame = this.frames[this.tick % this.frames.length] ?? "";
-
-    return [` ${this.accent("Working  ")}${frame} ${shape} · ${color}`];
-  }
-}
-
 export const openSettings = async (
   ctx: ExtensionContext,
   config: Config,
@@ -92,13 +59,14 @@ export const openSettings = async (
 ): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, _keybindings, done) => {
-      const preview = new SpinnerPreview(
-        config,
-        styleFor(config, ctx.ui.theme.appearance).frames,
-        (text) => theme.fg("accent", text),
-        () => {
-          tui.requestRender();
-        }
+      const previewLabel = () => `${config.shape} · ${config.color}`;
+
+      const preview = new Loader(
+        tui,
+        (frame) => frame,
+        (label) => `${theme.fg("accent", "Working")}  ${label}`,
+        previewLabel(),
+        styleFor(config, ctx.ui.theme.appearance)
       );
 
       const items: SettingItem[] = [
@@ -135,7 +103,8 @@ export const openSettings = async (
         (id, value) => {
           updateSetting(config, id, value);
           onChange();
-          preview.frames = styleFor(config, ctx.ui.theme.appearance).frames;
+          preview.setIndicator(styleFor(config, ctx.ui.theme.appearance));
+          preview.setMessage(previewLabel());
         },
         () => {
           done(null);
@@ -143,8 +112,9 @@ export const openSettings = async (
       );
 
       const container = new Container();
+      container.addChild(new Spacer());
       container.addChild(
-        new Text(theme.fg("accent", theme.bold("Shape Spinner")), 0, 1)
+        new Text(theme.fg("accent", theme.bold("Shape Spinner")), 0, 0)
       );
       container.addChild(preview);
       container.addChild(new Spacer());
@@ -156,7 +126,7 @@ export const openSettings = async (
 
       return {
         dispose: () => {
-          preview.dispose();
+          preview.stop();
         },
         handleInput: (data) => {
           list.handleInput(data);
