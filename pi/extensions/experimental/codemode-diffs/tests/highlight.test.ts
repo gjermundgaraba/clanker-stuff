@@ -75,6 +75,27 @@ describe("Highlights diff projection", () => {
     expect(spans?.at(-1)?.[0]).toBe(line.length);
   });
 
+  it.each([
+    ["UTF-8 bytes", `/*${"界".repeat(22_000)}*/\n`],
+    ["rows", "// filler\n".repeat(2000)],
+  ])(
+    "skips small hunks when the combined source exceeds its %s budget",
+    async (_limit, padding) => {
+      const oldLine = "const old = 1;";
+      const newLine = "const next = 2;";
+      const line = padding.split("\n").length;
+
+      await expect(
+        highlightDiff(
+          "source.ts",
+          `-${line} ${oldLine}\n+${line} ${newLine}`,
+          padding + oldLine,
+          padding + newLine
+        )
+      ).resolves.toBeUndefined();
+    }
+  );
+
   it("returns no highlighting for unknown languages", async () => {
     await expect(
       highlightDiff("notes.txt", "+1 plain", "", "plain")

@@ -4,7 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { EditDiffs } from "../diffs.js";
+import { EditDiffs, MAX_DIFF_DETAILS_BYTES } from "../diffs.js";
 
 const call = (id: string): ToolCallEvent => ({
   type: "tool_call",
@@ -73,6 +73,106 @@ describe("edit diff capture", () => {
     diffs.clear();
     diffs.setSyntax("script/1", "+1 late", [[[4, "text"]]]);
     expect(diffs.isCapturing("script/1")).toBe(false);
+  });
+
+  it("caps serialized details per parent, counting escaped and multibyte text and keeping later small diffs", () => {
+    const diffs = new EditDiffs();
+    diffs.onCall(call("script"));
+    diffs.onCall(call("peer"));
+
+    const bulk = `+1 ${'界"\u0000'.repeat(5900)}`;
+    const small = "+1 retained after omissions";
+    const wouldFitWithoutOmissionField = `+1 ${"x".repeat(410)}`;
+    diffs.onResult(result("edit", "script/1", { diff: bulk }, "script"));
+
+    for (let i = 2; i <= 13; i += 1) {
+      diffs.onResult(result("edit", `script/${i}`, { diff: bulk }, "script"));
+    }
+
+    diffs.onResult(result("edit", "script/14", { diff: small }, "script"));
+    diffs.onResult(
+      result(
+        "edit",
+        "script/15",
+        { diff: wouldFitWithoutOmissionField },
+        "script"
+      )
+    );
+    diffs.onResult(result("edit", "peer/1", { diff: bulk }, "peer"));
+
+    const final = diffs.onResult(
+      result("codemode", "script", undefined)
+    )?.details;
+
+    expect(Buffer.byteLength(JSON.stringify(final))).toBeLessThanOrEqual(
+      MAX_DIFF_DETAILS_BYTES
+    );
+    expect(final).toStrictEqual({
+      codemodeDiffs: [
+        { toolCallId: "script/1", path: "file.txt", diff: bulk },
+        { toolCallId: "script/14", path: "file.txt", diff: small },
+      ],
+      codemodeDiffsOmitted: 13,
+    });
+    expect(
+      diffs.onResult(result("codemode", "peer", undefined))?.details
+    ).toStrictEqual({
+      codemodeDiffs: [{ toolCallId: "peer/1", path: "file.txt", diff: bulk }],
+    });
+  });
+
+  it("drops syntax rather than omitting a diff whose plain text fits", () => {
+    const diffs = new EditDiffs();
+    diffs.onCall(call("script"));
+    diffs.onCall({
+      type: "tool_call",
+      toolName: "edit",
+      toolCallId: "script/1",
+      parentToolCallId: "script",
+      input: { path: "file.txt" },
+    });
+
+    const line = "x+".repeat(3000);
+    const diff = `+1 ${line}`;
+    diffs.setSyntax("script/1", diff, [
+      Array.from({ length: line.length }, (_, i) => [
+        i + 1,
+        i % 2 === 0 ? "variable" : "operator",
+      ]),
+    ]);
+    diffs.onResult(result("edit", "script/1", { diff }, "script"));
+
+    const final = diffs.onResult(
+      result("codemode", "script", undefined)
+    )?.details;
+
+    expect(Buffer.byteLength(JSON.stringify(final))).toBeLessThanOrEqual(
+      MAX_DIFF_DETAILS_BYTES
+    );
+    expect(final).toStrictEqual({
+      codemodeDiffs: [{ toolCallId: "script/1", path: "file.txt", diff }],
+    });
+  });
+
+  it("saves an omission count even when no diffs fit, including path and ID bytes", () => {
+    const diffs = new EditDiffs();
+    diffs.onCall(call("script"));
+    diffs.onResult({
+      ...result(
+        "edit",
+        `script/${"x".repeat(30_000)}`,
+        { diff: "+1 small" },
+        "script"
+      ),
+      input: { path: "界".repeat(13_000) },
+    });
+
+    expect(
+      diffs.onResult(result("codemode", "script", undefined))?.details
+    ).toStrictEqual({
+      codemodeDiffs: [],
+      codemodeDiffsOmitted: 1,
+    });
   });
 
   it("releases completed and abandoned calls so later results cannot inherit their diffs", () => {

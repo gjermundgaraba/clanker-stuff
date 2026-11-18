@@ -22,11 +22,76 @@ const EditDiffSchema = Type.Object(
 export const DiffDetailsSchema = Type.Object(
   {
     codemodeDiffs: Type.Array(EditDiffSchema),
+    codemodeDiffsOmitted: Type.Optional(
+      Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })
+    ),
   },
   { additionalProperties: true }
 );
 
-type EditDiff = Static<typeof EditDiffSchema>;
+type PlainEditDiff = Omit<Static<typeof EditDiffSchema>, "syntax">;
+
+type CapturedEditDiff = PlainEditDiff & { syntax?: DiffSyntax };
+
+export const MAX_DIFF_DETAILS_BYTES = 64 * 1024;
+
+const RESERVED_ENVELOPE_BYTES = Buffer.byteLength(
+  JSON.stringify({
+    codemodeDiffs: [],
+    codemodeDiffsOmitted: Number.MAX_SAFE_INTEGER,
+  })
+);
+
+interface Capture {
+  edits: CapturedEditDiff[];
+  remainingBytes: number;
+  omitted: number;
+}
+
+interface PendingEdit {
+  parentId: string;
+  syntax?: { diff: string; rows: DiffSyntax };
+}
+
+const recordBytes = (capture: Capture, edit: CapturedEditDiff): number =>
+  Buffer.byteLength(JSON.stringify(edit)) + (capture.edits.length > 0 ? 1 : 0);
+
+const plainRecordBytes = (capture: Capture, edit: PlainEditDiff): number => {
+  const minimumBytes =
+    edit.diff.length + edit.path.length + edit.toolCallId.length;
+
+  return minimumBytes > capture.remainingBytes
+    ? Number.POSITIVE_INFINITY
+    : recordBytes(capture, edit);
+};
+
+const retainDiff = (
+  capture: Capture,
+  plain: PlainEditDiff,
+  syntax: DiffSyntax | undefined
+): void => {
+  let edit: CapturedEditDiff = plain;
+  let bytes = plainRecordBytes(capture, plain);
+
+  if (bytes > capture.remainingBytes) {
+    capture.omitted = Math.min(capture.omitted + 1, Number.MAX_SAFE_INTEGER);
+
+    return;
+  }
+
+  if (syntax !== undefined) {
+    const highlighted = { ...plain, syntax };
+    const highlightedBytes = recordBytes(capture, highlighted);
+
+    if (highlightedBytes <= capture.remainingBytes) {
+      edit = highlighted;
+      bytes = highlightedBytes;
+    }
+  }
+
+  capture.edits.push(edit);
+  capture.remainingBytes -= bytes;
+};
 
 const EditDetailsSchema = Type.Object(
   {
@@ -36,15 +101,16 @@ const EditDetailsSchema = Type.Object(
 );
 
 export class EditDiffs {
-  private readonly calls = new Map<string, EditDiff[]>();
-  private readonly pending = new Map<
-    string,
-    { diff: string; rows: DiffSyntax } | undefined
-  >();
+  private readonly calls = new Map<string, Capture>();
+  private readonly pending = new Map<string, PendingEdit>();
 
   onCall(event: ToolCallEvent): void {
     if (event.toolName === "codemode") {
-      this.calls.set(event.toolCallId, []);
+      this.calls.set(event.toolCallId, {
+        edits: [],
+        remainingBytes: MAX_DIFF_DETAILS_BYTES - RESERVED_ENVELOPE_BYTES,
+        omitted: 0,
+      });
     }
 
     if (
@@ -53,16 +119,16 @@ export class EditDiffs {
       event.parentToolCallId !== "" &&
       this.calls.has(event.parentToolCallId)
     ) {
-      this.pending.set(event.toolCallId, undefined);
+      this.pending.set(event.toolCallId, { parentId: event.parentToolCallId });
     }
   }
 
   onResult(event: ToolResultEvent): ToolResultEventResult | undefined {
     if (event.toolName === "codemode") {
-      const edits = this.calls.get(event.toolCallId);
+      const capture = this.calls.get(event.toolCallId);
       this.calls.delete(event.toolCallId);
 
-      if (edits === undefined || edits.length === 0) {
+      if (!capture || (capture.edits.length === 0 && capture.omitted === 0)) {
         return;
       }
 
@@ -71,7 +137,10 @@ export class EditDiffs {
       return {
         details: {
           ...(typeof details === "object" && details !== null ? details : {}),
-          codemodeDiffs: edits,
+          codemodeDiffs: capture.edits,
+          ...(capture.omitted > 0
+            ? { codemodeDiffsOmitted: capture.omitted }
+            : {}),
         },
       };
     }
@@ -80,7 +149,7 @@ export class EditDiffs {
       return;
     }
 
-    const syntax = this.pending.get(event.toolCallId);
+    const syntax = this.pending.get(event.toolCallId)?.syntax;
     this.pending.delete(event.toolCallId);
 
     if (
@@ -91,35 +160,48 @@ export class EditDiffs {
       return;
     }
 
-    const edits = this.calls.get(event.parentToolCallId);
+    const capture = this.calls.get(event.parentToolCallId);
     const details: unknown = event.details;
     const { path } = event.input;
 
     if (
-      !edits ||
+      !capture ||
       typeof path !== "string" ||
       !Value.Check(EditDetailsSchema, details)
     ) {
       return;
     }
 
-    edits.push({
-      toolCallId: event.toolCallId,
-      path,
-      diff: details.diff,
-      ...(syntax?.diff === details.diff ? { syntax: syntax.rows } : {}),
-    });
+    retainDiff(
+      capture,
+      { toolCallId: event.toolCallId, path, diff: details.diff },
+      syntax?.diff === details.diff ? syntax.rows : undefined
+    );
 
     return undefined;
   }
 
   isCapturing(id: string): boolean {
-    return this.pending.has(id);
+    const pending = this.pending.get(id);
+
+    return pending !== undefined && this.calls.has(pending.parentId);
+  }
+
+  canHighlight(edit: PlainEditDiff): boolean {
+    const pending = this.pending.get(edit.toolCallId);
+    const capture = pending && this.calls.get(pending.parentId);
+
+    return (
+      capture !== undefined &&
+      plainRecordBytes(capture, edit) < capture.remainingBytes
+    );
   }
 
   setSyntax(id: string, diff: string, rows: DiffSyntax): void {
-    if (this.pending.has(id)) {
-      this.pending.set(id, { diff, rows });
+    const pending = this.pending.get(id);
+
+    if (pending && this.calls.has(pending.parentId)) {
+      pending.syntax = { diff, rows };
     }
   }
 

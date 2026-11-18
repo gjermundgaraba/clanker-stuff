@@ -17,7 +17,7 @@ import {
 } from "../../../../tests/harness/tool-rendering.js";
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
-import { DiffDetailsSchema } from "../diffs.js";
+import { DiffDetailsSchema, MAX_DIFF_DETAILS_BYTES } from "../diffs.js";
 import { SyntaxSchema } from "../highlight.js";
 import extension from "../index.js";
 
@@ -109,7 +109,7 @@ describe("Code Mode edit diffs in real sessions", () => {
           code: `await Promise.allSettled([
           tools.edit({path:"a.txt", edits:[{oldText:"missing",newText:"bad"}]}),
           tools.edit({path:"a.txt", edits:[{oldText:"before",newText:"after"}]})
-        ]); throw new Error("script failed after editing");`,
+        ]); text("partial script output"); throw new Error("script failed after editing");`,
         }),
       ]),
       fauxAssistantMessage("Failed after editing"),
@@ -134,6 +134,7 @@ describe("Code Mode edit diffs in real sessions", () => {
       .flatMap((block) => (block.type === "text" ? [block.text] : []))
       .join("\n");
 
+    expect(output).toContain("partial script output");
     expect(output).toContain("script failed after editing");
   });
 
@@ -183,7 +184,7 @@ describe("Code Mode edit diffs in real sessions", () => {
     );
   });
 
-  it("renders saved syntax after reopening a session, without rereading edited files", async () => {
+  it("persists bounded diff details and renders saved syntax and omissions without rereading files", async () => {
     const directory = await createTempDir("codemode-diffs-");
     onTestFinished(async () => {
       await rm(directory, { recursive: true, force: true });
@@ -196,15 +197,20 @@ describe("Code Mode edit diffs in real sessions", () => {
 
     const harness = await setup(options);
     await writeFile(path.join(directory, "saved.ts"), "const before = 1;\n");
+    await writeFile(path.join(directory, "large.txt"), "small\n");
     harness.setResponses([
       fauxAssistantMessage([
         fauxToolCall("codemode", {
-          code: edit("saved.ts", "const before = 1;", "const after = 2;"),
+          code: `await tools.edit({path:"large.txt",edits:[{oldText:"small",newText:"x".repeat(70_000)}]});
+        ${edit("saved.ts", "const before = 1;", "const after = 2;")}`,
         }),
       ]),
       fauxAssistantMessage("Done"),
     ]);
     await harness.prompt("Edit");
+    await expect(
+      readFile(path.join(directory, "large.txt"), "utf-8")
+    ).resolves.toHaveLength(70_001);
     harness.cleanup();
     await rm(path.join(directory, "saved.ts"));
 
@@ -232,16 +238,22 @@ describe("Code Mode edit diffs in real sessions", () => {
     }
 
     const rendered = renderedRows(component, 100).join("\n");
+    expect(rendered).toContain("Edits (1 shown, 1 omitted)");
     expect(rendered).toContain("saved.ts");
     expect(rendered).toContain("-1 const before = 1;");
     expect(rendered).toContain("+1 const after = 2;");
 
-    const captured = Value.Parse(
+    const { codemodeDiffs, codemodeDiffsOmitted } = Value.Parse(
       DiffDetailsSchema,
       message.details
-    ).codemodeDiffs;
+    );
 
-    expect(Value.Check(SyntaxSchema, captured[0]?.syntax)).toBe(true);
+    expect(
+      Buffer.byteLength(JSON.stringify({ codemodeDiffs, codemodeDiffsOmitted }))
+    ).toBeLessThanOrEqual(MAX_DIFF_DETAILS_BYTES);
+    expect(codemodeDiffsOmitted).toBe(1);
+    expect(codemodeDiffs).toHaveLength(1);
+    expect(Value.Check(SyntaxSchema, codemodeDiffs[0]?.syntax)).toBe(true);
     expect(rendered).toContain("✓ edit");
   });
 });
