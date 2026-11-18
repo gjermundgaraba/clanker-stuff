@@ -1,4 +1,9 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import assert from "node:assert/strict";
+
+import type {
+  ExtensionCommandContext,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { expect, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -12,7 +17,7 @@ export interface PendingProcess {
   resolve: (result: CliCompletion) => void;
 }
 
-const createStarter = () => {
+export const createStarter = () => {
   const pending: PendingProcess[] = [];
 
   const starter = vi.fn<CliStarter>(async (args, options) => {
@@ -66,13 +71,24 @@ export const signaled = (signal: NodeJS.Signals): CliCompletion => ({
   stdout: "",
 });
 
-export const waitForMessages = async (
+export const forwardedFeedback = async (
   host: ReturnType<typeof setup>["host"],
-  count: number
+  ctx: ExtensionCommandContext
 ) => {
   await vi.waitFor(() => {
-    expect(host.getSentUserMessages()).toHaveLength(count);
+    expect(host.getSentUserMessages()).toHaveLength(1);
   });
+  const [request] = host.getSentUserMessages();
+  const prefix = "/plannotator-feedback ";
+  assert.ok(request !== undefined && !Array.isArray(request.content));
+  assert.ok(request.content.startsWith(prefix));
+  await host.runCommand(
+    "plannotator-feedback",
+    request.content.slice(prefix.length),
+    ctx
+  );
+
+  return host.getSentUserMessages()[1];
 };
 
 export const assistantEntry = (

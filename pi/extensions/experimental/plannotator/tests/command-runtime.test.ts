@@ -70,13 +70,15 @@ describe("command runtime", () => {
     expect(shutdownFinished).toBeFalsy();
 
     child.options.onStderrLine("Stopping server");
-    child.resolve(signaled("SIGTERM"));
+    child.resolve(exited("Feedback arriving after shutdown"));
     await shutdown;
     expect(shutdownFinished).toBeTruthy();
     expect(host.getSentUserMessages()).toHaveLength(0);
     expect(host.getNotifications()).toStrictEqual([
       { message: "Plannotator code review opened.", type: "info" },
     ]);
+    await host.runCommand("plannotator-feedback", "", ctx);
+    expect(ctx.ui.getEditorText()).toBe("");
   });
 
   it("keeps repeated shutdowns quiet while the cancelled process exits", async () => {

@@ -21,6 +21,7 @@
     "cli.ts",
     "command-runtime.ts",
     "commands",
+    "feedback.ts",
     "host.ts",
     "index.ts",
     "LICENSE",

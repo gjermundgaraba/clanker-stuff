@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
@@ -10,7 +7,7 @@ import { parseArguments } from "../command-runtime.js";
 const LABEL = "Plannotator annotation";
 
 export const createAnnotateHandler =
-  (pi: ExtensionAPI, runtime: CommandRuntime) =>
+  (runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const tokens = parseArguments(args, ctx);
 
@@ -31,17 +28,14 @@ export const createAnnotateHandler =
 
     runtime.launch(["annotate", ...tokens, "--json"], ctx, {
       label: LABEL,
-      onOutput(stdout) {
+      readFeedback(stdout) {
         const feedback = readAnnotationFeedback(stdout, ctx, LABEL);
 
         if (feedback === undefined) {
-          return;
+          return undefined;
         }
 
-        pi.sendUserMessage(
-          `# Markdown Annotations\n\nFile: ${target}\n\n${feedback}\n\nPlease address the annotation feedback above.`,
-          { deliverAs: "followUp" }
-        );
+        return `# Markdown Annotations\n\nFile: ${target}\n\n${feedback}\n\nPlease address the annotation feedback above.`;
       },
     });
   };

@@ -5,12 +5,13 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CliStarter } from "./cli.js";
 import { startPlannotatorCli } from "./cli.js";
+import type { CaptureFeedbackOrigin } from "./feedback.js";
 
 const SHUTDOWN_TIMEOUT_MS = 2500;
 
 interface LaunchOptions {
   label: string;
-  onOutput: (stdout: string) => void;
+  readFeedback: (stdout: string) => string | undefined;
   stdin?: string;
 }
 
@@ -112,6 +113,7 @@ export const parseArguments = (
 };
 
 export const createCommandRuntime = (
+  captureFeedbackOrigin: CaptureFeedbackOrigin,
   starter: CliStarter = startPlannotatorCli
 ): CommandRuntime => {
   const lifetime = new AbortController();
@@ -123,6 +125,7 @@ export const createCommandRuntime = (
     options: LaunchOptions
   ): void => {
     const { signal } = lifetime;
+    const deliverFeedback = captureFeedbackOrigin(ctx, signal);
 
     const completion = starter(args, {
       cwd: ctx.cwd,
@@ -146,7 +149,11 @@ export const createCommandRuntime = (
         }
 
         if (code === 0) {
-          options.onOutput(stdout);
+          const text = options.readFeedback(stdout);
+
+          if (text !== undefined) {
+            await deliverFeedback(text);
+          }
         } else {
           notifyError(
             ctx,
