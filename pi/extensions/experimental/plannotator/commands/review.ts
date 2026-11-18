@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CommandRuntime } from "../command-runtime.js";
 import { parseArguments } from "../command-runtime.js";
@@ -11,7 +8,7 @@ const LABEL = "Plannotator code review";
 const REVIEW_CLOSED_SENTINEL = "Review session closed without feedback.";
 
 export const createReviewHandler =
-  (pi: ExtensionAPI, runtime: CommandRuntime) =>
+  (runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const tokens = parseArguments(args, ctx);
 
@@ -21,16 +18,16 @@ export const createReviewHandler =
 
     runtime.launch(["review", ...tokens], ctx, {
       label: LABEL,
-      onOutput(stdout) {
+      readFeedback(stdout) {
         const output = stdout.trim();
 
         if (output.length === 0 || output === REVIEW_CLOSED_SENTINEL) {
           ctx.ui.notify(`${LABEL} closed without feedback.`, "info");
 
-          return;
+          return undefined;
         }
 
-        pi.sendUserMessage(output, { deliverAs: "followUp" });
+        return output;
       },
     });
   };

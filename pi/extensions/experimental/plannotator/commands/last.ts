@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import { readAnnotationFeedback } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
@@ -44,7 +41,7 @@ const anchorFeedback = (feedback: string, message: string): string => {
 };
 
 export const createLastHandler =
-  (pi: ExtensionAPI, runtime: CommandRuntime) =>
+  (runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const tokens = parseArguments(args, ctx);
 
@@ -62,17 +59,14 @@ export const createLastHandler =
 
     runtime.launch(["annotate-last", "--stdin", "--json", ...tokens], ctx, {
       label: LABEL,
-      onOutput(stdout) {
+      readFeedback(stdout) {
         const feedback = readAnnotationFeedback(stdout, ctx, LABEL);
 
         if (feedback === undefined) {
-          return;
+          return undefined;
         }
 
-        pi.sendUserMessage(
-          `# Message Annotations\n\n${anchorFeedback(feedback, message)}\n\nPlease address the annotation feedback above.`,
-          { deliverAs: "followUp" }
-        );
+        return `# Message Annotations\n\n${anchorFeedback(feedback, message)}\n\nPlease address the annotation feedback above.`;
       },
       stdin: message,
     });

@@ -5,11 +5,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type { CliStarter } from "./cli.js";
+import { createFeedbackDelivery } from "./feedback.js";
 
 export const createPlannotatorHost = (
   pi: ExtensionAPI,
   starter?: CliStarter
 ) => {
+  const feedback = createFeedbackDelivery(pi);
+
   const active = createLazySingleton(async () => {
     const [command, annotate, last, review] = await Promise.all([
       import("./command-runtime.js"),
@@ -18,12 +21,12 @@ export const createPlannotatorHost = (
       import("./commands/review.js"),
     ]);
 
-    const runtime = command.createCommandRuntime(starter);
+    const runtime = command.createCommandRuntime(feedback.capture, starter);
 
     return {
-      annotate: annotate.createAnnotateHandler(pi, runtime),
-      last: last.createLastHandler(pi, runtime),
-      review: review.createReviewHandler(pi, runtime),
+      annotate: annotate.createAnnotateHandler(runtime),
+      last: last.createLastHandler(runtime),
+      review: review.createReviewHandler(runtime),
       shutdown: runtime.shutdown,
     };
   });
@@ -39,7 +42,10 @@ export const createPlannotatorHost = (
     annotate: run("annotate"),
     last: run("last"),
     review: run("review"),
+    feedback: feedback.command,
+    invalidateTreeVersion: feedback.invalidateTreeVersion,
     shutdown: async (): Promise<void> => {
+      feedback.clear();
       await active.stop(async (runtime) => {
         await runtime.shutdown();
       });
