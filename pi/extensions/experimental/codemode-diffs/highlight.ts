@@ -89,6 +89,9 @@ export const parseDiffLine = (line: string): DiffLine | undefined => {
   return { prefix: `${kind}${number} `, kind, number: Number(number), text };
 };
 
+export const MAX_HIGHLIGHT_SOURCE_BYTES = 128 * 1024;
+const MAX_HIGHLIGHT_SOURCE_LINES = 4000;
+
 const normalize = (source: string) =>
   source.replace(/^\uFEFF/u, "").replaceAll(/\r\n?/gu, "\n");
 
@@ -98,8 +101,13 @@ export const highlightDiff = async (
   before: string,
   after: string
 ): Promise<DiffSyntax | undefined> => {
-  const { codeToTokens, isSupportedLanguage } =
-    await import("@pierre/highlights");
+  if (
+    before.length + after.length > MAX_HIGHLIGHT_SOURCE_BYTES ||
+    Buffer.byteLength(before) + Buffer.byteLength(after) >
+      MAX_HIGHLIGHT_SOURCE_BYTES
+  ) {
+    return;
+  }
 
   const suffix = (
     path.extname(file).slice(1) || path.basename(file)
@@ -109,16 +117,23 @@ export const highlightDiff = async (
     return;
   }
 
+  const oldSource = normalize(before);
+  const newSource = normalize(after);
+  const oldLines = oldSource.split("\n");
+  const newLines = newSource.split("\n");
+
+  if (oldLines.length + newLines.length > MAX_HIGHLIGHT_SOURCE_LINES) {
+    return;
+  }
+
+  const { codeToTokens, isSupportedLanguage } =
+    await import("@pierre/highlights");
+
   const lang = isSupportedLanguage(suffix) ? suffix : getLanguageFromPath(file);
 
   if (lang === undefined || lang === "" || !isSupportedLanguage(lang)) {
     return;
   }
-
-  const oldSource = normalize(before);
-  const newSource = normalize(after);
-  const oldLines = oldSource.split("\n");
-  const newLines = newSource.split("\n");
 
   const oldTokens = codeToTokens(oldSource, {
     lang,

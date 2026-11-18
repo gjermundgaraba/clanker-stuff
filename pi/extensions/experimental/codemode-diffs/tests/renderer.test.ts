@@ -107,6 +107,19 @@ describe("Code Mode diff renderer", () => {
     );
   });
 
+  it("shows the saved omission count in the heading even when nothing was retained", () => {
+    const { render } = setup();
+    const mixed = render({ ...details, codemodeDiffsOmitted: 7 });
+    expect(renderedRows(mixed).join("\n")).toContain(
+      "Edits (1 shown, 7 omitted)"
+    );
+
+    const omitted = render({ codemodeDiffs: [], codemodeDiffsOmitted: 3 });
+    expect(renderedRows(omitted).join("\n")).toContain(
+      "Edits (0 shown, 3 omitted)"
+    );
+  });
+
   it("does not display final diffs during partial updates", () => {
     const { render } = setup();
     expect(

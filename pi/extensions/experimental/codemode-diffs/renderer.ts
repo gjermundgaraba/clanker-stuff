@@ -44,20 +44,25 @@ export const resolveRenderer = (
     });
     component.addChild(component.original);
 
-    if (
-      !options.isPartial &&
-      Value.Check(DiffDetailsSchema, result.details) &&
-      result.details.codemodeDiffs.length
-    ) {
-      const edits = result.details.codemodeDiffs;
+    if (!options.isPartial && Value.Check(DiffDetailsSchema, result.details)) {
+      const { codemodeDiffs: edits, codemodeDiffsOmitted: omitted = 0 } =
+        result.details;
+
+      if (edits.length === 0 && omitted === 0) {
+        return component;
+      }
+
+      const count =
+        omitted > 0
+          ? `${edits.length} shown, ${omitted} omitted`
+          : String(edits.length);
+
       component.addChild(new Spacer(1));
       component.addChild(
         preview(
           () => {
             const body = new Container();
-            body.addChild(
-              new Text(theme.bold(`Edits (${edits.length})`), 0, 0)
-            );
+            body.addChild(new Text(theme.bold(`Edits (${count})`), 0, 0));
 
             for (const edit of edits) {
               body.addChild(new Spacer(1));
