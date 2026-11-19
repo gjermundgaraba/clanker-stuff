@@ -461,6 +461,11 @@ export const createExtensionHost = (
       ),
       notify,
       onTerminalInput,
+      pasteToEditor: vi.fn<ExtensionCommandContext["ui"]["pasteToEditor"]>(
+        (text) => {
+          editorText += text;
+        }
+      ),
       select: vi.fn<ExtensionCommandContext["ui"]["select"]>(async () => {
         await Promise.resolve();
       }),
@@ -488,7 +493,6 @@ export const createExtensionHost = (
       getTheme: notImplemented("ui.getTheme"),
       getToolsExpanded: notImplemented("ui.getToolsExpanded"),
       input: notImplemented("ui.input"),
-      pasteToEditor: notImplemented("ui.pasteToEditor"),
       setHeader: notImplemented("ui.setHeader"),
       setHiddenThinkingLabel: notImplemented("ui.setHiddenThinkingLabel"),
       setTheme: notImplemented("ui.setTheme"),

@@ -88,7 +88,7 @@ describe("Plannotator delivery in Pi", () => {
     { command: "/plannotator-annotate docs.md", stdout: annotation },
     { command: "/plannotator-last", stdout: annotation },
   ])(
-    "retains $command feedback after navigation without prompting the destination branch",
+    "puts $command feedback in the editor after navigation without prompting the destination branch",
     async ({ command, stdout }) => {
       const env = await setup();
       env.setResponses([
@@ -108,12 +108,10 @@ describe("Plannotator delivery in Pi", () => {
 
       env.complete(stdout);
       await vi.waitFor(() => {
-        expect(env.notifications().at(-1)?.message).toContain(
-          "/plannotator-feedback"
-        );
+        expect(env.ui.getEditorText()).toContain(notes);
       });
-      await env.prompt("/plannotator-feedback");
-      expect(env.ui.getEditorText()).toContain(notes);
+      expect(env.notifications().at(-1)?.type).toBe("warning");
+      expect(env.notifications().at(-1)?.message).toContain("another branch");
       expect(env.sessionManager.getLeafId()).toBe(destination);
       expect(env.getPendingResponseCount()).toBe(1);
     }
@@ -147,7 +145,7 @@ describe("Plannotator delivery in Pi", () => {
     });
   });
 
-  it("retains feedback while an earlier tree handler is busy on the destination branch", async () => {
+  it("puts feedback in the editor while an earlier tree handler is busy on the destination branch", async () => {
     const tree = gate();
 
     const env = await setup(
@@ -176,17 +174,13 @@ describe("Plannotator delivery in Pi", () => {
     try {
       env.complete(notes);
       await vi.waitFor(() => {
-        expect(env.notifications().at(-1)?.message).toContain(
-          "/plannotator-feedback"
-        );
+        expect(env.ui.getEditorText()).toBe(notes);
       });
     } finally {
       tree.release();
       await navigation;
     }
 
-    await env.prompt("/plannotator-feedback");
-    expect(env.ui.getEditorText()).toBe(notes);
     expect(env.getPendingResponseCount()).toBe(1);
   });
 
@@ -223,48 +217,5 @@ describe("Plannotator delivery in Pi", () => {
     request.release();
     await advance;
     expect(env.session.getLastAssistantText()).toBe("Feedback answer");
-  });
-
-  it("checks the branch again if Pi defers the handoff until after agent_settled", async () => {
-    const settle = gate();
-    let holdSettlement = false;
-
-    const env = await setup([
-      (pi) => {
-        pi.on("agent_settled", async () => {
-          if (holdSettlement) {
-            holdSettlement = false;
-            await settle.hold();
-          }
-        });
-      },
-    ]);
-
-    env.setResponses([
-      fauxAssistantMessage("Base"),
-      fauxAssistantMessage("Original branch"),
-      fauxAssistantMessage("Unexpected prompt"),
-    ]);
-    await env.prompt("Start");
-    const base = env.sessionManager.getLeafId();
-    assert.ok(base !== null);
-    await env.prompt("/plannotator-review");
-
-    holdSettlement = true;
-    const advance = env.prompt("Explore original branch");
-    await settle.entered;
-    const handoff = vi.spyOn(env.session, "sendUserMessage");
-    env.complete(notes);
-    await vi.waitFor(() => {
-      expect(handoff).toHaveBeenCalledOnce();
-    });
-    await env.session.navigateTree(base);
-    settle.release();
-    await advance;
-
-    await env.prompt("/plannotator-feedback");
-    expect(env.ui.getEditorText()).toBe(notes);
-    expect(env.sessionManager.getLeafId()).toBe(base);
-    expect(env.getPendingResponseCount()).toBe(1);
   });
 });

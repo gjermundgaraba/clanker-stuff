@@ -1,9 +1,4 @@
-import assert from "node:assert/strict";
-
-import type {
-  ExtensionCommandContext,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { expect, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -71,24 +66,13 @@ export const signaled = (signal: NodeJS.Signals): CliCompletion => ({
   stdout: "",
 });
 
-export const forwardedFeedback = async (
+export const waitForMessages = async (
   host: ReturnType<typeof setup>["host"],
-  ctx: ExtensionCommandContext
+  count: number
 ) => {
   await vi.waitFor(() => {
-    expect(host.getSentUserMessages()).toHaveLength(1);
+    expect(host.getSentUserMessages()).toHaveLength(count);
   });
-  const [request] = host.getSentUserMessages();
-  const prefix = "/plannotator-feedback ";
-  assert.ok(request !== undefined && !Array.isArray(request.content));
-  assert.ok(request.content.startsWith(prefix));
-  await host.runCommand(
-    "plannotator-feedback",
-    request.content.slice(prefix.length),
-    ctx
-  );
-
-  return host.getSentUserMessages()[1];
 };
 
 export const assistantEntry = (

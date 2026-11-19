@@ -77,8 +77,6 @@ describe("command runtime", () => {
     expect(host.getNotifications()).toStrictEqual([
       { message: "Plannotator code review opened.", type: "info" },
     ]);
-    await host.runCommand("plannotator-feedback", "", ctx);
-    expect(ctx.ui.getEditorText()).toBe("");
   });
 
   it("keeps repeated shutdowns quiet while the cancelled process exits", async () => {

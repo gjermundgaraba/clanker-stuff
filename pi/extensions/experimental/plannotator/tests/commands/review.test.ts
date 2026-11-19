@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { exited, forwardedFeedback, setup } from "../helpers.js";
+import { exited, setup, waitForMessages } from "../helpers.js";
 
 describe("plannotator-review", () => {
   it("passes review arguments and forwards trimmed output", async () => {
@@ -20,7 +20,8 @@ describe("plannotator-review", () => {
     const [child] = pending;
     assert.ok(child);
     child.resolve(exited("\n  review feedback\n"));
-    await expect(forwardedFeedback(host, ctx)).resolves.toStrictEqual({
+    await waitForMessages(host, 1);
+    expect(host.getSentUserMessages()[0]).toStrictEqual({
       content: "review feedback",
       options: { deliverAs: "followUp" },
     });
@@ -34,8 +35,8 @@ describe("plannotator-review", () => {
     child.resolve(
       exited("# Code Review\n\nCode review completed — no changes requested.\n")
     );
-    const message = await forwardedFeedback(host, ctx);
-    expect(message?.content).toContain(
+    await waitForMessages(host, 1);
+    expect(host.getSentUserMessages()[0]?.content).toContain(
       "Code review completed — no changes requested."
     );
   });
