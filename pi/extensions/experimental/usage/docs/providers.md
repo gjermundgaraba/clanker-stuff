@@ -32,7 +32,7 @@ If only feature quotas are reported, the footer says “account quota not report
 
 ## Cache and credential changes
 
-Usage snapshots and in-flight requests are shared only for the same provider, resolved usage credential, and (for Radius) resolved billing URL. The session-local cache uses a keyed fingerprint rather than storing the credential. A missing credential or ambiguous gateway cannot reuse an older snapshot. OAuth token rotation may cause a new usage request even when the account has not changed.
+Usage snapshots and in-flight requests are shared only for the same provider, resolved usage credential, and (for Radius) resolved billing URL. The session-local cache uses a keyed fingerprint rather than storing the credential. It keeps the last successful snapshot for up to 32 scopes, evicting the scope with the oldest successful fetch when full. A missing credential or ambiguous gateway cannot reuse an older snapshot. OAuth token rotation may cause a new usage request even when the account has not changed.
 
 Pi 1.5.2 does not expose a login/logout event to extensions. The extension checks the credential Pi resolves at the next status refresh or `/usage` invocation; an idle footer is not updated immediately on login or logout. Even a cache hit may run Pi's configured credential resolver. A server-side account reassignment that leaves the request credential and URL unchanged cannot be detected from Pi's auth result. Use `/usage refresh` to request a new snapshot in that case.
 

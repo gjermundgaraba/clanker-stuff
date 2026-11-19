@@ -84,6 +84,26 @@ describe("usage cache", () => {
     ).toBe(68);
   });
 
+  it("evicts the least recently fetched scope when the snapshot cache fills", async () => {
+    const cache = new UsageCache(() => 1000);
+    const saved = snapshot();
+    const fetcher = async () => ({ ok: true as const, snapshot: saved });
+
+    for (let scope = 0; scope < 32; scope += 1) {
+      await cache.getOrFetch(`scope-${scope}`, false, fetcher);
+    }
+
+    await cache.getOrFetch("scope-0", true, fetcher);
+    await cache.getOrFetch("scope-32", false, fetcher);
+
+    for (let scope = 0; scope <= 32; scope += 1) {
+      const key = `scope-${scope}`;
+      expect(cache.getLastSuccess(key), key).toBe(
+        scope === 1 ? undefined : saved
+      );
+    }
+  });
+
   it("replaces the last success after a forced successful refresh", async () => {
     const cache = new UsageCache(() => 3000);
     await cache.getOrFetch("anthropic", true, async () => ({

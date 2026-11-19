@@ -2,6 +2,7 @@ import type { UsageFetchResult, UsageSnapshot } from "./providers.js";
 import { usageFailure } from "./providers.js";
 
 const CACHE_TTL_MS = 60_000;
+const MAX_SAVED_SCOPES = 32;
 
 export class UsageCache {
   private readonly success = new Map<string, UsageSnapshot>();
@@ -56,7 +57,16 @@ export class UsageCache {
       const result = await fetcher();
 
       if (result.ok) {
+        this.success.delete(scope);
         this.success.set(scope, result.snapshot);
+
+        if (this.success.size > MAX_SAVED_SCOPES) {
+          const oldest = this.success.keys().next().value;
+
+          if (oldest !== undefined) {
+            this.success.delete(oldest);
+          }
+        }
       }
 
       return result;
