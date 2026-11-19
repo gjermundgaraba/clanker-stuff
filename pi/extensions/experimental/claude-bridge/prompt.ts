@@ -11,6 +11,8 @@ import type {
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 
+import { debugLogPath } from "./log.js";
+
 /** The conversation, prompt and tools of one provider request. */
 export interface BridgeContext {
   messages: Message[];
@@ -110,8 +112,8 @@ const assertSendable = (parts: readonly PromptPart[]): void => {
       "  carrying pi's harness, or the phrase pair its subscription gate rejects, as a third-party",
       "  app: it fails with 400 or is billed as extra usage.",
       ...findings.map((finding) => `  Found: ${finding}.`),
-      "  If it is your own text, reword or remove it. Enable tracing with CLAUDE_BRIDGE_DEBUG=1",
-      "  (optionally set CLAUDE_BRIDGE_DEBUG_PATH).",
+      "  If it is your own text, reword or remove it. CLAUDE_BRIDGE_DEBUG=1 writes the full prompt to",
+      `  ${debugLogPath()}.`,
     ].join("\n")
   );
 };

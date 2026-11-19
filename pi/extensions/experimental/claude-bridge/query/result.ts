@@ -4,7 +4,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
-import { debugLines } from "../log.js";
+import { debug } from "../log.js";
 
 export interface RateLimitRejection {
   rateLimitType?: SDKRateLimitInfo["rateLimitType"];
@@ -89,10 +89,9 @@ export const logServedContextWindow = (
   message: SDKResultMessage,
   model: Model<Api>
 ): void => {
-  debugLines(() =>
-    Object.entries(message.modelUsage).map(
-      ([servedModel, usage]) =>
-        `result: served contextWindow=${usage.contextWindow} maxOutputTokens=${usage.maxOutputTokens} servedModel=${servedModel} registered=${model.contextWindow}`
-    )
-  );
+  for (const [servedModel, usage] of Object.entries(message.modelUsage)) {
+    debug(
+      `result: served contextWindow=${usage.contextWindow} maxOutputTokens=${usage.maxOutputTokens} servedModel=${servedModel} registered=${model.contextWindow}`
+    );
+  }
 };

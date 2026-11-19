@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { inspect } from "node:util";
 
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
@@ -24,33 +25,27 @@ export const debugLogPath = (): string => {
       );
 };
 
-const format = (value: unknown): string => {
-  if (typeof value === "string") {
-    return value;
-  }
+const formatInFull = (value: unknown): string =>
+  typeof value === "string"
+    ? value
+    : inspect(value, {
+        breakLength: Number.POSITIVE_INFINITY,
+        compact: true,
+        depth: Number.POSITIVE_INFINITY,
+        maxArrayLength: Number.POSITIVE_INFINITY,
+        maxStringLength: Number.POSITIVE_INFINITY,
+      });
 
-  if (value instanceof Error) {
-    return `${value.name}: ${value.message}${value.stack === undefined ? "" : `\n${value.stack}`}`;
-  }
-
-  return JSON.stringify(value) ?? String(value);
-};
-
-/** Best effort, including formatting data used only for diagnostics. */
-export const debugLines = (formatLines: () => readonly string[]): void => {
+/** Best effort: a trace that cannot be formatted or written never fails the request. */
+export const debug = (...args: unknown[]): void => {
   if (!isDebugEnabled()) {
     return;
   }
 
   try {
-    const lines = formatLines();
-
-    if (lines.length === 0) {
-      return;
-    }
-
     const logPath = debugLogPath();
     const prefix = `[${new Date().toISOString()}] [${moduleInstanceId}] `;
+    const lines = args.map(formatInFull).join(" ").split("\n");
 
     mkdirSync(path.dirname(logPath), { recursive: true });
     appendFileSync(logPath, lines.map((line) => `${prefix}${line}\n`).join(""));
@@ -59,70 +54,60 @@ export const debugLines = (formatLines: () => readonly string[]): void => {
   }
 };
 
-export const debug = (...args: unknown[]): void => {
-  debugLines(() => [args.map(format).join(" ")]);
-};
-
 type CliDebugOptions = Pick<Options, "debug" | "debugFile" | "stderr">;
 
 let nextCliDebugSeq = 1;
 
-/** Claude Code's own debug log for one query, plus its stderr in the bridge trace.
- *  If we cannot create the log file, run the query without SDK diagnostics. */
+/** Claude Code's own debug log for one query, plus its stderr in the bridge trace. Without
+ *  it, "No conversation found" and empty-error reports are unactionable. If the log
+ *  directory cannot be created, the query runs without SDK diagnostics. */
 export const cliDebugOptions = (tag: string): CliDebugOptions => {
   if (!isDebugEnabled()) {
     return {};
   }
 
+  const seq = nextCliDebugSeq;
+  nextCliDebugSeq += 1;
+  const stamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
+  const logDir = path.resolve(path.dirname(debugLogPath()), "cc-cli");
+
   try {
-    const seq = nextCliDebugSeq;
-    nextCliDebugSeq += 1;
-    const stamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
-    const logDir = path.resolve(path.dirname(debugLogPath()), "cc-cli");
-    const debugFile = path.join(logDir, `${stamp}-${tag}-${seq}.log`);
-
     mkdirSync(logDir, { recursive: true });
-    writeFileSync(debugFile, "", { flag: "wx" });
-
-    debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
-
-    return {
-      debug: true,
-      debugFile,
-      stderr: (data) => {
-        debugLines(() =>
-          data
-            .split(/\r?\n/u)
-            .flatMap((line) =>
-              line === "" ? [] : [`[cli-stderr ${tag}#${seq}] ${line}`]
-            )
-        );
-      },
-    };
   } catch {
     return {};
   }
+
+  const debugFile = path.join(
+    logDir,
+    `${stamp}-${moduleInstanceId}-${tag}-${seq}.log`
+  );
+
+  debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
+
+  return {
+    debug: true,
+    debugFile,
+    stderr: (data) => {
+      for (const line of data.split(/\r?\n/u)) {
+        if (line) {
+          debug(`[cli-stderr ${tag}#${seq}] ${line}`);
+        }
+      }
+    },
+  };
 };
 
-/** Failure text for Pi, even when a backend or hook throws an unserializable value. */
+/** Failure text for Pi, including for thrown values that are not errors. */
 export const errorMessage = (error: unknown): string => {
-  try {
-    if (typeof error === "object" && error !== null) {
-      const message = "message" in error ? error.message : undefined;
-
-      if (typeof message === "string") {
-        return message;
-      }
-
-      const text = "error" in error ? error.error : undefined;
-
-      if (typeof text === "string") {
-        return text;
-      }
+  if (typeof error === "object" && error !== null) {
+    if ("message" in error && typeof error.message === "string") {
+      return error.message;
     }
 
-    return format(error);
-  } catch {
-    return "Claude bridge failed without a readable error message";
+    if ("error" in error && typeof error.error === "string") {
+      return error.error;
+    }
   }
+
+  return formatInFull(error);
 };
