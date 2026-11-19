@@ -267,29 +267,32 @@ describe("shape spinner", () => {
     expect(existsSync(configPath())).toBe(false);
   });
 
-  it("keeps the glyph and settings label visible at narrow widths", async () => {
-    const { ctx, driver, host } = setup();
-    const dialog = await openDialog(host, driver, ctx);
+  it.each([16, 19])(
+    "keeps the glyph and settings label visible at width %i",
+    async (width) => {
+      const { ctx, driver, host } = setup();
+      const dialog = await openDialog(host, driver, ctx);
 
-    try {
-      const width = 16;
-      const rendered = dialog.render(width);
-      const line = previewLine(rendered);
+      try {
+        const rendered = dialog.render(width);
+        const rows = rendered.split("\n");
+        const line = previewLine(rendered);
 
-      for (const row of rendered.split("\n")) {
-        expect(visibleWidth(row), row).toBeLessThanOrEqual(width);
+        for (const row of rows) {
+          expect(visibleWidth(row), row).toBeLessThanOrEqual(width);
+        }
+
+        expect(
+          wireframe("orb", "cyan", "dark").frames.some(
+            (frame) => line?.includes(frame) === true
+          )
+        ).toBe(true);
+        expect(rendered.replaceAll(/\s+/gu, " ")).toContain("orb · cyan");
+      } finally {
+        await dialog.close();
       }
-
-      expect(
-        wireframe("orb", "cyan", "dark").frames.some(
-          (frame) => line?.includes(frame) === true
-        )
-      ).toBe(true);
-      expect(rendered).toContain("orb · cyan");
-    } finally {
-      await dialog.close();
     }
-  });
+  );
 
   it("animates at the playback rate, pauses in static mode, and stops on close", async () => {
     vi.useFakeTimers();
