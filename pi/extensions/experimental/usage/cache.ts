@@ -1,12 +1,39 @@
-import type { UsageFetchResult, UsageSnapshot } from "./providers.js";
+import type {
+  SupportedProvider,
+  UsageFetchResult,
+  UsageSnapshot,
+} from "./providers.js";
 import { usageFailure } from "./providers.js";
 
 const CACHE_TTL_MS = 60_000;
-const MAX_SAVED_SCOPES = 32;
 
+export interface UsageReading {
+  result: UsageFetchResult;
+  snapshot?: UsageSnapshot;
+}
+
+interface ScopedUsage {
+  scope: string;
+  snapshot?: UsageSnapshot;
+  inflight?: Promise<UsageFetchResult>;
+}
+
+const runFetch = async (
+  fetcher: () => Promise<UsageFetchResult>
+): Promise<UsageFetchResult> => {
+  try {
+    return await fetcher();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unexpected fetch error";
+
+    return usageFailure(message);
+  }
+};
+
+/** Keeps each provider's latest scope only, so a credential or endpoint change discards its usage. */
 export class UsageCache {
-  private readonly success = new Map<string, UsageSnapshot>();
-  private readonly inflight = new Map<string, Promise<UsageFetchResult>>();
+  private readonly slots = new Map<SupportedProvider, ScopedUsage>();
 
   private readonly now: () => number;
 
@@ -14,67 +41,52 @@ export class UsageCache {
     this.now = now;
   }
 
-  getLastSuccess(scope: string): UsageSnapshot | undefined {
-    return this.success.get(scope);
+  getLastSuccess(
+    provider: SupportedProvider,
+    scope: string
+  ): UsageSnapshot | undefined {
+    const slot = this.slots.get(provider);
+
+    return slot?.scope === scope ? slot.snapshot : undefined;
   }
 
   async getOrFetch(
+    provider: SupportedProvider,
     scope: string,
     force: boolean,
     fetcher: () => Promise<UsageFetchResult>
-  ): Promise<UsageFetchResult> {
-    const last = this.success.get(scope);
+  ): Promise<UsageReading> {
+    let slot = this.slots.get(provider);
+
+    if (slot?.scope !== scope) {
+      slot = { scope };
+      this.slots.set(provider, slot);
+    }
+
+    const last = slot.snapshot;
 
     if (
       !force &&
       last !== undefined &&
       this.now() - last.fetchedAt < CACHE_TTL_MS
     ) {
-      return { ok: true, snapshot: last };
+      return { result: { ok: true, snapshot: last }, snapshot: last };
     }
 
-    const existing = this.inflight.get(scope);
+    slot.inflight ??= runFetch(fetcher);
+    const { inflight } = slot;
+    const result = await inflight;
 
-    if (existing !== undefined) {
-      return await existing;
+    if (slot.inflight === inflight) {
+      delete slot.inflight;
     }
 
-    const promise = this.runFetch(scope, fetcher);
-    this.inflight.set(scope, promise);
-
-    try {
-      return await promise;
-    } finally {
-      this.inflight.delete(scope);
+    if (result.ok) {
+      slot.snapshot = result.snapshot;
     }
-  }
 
-  private async runFetch(
-    scope: string,
-    fetcher: () => Promise<UsageFetchResult>
-  ): Promise<UsageFetchResult> {
-    try {
-      const result = await fetcher();
+    const snapshot = result.ok ? result.snapshot : slot.snapshot;
 
-      if (result.ok) {
-        this.success.delete(scope);
-        this.success.set(scope, result.snapshot);
-
-        if (this.success.size > MAX_SAVED_SCOPES) {
-          const oldest = this.success.keys().next().value;
-
-          if (oldest !== undefined) {
-            this.success.delete(oldest);
-          }
-        }
-      }
-
-      return result;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "unexpected fetch error";
-
-      return usageFailure(message);
-    }
+    return { result, ...(snapshot === undefined ? {} : { snapshot }) };
   }
 }

@@ -1,5 +1,3 @@
-import { createHmac, randomBytes } from "node:crypto";
-
 import type {
   ExtensionCommandContext,
   ExtensionContext,
@@ -18,6 +16,7 @@ import { fetchZaiUsage } from "./adapters/zai.js";
 import { contextAuth, resolveUsageCredential } from "./auth.js";
 import type { GetAuth } from "./auth.js";
 import { UsageCache } from "./cache.js";
+import type { UsageReading } from "./cache.js";
 import { parseUsageArgs } from "./command.js";
 import {
   formatDetail,
@@ -111,11 +110,6 @@ const fixedEndpointFetchers = {
   (deps: AdapterDeps) => Promise<UsageFetchResult>
 >;
 
-interface UsageReading {
-  result: UsageFetchResult;
-  snapshot?: UsageSnapshot;
-}
-
 export const createUsageController = (
   dependencies: UsageControllerDependencies = defaultDependencies
 ) => {
@@ -125,7 +119,6 @@ export const createUsageController = (
     dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
 
   const cache = new UsageCache(now);
-  const scopeSecret = randomBytes(32);
 
   const resolveEndpoint = (
     provider: SupportedProvider,
@@ -190,45 +183,30 @@ export const createUsageController = (
     }
 
     const { credential } = auth;
+    const scope = JSON.stringify([endpoint.billingUrl, credential.token]);
 
-    const scopeFingerprint = createHmac("sha256", scopeSecret)
-      .update(
-        JSON.stringify([
-          provider,
-          endpoint.billingUrl,
-          credential.oauth,
-          credential.token,
-        ])
-      )
-      .digest("hex");
+    onScopeResolved?.(cache.getLastSuccess(provider, scope));
 
-    onScopeResolved?.(cache.getLastSuccess(scopeFingerprint));
-
-    const result = await cache.getOrFetch(
-      scopeFingerprint,
+    return await cache.getOrFetch(
+      provider,
+      scope,
       force,
       async () => await endpoint.fetchUsage({ credential, fetchJson, now })
     );
-
-    const snapshot = result.ok
-      ? result.snapshot
-      : cache.getLastSuccess(scopeFingerprint);
-
-    return { result, ...(snapshot === undefined ? {} : { snapshot }) };
   };
 
   const refresh = (
     ctx: ExtensionContext,
     provider: string | undefined,
     force = false
-  ): Promise<UsageReading> | undefined => {
+  ): void => {
     generation += 1;
     const refreshGeneration = generation;
 
     if (!isSupportedProvider(provider)) {
       clear(ctx);
 
-      return undefined;
+      return;
     }
 
     const show = (presentation: UsagePresentation): void => {
@@ -246,21 +224,28 @@ export const createUsageController = (
 
     current = { context: ctx, provider };
 
-    return readUsage(provider, ctx, force, (snapshot) => {
-      show(
-        snapshot ? { kind: "ready", snapshot } : { kind: "loading", provider }
+    const showReading = async (): Promise<void> => {
+      const { result, snapshot } = await readUsage(
+        provider,
+        ctx,
+        force,
+        (last) => {
+          show(
+            last
+              ? { kind: "ready", snapshot: last }
+              : { kind: "loading", provider }
+          );
+        }
       );
-    }).then((reading) => {
-      const { result, snapshot } = reading;
 
       if (snapshot === undefined) {
         show({ kind: "error", provider });
       } else {
         show({ kind: result.ok ? "ready" : "stale", snapshot });
       }
+    };
 
-      return reading;
-    });
+    void showReading();
   };
 
   const stopTimer = (): void => {
@@ -290,17 +275,13 @@ export const createUsageController = (
       }
 
       const target = resolveQuotaProvider(ctx);
-      const active = refresh(ctx, target, parsed.refresh);
+      refresh(ctx, target, parsed.refresh);
 
       const results = await Promise.all(
-        SUPPORTED_PROVIDERS.map(async (provider) => {
-          const reading =
-            provider === target && active !== undefined
-              ? await active
-              : await readUsage(provider, ctx, parsed.refresh);
-
-          return { provider, ...reading };
-        })
+        SUPPORTED_PROVIDERS.map(async (provider) => ({
+          provider,
+          ...(await readUsage(provider, ctx, parsed.refresh)),
+        }))
       );
 
       if (disposed) {
@@ -364,17 +345,17 @@ export const createUsageController = (
         return;
       }
 
-      void refresh(ctx, resolveQuotaProvider(ctx));
+      refresh(ctx, resolveQuotaProvider(ctx));
       stopTimer();
       refreshTimer = setInterval(() => {
         if (current) {
-          void refresh(current.context, current.provider);
+          refresh(current.context, current.provider);
         }
       }, REFRESH_INTERVAL_MS);
     },
     refresh: (ctx: ExtensionContext): void => {
       if (ctx.mode === "tui") {
-        void refresh(ctx, resolveQuotaProvider(ctx));
+        refresh(ctx, resolveQuotaProvider(ctx));
       }
     },
   };
