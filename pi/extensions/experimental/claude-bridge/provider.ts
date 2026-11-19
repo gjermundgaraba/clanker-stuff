@@ -361,14 +361,14 @@ export const streamClaudeCode = (
 
   serve({ deps, model, context, options, served, key, answer }).catch(
     (error: unknown) => {
-      const failing = turn ?? answer(resolveServedTools([]));
       const message = errorMessage(error);
+      debug("provider: request failed", message);
+
+      const failing = turn ?? answer(resolveServedTools([]));
 
       if (!failing.ended) {
         failing.fail(message);
       }
-
-      debug("provider: request failed", message);
     }
   );
 

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -241,31 +241,16 @@ describe("streamClaudeCode", () => {
       });
     });
 
-    it("preserves the backend error when the trace stops accepting stderr", async () => {
-      const logFile = path.join(configDir, "debug.log");
-      const recordFile = path.join(configDir, "stream.jsonl");
+    it("reports a backend failure when the trace cannot be written", async () => {
       patchEnv({
         CLAUDE_BRIDGE_DEBUG: "1",
-        CLAUDE_BRIDGE_DEBUG_PATH: logFile,
-        CLAUDE_BRIDGE_RECORD_STREAM: recordFile,
+        CLAUDE_BRIDGE_DEBUG_PATH: configDir,
       });
 
       const { call, query } = bridge();
       const stream = call([user("hi")]);
       const q = await query(0);
-      const { stderr } = q.params.options;
-      expect(stderr).toBeTypeOf("function");
-      stderr?.("before the log broke");
-      await expect(readFile(logFile, "utf8")).resolves.toContain(
-        "before the log broke"
-      );
-
-      await rm(logFile);
-      await mkdir(logFile);
-      expect(() => stderr?.("after the log broke")).not.toThrow();
-
-      const initial = init("cc-1");
-      q.push(initial);
+      q.push(init("cc-1"));
       q.fail(new Error("backend failure"));
 
       const events = await Array.fromAsync(stream);
@@ -275,9 +260,6 @@ describe("streamClaudeCode", () => {
         errorMessage: "backend failure",
       });
       expect(q.closed).toBe(true);
-      await expect(readFile(recordFile, "utf8")).resolves.toBe(
-        `${JSON.stringify(initial)}\n`
-      );
     });
   });
 

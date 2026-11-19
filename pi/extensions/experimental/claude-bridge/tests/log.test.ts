@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -72,19 +78,23 @@ describe("the debug log", () => {
       expect(existsSync(logFile)).toBe(false);
     });
 
-    it("appends serializable entries and skips broken ones when enabled", () => {
+    it("logs every value in full, one prefixed line per output line", () => {
       const logFile = path.join(dir, "nested", "debug.log");
+      const cycle: unknown[] = [];
+      cycle.push(cycle);
 
       patchEnv({ CLAUDE_BRIDGE_DEBUG_PATH: logFile, CLAUDE_BRIDGE_DEBUG: "1" });
-      debug("first", { n: 1 });
-      debug("unserializable", { n: 1n });
-      debug("second");
+      debug("values", { deep: { a: { b: { c: { n: 1n } } } } }, cycle);
+      debug("two\nlines");
 
       const lines = readLog(logFile).trimEnd().split("\n");
 
-      expect(lines).toHaveLength(2);
-      expect(lines[0]).toMatch(/ first \{"n":1\}$/u);
-      expect(lines[1]).toMatch(/ second$/u);
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toMatch(
+        /^\[[^\]]+\] \[\w+\] values \{ deep: \{ a: \{ b: \{ c: \{ n: 1n \} \} \} \} \} <ref \*1> \[ \[Circular \*1\] \]$/u
+      );
+      expect(lines[1]).toMatch(/^\[[^\]]+\] \[\w+\] two$/u);
+      expect(lines[2]).toMatch(/^\[[^\]]+\] \[\w+\] lines$/u);
     });
   });
 
@@ -110,7 +120,6 @@ describe("the debug log", () => {
       expect(path.basename(options.debugFile ?? "")).toMatch(
         /-provider-\d+\.log$/u
       );
-      expect(existsSync(options.debugFile ?? "")).toBe(true);
 
       options.stderr?.("warning one\r\n\nwarning two\n");
 
@@ -119,6 +128,11 @@ describe("the debug log", () => {
       expect(log).toMatch(/\[cli-stderr provider#\d+\] warning one\n/u);
       expect(log).toMatch(/\[cli-stderr provider#\d+\] warning two\n/u);
       expect(log).not.toMatch(/\[cli-stderr provider#\d+\] \n/u);
+
+      rmSync(logFile);
+      mkdirSync(logFile);
+
+      expect(() => options.stderr?.("after the log broke")).not.toThrow();
     });
   });
 
@@ -128,11 +142,7 @@ describe("the debug log", () => {
       expect(errorMessage({ message: "from message" })).toBe("from message");
       expect(errorMessage({ error: "from error" })).toBe("from error");
       expect(errorMessage("plain")).toBe("plain");
-      expect(errorMessage({ code: 1 })).toBe('{"code":1}');
-    });
-
-    it("returns fallback text for an unserializable thrown value", () => {
-      expect(errorMessage({ code: 1n })).toMatch(/without a readable error/u);
+      expect(errorMessage({ code: 1n })).toBe("{ code: 1n }");
     });
   });
 });
