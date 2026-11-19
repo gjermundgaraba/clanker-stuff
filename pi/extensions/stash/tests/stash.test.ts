@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -18,17 +16,8 @@ import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 import extension from "../index.js";
 
-const getStorePath = (
-  agentDir: string,
-  cwd: string,
-  format: "json" | "sqlite"
-) =>
-  path.join(
-    agentDir,
-    "data",
-    "stash",
-    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.${format}`
-  );
+const getStorePath = (agentDir: string) =>
+  path.join(agentDir, "data", "stash", "stash.sqlite");
 
 const createHarness = async (
   cwd: string,
@@ -90,15 +79,15 @@ describe("stash", () => {
     const second = await createHarness(cwd);
 
     await first.stash("first draft");
-    await second.stash("second draft");
+    await second.stash("second\n  draft \u0000");
     expect(first.ctx.ui.getEditorText()).toBe("");
     expect(second.ctx.ui.getEditorText()).toBe("");
     expect(second.notifications()).toStrictEqual([
-      { message: "Stashed (2).", type: "info" },
+      { message: "Stashed.", type: "info" },
     ]);
 
     await expect(first.input()).resolves.toStrictEqual({ action: "continue" });
-    expect(first.ctx.ui.getEditorText()).toBe("second draft");
+    expect(first.ctx.ui.getEditorText()).toBe("second\n  draft \u0000");
     await second.pop();
     expect(second.ctx.ui.getEditorText()).toBe("first draft");
 
@@ -107,36 +96,14 @@ describe("stash", () => {
     expect(first.ctx.ui.getEditorText()).toBe("");
   });
 
-  it("keeps only the ten newest drafts, even after reopening", async () => {
-    const harness = await createHarness(cwd);
-
-    for (let index = 1; index <= 12; index += 1) {
-      await harness.stash(`draft ${index}`);
-    }
-
-    const reopened = await createHarness(cwd);
-
-    for (let index = 12; index >= 3; index -= 1) {
-      reopened.ctx.ui.setEditorText("");
-      await reopened.shortcut();
-      expect(reopened.ctx.ui.getEditorText()).toBe(`draft ${index}`);
-    }
-
-    reopened.ctx.ui.setEditorText("  \n\t  ");
-    await reopened.shortcut();
-    expect(reopened.ctx.ui.getEditorText()).toBe("  \n\t  ");
-    expect(reopened.notifications()).toStrictEqual([
-      { message: "Nothing stashed.", type: "info" },
-    ]);
-  });
-
   it("does not restore drafts from a different working directory", async () => {
     const owner = await createHarness(cwd);
     const other = await createHarness(await createTempDir("stash-other-cwd-"));
     await owner.stash("project draft");
 
-    await other.pop();
-    expect(other.ctx.ui.getEditorText()).toBe("");
+    other.ctx.ui.setEditorText("  \n\t  ");
+    await other.shortcut();
+    expect(other.ctx.ui.getEditorText()).toBe("  \n\t  ");
     expect(other.notifications()).toStrictEqual([
       { message: "Nothing stashed.", type: "info" },
     ]);
@@ -144,68 +111,11 @@ describe("stash", () => {
     expect(owner.ctx.ui.getEditorText()).toBe("project draft");
   });
 
-  it("adopts legacy entries in order without removing the backup or reimporting after the stack is emptied", async () => {
-    const file = getStorePath(agentDir, cwd, "json");
-
-    const json = JSON.stringify({
-      entries: ["old draft", "newer\n  draft \u0000"],
-    });
-
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, json);
-    const first = await createHarness(cwd);
-    const second = await createHarness(cwd);
-
-    await first.input();
-    expect(first.ctx.ui.getEditorText()).toBe("newer\n  draft \u0000");
-    await second.pop();
-    expect(second.ctx.ui.getEditorText()).toBe("old draft");
-
-    const reopened = await createHarness(cwd);
-    await reopened.pop();
-    expect(reopened.ctx.ui.getEditorText()).toBe("");
-    expect(reopened.notifications()).toStrictEqual([
-      { message: "Nothing stashed.", type: "info" },
-    ]);
-    await expect(readFile(file, "utf-8")).resolves.toBe(json);
-  });
-
-  it.each(["{", '{"entries":["legacy draft",null]}'])(
-    "preserves an invalid legacy file (%s) and retries adoption after repair",
-    async (json) => {
-      const file = getStorePath(agentDir, cwd, "json");
-      await mkdir(path.dirname(file), { recursive: true });
-      await writeFile(file, json);
-      const harness = await createHarness(cwd);
-
-      await harness.stash("new draft");
-      expect(harness.ctx.ui.getEditorText()).toBe("new draft");
-      expect(harness.notifications()).toStrictEqual([
-        {
-          message: `Could not stash draft; editor text was kept. Could not import legacy stash ${JSON.stringify(file)}; file left untouched.`,
-          type: "warning",
-        },
-      ]);
-      await expect(readFile(file, "utf-8")).resolves.toBe(json);
-
-      await writeFile(file, '{"entries":["legacy draft"]}');
-      await harness.shortcut();
-      expect(harness.ctx.ui.getEditorText()).toBe("");
-      await harness.pop();
-      expect(harness.ctx.ui.getEditorText()).toBe("new draft");
-      harness.ctx.ui.setEditorText("");
-      await harness.pop();
-      expect(harness.ctx.ui.getEditorText()).toBe("legacy draft");
-    }
-  );
-
   it("does not clear or confirm a draft when the push cannot commit", async () => {
     const harness = await createHarness(cwd);
     await harness.stash("previous stash");
 
-    using reader = openReaderBlockingCommit(
-      getStorePath(agentDir, cwd, "sqlite")
-    );
+    using reader = openReaderBlockingCommit(getStorePath(agentDir));
 
     harness.ctx.ui.setEditorText("keep typing here");
     const editorWrites = vi.mocked(harness.ctx.ui.setEditorText).mockClear();
@@ -214,7 +124,7 @@ describe("stash", () => {
     expect(harness.ctx.ui.getEditorText()).toBe("keep typing here");
     expect(editorWrites).not.toHaveBeenCalled();
     expect(harness.notifications()).toStrictEqual([
-      { message: "Stashed (1).", type: "info" },
+      { message: "Stashed.", type: "info" },
       {
         message: "Could not stash draft; editor text was kept.",
         type: "warning",
@@ -231,9 +141,7 @@ describe("stash", () => {
     const harness = await createHarness(cwd);
     await harness.stash("previous stash");
 
-    using reader = openReaderBlockingCommit(
-      getStorePath(agentDir, cwd, "sqlite")
-    );
+    using reader = openReaderBlockingCommit(getStorePath(agentDir));
 
     await expect(harness.input()).resolves.toStrictEqual({
       action: "continue",
