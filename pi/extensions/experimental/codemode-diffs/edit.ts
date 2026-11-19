@@ -10,7 +10,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { EditDiffs } from "./diffs.js";
-import { highlightDiff, MAX_HIGHLIGHT_SOURCE_BYTES } from "./highlight.js";
+import { highlightDiff } from "./highlight.js";
 
 const tryHighlightDiff = async (
   ...args: Parameters<typeof highlightDiff>
@@ -64,19 +64,13 @@ export const createHighlightedEdit = (diffs: EditDiffs) => {
           },
           async readFile(path) {
             const buffer = await readFile(path);
-
-            if (buffer.length <= MAX_HIGHLIGHT_SOURCE_BYTES) {
-              before = buffer.toString("utf-8");
-            }
+            before = buffer.toString("utf-8");
 
             return buffer;
           },
           async writeFile(path, content) {
             await writeFile(path, content, "utf-8");
-
-            if (before !== undefined) {
-              after = content;
-            }
+            after = content;
           },
         },
       });
@@ -84,16 +78,7 @@ export const createHighlightedEdit = (diffs: EditDiffs) => {
       // Native edit holds the non-reentrant queue: https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/core/tools/edit.ts#L158-L213
       const result = await native.execute(id, input, signal, onUpdate, ctx);
 
-      if (
-        before === undefined ||
-        after === undefined ||
-        !result.details ||
-        !diffs.canHighlight({
-          toolCallId: id,
-          path: input.path,
-          diff: result.details.diff,
-        })
-      ) {
+      if (before === undefined || after === undefined || !result.details) {
         return result;
       }
 
