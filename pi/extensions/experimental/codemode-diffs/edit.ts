@@ -81,7 +81,7 @@ export const createHighlightedEdit = (diffs: EditDiffs) => {
         },
       });
 
-      // Native edit holds the non-reentrant queue: https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/core/tools/edit.ts#L163-L201
+      // Native edit holds the non-reentrant queue: https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/core/tools/edit.ts#L158-L213
       const result = await native.execute(id, input, signal, onUpdate, ctx);
 
       if (
