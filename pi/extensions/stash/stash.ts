@@ -3,16 +3,7 @@ import type {
   InputEvent,
 } from "@earendil-works/pi-coding-agent";
 
-import { LegacyStashError, popStash, pushStash } from "./storage.js";
-
-const warnOnStorageFailure = (
-  ctx: ExtensionContext,
-  message: string,
-  error: unknown
-): void => {
-  const detail = error instanceof LegacyStashError ? ` ${error.message}` : "";
-  ctx.ui.notify(`${message}${detail}`, "warning");
-};
+import { popStash, pushStash } from "./storage.js";
 
 const restoreDraft = (
   ctx: ExtensionContext,
@@ -22,8 +13,8 @@ const restoreDraft = (
 
   try {
     draft = popStash(ctx.cwd);
-  } catch (error) {
-    warnOnStorageFailure(ctx, "Could not restore stash.", error);
+  } catch {
+    ctx.ui.notify("Could not restore stash.", "warning");
 
     return;
   }
@@ -39,7 +30,7 @@ export const popStashCommand = async (
   _args: string,
   ctx: ExtensionContext
 ): Promise<void> => {
-  if (!ctx.hasUI || ctx.mode !== "tui") {
+  if (ctx.mode !== "tui") {
     throw new Error("pop-stash requires the interactive terminal UI");
   }
 
@@ -62,7 +53,6 @@ export const autoRestoreStash = (
   if (
     event.source === "interactive" &&
     ctx.mode === "tui" &&
-    ctx.hasUI &&
     ctx.ui.getEditorText() === ""
   ) {
     restoreDraft(ctx, "automatic");
@@ -78,20 +68,14 @@ export const toggleStash = (ctx: ExtensionContext): void => {
     return;
   }
 
-  let count: number;
-
   try {
-    count = pushStash(ctx.cwd, text);
-  } catch (error) {
-    warnOnStorageFailure(
-      ctx,
-      "Could not stash draft; editor text was kept.",
-      error
-    );
+    pushStash(ctx.cwd, text);
+  } catch {
+    ctx.ui.notify("Could not stash draft; editor text was kept.", "warning");
 
     return;
   }
 
   ctx.ui.setEditorText("");
-  ctx.ui.notify(`Stashed (${count}).`, "info");
+  ctx.ui.notify("Stashed.", "info");
 };
