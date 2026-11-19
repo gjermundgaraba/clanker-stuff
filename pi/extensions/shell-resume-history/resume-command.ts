@@ -10,35 +10,15 @@ import type {
 
 export const INBOX_ENV = "PI_SHELL_RESUME_HISTORY_DIR";
 
-const quoteShellArgument = (value: string): string => {
-  if (value.length > 0 && !/[^a-zA-Z0-9_\-./~:@]/u.test(value)) {
-    return value;
-  }
-
-  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
-};
-
-export const formatResumeCommand = (
-  sessionManager: ExtensionContext["sessionManager"]
-): string | undefined => {
-  const sessionFile = sessionManager.getSessionFile();
-
-  if (sessionFile === undefined || !existsSync(sessionFile)) {
-    return undefined;
-  }
-
-  return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
-};
-
-export const enqueueResumeCommand = async (
+export const enqueueResumeHistory = async (
   inbox: string,
-  command: string
+  sessionFile: string
 ): Promise<void> => {
-  const name = `${Date.now()}-${randomUUID()}.command`;
+  const name = `${Date.now()}-${randomUUID()}.session-path`;
   const finalPath = path.join(inbox, name);
   const temporaryPath = path.join(inbox, `.${name}.tmp`);
 
-  await writeFile(temporaryPath, `${command}\n`, {
+  await writeFile(temporaryPath, `${sessionFile}\0`, {
     encoding: "utf-8",
     flag: "wx",
     mode: 0o600,
@@ -61,11 +41,13 @@ export const recordResumeCommand = async (
     return;
   }
 
-  const command = formatResumeCommand(ctx.sessionManager);
+  const sessionFile = ctx.sessionManager.getSessionFile();
 
-  if (command === undefined) {
+  if (sessionFile === undefined || !existsSync(sessionFile)) {
     return;
   }
 
-  await enqueueResumeCommand(inbox, command).catch((): undefined => undefined);
+  await enqueueResumeHistory(inbox, path.resolve(sessionFile)).catch(
+    (): undefined => undefined
+  );
 };

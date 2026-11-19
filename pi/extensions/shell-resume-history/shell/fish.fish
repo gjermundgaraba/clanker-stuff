@@ -22,10 +22,9 @@ function __pi_shell_resume_history_drain --on-event fish_prompt
         return 0
     end
 
-    for message in "$PI_SHELL_RESUME_HISTORY_DIR"/*.command
-        set -l line
-        if read -l line <"$message"; and test -n "$line"
-            builtin history append -- "$line"
+    for message in "$PI_SHELL_RESUME_HISTORY_DIR"/*.session-path
+        if read --null -l session_file <"$message"; and test -n "$session_file"
+            builtin history append -- "pi --session "(string escape -- "$session_file")
             or continue
         end
         command rm -f -- "$message"

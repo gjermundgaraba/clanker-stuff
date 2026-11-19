@@ -25,11 +25,10 @@ function __pi_shell_resume_history_drain() {
     return 0
   fi
 
-  local line message
-  for message in "$PI_SHELL_RESUME_HISTORY_DIR"/*.command(N); do
-    IFS= read -r line <"$message"
-    if [[ -n $line ]]; then
-      print -s -- "$line" || continue
+  local message session_file
+  for message in "$PI_SHELL_RESUME_HISTORY_DIR"/*.session-path(N); do
+    if IFS= read -r -d '' session_file <"$message" && [[ -n $session_file ]]; then
+      print -rs -- "pi --session ${(qqqq)session_file}" || continue
     fi
     command rm -f -- "$message"
   done
