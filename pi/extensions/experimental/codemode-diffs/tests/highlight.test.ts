@@ -76,7 +76,7 @@ describe("Highlights diff projection", () => {
   });
 
   it.each([
-    ["UTF-8 bytes", `/*${"界".repeat(22_000)}*/\n`],
+    ["character", `/*${"x".repeat(66_000)}*/\n`],
     ["rows", "// filler\n".repeat(2000)],
   ])(
     "skips small hunks when the combined source exceeds its %s budget",

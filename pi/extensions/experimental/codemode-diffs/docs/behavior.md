@@ -2,7 +2,7 @@
 
 ## Highlighting
 
-Nested edits use `@pierre/highlights` to tokenize complete before/after source independently, up to a combined 128 KiB of UTF-8 source and 4,000 lines. Larger inputs skip tokenization and keep the plain diff. Only UTF-16 span ends and semantic syntax roles for displayed diff rows are saved; complete file snapshots and concrete colors are not persisted. The active Pi theme supplies syntax colors when the diff renders. Single-line replacements retain inverse word emphasis.
+Nested edits use `@pierre/highlights` to tokenize complete before/after source independently, up to a combined 131,072 characters (UTF-16 code units) and 4,000 lines. Larger inputs skip tokenization and keep the plain diff. Only UTF-16 span ends and semantic syntax roles for displayed diff rows are saved; complete file snapshots and concrete colors are not persisted. The active Pi theme supplies syntax colors when the diff renders. Single-line replacements retain inverse word emphasis.
 
 Context rows use the old side's lexer state because Pi numbers context in the old file. The new side supplies added rows. Unknown languages, old saved diffs, malformed spans, and highlighting errors retain Pi's normal diff presentation. Very long lines are scanned for lexer state but can be left without syntax styling to bound token allocation.
 

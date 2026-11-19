@@ -22,9 +22,7 @@ const EditDiffSchema = Type.Object(
 export const DiffDetailsSchema = Type.Object(
   {
     codemodeDiffs: Type.Array(EditDiffSchema),
-    codemodeDiffsOmitted: Type.Optional(
-      Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })
-    ),
+    codemodeDiffsOmitted: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   { additionalProperties: true }
 );
@@ -35,10 +33,12 @@ type CapturedEditDiff = PlainEditDiff & { syntax?: DiffSyntax };
 
 export const MAX_DIFF_DETAILS_BYTES = 64 * 1024;
 
+const LARGEST_EXPECTED_OMISSION_COUNT = 999_999;
+
 const RESERVED_ENVELOPE_BYTES = Buffer.byteLength(
   JSON.stringify({
     codemodeDiffs: [],
-    codemodeDiffsOmitted: Number.MAX_SAFE_INTEGER,
+    codemodeDiffsOmitted: LARGEST_EXPECTED_OMISSION_COUNT,
   })
 );
 
@@ -56,25 +56,16 @@ interface PendingEdit {
 const recordBytes = (capture: Capture, edit: CapturedEditDiff): number =>
   Buffer.byteLength(JSON.stringify(edit)) + (capture.edits.length > 0 ? 1 : 0);
 
-const plainRecordBytes = (capture: Capture, edit: PlainEditDiff): number => {
-  const minimumBytes =
-    edit.diff.length + edit.path.length + edit.toolCallId.length;
-
-  return minimumBytes > capture.remainingBytes
-    ? Number.POSITIVE_INFINITY
-    : recordBytes(capture, edit);
-};
-
 const retainDiff = (
   capture: Capture,
   plain: PlainEditDiff,
   syntax: DiffSyntax | undefined
 ): void => {
   let edit: CapturedEditDiff = plain;
-  let bytes = plainRecordBytes(capture, plain);
+  let bytes = recordBytes(capture, plain);
 
   if (bytes > capture.remainingBytes) {
-    capture.omitted = Math.min(capture.omitted + 1, Number.MAX_SAFE_INTEGER);
+    capture.omitted += 1;
 
     return;
   }
@@ -187,20 +178,10 @@ export class EditDiffs {
     return pending !== undefined && this.calls.has(pending.parentId);
   }
 
-  canHighlight(edit: PlainEditDiff): boolean {
-    const pending = this.pending.get(edit.toolCallId);
-    const capture = pending && this.calls.get(pending.parentId);
-
-    return (
-      capture !== undefined &&
-      plainRecordBytes(capture, edit) < capture.remainingBytes
-    );
-  }
-
   setSyntax(id: string, diff: string, rows: DiffSyntax): void {
     const pending = this.pending.get(id);
 
-    if (pending && this.calls.has(pending.parentId)) {
+    if (pending) {
       pending.syntax = { diff, rows };
     }
   }

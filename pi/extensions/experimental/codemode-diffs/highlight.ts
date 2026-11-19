@@ -89,7 +89,7 @@ export const parseDiffLine = (line: string): DiffLine | undefined => {
   return { prefix: `${kind}${number} `, kind, number: Number(number), text };
 };
 
-export const MAX_HIGHLIGHT_SOURCE_BYTES = 128 * 1024;
+const MAX_HIGHLIGHT_SOURCE_UTF16_UNITS = 128 * 1024;
 const MAX_HIGHLIGHT_SOURCE_LINES = 4000;
 
 const normalize = (source: string) =>
@@ -101,11 +101,7 @@ export const highlightDiff = async (
   before: string,
   after: string
 ): Promise<DiffSyntax | undefined> => {
-  if (
-    before.length + after.length > MAX_HIGHLIGHT_SOURCE_BYTES ||
-    Buffer.byteLength(before) + Buffer.byteLength(after) >
-      MAX_HIGHLIGHT_SOURCE_BYTES
-  ) {
+  if (before.length + after.length > MAX_HIGHLIGHT_SOURCE_UTF16_UNITS) {
     return;
   }
 
