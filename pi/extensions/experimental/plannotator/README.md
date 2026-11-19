@@ -12,7 +12,7 @@ Load `pi/extensions/experimental/plannotator/index.ts` as a local extension; npm
 
 - `/plannotator-review` reviews current changes or a pull request.
 - `/plannotator-annotate <target>` annotates a file, folder, or URL; `/plannotator-last` annotates the last assistant response.
-- After `/tree` interrupts automatic delivery, navigate to the branch where you want to use the feedback and run `/plannotator-feedback` to load it into the editor for review. Retained feedback is available only in the current session.
+- If `/tree` moves you to another branch before feedback returns, the feedback is put in the editor instead of being sent.
 
 ## Requirements
 

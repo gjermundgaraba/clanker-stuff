@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { exited, forwardedFeedback, setup } from "../helpers.js";
+import { exited, setup, waitForMessages } from "../helpers.js";
 
 describe("plannotator-annotate", () => {
   it("forwards quoted arguments for Plannotator to validate and wraps feedback", async () => {
@@ -22,8 +22,8 @@ describe("plannotator-annotate", () => {
     child.resolve(
       exited(JSON.stringify({ decision: "annotated", feedback: "Fix this." }))
     );
-    const message = await forwardedFeedback(host, ctx);
-    expect(message?.content).toBe(
+    await waitForMessages(host, 1);
+    expect(host.getSentUserMessages()[0]?.content).toBe(
       `# Markdown Annotations\n\nFile: "docs/my file.md" --gate\n\nFix this.\n\nPlease address the annotation feedback above.`
     );
   });

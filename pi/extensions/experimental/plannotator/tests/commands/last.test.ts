@@ -5,9 +5,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   assistantEntry,
   exited,
-  forwardedFeedback,
   setup,
   userEntry,
+  waitForMessages,
 } from "../helpers.js";
 
 describe("plannotator-last", () => {
@@ -65,8 +65,8 @@ describe("plannotator-last", () => {
     child.resolve(
       exited(JSON.stringify({ decision: "annotated", feedback: "Clarify it." }))
     );
-    const message = await forwardedFeedback(host, ctx);
-    const content = message?.content;
+    await waitForMessages(host, 1);
+    const content = host.getSentUserMessages()[0]?.content;
     assert.equal(typeof content, "string");
     expect(content).toContain("> Original answer");
     expect(content).toContain("User feedback:\nClarify it.");

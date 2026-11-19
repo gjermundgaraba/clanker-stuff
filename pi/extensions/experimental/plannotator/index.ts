@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { CliStarter } from "./cli.js";
-import { FEEDBACK_COMMAND } from "./feedback.js";
 import { createPlannotatorHost } from "./host.js";
 
 export default function plannotatorExtension(
@@ -24,13 +23,6 @@ export default function plannotatorExtension(
     description: "Annotate the last assistant message",
     handler: host.last,
   });
-
-  pi.registerCommand(FEEDBACK_COMMAND, {
-    description: "Recover retained Plannotator feedback into the editor",
-    handler: host.feedback,
-  });
-
-  pi.on("session_tree", host.invalidateTreeVersion);
 
   pi.on("session_shutdown", async () => {
     await host.shutdown();
