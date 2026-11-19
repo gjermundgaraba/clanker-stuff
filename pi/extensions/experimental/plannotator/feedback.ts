@@ -10,9 +10,33 @@ import type {
 export const FEEDBACK_COMMAND = "plannotator-feedback";
 
 interface Origin {
-  leafId: string | null;
+  matchesBranch: () => boolean;
   treeVersion: number;
 }
+
+// Pi switches the leaf before session_tree handlers run: https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/core/agent-session.ts#L4292-L4313
+const captureBranch = (
+  sessionManager: ExtensionCommandContext["sessionManager"]
+): (() => boolean) => {
+  const leafId = sessionManager.getLeafId();
+
+  if (leafId !== null) {
+    return () => sessionManager.getBranch().some(({ id }) => id === leafId);
+  }
+
+  const existingRootIds = new Set(
+    sessionManager
+      .getEntries()
+      .filter(({ parentId }) => parentId === null)
+      .map(({ id }) => id)
+  );
+
+  return () => {
+    const [root] = sessionManager.getBranch();
+
+    return root === undefined || !existingRootIds.has(root.id);
+  };
+};
 
 const notifyRetained = (ctx: ExtensionCommandContext) => {
   ctx.ui.notify(
@@ -28,19 +52,17 @@ export const createFeedbackDelivery = (pi: ExtensionAPI) => {
   let treeVersion = 0;
   const pending = new Map<string, { origin: Origin; text: string }>();
 
-  const isCurrent = (origin: Origin, ctx: ExtensionCommandContext) =>
-    origin.treeVersion === treeVersion &&
-    (origin.leafId === null ||
-      ctx.sessionManager.getBranch().some(({ id }) => id === origin.leafId));
+  const isCurrent = (origin: Origin) =>
+    origin.treeVersion === treeVersion && origin.matchesBranch();
 
   const capture = (ctx: ExtensionCommandContext, signal: AbortSignal) => {
     const origin: Origin = {
-      leafId: ctx.sessionManager.getLeafId(),
+      matchesBranch: captureBranch(ctx.sessionManager),
       treeVersion,
     };
 
     return async (text: string): Promise<void> => {
-      if (isCurrent(origin, ctx) && !isIdleOrRunningTurn(ctx)) {
+      if (isCurrent(origin) && !isIdleOrRunningTurn(ctx)) {
         const { promise, resolve } = Promise.withResolvers<undefined>();
 
         using _abort = addAbortListener(signal, () => {
@@ -57,7 +79,7 @@ export const createFeedbackDelivery = (pi: ExtensionAPI) => {
       const id = randomUUID();
       pending.set(id, { origin, text });
 
-      if (!isCurrent(origin, ctx) || !isIdleOrRunningTurn(ctx)) {
+      if (!isCurrent(origin) || !isIdleOrRunningTurn(ctx)) {
         notifyRetained(ctx);
 
         return;
@@ -113,7 +135,7 @@ export const createFeedbackDelivery = (pi: ExtensionAPI) => {
         return;
       }
 
-      if (!isCurrent(result.origin, ctx) || !isIdleOrRunningTurn(ctx)) {
+      if (!isCurrent(result.origin) || !isIdleOrRunningTurn(ctx)) {
         notifyRetained(ctx);
 
         return;
