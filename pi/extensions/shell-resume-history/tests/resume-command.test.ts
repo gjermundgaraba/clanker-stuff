@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { access, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
@@ -12,14 +11,10 @@ import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 import extension from "../index.js";
 import {
-  enqueueResumeCommand,
-  formatResumeCommand,
+  enqueueResumeHistory,
   INBOX_ENV,
   recordResumeCommand,
 } from "../resume-command.js";
-
-const hasCommand = (command: string) =>
-  spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0;
 
 describe("resume command", () => {
   let tempRoot: string | undefined;
@@ -49,10 +44,11 @@ describe("resume command", () => {
     }
   });
 
-  it("queues the current persisted session when pi quits", async () => {
-    const { cwd, inbox } = await setup();
+  it("queues the exact persisted session path with its original project directory", async () => {
+    const { cwd, inbox, tempRoot: root } = await setup();
+    const sessionDir = path.join(root, "custom Pi's\nsessions\\directory");
 
-    const sessionManager = SessionManager.create(cwd, undefined, {
+    const sessionManager = SessionManager.create(cwd, sessionDir, {
       id: "full-session-id",
     });
 
@@ -69,38 +65,10 @@ describe("resume command", () => {
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(1);
     const [message] = messages;
-    assert.ok(message !== undefined && message !== "");
-    await expect(readFile(path.join(inbox, message), "utf-8")).resolves.toBe(
-      `pi --session ${sessionManager.getSessionFile()}\n`
-    );
-  });
-
-  it("resumes the session file in its own directory from any shell directory", async () => {
-    const { cwd, tempRoot: root } = await setup();
-    const sessionDir = path.join(root, "custom pi's sessions");
-
-    const sessionManager = SessionManager.create(cwd, sessionDir, {
-      id: "full-session-id",
-    });
-
-    sessionManager.appendMessage(fauxAssistantMessage("test"));
-    const command = formatResumeCommand(sessionManager);
-    assert.ok(command !== undefined && command !== "");
-
-    const args = execFileSync(
-      "sh",
-      ["-c", `pi() { printf '%s\\n' "$@"; }; ${command}`],
-      {
-        cwd: root,
-        encoding: "utf-8",
-      }
-    );
-
-    const [flag, sessionFile] = args.trimEnd().split("\n");
-    expect(flag).toBe("--session");
-    expect(sessionFile).toBe(sessionManager.getSessionFile());
-    assert.ok(sessionFile !== undefined && sessionFile !== "");
-    expect(SessionManager.open(sessionFile).getCwd()).toBe(cwd);
+    assert.ok(message?.endsWith(".session-path") === true);
+    const payload = await readFile(path.join(inbox, message), "utf-8");
+    expect(payload).toBe(`${sessionManager.getSessionFile()}\0`);
+    expect(SessionManager.open(payload.slice(0, -1)).getCwd()).toBe(cwd);
   });
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
@@ -167,17 +135,19 @@ describe("resume command", () => {
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
   });
 
-  it("publishes complete, separate message files", async () => {
+  it("publishes complete, separate path records", async () => {
     const { inbox } = await setup();
 
     await Promise.all([
-      enqueueResumeCommand(inbox, "pi --session first"),
-      enqueueResumeCommand(inbox, "pi --session second"),
+      enqueueResumeHistory(inbox, "/first"),
+      enqueueResumeHistory(inbox, "/second\npath"),
     ]);
 
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(2);
-    expect(messages.every((name) => name.endsWith(".command"))).toBeTruthy();
+    expect(
+      messages.every((name) => name.endsWith(".session-path"))
+    ).toBeTruthy();
 
     const contents = await Promise.all(
       messages.map(
@@ -185,110 +155,6 @@ describe("resume command", () => {
       )
     );
 
-    expect(contents.toSorted()).toStrictEqual([
-      "pi --session first\n",
-      "pi --session second\n",
-    ]);
+    expect(contents.toSorted()).toStrictEqual(["/first\0", "/second\npath\0"]);
   });
-
-  it.skipIf(!hasCommand("fish"))(
-    "fish uses a private inbox and imports queued commands",
-    async () => {
-      await setup();
-
-      const script = path.resolve(
-        import.meta.dirname,
-        "..",
-        "shell",
-        "fish.fish"
-      );
-
-      const command = "pi --session fish-session";
-
-      const output = execFileSync(
-        "fish",
-        [
-          "--no-config",
-          "--command",
-          [
-            "source $SCRIPT_PATH",
-            "__pi_shell_resume_history_setup",
-            "set parent_inbox $PI_SHELL_RESUME_HISTORY_DIR",
-            "set child_inbox (fish --no-config --command 'source $SCRIPT_PATH; __pi_shell_resume_history_setup; echo $PI_SHELL_RESUME_HISTORY_DIR; __pi_shell_resume_history_cleanup')",
-            "test $parent_inbox != $child_inbox; or exit 1",
-            "echo $parent_inbox",
-            "printf '%s\\n' $TEST_COMMAND >$parent_inbox/message.command",
-            "__pi_shell_resume_history_drain",
-            "builtin history search --case-sensitive --exact $TEST_COMMAND",
-          ].join("; "),
-        ],
-        {
-          encoding: "utf-8",
-          env: {
-            ...process.env,
-            SCRIPT_PATH: script,
-            TEST_COMMAND: command,
-            fish_history: "",
-          },
-        }
-      );
-
-      const [shellInbox, historyEntry] = output.trim().split("\n");
-      expect(historyEntry).toBe(command);
-      assert.ok(shellInbox !== undefined && shellInbox !== "");
-      await expect(access(shellInbox)).rejects.toMatchObject({
-        code: "ENOENT",
-      });
-    }
-  );
-
-  it.skipIf(!hasCommand("zsh"))(
-    "zsh uses a private inbox and imports queued commands",
-    async () => {
-      await setup();
-
-      const script = path.resolve(
-        import.meta.dirname,
-        "..",
-        "shell",
-        "zsh.zsh"
-      );
-
-      const command = "pi --session zsh-session";
-
-      const output = execFileSync(
-        "zsh",
-        [
-          "-f",
-          "-i",
-          "-c",
-          [
-            'source "$SCRIPT_PATH"',
-            "parent_inbox=$PI_SHELL_RESUME_HISTORY_DIR",
-            'child_inbox=$(zsh -f -c \'source "$SCRIPT_PATH"; __pi_shell_resume_history_setup; print -r -- "$PI_SHELL_RESUME_HISTORY_DIR"; __pi_shell_resume_history_cleanup\')',
-            "[[ $parent_inbox != $child_inbox ]] || exit 1",
-            'print -r -- "$parent_inbox"',
-            'print -r -- "$TEST_COMMAND" >"$parent_inbox/message.command"',
-            "__pi_shell_resume_history_drain",
-            "fc -ln -1",
-          ].join("; "),
-        ],
-        {
-          encoding: "utf-8",
-          env: {
-            ...process.env,
-            SCRIPT_PATH: script,
-            TEST_COMMAND: command,
-          },
-        }
-      );
-
-      const [shellInbox, historyEntry] = output.trim().split("\n");
-      expect(historyEntry).toBe(command);
-      assert.ok(shellInbox !== undefined && shellInbox !== "");
-      await expect(access(shellInbox)).rejects.toMatchObject({
-        code: "ENOENT",
-      });
-    }
-  );
 });
