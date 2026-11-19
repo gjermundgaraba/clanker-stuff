@@ -11,7 +11,7 @@ pi install npm:@clanker-stuff/dollah-skills
 ## Usage
 
 - Type `$` to complete and highlight a loaded skill name; submitting puts the mentioned skills ahead of your text in Pi's native `/skill:name` block, shown as one collapsible `[skill]` block.
-- Dollar mentions expand in interactive and RPC prompts, not in extension-sent messages.
+- Dollar mentions expand in prompts, but not in messages sent by extensions.
 - Input that starts with a registered command, template or skill is left to Pi.
 
 ## Requirements
