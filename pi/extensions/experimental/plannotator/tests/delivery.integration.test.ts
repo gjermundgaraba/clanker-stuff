@@ -9,18 +9,22 @@ import { createExtensionHost } from "../../../../tests/harness/extension-host.js
 import extension from "../index.js";
 import { createStarter, exited, signaled } from "./helpers.js";
 
-const setup = async (extra: ExtensionFactory[] = []) => {
+const setup = async (
+  extra: ExtensionFactory[] = [],
+  { beforePlannotator = false } = {}
+) => {
   const { pending, starter } = createStarter();
   const uiHost = createExtensionHost(() => {});
   const { ui } = uiHost.createContext();
 
+  const plannotator: ExtensionFactory = (pi) => {
+    extension(pi, starter);
+  };
+
   const env = await createAgentSessionHarness({
-    extensionFactories: [
-      (pi) => {
-        extension(pi, starter);
-      },
-      ...extra,
-    ],
+    extensionFactories: beforePlannotator
+      ? [...extra, plannotator]
+      : [plannotator, ...extra],
     mode: "tui",
     settings: { compaction: { enabled: false }, retry: { enabled: false } },
     uiContext: ui,
@@ -114,6 +118,77 @@ describe("Plannotator delivery in Pi", () => {
       expect(env.getPendingResponseCount()).toBe(1);
     }
   );
+
+  it("sends feedback after tree navigation is cancelled", async () => {
+    const env = await setup([
+      (pi) => {
+        pi.on("session_before_tree", () => ({ cancel: true }));
+      },
+    ]);
+
+    env.setResponses([
+      fauxAssistantMessage("Base"),
+      fauxAssistantMessage("Original branch"),
+      fauxAssistantMessage("Feedback answer"),
+    ]);
+    await env.prompt("Start");
+    const base = env.sessionManager.getLeafId();
+    assert.ok(base !== null);
+    await env.prompt("Explore the original branch");
+    await env.prompt("/plannotator-review");
+
+    await expect(env.session.navigateTree(base)).resolves.toMatchObject({
+      cancelled: true,
+    });
+    env.complete(notes);
+
+    await vi.waitFor(() => {
+      expect(env.session.getLastAssistantText()).toBe("Feedback answer");
+    });
+  });
+
+  it("retains feedback while an earlier tree handler is busy on the destination branch", async () => {
+    const tree = gate();
+
+    const env = await setup(
+      [
+        (pi) => {
+          pi.on("session_tree", tree.hold);
+        },
+      ],
+      { beforePlannotator: true }
+    );
+
+    env.setResponses([
+      fauxAssistantMessage("Base"),
+      fauxAssistantMessage("Original branch"),
+      fauxAssistantMessage("Unexpected prompt"),
+    ]);
+    await env.prompt("Start");
+    const base = env.sessionManager.getLeafId();
+    assert.ok(base !== null);
+    await env.prompt("Explore the original branch");
+    await env.prompt("/plannotator-review");
+
+    const navigation = env.session.navigateTree(base);
+    await tree.entered;
+
+    try {
+      env.complete(notes);
+      await vi.waitFor(() => {
+        expect(env.notifications().at(-1)?.message).toContain(
+          "/plannotator-feedback"
+        );
+      });
+    } finally {
+      tree.release();
+      await navigation;
+    }
+
+    await env.prompt("/plannotator-feedback");
+    expect(env.ui.getEditorText()).toBe(notes);
+    expect(env.getPendingResponseCount()).toBe(1);
+  });
 
   it("queues a normal follow-up even after the originating leaf advances", async () => {
     const request = gate();

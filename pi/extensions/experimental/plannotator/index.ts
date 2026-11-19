@@ -30,7 +30,6 @@ export default function plannotatorExtension(
     handler: host.feedback,
   });
 
-  pi.on("session_before_tree", host.invalidateTreeVersion);
   pi.on("session_tree", host.invalidateTreeVersion);
 
   pi.on("session_shutdown", async () => {
