@@ -5,7 +5,7 @@
   "scripts": {
     "eval:frontier": "uv run --project pi/evals python -m pi_evals.frontier",
     "eval:scaling": "uv run --project pi/evals python -m pi_evals.scaling",
-    "prepare": "vp config && effect-tsgo patch --no-typescript --oxlint"
+    "prepare": "vp config && effect-tsgo patch --no-typescript --oxlint --tsrs"
   },
   "devDependencies": {
     "@clanker-stuff/oxlint-config": "workspace:*",

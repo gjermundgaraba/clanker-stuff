@@ -8,10 +8,7 @@ export class KeyedSerialQueue {
   async run<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const current = (this.#tails.get(key) ?? Promise.resolve()).then(operation);
 
-    const tail = current.then(
-      () => undefined,
-      () => undefined
-    );
+    const tail = current.then(() => undefined).catch(() => undefined);
 
     this.#tails.set(key, tail);
 
