@@ -260,7 +260,7 @@ const tooSmall = (
 const finishFrame = (
   options: FrameOptions,
   { footer, rule }: FrameChrome,
-  body: string[],
+  body: readonly string[],
   scroll: number,
   viewportRows: number,
   hint: string
@@ -347,7 +347,7 @@ export const renderQuestionView = (
 };
 
 export const renderScrollablePage = (
-  options: FrameOptions & { body: string[]; focusLine?: number }
+  options: FrameOptions & { body: readonly string[]; focusLine?: number }
 ): FrameResult => {
   const chrome = frameChrome(options);
 

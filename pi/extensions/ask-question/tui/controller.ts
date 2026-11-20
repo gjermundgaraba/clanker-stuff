@@ -545,7 +545,7 @@ export class QuestionnaireView {
       hint: this.hint,
     });
   }
-  private markdownLines(text: string, width: number): string[] {
+  private markdownLines(text: string, width: number): readonly string[] {
     let component = this.markdown.get(text);
 
     if (!component) {

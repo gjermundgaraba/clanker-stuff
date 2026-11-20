@@ -60,7 +60,9 @@ const message = (details: unknown) => ({
 
 const messageOptions = { ...toolRenderContext(), expanded: false };
 
-const rows = (component: { render: (width: number) => string[] } | undefined) =>
+const rows = (
+  component: { render: (width: number) => readonly string[] } | undefined
+) =>
   component
     ?.render(100)
     .map((row) => row.trimEnd())
