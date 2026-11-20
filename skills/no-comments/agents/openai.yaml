@@ -1,0 +1,7 @@
+interface:
+  display_name: "No Comments"
+  short_description: "Strip comments via Comment Sicko and fix accepted findings"
+  default_prompt: "Use $no-comments on the current diff against main."
+
+policy:
+  allow_implicit_invocation: false
