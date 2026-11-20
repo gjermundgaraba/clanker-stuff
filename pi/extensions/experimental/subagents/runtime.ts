@@ -461,7 +461,7 @@ const initializeChildRuntime = async (
       steered.clear();
     };
 
-    running = prompt.then(settle, settle);
+    running = prompt.then(settle).catch(settle);
 
     try {
       await Promise.race([prompt, current.preflightCancelled.promise]);
