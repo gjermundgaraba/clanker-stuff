@@ -182,7 +182,7 @@ describe("footer host", () => {
       expect.anything(),
       "/tmp/project"
     );
-    expect(footer.render()).toContain("main · ~2");
+    expect(footer.render()).toContain("main · !2");
 
     await footer.host.emitTurnEnd({}, footer.ctx);
     expect(footer.readGit).toHaveBeenCalledTimes(2);

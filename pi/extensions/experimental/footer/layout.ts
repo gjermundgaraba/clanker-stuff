@@ -37,8 +37,8 @@ export const renderBuiltin = (
   family: IconFamily,
   theme: FooterTheme
 ): string => {
-  const spans = widget.content.map(({ text, tone }) => ({
-    text: inlineText(text),
+  const spans = widget.content.map(({ marker, text, tone }) => ({
+    text: inlineText(`${marker?.[family] ?? ""}${text}`),
     tone,
   }));
 

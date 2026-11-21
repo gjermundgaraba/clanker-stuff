@@ -31,7 +31,7 @@ The default layout:
 - `rows` holds the footer lines, one per entry. `left` anchors to the left edge and `right` to the right edge. At narrow widths widgets share the space and truncate toward the middle of the line; the working directory keeps its end.
 - `border` lists widgets drawn at the right end of the editor's top border, in order: native statuses or built-ins, but not `footer.statuses`. A widget that does not fit is skipped and shown nowhere, and a later one may still fit. The border uses the shared editor; while another custom editor is installed, including one installed later, border statuses appear in `footer.statuses` instead and border built-ins are hidden.
 - `hidden` lists native statuses (`status:<key>`) to leave out of `footer.statuses`.
-- `iconFamily` is `ascii`, `unicode`, or `nerd` for built-in widget icons. Nerd icons need a Nerd Font in your terminal.
+- `iconFamily` is `ascii`, `unicode`, or `nerd` for built-in widget icons and git count markers. Nerd icons need a Nerd Font in your terminal.
 
 All four fields are required. Unknown fields, an ID listed twice across rows, border, and hidden, a non-status entry in hidden, or `footer.statuses` in the border reject the whole file. Unknown widget IDs are kept but ignored; the session-start warning and `/footer inspect` name them.
 
@@ -41,7 +41,7 @@ All four fields are required. Unknown fields, an ID listed twice across rows, bo
 | --- | --- |
 | `footer.cwd` | Working directory. |
 | `footer.git` | Git branch, as Pi reports it. |
-| `footer.git.details` | Staged `+`, unstaged `~`, untracked `?`, ahead `↑`, and behind `↓` counts. Runs `git status` at session start, after each turn, and on branch changes, only while placed. |
+| `footer.git.details` | Staged `+`, unstaged `!`, untracked `?`, ahead `⇡`, and behind `⇣` counts; the `ascii` family marks ahead `>` and behind `<`. Zero counts are left out. Runs `git status` at session start, after each turn, and on branch changes, only while placed. |
 | `footer.model` | Selected model. When the branch's last successful response used another model, `selected: … · last: …`, including physical routes behind virtual models. The last model is the provider-reported ID when available, otherwise the requested ID; the provider remains the one Pi contacted. |
 | `footer.thinking` | Thinking level, split the same way. |
 | `footer.context` | Context use against the window. Shows `?` while unknown, such as after compaction until the next response. |

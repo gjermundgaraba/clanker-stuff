@@ -5,6 +5,9 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import type { IconFamily } from "../config.js";
+import { renderBuiltin } from "../layout.js";
+import type { FooterTheme } from "../layout.js";
 import { buildBuiltinWidgets, collectSessionTotals } from "../widgets.js";
 import { sessionReads } from "./helpers.js";
 
@@ -114,11 +117,21 @@ describe(collectSessionTotals, () => {
   });
 });
 
-const text = (widgets: ReturnType<typeof buildBuiltinWidgets>, id: string) =>
-  widgets
-    .get(id)
-    ?.content.map((span) => span.text)
-    .join("");
+const FAMILIES = ["ascii", "unicode", "nerd"] as const satisfies IconFamily[];
+
+const plainTheme: FooterTheme = { fg: (_tone, value) => value };
+
+const text = (
+  widgets: ReturnType<typeof buildBuiltinWidgets>,
+  id: string,
+  family: IconFamily = "unicode"
+) => {
+  const widget = widgets.get(id);
+
+  return (
+    widget && renderBuiltin({ content: widget.content, id }, family, plainTheme)
+  );
+};
 
 describe(buildBuiltinWidgets, () => {
   const options = {
@@ -131,7 +144,8 @@ describe(buildBuiltinWidgets, () => {
   const build = (
     overrides: Parameters<
       ReturnType<typeof createExtensionHost>["createContext"]
-    >[0]
+    >[0],
+    widgetOptions: Partial<typeof options> = {}
   ) =>
     buildBuiltinWidgets(
       createExtensionHost(() => {}).createContext({
@@ -139,8 +153,45 @@ describe(buildBuiltinWidgets, () => {
         sessionManager: sessionReads(SessionManager.inMemory()),
         ...overrides,
       }),
-      options
+      { ...options, ...widgetOptions }
     );
+
+  it("draws an icon for every widget that has one in every family", () => {
+    const missing = [...build({}).values()].flatMap(({ icon, id }) =>
+      icon === undefined
+        ? []
+        : FAMILIES.flatMap((family) =>
+            icon[family] === "" ? [`${id} ${family}`] : []
+          )
+    );
+
+    expect(missing).toStrictEqual([]);
+  });
+
+  it.each([
+    { family: "ascii", expected: "+1 !2 ?3 >4 <5" },
+    { family: "unicode", expected: "+1 !2 ?3 ⇡4 ⇣5" },
+    { family: "nerd", expected: "+1 !2 ?3 ⇡4 ⇣5" },
+  ] as const)(
+    "marks git counts in the $family family and leaves out zeros",
+    ({ family, expected }) => {
+      const all = build(
+        {},
+        {
+          details: {
+            ahead: 4,
+            behind: 5,
+            staged: 1,
+            unstaged: 2,
+            untracked: 3,
+          },
+        }
+      );
+
+      expect(text(all, "footer.git.details", family)).toBe(expected);
+      expect(text(build({}), "footer.git.details", family)).toBe("!2 ?1");
+    }
+  );
 
   it("labels selected versus last executed model/effort and does not leak abandoned responses", () => {
     const session = SessionManager.inMemory();

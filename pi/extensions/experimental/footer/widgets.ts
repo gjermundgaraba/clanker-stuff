@@ -13,7 +13,10 @@ import type {
 import type { IconFamily } from "./config.js";
 import type { GitDetails } from "./git.js";
 
+type Glyph = Record<IconFamily, string>;
+
 interface Span {
+  marker?: Glyph;
   text: string;
   tone: Tone;
 }
@@ -21,7 +24,7 @@ interface Span {
 export interface BuiltinWidget {
   id: string;
   content: Span[];
-  icon?: Record<IconFamily, string>;
+  icon?: Glyph;
   truncate?: "start";
 }
 
@@ -208,32 +211,35 @@ const contextWidget = (ctx: ExtensionContext): BuiltinWidget => {
   };
 };
 
+const GIT_MARKERS = [
+  ["staged", { ascii: "+", nerd: "+", unicode: "+" }],
+  ["unstaged", { ascii: "!", nerd: "!", unicode: "!" }],
+  ["untracked", { ascii: "?", nerd: "?", unicode: "?" }],
+  ["ahead", { ascii: ">", nerd: "⇡", unicode: "⇡" }],
+  ["behind", { ascii: "<", nerd: "⇣", unicode: "⇣" }],
+] as const satisfies ReadonlyArray<readonly [keyof GitDetails, Glyph]>;
+
+const detailSpans = (details: GitDetails | undefined): Span[] =>
+  details === undefined
+    ? []
+    : GIT_MARKERS.values()
+        .filter(([count]) => details[count] > 0)
+        .flatMap(([count, marker], index) => [
+          ...(index === 0 ? [] : span(" ", "muted")),
+          { marker, text: String(details[count]), tone: "muted" as const },
+        ])
+        .toArray();
+
 const gitWidgets = (
   branch: string | null,
   details: GitDetails | undefined
 ): BuiltinWidget[] => [
   {
     content: span(branch ?? "", "text"),
-    icon: { ascii: "git", nerd: "", unicode: "⑂" },
+    icon: { ascii: "git", nerd: "󰘬", unicode: "⑂" },
     id: "footer.git",
   },
-  {
-    content: span(
-      details === undefined
-        ? ""
-        : [
-            details.staged > 0 ? `+${details.staged}` : "",
-            details.unstaged > 0 ? `~${details.unstaged}` : "",
-            details.untracked > 0 ? `?${details.untracked}` : "",
-            details.ahead > 0 ? `↑${details.ahead}` : "",
-            details.behind > 0 ? `↓${details.behind}` : "",
-          ]
-            .filter(Boolean)
-            .join(" "),
-      "muted"
-    ),
-    id: "footer.git.details",
-  },
+  { content: detailSpans(details), id: "footer.git.details" },
 ];
 
 const usageFromEntry = (entry: SessionEntry): Usage | undefined => {
@@ -305,7 +311,7 @@ export const buildBuiltinWidgets = (
   const widgets: BuiltinWidget[] = [
     {
       content: span(abbreviateHome(ctx.cwd), "muted"),
-      icon: { ascii: "cwd", nerd: "", unicode: "▸" },
+      icon: { ascii: "cwd", nerd: "󰉖", unicode: "▸" },
       id: "footer.cwd",
       truncate: "start",
     },
