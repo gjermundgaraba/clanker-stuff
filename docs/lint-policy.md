@@ -121,7 +121,7 @@ Keep deliberately defective benchmark starting code defective. An exception must
 
 The overrides `oxlint.config.ts` passes to the shared preset, and why each exists:
 
-- **Ignored paths.** `**/.harbor/**` holds evaluation caches and raw runs, which contain third-party source; Vitest excludes it too. An eval task's `environment/` is the starting workspace the agent under test is asked to fix. Its defects are the task and graders pin its bytes by hash, so lint and format must never touch it. `skills/skill-doctor/**` is an adapted third-party skill with a minified diff bundle, kept as upstream wrote it for syncs. Oxfmt also skips `AGENTS.md`, because `vp config` rewrites its Vite+ block on every install.
+- **Ignored paths.** `**/.harbor/**` holds evaluation caches and raw runs, which contain third-party source; Vitest excludes it too. An eval task's `environment/` is the starting workspace the agent under test is asked to fix. Its defects are the task and graders pin its bytes by hash, so lint and format must never touch it. Oxfmt also skips `AGENTS.md`, because `vp config` rewrites its Vite+ block on every install.
 - **`typescript/method-signature-style` off for the editor and skill-providers entry points.** They publish interfaces that implementers satisfy; property signatures would check those methods' parameters contravariantly and reject existing implementations.
 - **`import/no-absolute-path` off for the eval container modules.** The container mounts them at `/opt/pi-evals`, `/tests`, `/solution` and `/app`; `tsconfig.json` paths map the same addresses for type checking.
 - **`vitest/*` off for `pi/evals/**/*.test.{js,mjs}`.** Eval tests and graders run on `node:test` inside the eval container, not on Vitest.

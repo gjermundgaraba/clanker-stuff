@@ -15,12 +15,9 @@ Third-party sources and licenses are listed below. Skill provenance is recorded 
 | Humanizer skill | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [blader/humanizer](https://github.com/blader/humanizer) | [MIT](skills/humanizer/LICENSE) |
 | Additional humanizer guidance | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin) | [MIT](skills/humanizer/LICENSE.ce-noslop) |
 | Humanizer plain-speech guidance | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/humanizer/LICENSE.unslop) |
-| Instruction-design reference guidance | [`skills/instruction-design/`](skills/instruction-design/SKILL.md) | [OpenAI Developers article](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) | Reference only; locally written summary, no article text bundled |
 | Librarian skill and checkout helper | [`skills/librarian/`](skills/librarian/SKILL.md) | [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff) | [Apache-2.0](skills/librarian/LICENSE) |
 | No-comments skill | [`skills/no-comments/`](skills/no-comments/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/no-comments/LICENSE) |
 | Show-me skill | [`skills/show-me/`](skills/show-me/SKILL.md) | [humanlayer/skills](https://github.com/humanlayer/skills) | [MIT](skills/show-me/LICENSE) |
-| Simplify-code workflow adaptation | [`skills/simplify-code/`](skills/simplify-code/SKILL.md) | [Anthropic Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code) | Proprietary source package; locally rewritten workflow, no package or prompt files vendored |
-| Skill-doctor skill and scripts | [`skills/skill-doctor/`](skills/skill-doctor/SKILL.md) | [warpdotdev/common-skills](https://github.com/warpdotdev/common-skills) | [MIT](skills/skill-doctor/LICENSE) |
 | Taste skill | [`skills/taste/`](skills/taste/SKILL.md) | [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | [MIT](skills/taste/LICENSE) |
 | Taste impeccable guidance | [`skills/taste/`](skills/taste/SKILL.md) | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | [Apache-2.0](skills/taste/LICENSE.impeccable), [NOTICE](skills/taste/NOTICE.impeccable.md) |
 | Taste interaction guidance | [`skills/taste/`](skills/taste/SKILL.md) | [emilkowalski/skills](https://github.com/emilkowalski/skills) | [MIT](skills/taste/LICENSE.emil) |

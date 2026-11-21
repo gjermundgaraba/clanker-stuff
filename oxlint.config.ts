@@ -4,11 +4,7 @@ export const thirdPartyEvalRuns = "**/.harbor/**";
 
 const evalTaskStartingWorkspaces = "pi/evals/suites/*/tasks/**/environment/**";
 
-export const ignorePatterns = [
-  thirdPartyEvalRuns,
-  "skills/skill-doctor/**",
-  evalTaskStartingWorkspaces,
-];
+export const ignorePatterns = [thirdPartyEvalRuns, evalTaskStartingWorkspaces];
 
 export default config({
   assertFunctions: ["expectPrefix", "inspect", "open"],
