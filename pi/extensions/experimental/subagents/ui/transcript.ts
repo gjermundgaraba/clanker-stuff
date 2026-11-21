@@ -1,3 +1,4 @@
+// Event handling follows Pi's interactive mode: https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { contentText } from "@earendil-works/pi-ai";
 import {

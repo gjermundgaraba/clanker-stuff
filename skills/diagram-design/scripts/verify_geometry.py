@@ -140,10 +140,10 @@ AXIS_TOLERANCE = 0.5
 BORDER_TOLERANCE = 1.0
 BORDER_MIN_RUN = 4.0
 PORT_TOLERANCE = 4.0
-CORNER_CLEARANCE = 8.0
-SHARED_PORT_MIN = 12.0
-SMALL_PORT_MIN = 8.0
-SMALL_EDGE = 48.0
+CORNER_CLEARANCE = 8.0  # ports keep this far from a corner (primitives-core rule 1)
+SHARED_PORT_MIN = 12.0  # two ports on one edge keep at least this far apart (rule 4)
+SMALL_PORT_MIN = 8.0  # rule 4's floor for very small boxes...
+SMALL_EDGE = 48.0  # ...meaning an edge shorter than this
 
 
 def attribute(attrs: str, name: str) -> str | None:

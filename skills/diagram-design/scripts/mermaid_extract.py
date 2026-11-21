@@ -57,6 +57,9 @@ UNSUPPORTED_KINDS = {
 }
 MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
 MERMAID_SUFFIXES = {".mmd", ".mermaid"}
+# ER entity names start with a letter (any script) or underscore. The regex
+# shapes the token; _er_name enforces the first character, because \w also
+# matches non-decimal numerals such as "²" and "½" that \d does not exclude.
 ER_IDENTIFIER = r"[^\W\d][\w.-]*"
 
 
@@ -812,6 +815,12 @@ def _edge_operators(text: str) -> list[_Operator]:
                     opening = opening[1:]
             token = opening + match.group("closing")
             style, arrowhead, bidirectional, undirected = _operator_style(token)
+            # Read the label from the whole span between the operators rather
+            # than from the matched group. The mask blanks quoted spans, so a
+            # quoted label — `A-- "text" -->B` — leaves the spaced group
+            # nothing but blanks to settle on, and slicing that group returns
+            # a stray quote instead of the text. `clean_label` strips the
+            # padding and quotes.
             operators.append(
                 _Operator(
                     operator_start,
@@ -831,6 +840,11 @@ def _edge_operators(text: str) -> list[_Operator]:
         r"[xo][-=.]{2,}[xo]|<[-=.]+>|-+\.+-+>|=+>|-+>|-{2,}[xo]|={2,}[xo]|-+\.+-+|={3,}|-{3,}|~{3,}"
     )
     for match in pattern.finditer(mask):
+        # Overlap, not just a contained start. An unlabeled token can begin
+        # before a labeled operator and end inside it — `Ao-.x y.->B` offers
+        # `o-.x` to `[xo][-=.]{2,}[xo]`, one character ahead of the `-.x y.->`
+        # span already claimed above. Keeping both cuts the line into
+        # segments that no longer reconstruct it.
         if any(match.start() < end and start < match.end() for start, end in occupied):
             continue
         token = match.group()
@@ -997,6 +1011,8 @@ def _parse_flowchart(
         if (
             malformed_link
             or bare_link_start
+            # Not a node but link-like (`A- >B`): fail instead of dropping it.
+            # The dot matches any character on purpose.
             or (parsed is None and re.search(r"(?:==|-.).*?(?:>|x|o|-)", masked))
         ):
             _fail(f"malformed edge at line {line_number}")

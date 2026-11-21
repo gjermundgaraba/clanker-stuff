@@ -49,6 +49,7 @@ def require_frozen_sources(
 
 def lint_generated_task(task: Path) -> None:
     """Fail on Harbor's default `harbor lint` findings before any trial runs."""
+    # Our verifiers check the agent's runtime evidence, so they share its sandbox.
     findings = lint_task(task, selected_rules=DEFAULT_RULES - {LintRule.SHARED_VERIFIER})
     if findings:
         raise ValueError(

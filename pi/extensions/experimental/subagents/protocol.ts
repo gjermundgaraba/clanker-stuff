@@ -85,7 +85,7 @@ const NodeSchema = Type.Object(
   STRICT
 );
 
-/** Persisted tree for one root session. */
+/** Persisted tree for one root session. Bump `version` on any shape change. */
 export const TreeSchema = Type.Object(
   {
     nodes: Type.Array(NodeSchema),
