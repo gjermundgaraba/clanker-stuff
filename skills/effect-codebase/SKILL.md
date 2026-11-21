@@ -103,7 +103,7 @@ npm ships Effect's `AGENTS.md`, `ai-docs/` and types, but not `MIGRATION.md`, th
 
   Take the version from the lockfile, not the declared range. When the workspace resolves more than one `effect`, clone the newest and report the split: under the dependency rules it is a finding.
 
-- Add `.agents/repos/` to `.gitignore`. The clone carries its own `package.json` files, `pnpm-workspace.yaml` and `.agents/`, so check that the repository's workspace discovery and its test, lint, format and type-check runs skip it; exclude it explicitly from any that does not.
+- Add `.agents/repos/` to `.gitignore`. The clone carries its own `package.json` files, `pnpm-workspace.yaml` and `.agents/`, so check that the repository's workspace discovery and its test, lint, format and type-check runs skip it; exclude it explicitly from any that does not. Oxlint, Oxfmt, type checking and `packages/*` workspace globs skip it. Vitest scans dot directories, so a Vitest config at the repository root with the default `include` runs the clone's roughly 700 test files: add `".agents/repos/**"` to its `test.exclude` after `...configDefaults.exclude`, and confirm with `vp test list --filesOnly`. Per-package Vitest configs never see the clone.
 - The clone is read-only. Do not edit, commit or fetch history in it: comparing versions, as `bump-effect` does, needs a full checkout elsewhere.
 - When `effect` moves to another version, delete the clone and clone again at the new tag. Check its tag with `git -C .agents/repos/effect tag --points-at HEAD --list 'effect@*'`.
 
