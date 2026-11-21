@@ -1,11 +1,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { callLine, listResult, sendResult } from "./render.js";
+import { peerRows } from "./report.js";
 import type { PeerRuntime } from "./runtime.js";
 
-const text = (value: string) => ({
-  content: [{ type: "text" as const, text: value }],
-  details: undefined,
+const reply = <T>(text: string, details: T) => ({
+  content: [{ type: "text" as const, text }],
+  details,
 });
 
 export const registerPeerTools = (
@@ -33,8 +35,17 @@ export const registerPeerTools = (
       },
       { additionalProperties: false }
     ),
-    execute: async (_id, params, _signal, _update, ctx) =>
-      text(await runtime.send(params.to, params.text, ctx)),
+    execute: async (_id, params, _signal, _update, ctx) => {
+      const letter = await runtime.send(params.to, params.text, ctx);
+
+      return reply(
+        `Delivered ${letter.id} to "${letter.to}"'s inbox. Any reply arrives as a message that wakes you; end your turn instead of polling.`,
+        letter
+      );
+    },
+    renderCall: (args, theme) => callLine(theme, "peer_send", args.to),
+    renderResult: (result, options, theme, context) =>
+      sendResult(theme, result, options, context.isError),
   });
   pi.registerTool({
     name: "peer_list",
@@ -42,6 +53,13 @@ export const registerPeerTools = (
     description:
       "List the running Pi sessions that have a name, so you can message one with peer_send.",
     parameters: Type.Object({}, { additionalProperties: false }),
-    execute: async () => text(await runtime.rows()),
+    execute: async () => {
+      const list = await runtime.peers();
+
+      return reply(peerRows(list), list);
+    },
+    renderCall: (_args, theme) => callLine(theme, "peer_list", undefined),
+    renderResult: (result, options, theme, context) =>
+      listResult(theme, result, options, context.isError),
   });
 };

@@ -6,6 +6,10 @@
 
 A session's peer name is its Pi session name, set with `/name` or by another extension through `pi.setSessionName`. A rename takes effect at once. Two live sessions cannot share a name: the second one is warned and stays unreachable until one of them is renamed or ends. Print and JSON runs never take a name, since they end with their prompt.
 
+## Display
+
+The transcript draws each message as a card, including sends made from a Code Mode script and when a session is resumed. A received `peers:message` shows ✉ with the sender and only their text, not the reply instruction the model reads. Each send is also recorded in the sender's session: `peers:sent` holds the letter and shows ↗ with the recipient and text; `peers:undelivered` holds the recipient, text, reason and the live peer names at that moment, and shows ✗. Direct calls to `peer_send` and `peer_list` render as one-line rows.
+
 ## Files
 
 Everything lives under `<agent-dir>/data/peers/`:

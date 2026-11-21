@@ -490,9 +490,15 @@ importers:
       '@clanker-stuff/scheduled-check':
         specifier: workspace:^
         version: link:../../../packages/scheduled-check
+      '@earendil-works/pi-ai':
+        specifier: 1.6.0
+        version: 1.6.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.3)(google-auth-library@10.6.2)(undici@8.12.4)(ws@8.22.0)(zod@4.6.7)
       '@earendil-works/pi-coding-agent':
         specifier: 1.6.0
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.3)(google-auth-library@10.6.2)(ws@8.22.0)(zod@4.6.7)
+      '@earendil-works/pi-tui':
+        specifier: 1.6.0
+        version: 1.6.0
       typebox:
         specifier: 1.4.6
         version: 1.4.6
@@ -638,9 +644,15 @@ importers:
       '@clanker-stuff/scheduled-check':
         specifier: workspace:^
         version: link:../../../packages/scheduled-check
+      '@earendil-works/pi-ai':
+        specifier: 1.6.0
+        version: 1.6.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.3)(google-auth-library@10.6.2)(undici@8.12.4)(ws@8.22.0)(zod@4.6.7)
       '@earendil-works/pi-coding-agent':
         specifier: 1.6.0
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.3)(google-auth-library@10.6.2)(ws@8.22.0)(zod@4.6.7)
+      '@earendil-works/pi-tui':
+        specifier: 1.6.0
+        version: 1.6.0
       typebox:
         specifier: 1.4.6
         version: 1.4.6

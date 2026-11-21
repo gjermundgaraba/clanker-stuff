@@ -13,7 +13,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-const peerSchema = Type.Object(
+export const peerSchema = Type.Object(
   {
     name: Type.String({ minLength: 1 }),
     sessionId: Type.String({ minLength: 1 }),

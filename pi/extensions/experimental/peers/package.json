@@ -22,7 +22,9 @@
     "runtime.ts",
     "registry.ts",
     "mailbox.ts",
+    "entries.ts",
     "report.ts",
+    "render.ts",
     "docs/usage.md",
     "README.md",
     "LICENSE"
@@ -42,7 +44,9 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "engines": {

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
+import { SENT, UNDELIVERED } from "../entries.js";
 import extension from "../index.js";
 import { MESSAGE_TYPE } from "../runtime.js";
 
@@ -47,6 +48,15 @@ const letters = (h: AgentSessionHarness) =>
     .flatMap((entry) =>
       entry.type === "custom_message" && entry.customType === MESSAGE_TYPE
         ? [JSON.stringify(entry.content)]
+        : []
+    );
+
+const recorded = (h: AgentSessionHarness, customType: string) =>
+  h.sessionManager
+    .getEntries()
+    .flatMap((entry) =>
+      entry.type === "custom" && entry.customType === customType
+        ? [entry.data]
         : []
     );
 
@@ -101,6 +111,15 @@ describe("two sessions talking by name", () => {
       expect(letters(b)[0]).toContain("What is the secret?");
       expect(letters(b)[0]).toContain('peer_send with to \\"asker\\"');
       expect(letters(a)[0]).toContain("The secret is 42.");
+      expect(recorded(a, SENT)).toStrictEqual([
+        expect.objectContaining({
+          to: "answerer",
+          text: "What is the secret?",
+        }),
+      ]);
+      expect(recorded(b, SENT)).toStrictEqual([
+        expect.objectContaining({ to: "asker", text: "The secret is 42." }),
+      ]);
       expect(userPrompts(a)).toHaveLength(1);
       expect(userPrompts(b)).toHaveLength(0);
     } finally {
@@ -124,8 +143,16 @@ describe("two sessions talking by name", () => {
 
       expect(results.map((result) => result.isError)).toStrictEqual([true]);
       expect(results[0]?.text).toContain(
-        'Not delivered: no live session is named \\"ghost\\"'
+        'Not delivered to \\"ghost\\": no live session has that name'
       );
+      expect(recorded(a, UNDELIVERED)).toStrictEqual([
+        {
+          to: "ghost",
+          text: "hello?",
+          reason: "no live session has that name",
+          live: [],
+        },
+      ]);
     } finally {
       await quit(a);
     }

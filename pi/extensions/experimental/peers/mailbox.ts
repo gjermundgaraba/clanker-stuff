@@ -8,7 +8,7 @@ import { Value } from "typebox/value";
 
 import { writeAtomic } from "./registry.js";
 
-const letterSchema = Type.Object(
+export const letterSchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
     from: Type.String({ minLength: 1 }),

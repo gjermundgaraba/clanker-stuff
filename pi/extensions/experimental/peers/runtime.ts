@@ -8,9 +8,13 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { SENT, UNDELIVERED, undeliveredText } from "./entries.js";
+import type { Undelivered } from "./entries.js";
 import { post, take } from "./mailbox.js";
+import type { Letter } from "./mailbox.js";
 import { claim, livePeers, lookup, release } from "./registry.js";
-import { letterText, peerRows } from "./report.js";
+import { letterText } from "./report.js";
+import type { PeerList } from "./report.js";
 
 export const MESSAGE_TYPE = "peers:message";
 
@@ -81,33 +85,35 @@ export class PeerRuntime {
     }
   }
 
-  async send(to: string, text: string, ctx: ExtensionContext): Promise<string> {
+  async send(to: string, text: string, ctx: ExtensionContext): Promise<Letter> {
+    const { names, inbox } = PeerRuntime.dirs();
     const from = this.held;
+    const self = ctx.sessionManager.getSessionId();
+    const live = await livePeers(names);
+    const others = live.filter((p) => p.sessionId !== self).map((p) => p.name);
 
-    if (!from || from.sessionId !== ctx.sessionManager.getSessionId()) {
-      throw new Error(
+    const refuse = (reason: string): never => {
+      const undelivered: Undelivered = { to, text, reason, live: others };
+
+      this.pi.appendEntry(UNDELIVERED, undelivered);
+      throw new Error(undeliveredText(undelivered));
+    };
+
+    if (!from || from.sessionId !== self) {
+      return refuse(
         this.conflict ??
-          "This session has no peer name, so nobody could reply. Name it with /name <name>, then send again."
+          "this session has no peer name, so nobody could reply; name it with /name <name>, then send again"
       );
     }
 
-    const { names, inbox } = PeerRuntime.dirs();
     const peer = await lookup(names, to);
 
     if (!peer) {
-      const live = await livePeers(names);
-
-      const others = live
-        .filter((p) => p.sessionId !== from.sessionId)
-        .map((p) => p.name);
-
-      throw new Error(
-        `Not delivered: no live session is named "${to}". ${others.length ? `Live peers: ${others.join(", ")}.` : "No other session has a name."}`
-      );
+      return refuse("no live session has that name");
     }
 
-    if (peer.sessionId === from.sessionId) {
-      throw new Error(`Not delivered: "${to}" is this session.`);
+    if (peer.sessionId === self) {
+      return refuse("that name is this session");
     }
 
     const letter = await post(inbox, peer.sessionId, {
@@ -117,14 +123,16 @@ export class PeerRuntime {
       sentAt: Date.now(),
     });
 
-    return `Delivered ${letter.id} to "${to}"'s inbox. Any reply arrives as a message that wakes you; end your turn instead of polling.`;
+    this.pi.appendEntry(SENT, letter);
+
+    return letter;
   }
 
-  async rows(): Promise<string> {
-    return peerRows(
-      await livePeers(PeerRuntime.dirs().names),
-      this.held?.sessionId
-    );
+  async peers(): Promise<PeerList> {
+    return {
+      peers: await livePeers(PeerRuntime.dirs().names),
+      ...(this.held ? { self: this.held.sessionId } : {}),
+    };
   }
 
   private async reconcile(): Promise<void> {
