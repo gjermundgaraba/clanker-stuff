@@ -58,7 +58,7 @@ export const taskMachine = setup({
     },
     clean: {},
     cleanupFailed: {
-      on: { "task.stop": "reaping" },
+      on: { "task.stop": { target: "reaping" } },
     },
   },
 });
