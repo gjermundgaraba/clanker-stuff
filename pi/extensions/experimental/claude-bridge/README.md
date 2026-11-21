@@ -16,4 +16,4 @@ Run `/model` and pick a `claude-bridge/…` model; pi's tools, skills, and conte
 
 ## Requirements
 
-A signed-in Claude Code (Pro or Max plan). See [behavior and maintenance](docs/behavior.md).
+A signed-in Claude Code (Pro or Max plan) or an Anthropic-compatible gateway configured in `models.json`. See [behavior and maintenance](docs/behavior.md).

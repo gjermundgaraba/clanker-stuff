@@ -1,13 +1,8 @@
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
-/** Pi's chat-model registration entry, the only kind this provider registers. */
-export type ProviderChatModelConfig = Exclude<
-  ProviderModelConfig,
-  { type: "image" | "classifier" }
->;
+import { PROVIDER_ID } from "./session/convert.js";
 
 const TWO_HUNDRED_K_CONTEXT = 200_000;
 
@@ -35,11 +30,6 @@ const familyTier = (id: string): number => {
   return tier === -1 ? FAMILY_ORDER.length : tier;
 };
 
-interface ClaudeCodeRuntimeModel {
-  cliModelId: string;
-  contextWindow: number;
-}
-
 const MEASURED_ONE_M = new Set([
   "claude-fable-5",
   "claude-fable-5-1",
@@ -52,37 +42,23 @@ const MEASURED_ONE_M = new Set([
   "claude-haiku-5-5",
 ]);
 
-export const resolveClaudeCodeRuntimeModel = (
-  modelId: string
-): ClaudeCodeRuntimeModel =>
-  MEASURED_ONE_M.has(modelId)
-    ? { cliModelId: `${modelId}[1m]`, contextWindow: ONE_M_CONTEXT }
-    : { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT };
-
-export const claudeCodeModelId = (modelId: string): string =>
-  resolveClaudeCodeRuntimeModel(modelId).cliModelId;
-
-const servedWindow = (
-  model: Model<Api>
-): Pick<ProviderChatModelConfig, "name" | "contextWindow"> => {
-  const { contextWindow } = resolveClaudeCodeRuntimeModel(model.id);
-
-  return {
-    name:
-      contextWindow > TWO_HUNDRED_K_CONTEXT && !/\b1M\b/iu.test(model.name)
-        ? `${model.name} 1M`
-        : model.name,
-    contextWindow,
-  };
-};
+/** The model id Claude Code is asked for. Claude Code serves 1M only to measured
+ *  models, and is asked for it only when the model's effective context window is above
+ *  200K (honoring any `models.json` `modelOverrides.<id>.contextWindow`). */
+export const claudeCodeModelId = (
+  model: Pick<Model<Api>, "id" | "contextWindow">
+): string =>
+  model.contextWindow > TWO_HUNDRED_K_CONTEXT && MEASURED_ONE_M.has(model.id)
+    ? `${model.id}[1m]`
+    : model.id;
 
 /** pi-ai's Anthropic models projected onto pi's provider registration, newest
- *  generation first, with the context window the bridge requests from Claude Code rather
- *  than the one pi-ai declares. Costs are zero: usage is billed to the Claude
- *  subscription. */
+ *  generation first, with the context window Claude Code serves by default rather than
+ *  the one pi-ai declares. Costs default to zero for subscription usage and may be
+ *  overridden per model in `models.json`. */
 export const buildModels = (
   catalog: ReadonlyArray<Model<Api>>
-): ProviderChatModelConfig[] =>
+): Array<Model<Api>> =>
   catalog
     .filter((model) => !isDatedAlias(model.id))
     .toSorted((a, b) => {
@@ -107,9 +83,15 @@ export const buildModels = (
     })
     .map((model) => ({
       id: model.id,
-      ...servedWindow(model),
+      name: model.name,
+      api: PROVIDER_ID,
+      provider: PROVIDER_ID,
+      baseUrl: "",
       reasoning: model.reasoning,
       input: model.input,
+      contextWindow: MEASURED_ONE_M.has(model.id)
+        ? ONE_M_CONTEXT
+        : TWO_HUNDRED_K_CONTEXT,
       maxTokens: model.maxTokens,
       ...(model.thinkingLevelMap === undefined
         ? {}
@@ -117,7 +99,7 @@ export const buildModels = (
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     }));
 
-export const catalogModels = (): ProviderChatModelConfig[] =>
+export const catalogModels = (): Array<Model<Api>> =>
   buildModels(getBuiltinModels("anthropic"));
 
 const REASONING_TO_EFFORT: Record<ThinkingLevel, EffortLevel> = {

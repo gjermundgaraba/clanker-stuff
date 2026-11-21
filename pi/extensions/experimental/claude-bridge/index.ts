@@ -3,8 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { recordStream } from "./child.js";
 import type { QueryFunction } from "./child.js";
-import { catalogNotice, providerConfig, startSession } from "./provider.js";
-import { PROVIDER_ID } from "./session/convert.js";
+import { bridgeProvider, catalogNotice, startSession } from "./provider.js";
 import { Sessions } from "./sessions.js";
 
 /** The extension, with the Agent SDK's query() replaceable for tests. */
@@ -13,14 +12,14 @@ export const createClaudeBridge =
   (pi) => {
     const sessions = new Sessions(runQuery);
 
-    const config = providerConfig({
+    const provider = bridgeProvider({
       sessions,
       piTools: () => pi.getAllTools(),
     });
 
-    const notice = catalogNotice(config);
+    const notice = catalogNotice(provider);
 
-    pi.registerProvider(PROVIDER_ID, config);
+    pi.registerProvider(provider);
 
     pi.on("session_start", (_event, ctx) => {
       startSession(sessions, notice, ctx);

@@ -1,4 +1,5 @@
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -215,4 +216,119 @@ describe("the bridge inside an AgentSession", () => {
       h.cleanup();
     }
   });
+
+  const runConfiguredTurn = async (
+    providerConfig: {
+      baseUrl?: string;
+      apiKey?: string;
+      modelOverrides?: Record<string, { contextWindow?: number }>;
+    },
+    runtimeKey?: string
+  ) => {
+    const fake = fakeQueryFunction();
+    const modelsPath = path.join(configDir, "models.json");
+
+    await writeFile(
+      modelsPath,
+      JSON.stringify({ providers: { "claude-bridge": providerConfig } })
+    );
+
+    const h = await createAgentSessionHarness({
+      extensionFactories: [createClaudeBridge(fake.run)],
+      modelsPath,
+    });
+
+    try {
+      if (runtimeKey !== undefined) {
+        await h.session.modelRuntime.setRuntimeApiKey(
+          "claude-bridge",
+          runtimeKey
+        );
+      }
+
+      const bridgeModel = h.session.modelRuntime.getModel(
+        "claude-bridge",
+        "claude-haiku-5-5"
+      );
+
+      if (bridgeModel === undefined) {
+        throw new Error("claude-bridge model not registered");
+      }
+
+      await h.session.setModel(bridgeModel);
+
+      const run = h.prompt("Say hi.");
+
+      const query = await vi.waitFor(() => {
+        const [started] = fake.queries;
+
+        if (started === undefined) {
+          throw new Error("the query has not started");
+        }
+
+        return started;
+      });
+
+      query.push(init("cc-1"));
+      query.push(assistantMessage("msg_1", [textBlock("Hi.")]));
+      query.push(successResult("Hi."));
+      query.end();
+      await run;
+
+      return { bridgeModel, options: query.params.options };
+    } finally {
+      h.cleanup();
+    }
+  };
+
+  it.each([
+    {
+      label: "models.json apiKey",
+      providerConfig: {
+        baseUrl: "http://127.0.0.1:8317",
+        apiKey: "cpa-from-models-json",
+      },
+      runtimeKey: undefined,
+      expectedToken: "cpa-from-models-json",
+    },
+    {
+      label: "stored credential",
+      providerConfig: {
+        baseUrl: "http://127.0.0.1:8317",
+      },
+      runtimeKey: "cpa-from-auth-store",
+      expectedToken: "cpa-from-auth-store",
+    },
+  ])(
+    "composes models.json gateway baseUrl with $label over the native claude-bridge provider",
+    async ({ providerConfig, runtimeKey, expectedToken }) => {
+      const { bridgeModel, options } = await runConfiguredTurn(
+        providerConfig,
+        runtimeKey
+      );
+
+      expect(bridgeModel.baseUrl).toBe("http://127.0.0.1:8317");
+      expect(options.env).toMatchObject({
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:8317",
+        ANTHROPIC_AUTH_TOKEN: expectedToken,
+      });
+    }
+  );
+
+  it.each([
+    { contextWindow: 200_000, expectedCliModel: "claude-haiku-5-5" },
+    { contextWindow: 400_000, expectedCliModel: "claude-haiku-5-5[1m]" },
+  ])(
+    "uses models.json modelOverrides.contextWindow ($contextWindow) to pick $expectedCliModel",
+    async ({ contextWindow, expectedCliModel }) => {
+      const { bridgeModel, options } = await runConfiguredTurn({
+        modelOverrides: {
+          "claude-haiku-5-5": { contextWindow },
+        },
+      });
+
+      expect(bridgeModel.contextWindow).toBe(contextWindow);
+      expect(options.model).toBe(expectedCliModel);
+    }
+  );
 });

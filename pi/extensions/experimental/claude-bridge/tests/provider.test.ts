@@ -25,9 +25,9 @@ import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
 import { recordStream } from "../child.js";
 import {
+  bridgeProvider,
   catalogNotice,
   CONTINUE_PROMPT,
-  providerConfig,
   streamClaudeCode,
 } from "../provider.js";
 import { Sessions } from "../sessions.js";
@@ -172,13 +172,13 @@ const sessionPath = (sessionId: string) =>
 
 describe("the empty-catalog notice", () => {
   it("warns only when pi-ai's catalog leaves no models to register", () => {
-    const config = providerConfig({
+    const provider = bridgeProvider({
       sessions: new Sessions(fakeQueryFunction().run),
       piTools: () => [],
     });
 
-    expect(catalogNotice(config)).toBeUndefined();
-    expect(catalogNotice({ ...config, models: [] })).toMatch(
+    expect(catalogNotice(provider)).toBeUndefined();
+    expect(catalogNotice({ ...provider, getModels: () => [] })).toMatch(
       /catalog has no models/u
     );
   });
@@ -803,5 +803,39 @@ describe("streamClaudeCode", () => {
       verbatimPrompts: true,
       model: "claude-haiku-5-5[1m]",
     });
+  });
+
+  it("forwards a configured gateway baseUrl and apiKey to the child process", async () => {
+    const { call, query } = bridge();
+
+    call(
+      [user("hi")],
+      { apiKey: "cpa-secret" },
+      { model: testModel("claude-haiku-5-5", "http://127.0.0.1:8317") }
+    );
+
+    const q = await query(0);
+
+    expect(q.params.options.env).toMatchObject({
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:8317",
+      ANTHROPIC_AUTH_TOKEN: "cpa-secret",
+    });
+  });
+
+  it("derives [1m] from the model's effective contextWindow", async () => {
+    const { call, query } = bridge();
+
+    call(
+      [user("small")],
+      {},
+      {
+        model: { ...testModel("claude-haiku-5-5"), contextWindow: 200_000 },
+      }
+    );
+
+    const first = await query(0);
+
+    expect(first.params.options.model).toBe("claude-haiku-5-5");
+    answer(first, "ok");
   });
 });

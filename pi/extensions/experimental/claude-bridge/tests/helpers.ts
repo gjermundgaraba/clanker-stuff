@@ -9,12 +9,15 @@ import type {
 
 import type { BridgeQuery, QueryParams } from "../child.js";
 
-export const testModel = (id = "claude-haiku-5-5"): Model<Api> => ({
+export const testModel = (
+  id = "claude-haiku-5-5",
+  baseUrl = ""
+): Model<Api> => ({
   id,
   name: id,
   api: "claude-bridge",
   provider: "claude-bridge",
-  baseUrl: "claude-bridge",
+  baseUrl,
   reasoning: true,
   input: ["text", "image"],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

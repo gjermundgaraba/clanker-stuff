@@ -380,10 +380,13 @@ describe(matchedPrefix, () => {
 });
 
 describe(queryKey, () => {
-  it("changes with the model and effort a query runs under", () => {
+  it("changes with the model, effort, and gateway baseUrl a query runs under", () => {
     const tools = context([]);
 
     expect(queryKey(tools, "claude-opus-5-5", undefined)).not.toBe(KEY);
     expect(queryKey(tools, model.id, "high")).not.toBe(KEY);
+    expect(
+      queryKey(tools, model.id, undefined, "http://127.0.0.1:8317")
+    ).not.toBe(KEY);
   });
 });

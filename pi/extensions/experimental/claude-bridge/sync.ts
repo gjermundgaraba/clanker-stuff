@@ -26,16 +26,19 @@ export const matchedPrefix = (
   return index === -1 ? held.length : index;
 };
 
-/** What a query is fixed to once it starts: Claude Code's model and effort, the system
- *  prompt, and the MCP server's tools. A parked query only continues while it holds. */
+/** What a query is fixed to once it starts: Claude Code's model, effort, gateway
+ *  endpoint, the system prompt, and the MCP server's tools. A parked query only
+ *  continues while it holds. */
 export const queryKey = (
   context: BridgeContext,
   model: string,
-  effort: string | undefined
+  effort: string | undefined,
+  baseUrl?: string
 ): string =>
   JSON.stringify([
     model,
     effort ?? null,
+    baseUrl ?? null,
     systemText(context.system) ?? null,
     context.tools.map(({ name, description, parameters }) => [
       name,

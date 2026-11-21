@@ -24,4 +24,42 @@ describe("childEnv", () => {
       CLAUDE_BRIDGE_CHILD_PROBE: "kept",
     });
   });
+
+  it("injects gateway settings into the child env and clears conflicting ANTHROPIC_API_KEY", () => {
+    restoreEnv = patchEnv({
+      ANTHROPIC_API_KEY: "sk-parent-key",
+      ANTHROPIC_BASE_URL: undefined,
+      ANTHROPIC_AUTH_TOKEN: undefined,
+    });
+
+    const env = childEnv({
+      baseUrl: "http://127.0.0.1:8317",
+      authToken: "gateway-token",
+    });
+
+    expect(env["ANTHROPIC_BASE_URL"]).toBe("http://127.0.0.1:8317");
+    expect(env["ANTHROPIC_AUTH_TOKEN"]).toBe("gateway-token");
+    expect(env["ANTHROPIC_API_KEY"]).toBeUndefined();
+    expect(process.env["ANTHROPIC_BASE_URL"]).toBeUndefined();
+    expect(process.env["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
+    expect(process.env["ANTHROPIC_API_KEY"]).toBe("sk-parent-key");
+  });
+
+  it("preserves parent ANTHROPIC_API_KEY when no gateway authToken is given", () => {
+    restoreEnv = patchEnv({
+      ANTHROPIC_API_KEY: "sk-parent-key",
+      ANTHROPIC_BASE_URL: undefined,
+      ANTHROPIC_AUTH_TOKEN: undefined,
+    });
+
+    const direct = childEnv();
+    const urlOnly = childEnv({ baseUrl: "http://127.0.0.1:8317" });
+
+    expect(direct["ANTHROPIC_BASE_URL"]).toBeUndefined();
+    expect(direct["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
+    expect(direct["ANTHROPIC_API_KEY"]).toBe("sk-parent-key");
+    expect(urlOnly["ANTHROPIC_BASE_URL"]).toBe("http://127.0.0.1:8317");
+    expect(urlOnly["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
+    expect(urlOnly["ANTHROPIC_API_KEY"]).toBe("sk-parent-key");
+  });
 });

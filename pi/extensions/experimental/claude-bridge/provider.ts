@@ -3,23 +3,28 @@ import type {
   Options,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  createProvider,
+} from "@earendil-works/pi-ai";
 import type {
   Api,
+  ApiKeyAuth,
   AssistantMessageEventStream,
   Message,
   Model,
+  Provider,
   SimpleStreamOptions,
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type {
   ExtensionContext,
-  ProviderConfig,
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { waitFor } from "xstate";
 
 import { childEnv } from "./child.js";
+import type { ChildGateway } from "./child.js";
 import { toJsonObject } from "./json.js";
 import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { syncState } from "./machine/conversation.js";
@@ -61,12 +66,34 @@ export interface ProviderDeps {
 interface Request {
   deps: ProviderDeps;
   model: Model<Api>;
+  gateway: ChildGateway | undefined;
   context: BridgeContext;
   options: SimpleStreamOptions | undefined;
   served: ServedTools;
   key: string;
   answer: (tools: ServedTools, options?: { requireText?: boolean }) => Turn;
 }
+
+const gatewayFor = (
+  model: Model<Api>,
+  options: SimpleStreamOptions | undefined
+): ChildGateway | undefined => {
+  const baseUrl = model.baseUrl === "" ? undefined : model.baseUrl;
+
+  const authToken =
+    options?.apiKey === undefined || options.apiKey === ""
+      ? undefined
+      : options.apiKey;
+
+  if (baseUrl === undefined && authToken === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(authToken === undefined ? {} : { authToken }),
+  };
+};
 
 const describePlan = (decision: Plan): string =>
   decision.kind === "rebuild"
@@ -141,7 +168,7 @@ const startQuery = (
   start: QueryStart
 ): void => {
   const { model, context, options, served } = request;
-  const cliModel = claudeCodeModelId(model.id);
+  const cliModel = claudeCodeModelId(model);
   const effort = effortForReasoning(model, options?.reasoning);
   const promptStream = makePromptStream();
 
@@ -153,7 +180,7 @@ const startQuery = (
 
   const queryOptions: Options = {
     cwd: start.cwd,
-    env: childEnv(),
+    env: childEnv(request.gateway),
     model: cliModel,
     tools: [],
     permissionMode: "bypassPermissions",
@@ -207,7 +234,7 @@ const runOneOff = async (request: Request): Promise<void> => {
   const resume = rebuildSession({
     priors: context.messages.slice(0, start),
     cwd,
-    modelId: claudeCodeModelId(request.model.id),
+    modelId: claudeCodeModelId(request.model),
     previous: undefined,
   });
 
@@ -321,7 +348,7 @@ const serve = async (request: Request): Promise<void> => {
   const resume = rebuildSession({
     priors: decision.priors,
     cwd,
-    modelId: claudeCodeModelId(request.model.id),
+    modelId: claudeCodeModelId(request.model),
     previous: state.session,
   });
 
@@ -341,13 +368,15 @@ export const streamClaudeCode = (
 ): AssistantMessageEventStream => {
   const context = toBridgeContext(transcript);
   const served = resolveServedTools(context.tools, deps.piTools());
+  const gateway = gatewayFor(model, options);
   const stream = createAssistantMessageEventStream();
   let turn: Turn | undefined;
 
   const key = queryKey(
     context,
-    claudeCodeModelId(model.id),
-    effortForReasoning(model, options?.reasoning)
+    claudeCodeModelId(model),
+    effortForReasoning(model, options?.reasoning),
+    gateway?.baseUrl
   );
 
   const answer: Request["answer"] = (tools, turnOptions) => {
@@ -359,7 +388,7 @@ export const streamClaudeCode = (
     return turn;
   };
 
-  serve({ deps, model, context, options, served, key, answer }).catch(
+  serve({ deps, model, gateway, context, options, served, key, answer }).catch(
     (error: unknown) => {
       const message = errorMessage(error);
       debug("provider: request failed", message);
@@ -375,19 +404,31 @@ export const streamClaudeCode = (
   return stream;
 };
 
-export const providerConfig = (deps: ProviderDeps): ProviderConfig => ({
-  baseUrl: PROVIDER_ID,
-  apiKey: "not-used",
-  api: PROVIDER_ID,
-  models: catalogModels(),
-  streamSimple: (model, transcript, options) =>
-    streamClaudeCode(deps, model, transcript, options),
-});
+const bridgeAuth: ApiKeyAuth = {
+  name: "Claude Code",
+  resolve: async ({ credential }) =>
+    credential?.key !== undefined && credential.key !== ""
+      ? { auth: { apiKey: credential.key }, source: "stored credential" }
+      : { auth: {}, source: "Claude Code" },
+};
+
+export const bridgeProvider = (deps: ProviderDeps): Provider =>
+  createProvider({
+    id: PROVIDER_ID,
+    auth: { apiKey: bridgeAuth },
+    models: catalogModels(),
+    api: {
+      stream: (model, transcript, options) =>
+        streamClaudeCode(deps, model, transcript, options),
+      streamSimple: (model, transcript, options) =>
+        streamClaudeCode(deps, model, transcript, options),
+    },
+  });
 
 /** The warning each session gets when pi-ai's Anthropic catalog left the provider no models
  *  to register, or undefined when it has some. */
-export const catalogNotice = (config: ProviderConfig): string | undefined =>
-  config.models?.length === 0
+export const catalogNotice = (provider: Provider): string | undefined =>
+  provider.getModels().length === 0
     ? "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
     : undefined;
 

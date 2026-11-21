@@ -55,6 +55,7 @@ interface AgentSessionHarnessOptions {
   extensionFactories?: ExtensionFactory[];
   mode?: ExtensionContext["mode"];
   models?: FauxModelDefinition[];
+  modelsPath?: string;
   settings?: Parameters<typeof SettingsManager.inMemory>[0];
   systemPrompt?: string;
   tools?: ToolDefinition[];
@@ -249,7 +250,7 @@ export const createAgentSessionHarness = async (
 
     const modelRuntime = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),
-      modelsPath: null,
+      modelsPath: options.modelsPath ?? null,
     });
 
     const wrappedProvider = wrapFauxProviderPayloadHooks(localFaux.provider, {

@@ -6,13 +6,32 @@ It started as a port of [pi-claude-bridge](https://github.com/elidickinson/pi-cl
 
 ## Requirements
 
-- A working Claude Code login (`claude` signed in to a Pro or Max plan). The Agent SDK bundles its own Claude Code binary.
-- No exported `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` in pi's environment: Claude Code inherits them and every turn fails with that gateway's auth error.
+- A working Claude Code login (`claude` signed in to a Pro or Max plan), or a configured Anthropic-compatible proxy/gateway in `models.json`. The Agent SDK bundles its own Claude Code binary.
+- Without a proxy configured in `models.json`, avoid exported `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` in pi's environment: Claude Code inherits them and turns fail with that gateway's auth error.
 - The npm `pi-claude-bridge` package must not be installed alongside this one; both register the `claude-bridge` provider.
+
+## Proxy or gateway configuration
+
+`claude-bridge` registers as a native Pi provider, so standard `~/.pi/agent/models.json` overrides compose on top of it without replacing its model catalog:
+
+```json
+{
+  "providers": {
+    "claude-bridge": {
+      "baseUrl": "http://127.0.0.1:8317",
+      "apiKey": "your-gateway-token"
+    }
+  }
+}
+```
+
+`apiKey` supports Pi's standard `$ENV`, `!command`, or literal values, or you can omit it from `models.json` and store the token in `auth.json` via `/login claude-bridge`. The resolved `baseUrl` and `apiKey` are injected only into the Claude Code child process as `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` (clearing any inherited `ANTHROPIC_API_KEY` when a token is configured), without exporting them to pi's process environment or tools. Model costs default to `$0` for subscription usage; metered gateways can supply pricing via `modelOverrides.<id>.cost` in `models.json`.
 
 ## Models
 
-The model picker follows pi-ai's Anthropic catalog. Models Claude Code serves at 1M context on every plan (the newer Opus, Sonnet 5.x, Haiku 5.5, and Fable models) are requested and registered at 1M; every other model, including Opus 4.6 and Sonnet 4.6, runs at 200K.
+The model picker follows pi-ai's Anthropic catalog. Models Claude Code serves at 1M context on every plan (the newer Opus, Sonnet 5.x, Haiku 5.5, and Fable models) are registered and requested at 1M; every other model, including Opus 4.6 and Sonnet 4.6, runs at 200K.
+
+To cap or adjust a model's context window (for example, compacting at 400K or forcing 200K), set `modelOverrides.<id>.contextWindow` under `providers["claude-bridge"]` in `~/.pi/agent/models.json`. On measured 1M models, any effective `contextWindow` above 200K requests Claude Code's `[1m]` model while pi compacts at the configured window; `200000` or less requests the bare 200K model.
 
 ## What reaches Claude Code
 

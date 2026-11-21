@@ -16,12 +16,12 @@ const loaded = async () => {
 
   await host.ready;
 
-  const config = host.getRegisteredProviderConfigs().get("claude-bridge");
+  const provider = host.getRegisteredNativeProviders().get("claude-bridge");
 
   const ask = async (sessionId: string): Promise<FakeQuery> => {
     const count = fake.queries.length;
 
-    config?.streamSimple?.(
+    provider?.streamSimple(
       testModel(),
       transcript({ messages: [{ role: "user", content: "hi", timestamp: 0 }] }),
       { sessionId }
@@ -38,14 +38,14 @@ const loaded = async () => {
     });
   };
 
-  return { host, config, ask };
+  return { host, provider, ask };
 };
 
 describe("createClaudeBridge", () => {
-  it("registers the provider with its models at load", async () => {
-    const { config } = await loaded();
+  it("registers the native provider with its models at load", async () => {
+    const { provider } = await loaded();
 
-    expect(config?.models?.length).toBeGreaterThan(0);
+    expect(provider?.getModels().length).toBeGreaterThan(0);
   });
 
   describe("the session lifecycle", () => {

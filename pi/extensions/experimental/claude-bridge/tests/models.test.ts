@@ -7,9 +7,7 @@ import {
   catalogModels,
   claudeCodeModelId,
   effortForReasoning,
-  resolveClaudeCodeRuntimeModel,
 } from "../models.js";
-import type { ProviderChatModelConfig } from "../models.js";
 import { testModel } from "./helpers.js";
 
 const catalogEntry = (id: string, contextWindow = 200_000): Model<Api> => ({
@@ -28,10 +26,7 @@ const catalogEntry = (id: string, contextWindow = 200_000): Model<Api> => ({
 
 const oneM = (id: string): Model<Api> => catalogEntry(id, 1_000_000);
 
-const find = (
-  models: readonly ProviderChatModelConfig[],
-  id: string
-): ProviderChatModelConfig => {
+const find = (models: ReadonlyArray<Model<Api>>, id: string): Model<Api> => {
   const model = models.find((candidate) => candidate.id === id);
 
   if (model === undefined) {
@@ -64,12 +59,15 @@ describe("buildModels", () => {
     }
   });
 
-  it("strips the catalog's api, provider, baseUrl and headers", () => {
+  it("retargets api, provider and baseUrl onto claude-bridge and strips catalog headers", () => {
     const [projected] = buildModels([catalogEntry("claude-haiku-4-5")]);
 
     expect(projected).toStrictEqual({
       id: "claude-haiku-4-5",
       name: "claude-haiku-4-5",
+      api: "claude-bridge",
+      provider: "claude-bridge",
+      baseUrl: "",
       reasoning: true,
       input: ["text"],
       contextWindow: 200_000,
@@ -131,51 +129,48 @@ describe("buildModels", () => {
   });
 });
 
-describe("resolveClaudeCodeRuntimeModel", () => {
-  it("sends [1m] for an id measured to serve 1M", () => {
-    expect(resolveClaudeCodeRuntimeModel("claude-opus-5-5")).toStrictEqual({
-      cliModelId: "claude-opus-5-5[1m]",
-      contextWindow: 1_000_000,
-    });
+describe("claudeCodeModelId", () => {
+  it("sends [1m] for a measured model whose effective window is above 200K", () => {
+    expect(
+      claudeCodeModelId({ id: "claude-opus-5-5", contextWindow: 1_000_000 })
+    ).toBe("claude-opus-5-5[1m]");
+    expect(
+      claudeCodeModelId({ id: "claude-opus-5-5", contextWindow: 400_000 })
+    ).toBe("claude-opus-5-5[1m]");
   });
 
-  it("serves unmeasured ids bare at 200K even when pi-ai declares 1M", () => {
-    expect(resolveClaudeCodeRuntimeModel("claude-sonnet-4-5")).toStrictEqual({
-      cliModelId: "claude-sonnet-4-5",
-      contextWindow: 200_000,
-    });
-    expect(resolveClaudeCodeRuntimeModel("claude-future-9-9")).toStrictEqual({
-      cliModelId: "claude-future-9-9",
-      contextWindow: 200_000,
-    });
+  it("sends the bare id when a measured model's effective window is 200K or less", () => {
+    expect(
+      claudeCodeModelId({ id: "claude-opus-5-5", contextWindow: 200_000 })
+    ).toBe("claude-opus-5-5");
+    expect(
+      claudeCodeModelId({ id: "claude-opus-5-5", contextWindow: 150_000 })
+    ).toBe("claude-opus-5-5");
   });
 
-  it("keeps opus-4-6 and sonnet-4-6 at 200K", () => {
-    for (const id of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
-      expect(resolveClaudeCodeRuntimeModel(id)).toStrictEqual({
-        cliModelId: id,
-        contextWindow: 200_000,
-      });
+  it("serves unmeasured ids bare even when the effective window is above 200K", () => {
+    for (const id of [
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5",
+      "claude-future-9-9",
+    ]) {
+      expect(claudeCodeModelId({ id, contextWindow: 1_000_000 })).toBe(id);
     }
-  });
-
-  it("names the same id through claudeCodeModelId", () => {
-    expect(claudeCodeModelId("claude-opus-5")).toBe("claude-opus-5[1m]");
-    expect(claudeCodeModelId("claude-haiku-4-5")).toBe("claude-haiku-4-5");
   });
 });
 
 describe("the registered context window", () => {
   const models = catalogModels();
 
-  it("is the window the bridge requests", () => {
+  it("matches what Claude Code serves by default", () => {
     expect(find(models, "claude-opus-5").contextWindow).toBe(1_000_000);
     expect(find(models, "claude-opus-4-7").contextWindow).toBe(1_000_000);
     expect(find(models, "claude-fable-5-1").contextWindow).toBe(1_000_000);
     expect(find(models, "claude-sonnet-4-5").contextWindow).toBe(200_000);
   });
 
-  it("overrides the window pi-ai declares", () => {
+  it("overrides the window pi-ai declares for unmeasured models", () => {
     const declared = getBuiltinModels("anthropic").find(
       (model) => model.id === "claude-opus-4-6"
     );
@@ -184,20 +179,12 @@ describe("the registered context window", () => {
     expect(find(models, "claude-opus-4-6").contextWindow).toBe(200_000);
   });
 
-  it("is named on exactly the 1M models", () => {
-    expect(find(models, "claude-opus-5").name).toBe("Claude Opus 5 1M");
+  it("preserves the catalog display name without baking 1M into it", () => {
+    expect(find(models, "claude-opus-5").name).toBe("Claude Opus 5");
     expect(find(models, "claude-opus-4-6").name).toBe("Claude Opus 4.6");
     expect(find(models, "claude-haiku-4-5").name).toBe(
       "Claude Haiku 4.5 (latest)"
     );
-  });
-
-  it("is not named twice when the name already says 1M", () => {
-    const [labeled] = buildModels([
-      { ...oneM("claude-opus-5"), name: "Claude Opus 5 (1M)" },
-    ]);
-
-    expect(labeled?.name).toBe("Claude Opus 5 (1M)");
   });
 });
 
