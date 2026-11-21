@@ -2,7 +2,7 @@
 
 One extension, one font, and one command select between the colored Rubik's puzzle and four wireframe shapes for Pi's working spinner. Only one working-indicator controller is active.
 
-## Ghostty on macOS
+## Rex on macOS
 
 Install the font on the machine **displaying** the terminal, even when Pi runs over SSH. The extension never installs fonts or changes your terminal configuration.
 
@@ -10,12 +10,12 @@ From the repository root:
 
 1. Open `pi/extensions/experimental/shape-spinner/assets/ShapeSpinner.ttf` in Font Book and choose **Install**.
 2. Start `pi -e ./pi/extensions/experimental/shape-spinner/index.ts`.
-3. Run `/shape-spinner` and copy the `font-codepoint-map` value (without the `Ghostty:` label) from the dialog's footer into your Ghostty configuration. Never map the ordinary-space character.
-4. Reload Ghostty's configuration with **Cmd+Shift+,**, then open a new Ghostty tab or window. Ghostty 1.3.1 applies mapping changes to new terminals; a new multiplexer pane is not a new terminal. If necessary, save work and restart Ghostty.
+3. Run `/shape-spinner` and note the family name after `Rex fallback font:` in the dialog's footer.
+4. In Rex, open **Settings => Terminal => Advanced Font Settings** and add that family to **Fallback fonts**.
 5. Open the dialog again. Expect animated shapes in the preview rows, not boxes or unrelated symbols. Send a prompt to check actual playback.
 6. Once verified, run `pi install ./pi/extensions/experimental/shape-spinner`.
 
-The family name contains a font-content revision. After an update, run `/reload` in Pi and open `/shape-spinner`. If the family changed, install the new TTF and **replace** the old Shape Spinner mapping with the footer line from the dialog. Source-only changes do not require reinstalling the font. Do not append overlapping mappings. If Font Book mistakes the filename for an already installed revision, install a copy named `ShapeSpinner-<revision>.ttf`. Old revisions may be removed manually after the new one works.
+The family name contains a font-content revision. After an update, run `/reload` in Pi and open `/shape-spinner`. If the family changed, install the new TTF and **replace** the old Shape Spinner entry in Rex's fallback fonts with the family from the dialog. Source-only changes do not require reinstalling the font. If Font Book mistakes the filename for an already installed revision, install a copy named `ShapeSpinner-<revision>.ttf`. Old revisions may be removed manually after the new one works.
 
 ## Settings dialog
 
@@ -41,8 +41,8 @@ Other extensions can draw the shapes through the shared `@clanker-stuff/pi-shape
 
 Normal completion and Escape remove the indicator immediately. Amp's startup phase correction, stop easing, and persistent idle icon cannot be represented by this cyclic working-indicator slot. Static mode is a separately rendered resting pose, not a retained idle widget. Only the working spinner changes, through Pi's extension API; retry, compaction, and branch-summary spinners keep Pi's default animation, and any custom editor can be used. RPC, JSON, and print modes are untouched.
 
-Each frame is one private-use color glyph plus an ordinary space. This reserves two terminal columns and allows Ghostty to display the whole shape without independently fitting two halves. Transparent `sbix` bitmaps preserve depth shading and composite against the real background. Colors are baked, not ANSI-tinted by Pi's theme; only the light or dark ink variant follows it. The puzzle has fixed multicolor stickers. One deterministic orb seed and all nine named Amp web colors, each with dark/light variants, are bundled; arbitrary colors or seeds require rebuilding.
+Each frame is one private-use color glyph plus an ordinary space. This reserves two terminal columns: Rex draws a fallback glyph followed by a space across both cells, and squeezes it into one cell otherwise. Transparent `sbix` bitmaps preserve depth shading and composite against the real background. Colors are baked, not ANSI-tinted by Pi's theme; only the light or dark ink variant follows it. The puzzle has fixed multicolor stickers. One deterministic orb seed and all nine named Amp web colors, each with dark/light variants, are bundled; arbitrary colors or seeds require rebuilding.
 
-Ghostty on macOS with color-font rendering is the supported target, not a guarantee for all terminal versions. There is no monochrome artwork fallback. Pi cannot detect whether your terminal has selected the font. Disable the extension if the result is clipped, missing, or unreadable.
+Rex on macOS with color-font rendering is the supported target, not a guarantee for all terminal versions. There is no monochrome artwork fallback. Pi cannot detect whether your terminal has selected the font. Disable the extension if the result is clipped, missing, or unreadable.
 
 Wireframes have intentionally faint rear edges, but the completed icon does not fade or shrink. Check both ink choices at your actual font size. The wireframe geometry is reconstructed from Amp, but the terminal's tiny raster, cell fitting, and font cache still need visual approval. See [font generation and fidelity](font.md).

@@ -15,4 +15,4 @@ Install the bundled font using the [setup instructions](docs/setup.md), then run
 
 ## Requirements
 
-Pi 1.0 or newer, Ghostty on macOS, and the bundled color font installed on the display machine; disable other working-spinner extensions. See [setup and compatibility](docs/setup.md).
+Pi 1.0 or newer, Rex on macOS, and the bundled color font installed on the display machine and added as a Rex fallback font; disable other working-spinner extensions. See [setup and compatibility](docs/setup.md).

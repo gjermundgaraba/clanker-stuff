@@ -16,26 +16,6 @@ import { Value } from "typebox/value";
 import { colors, ConfigSchema, motions, shapes, styleFor } from "./config.js";
 import type { Config } from "./config.js";
 
-const loops = [
-  manifest.rubik,
-  ...Object.values(manifest.animations).flatMap((byColor) =>
-    Object.values(byColor).flatMap((byBackground) =>
-      Object.values(byBackground)
-    )
-  ),
-];
-
-const codepoints = loops.flatMap((animation) => [
-  ...animation.frames,
-  animation.still,
-]);
-
-const range = [Math.min(...codepoints), Math.max(...codepoints)]
-  .map((cp) => `U+${cp.toString(16).toUpperCase()}`)
-  .join("-");
-
-const mapping = `font-codepoint-map = ${range}=${manifest.family}`;
-
 const fontPath = fileURLToPath(
   new URL("assets/ShapeSpinner.ttf", import.meta.url)
 );
@@ -120,7 +100,10 @@ export const openSettings = async (
       container.addChild(new Spacer());
       container.addChild(list);
 
-      for (const line of [`Ghostty: ${mapping}`, `Font: ${fontPath}`]) {
+      for (const line of [
+        `Rex fallback font: ${manifest.family}`,
+        `Font: ${fontPath}`,
+      ]) {
         container.addChild(new Text(theme.fg("dim", line), 1, 0));
       }
 

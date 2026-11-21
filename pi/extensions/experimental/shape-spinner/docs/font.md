@@ -23,7 +23,7 @@ A normal build rasterizes and assembles the font once, validates every glyph, fo
 
 Rubik's 94%-of-em canvas leaves a small geometric inset; Lanczos antialiasing fringe can touch the bitmap edge. Wireframe bitmaps retain fully transparent borders. CoreText's paint check verifies both against their fixed glyph bounds.
 
-The preview script decodes the **built font's PNGs**, producing all-color light/dark contact sheets plus native-size and enlarged shape sheets and GIFs for cyan (choose another with `--color purple`). These are proofs of embedded artwork, not Ghostty screenshots. The Swift script paints every glyph at 12–20 px and their doubled sizes using CoreText, checking actual painted pixels against declared bounds. Neither test proves terminal font selection or two-cell fitting.
+The preview script decodes the **built font's PNGs**, producing all-color light/dark contact sheets plus native-size and enlarged shape sheets and GIFs for cyan (choose another with `--color purple`). These are proofs of embedded artwork, not terminal screenshots. The Swift script paints every glyph at 12–20 px and their doubled sizes using CoreText, checking actual painted pixels against declared bounds. Neither test proves terminal font selection or two-cell fitting.
 
 ## Reconstruction provenance
 
@@ -58,7 +58,7 @@ Wireframe poses use the same centered 32-unit square viewport around the origina
 
 Each glyph has a 1000-unit em, 600-unit advance, 800/-200 ascent/descent, and fixed square outline bounds anchored with zero-area contours. Transparent PNG strikes at 32 and 64 ppem cover ordinary and Retina terminal sizes. Larger display sizes upscale these strikes. One complete frame plus an unmapped U+0020 reserves two columns. All five spinners share a single contiguous bank starting at U+100000.
 
-Ghostty's macOS CoreText backend supports `sbix`; COLR-only support cannot be assumed. Bitmap offsets are zero: with outline contours, sbix offsets are relative to the lower-left glyph bounds, which already include the descender. Every artwork glyph has only two zero-area bounding contours, which establish bitmap placement without painting monochrome artwork. Color-font rendering is required.
+Rex on macOS renders `sbix`; COLR-only support cannot be assumed. Bitmap offsets are zero: with outline contours, sbix offsets are relative to the lower-left glyph bounds, which already include the descender. Every artwork glyph has only two zero-area bounding contours, which establish bitmap placement without painting monochrome artwork. Color-font rendering is required.
 
 Metadata contains family, fps, seed, wireframe inks/viewport, renderer version, and `animations[wireframe][color][background]` plus one independent `rubik` animation. Each animation has its cycle `seconds`, `frames` (400 wireframe or 220 Rubik codepoints), and `still` (a resting codepoint). Runtime appends the ordinary-space spacer; it is not repeated in metadata. Rubik is stored once, independent of color/background choices. PNGs are recompressed losslessly (no quantization or alpha changes). Exact duplicate bitmaps may share codepoints without changing frame duration. The eighteen wireframe color/background banks plus Rubik occupy about 93 MiB in one font; runtime JavaScript loads only the much smaller metadata, not these bitmap bytes.
 
@@ -68,7 +68,7 @@ Before calling a new build visually approved:
 
 1. Inspect all shapes at 12, 14, 16, 18, and 20 px on both backgrounds, especially edge-on orientations and the rest pose.
 2. Watch the eight-second wireframe and 4.4-second puzzle seams; no position/scale jumps or unintended whole-icon fading.
-3. Test actual Ghostty playback beside Pi's Working text at the usual display scale. Verify font selection, two-cell placement, clipping, and faint-edge legibility.
+3. Test actual Rex playback beside Pi's Working text at the usual display scale. Verify font selection, two-cell placement, clipping, and faint-edge legibility.
 4. Check completion, Escape, repeated turns, resize, and any custom editor. The indicator must not outlive Pi's normal work.
 5. Switch between Rubik and wireframes in animated and static modes, under light and dark themes. Verify that static Rubik is solved and that color and theme appearance preserve sticker colors.
 

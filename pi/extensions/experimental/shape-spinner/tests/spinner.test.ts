@@ -240,7 +240,7 @@ describe("shape spinner", () => {
     );
   });
 
-  it("previews the configured spinner, mapping, and font path in the dialog", async () => {
+  it("previews the configured spinner, fallback font, and font path in the dialog", async () => {
     const { ctx, driver, host, setWorkingIndicator } = setup();
     const dialog = await openDialog(host, driver, ctx);
     const rendered = dialog.render();
@@ -252,12 +252,7 @@ describe("shape spinner", () => {
         (frame) => line?.includes(frame) === true
       )
     ).toBe(true);
-    expect(rendered).toMatch(
-      new RegExp(
-        `Ghostty: font-codepoint-map = U\\+[0-9A-F]+-U\\+[0-9A-F]+=${manifest.family}`,
-        "u"
-      )
-    );
+    expect(rendered).toContain(`Rex fallback font: ${manifest.family}`);
     expect(rendered.replaceAll(/\s+/gu, "")).toContain(
       fileURLToPath(new URL("../assets/ShapeSpinner.ttf", import.meta.url))
     );
