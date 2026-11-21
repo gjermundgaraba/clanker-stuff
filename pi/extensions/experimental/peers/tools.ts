@@ -22,7 +22,8 @@ export const registerPeerTools = (
     promptSnippet: "Message another running Pi session by name",
     promptGuidelines: [
       "After asking a peer something with peer_send, end your turn; its reply arrives as a message that wakes you. Do not poll or sleep.",
-      "Answer a message from a peer with peer_send to its sender; text you write in your turn never reaches it.",
+      "Answer a message from a peer with peer_send to its sender, with replyTo set to that message's ID; text you write in your turn never reaches it.",
+      "Leave replyTo out only for a new question: until an answer comes back, this session counts as waiting on that peer, not on the user.",
       "If peer_send fails, tell the user why instead of guessing another name.",
     ],
     parameters: Type.Object(
@@ -32,14 +33,28 @@ export const registerPeerTools = (
           description: "The recipient's session name.",
         }),
         text: Type.String({ minLength: 1 }),
+        replyTo: Type.Optional(
+          Type.String({
+            minLength: 1,
+            description:
+              "The ID of the message this answers. Leave it out when asking something new.",
+          })
+        ),
       },
       { additionalProperties: false }
     ),
     execute: async (_id, params, _signal, _update, ctx) => {
-      const letter = await runtime.send(params.to, params.text, ctx);
+      const letter = await runtime.send(
+        params.to,
+        params.text,
+        params.replyTo,
+        ctx
+      );
 
       return reply(
-        `Delivered ${letter.id} to "${letter.to}"'s inbox. Any reply arrives as a message that wakes you; end your turn instead of polling.`,
+        letter.replyTo === undefined
+          ? `Delivered ${letter.id} to "${letter.to}"'s inbox. Its answer arrives as a message that wakes you; end your turn instead of polling.`
+          : `Delivered ${letter.id} to "${letter.to}"'s inbox, answering ${letter.replyTo}.`,
         letter
       );
     },

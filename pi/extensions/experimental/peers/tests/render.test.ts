@@ -5,12 +5,11 @@ import type { CustomEntry } from "@earendil-works/pi-coding-agent";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
-import { SENT, UNDELIVERED } from "../entries.js";
+import { SENT, UNDELIVERED, MESSAGE_TYPE } from "../entries.js";
 import type { Undelivered } from "../entries.js";
 import type { Letter } from "../mailbox.js";
 import { receivedMessage, sentCard, undeliveredCard } from "../render.js";
 import { shortPath } from "../report.js";
-import { MESSAGE_TYPE } from "../runtime.js";
 
 const theme = createIdentityTheme();
 

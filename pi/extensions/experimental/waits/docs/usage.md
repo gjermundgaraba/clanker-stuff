@@ -44,6 +44,8 @@ Waits belong to the session, not to a branch: the journal is read across the who
 | `/new`, fork, clone | Nothing is inherited: a copied `waits:opened` names its original session |
 | Print or JSON run | Refuses `wait_start` and resumes nothing, since the run ends with its prompt |
 
+Every change to the set of live waits is also reported to [presence](../../presence/docs/usage.md) as parked work, `a wait for <label>`, so a session parked on a wait counts as working rather than waiting on you.
+
 ## Delivery
 
 A finished wait waits for Pi to be idle: no agent run, no queued message and no extension dialog. Then each finished wait is journaled as ended, and one `waits:wake` custom message is handed to Pi with `triggerTurn: true`. It names each wait and repeats its instruction; an expired wait says so and asks the agent not to act on it unless the condition holds now. Journaling comes first, so delivery is at most once: a process that dies between the two steps loses that wake instead of repeating it. If journaling fails, nothing is sent, a warning is shown, and delivery is tried again later.

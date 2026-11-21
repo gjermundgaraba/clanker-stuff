@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 
 import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
+import { PARKED_CHANNEL } from "@clanker-stuff/presence-protocol";
+import type { ParkedReport } from "@clanker-stuff/presence-protocol";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -67,7 +69,7 @@ export class WaitRuntime {
       this.start(wait);
     }
 
-    this.showStatus();
+    this.changed();
     this.gate.request();
   }
 
@@ -78,7 +80,7 @@ export class WaitRuntime {
 
     this.waits.clear();
     this.gate.clear();
-    this.showStatus();
+    this.changed();
     this.ctx = undefined;
   }
 
@@ -171,7 +173,7 @@ export class WaitRuntime {
       },
     });
     actor.start();
-    this.showStatus();
+    this.changed();
   }
 
   private end(id: string, outcome: Ended["outcome"]): void {
@@ -184,7 +186,7 @@ export class WaitRuntime {
     this.pi.appendEntry(ENDED, { id, outcome } satisfies Ended);
     wait.stop();
     this.waits.delete(id);
-    this.showStatus();
+    this.changed();
   }
 
   private finished(): WaitSnapshot[] {
@@ -231,7 +233,19 @@ export class WaitRuntime {
     }
   }
 
-  private showStatus(): void {
+  /**
+   * Runs whenever the set of live waits changes: redraws the widget and tells
+   * presence which waits this session has parked work on.
+   */
+  private changed(): void {
     this.view.update(this.ctx);
+    this.pi.events.emit(PARKED_CHANNEL, {
+      source: "waits",
+      items: [...this.waits.values()].map(({ actor }) => {
+        const { id, spec } = actor.getSnapshot().context;
+
+        return { id, about: `a wait for ${spec.label}` };
+      }),
+    } satisfies ParkedReport);
   }
 }

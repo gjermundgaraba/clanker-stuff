@@ -1,10 +1,10 @@
 import { entryPad } from "@clanker-stuff/pi-tool-rendering/card";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { SENT, UNDELIVERED } from "./entries.js";
+import { MESSAGE_TYPE, SENT, UNDELIVERED } from "./entries.js";
 import { receivedMessage, sentCard, undeliveredCard } from "./render.js";
 import { peerRows } from "./report.js";
-import { MESSAGE_TYPE, PeerRuntime } from "./runtime.js";
+import { PeerRuntime } from "./runtime.js";
 import { registerPeerTools } from "./tools.js";
 
 export default function peers(pi: ExtensionAPI): void {

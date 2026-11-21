@@ -1,17 +1,26 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { PARKED_CHANNEL } from "@clanker-stuff/presence-protocol";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
-import { SENT, UNDELIVERED } from "../entries.js";
+import { SENT, UNDELIVERED, MESSAGE_TYPE } from "../entries.js";
 import extension from "../index.js";
-import { MESSAGE_TYPE } from "../runtime.js";
+import { letterSchema } from "../mailbox.js";
 
-const launch = async (name: string | undefined) => {
+const launch = async (name: string | undefined, reports: unknown[] = []) => {
+  const listen = (pi: ExtensionAPI) => {
+    pi.events.on(PARKED_CHANNEL, (data) => {
+      reports.push(data);
+    });
+  };
+
   const h = await createAgentSessionHarness({
-    extensionFactories: [extension],
+    extensionFactories: [extension, listen],
     mode: "rpc",
   });
 
@@ -82,12 +91,93 @@ const toolResults = (h: AgentSessionHarness) =>
 const settled = (h: AgentSessionHarness) =>
   h.getPendingResponseCount() === 0 && !h.session.isStreaming;
 
-const send = (to: string, text: string) =>
-  fauxAssistantMessage(fauxToolCall("peer_send", { to, text }), {
-    stopReason: "toolUse",
-  });
+const send = (to: string, text: string, replyTo?: string) =>
+  fauxAssistantMessage(
+    fauxToolCall("peer_send", {
+      to,
+      text,
+      ...(replyTo === undefined ? {} : { replyTo }),
+    }),
+    { stopReason: "toolUse" }
+  );
+
+const lastLetterId = (h: AgentSessionHarness): string => {
+  const entry = h.sessionManager
+    .getEntries()
+    .findLast(
+      (e) => e.type === "custom_message" && e.customType === MESSAGE_TYPE
+    );
+
+  if (entry?.type !== "custom_message") {
+    throw new Error("No letter has arrived");
+  }
+
+  return Value.Parse(letterSchema, entry.details).id;
+};
 
 describe("two sessions talking by name", () => {
+  it("counts a question as parked work until its answer comes back", async () => {
+    const reports: unknown[] = [];
+    const a = await launch("questioner", reports);
+    const b = await launch("expert");
+
+    try {
+      await delay(100);
+      b.setResponses([
+        () => send("questioner", "Approved.", lastLetterId(b)),
+        fauxAssistantMessage("Answered."),
+      ]);
+      a.setResponses([
+        send("expert", "Is the API change approved?"),
+        fauxAssistantMessage("Asked; ending my turn."),
+      ]);
+
+      await a.prompt("Ask expert whether the API change is approved");
+      await until(() =>
+        reports.some((r) => JSON.stringify(r).includes("a reply from expert"))
+      );
+
+      a.setResponses([fauxAssistantMessage("Carrying on.")]);
+      await until(() => letters(a).length === 1 && settled(a) && settled(b));
+      await until(
+        () => JSON.stringify(reports.at(-1)) === '{"source":"peers","items":[]}'
+      );
+
+      expect(letters(a)[0]).toContain("answering your message");
+    } finally {
+      await quit(a);
+      await quit(b);
+    }
+  });
+
+  it("does not count an answer as a question of its own", async () => {
+    const reports: unknown[] = [];
+    const a = await launch("caller");
+    const b = await launch("helper", reports);
+
+    try {
+      await delay(100);
+      b.setResponses([
+        () => send("caller", "Here you go.", lastLetterId(b)),
+        fauxAssistantMessage("Answered."),
+      ]);
+      a.setResponses([
+        send("helper", "Got a minute?"),
+        fauxAssistantMessage("Asked."),
+        fauxAssistantMessage("Thanks."),
+      ]);
+
+      await a.prompt("Ask helper");
+      await until(() => letters(a).length === 1 && settled(a) && settled(b));
+      await delay(1200);
+
+      expect(JSON.stringify(reports)).not.toContain("a reply from");
+    } finally {
+      await quit(a);
+      await quit(b);
+    }
+  });
+
   it("carries a question and its answer with one prompt, typed into the asker only", async () => {
     const a = await launch("asker");
     const b = await launch("answerer");

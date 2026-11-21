@@ -16,11 +16,11 @@ export type PeerList = Static<typeof peerListSchema>;
 
 export const letterText = (letter: Letter): string =>
   [
-    `Message from the session named "${letter.from}":`,
+    `Message ${letter.id} from the session named "${letter.from}"${letter.replyTo === undefined ? "" : `, answering your message ${letter.replyTo}`}:`,
     "",
     letter.text,
     "",
-    `To answer, call peer_send with to "${letter.from}"; your own reply text is not sent to it.`,
+    `To answer, call peer_send with to "${letter.from}" and replyTo "${letter.id}"; your own reply text is not sent to it.`,
   ].join("\n");
 
 /** A working directory with the home directory shown as ~. */

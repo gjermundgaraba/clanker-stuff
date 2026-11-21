@@ -15,6 +15,7 @@ export const letterSchema = Type.Object(
     to: Type.String({ minLength: 1 }),
     text: Type.String(),
     sentAt: Type.Integer(),
+    replyTo: Type.Optional(Type.String({ minLength: 1 })),
   },
   { additionalProperties: false }
 );

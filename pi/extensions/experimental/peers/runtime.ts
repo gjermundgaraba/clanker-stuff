@@ -2,21 +2,22 @@ import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
+import { PARKED_CHANNEL } from "@clanker-stuff/presence-protocol";
+import type { ParkedReport } from "@clanker-stuff/presence-protocol";
 import { createScheduledCheck } from "@clanker-stuff/scheduled-check";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { SENT, UNDELIVERED, undeliveredText } from "./entries.js";
+import { MESSAGE_TYPE, SENT, UNDELIVERED, undeliveredText } from "./entries.js";
 import type { Undelivered } from "./entries.js";
 import { post, take } from "./mailbox.js";
 import type { Letter } from "./mailbox.js";
+import { openQuestions } from "./questions.js";
 import { claim, livePeers, lookup, release } from "./registry.js";
 import { letterText } from "./report.js";
 import type { PeerList } from "./report.js";
-
-export const MESSAGE_TYPE = "peers:message";
 
 const STATUS_KEY = "peers.name";
 
@@ -31,6 +32,9 @@ const outlivesPrompt = (ctx: ExtensionContext): boolean =>
  * the name changes, does all of its file writes: it moves the registry entry
  * to the current name and empties this session's inbox. Sending only reads
  * the registry and writes into another session's inbox.
+ *
+ * It also tells presence which questions this session is waiting on: a
+ * question parks work while a live session still has the name it went to.
  */
 export class PeerRuntime {
   private readonly pi: ExtensionAPI;
@@ -38,6 +42,8 @@ export class PeerRuntime {
   private held: { name: string; sessionId: string } | undefined;
   private conflict: string | undefined;
   private running: Promise<void> | undefined;
+  private questions = new Map<string, Letter>();
+  private announced = "";
   private readonly check = createScheduledCheck(() => {
     void this.reconcile();
   });
@@ -61,6 +67,8 @@ export class PeerRuntime {
     }
 
     this.ctx = ctx;
+    this.questions = openQuestions(ctx.sessionManager.getEntries());
+    this.announced = "";
     this.check.request(0);
   }
 
@@ -85,7 +93,12 @@ export class PeerRuntime {
     }
   }
 
-  async send(to: string, text: string, ctx: ExtensionContext): Promise<Letter> {
+  async send(
+    to: string,
+    text: string,
+    replyTo: string | undefined,
+    ctx: ExtensionContext
+  ): Promise<Letter> {
     const { names, inbox } = PeerRuntime.dirs();
     const from = this.held;
     const self = ctx.sessionManager.getSessionId();
@@ -121,9 +134,15 @@ export class PeerRuntime {
       to,
       text,
       sentAt: Date.now(),
+      ...(replyTo === undefined ? {} : { replyTo }),
     });
 
     this.pi.appendEntry(SENT, letter);
+
+    if (replyTo === undefined) {
+      this.questions.set(letter.id, letter);
+      this.check.request(0);
+    }
 
     return letter;
   }
@@ -160,6 +179,7 @@ export class PeerRuntime {
     try {
       await this.register(ctx);
       await this.deliver(ctx.sessionManager.getSessionId());
+      await this.announce();
     } catch (error) {
       ctx.ui.notify(`peers: ${errorMessage(error)}`, "warning");
     }
@@ -217,6 +237,10 @@ export class PeerRuntime {
    */
   private async deliver(sessionId: string): Promise<void> {
     for (const letter of await take(PeerRuntime.dirs().inbox, sessionId)) {
+      if (letter.replyTo !== undefined) {
+        this.questions.delete(letter.replyTo);
+      }
+
       this.pi.sendMessage(
         {
           customType: MESSAGE_TYPE,
@@ -226,6 +250,32 @@ export class PeerRuntime {
         },
         { triggerTurn: true, deliverAs: "followUp" }
       );
+    }
+  }
+
+  /** Reports the open questions whose recipient name is still live, when that set changes. */
+  private async announce(): Promise<void> {
+    const { names } = PeerRuntime.dirs();
+
+    const pending = await Promise.all(
+      [...this.questions.values()].map(async (letter) =>
+        (await lookup(names, letter.to)) === undefined ? [] : [letter]
+      )
+    );
+
+    const report: ParkedReport = {
+      source: "peers",
+      items: pending.flat().map((letter) => ({
+        id: letter.id,
+        about: `a reply from ${letter.to}`,
+      })),
+    };
+
+    const key = JSON.stringify(report.items);
+
+    if (key !== this.announced) {
+      this.announced = key;
+      this.pi.events.emit(PARKED_CHANNEL, report);
     }
   }
 

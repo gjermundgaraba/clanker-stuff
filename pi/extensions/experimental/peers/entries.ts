@@ -1,6 +1,9 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
+/** A letter delivered to this session, as a custom message whose details are the letter. */
+export const MESSAGE_TYPE = "peers:message";
+
 /** A letter this session sent; its data is the letter. */
 export const SENT = "peers:sent";
 
