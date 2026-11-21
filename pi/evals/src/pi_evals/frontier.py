@@ -42,7 +42,6 @@ def sources():
         'runtime': ('Dockerfile', 'pi-eval-tools.mjs', 'eval-journal.mjs', 'codex-eval.mjs', 'pi-eval-compact.mjs'),
         'profiles': ('code-mode.yaml', 'native-codex.yaml'),
         'verifiers': ('tool-mode-core.mjs', 'native-codex.mjs', 'comparison.mjs', 'records.mjs'),
-        # The lockfile pins Harbor and the other Python execution dependencies.
         '.': ('pyproject.toml', 'uv.lock'),
     }
     return {**{root: {name: hashlib.sha256((EVALS/root/name).read_bytes()).hexdigest() for name in names}

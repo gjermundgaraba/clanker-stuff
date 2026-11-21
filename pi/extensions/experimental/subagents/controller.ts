@@ -126,7 +126,6 @@ export interface ControllerDependencies {
   deliverRoot: (mail: Mail) => void;
   onBackgroundError: (cause: unknown) => void;
   rootRunning: () => boolean;
-  /** Clock for the timestamps the tree records. */
   now?: () => number;
 }
 
@@ -139,7 +138,6 @@ const WAIT_MESSAGES: Record<Exclude<WaitActivity, "aborted">, string> = {
 };
 
 export class Controller {
-  /** Presentation feed; the controller only publishes to it. */
   readonly monitor: Monitor;
   readonly #config: SubagentsConfig;
   readonly #createRuntime: ChildRuntimeFactory;
@@ -707,7 +705,6 @@ export class Controller {
     return runtime;
   }
 
-  /** Creates a child runtime; the caller supplies what differs between a spawn and a reload. */
   async #runtime(
     path: string,
     ctx: CallerContext,
@@ -950,7 +947,6 @@ export class Controller {
     this.monitor.changed();
   }
 
-  /** Counts usage and publishes activity for the current tree's children only. */
   #observe(path: string, event: AgentSessionEvent, epoch: symbol): void {
     if (epoch !== this.#epoch) {
       return;

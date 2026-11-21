@@ -12,7 +12,6 @@ const moduleInstanceId = Math.random().toString(36).slice(2, 8);
 const isDebugEnabled = (): boolean =>
   process.env["CLAUDE_BRIDGE_DEBUG"] === "1";
 
-/** Paths resolve per call so tests can swap the environment mid-process. */
 export const debugLogPath = (): string => {
   const override = process.env["CLAUDE_BRIDGE_DEBUG_PATH"];
 
@@ -97,7 +96,6 @@ export const cliDebugOptions = (tag: string): CliDebugOptions => {
   };
 };
 
-/** Failure text for Pi, including for thrown values that are not errors. */
 export const errorMessage = (error: unknown): string => {
   if (typeof error === "object" && error !== null) {
     if ("message" in error && typeof error.message === "string") {

@@ -13,7 +13,6 @@ import type {
 
 import { debugLogPath } from "./log.js";
 
-/** The conversation, prompt and tools of one provider request. */
 export interface BridgeContext {
   messages: Message[];
   system?: SystemMessage;

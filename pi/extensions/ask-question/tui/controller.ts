@@ -45,9 +45,7 @@ export interface FormPort {
   mutate: (action: Action) => Interaction;
   current: () => Interaction;
   subscribe: (listener: () => void) => () => void;
-  /** Submits or dismisses the draft and returns the outcome. */
   finish: (kind: "submit" | "dismiss") => Outcome;
-  /** Whether a tool call is waiting for this questionnaire. */
   waiting: boolean;
   setFlush: (flush: () => void) => void;
   report: (cause: unknown) => void;

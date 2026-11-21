@@ -130,7 +130,6 @@
 
         <rect width="100%" height="100%" fill="#f5f5f5" />
 
-        <!-- BILLING schema group (drawn first so tables paint over it) -->
         <rect
           x="744"
           y="332"
@@ -153,8 +152,6 @@
           BILLING
         </text>
 
-        <!-- FK connectors (drawn before boxes) -->
-        <!-- FK1: orders.customer_id -> customers.id · ON DELETE RESTRICT -->
         <path
           d="M 400,104 H 348 Q 340,104 340,112 Q 340,120 332,120 H 280"
           fill="none"
@@ -162,7 +159,6 @@
           stroke-width="1"
           marker-end="url(#arrow)"
         />
-        <!-- FK2: order_items.order_id -> orders.id · ON DELETE CASCADE (focal) -->
         <path
           d="M 640,384 H 660 Q 668,384 668,376 V 96 Q 668,88 660,88 H 640"
           fill="none"
@@ -170,7 +166,6 @@
           stroke-width="1.2"
           marker-end="url(#arrow-accent)"
         />
-        <!-- FK3: order_items.product_id -> products.id · ON DELETE RESTRICT -->
         <path
           d="M 640,408 H 708 Q 716,408 716,400 V 88 Q 716,80 724,80 H 760"
           fill="none"
@@ -178,7 +173,6 @@
           stroke-width="1"
           marker-end="url(#arrow)"
         />
-        <!-- FK4: invoices.order_id -> orders.id · ON DELETE RESTRICT -->
         <path
           d="M 760,432 H 700 Q 692,432 692,424 V 416 a 8,8 0 0,0 0,-16 V 80 Q 692,72 684,72 H 640"
           fill="none"
@@ -187,7 +181,6 @@
           marker-end="url(#arrow)"
         />
 
-        <!-- FK labels (masked, 6-10px gap above/beside their connector) -->
         <rect x="284" y="82" width="112" height="12" rx="2" fill="#f5f5f5" />
         <text
           x="340"
@@ -240,7 +233,6 @@
           ON DELETE RESTRICT
         </text>
 
-        <!-- Table: public.customers -->
         <rect
           x="40"
           y="80"
@@ -466,7 +458,6 @@
           timestamptz
         </text>
 
-        <!-- Table: public.orders -->
         <rect
           x="400"
           y="40"
@@ -818,7 +809,6 @@
           idx_orders_status
         </text>
 
-        <!-- Table: public.order_items (focal header — accent-tint, cascade target) -->
         <rect
           x="400"
           y="320"
@@ -1154,7 +1144,6 @@
           numeric(12,2)
         </text>
 
-        <!-- Table: public.products -->
         <rect
           x="760"
           y="40"
@@ -1466,7 +1455,6 @@
           uq_products_sku
         </text>
 
-        <!-- Table: billing.invoices (inside BILLING group) -->
         <rect
           x="760"
           y="368"
@@ -1692,7 +1680,6 @@
           timestamptz
         </text>
 
-        <!-- Legend -->
         <line
           x1="40"
           y1="500"

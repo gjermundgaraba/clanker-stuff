@@ -67,7 +67,6 @@ minimumReleaseAgeExclude:
   - "@gjermundgaraba-designs/*"
   - effect
   - "@effect/*"
-  # Pi publishes its packages in lockstep and the catalog pins them exactly, so a bump is always deliberate.
   - "@earendil-works/*"
 permissions:
   ultracite:

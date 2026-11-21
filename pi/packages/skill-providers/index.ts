@@ -25,7 +25,6 @@ export type LoadedSkill = Pick<
   "content" | "location" | "name"
 >;
 
-/** A skill's block parts besides its name, which stays the name it was requested by. */
 export type ProvidedSkill = Omit<LoadedSkill, "name">;
 
 export interface SkillProvider {

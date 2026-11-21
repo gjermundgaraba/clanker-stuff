@@ -23,12 +23,10 @@ import { showInbox } from "./tui/inbox.js";
 
 export class Coordinator {
   private ctx: ExtensionContext | undefined;
-  /** Every questionnaire seen on the branch, in the order of its latest change. */
   private items = new Map<string, Interaction>();
   private lifetime = new AbortController();
   private readonly listeners = new Set<() => void>();
-  /** Questionnaires whose tool call is still waiting for the outcome. */
-  private readonly waiting = new Set<string>();
+  private readonly waitingToolCalls = new Set<string>();
   private flushView: (() => void) | undefined;
   private inboxOpen = false;
   readonly prompt = createPromptQueue();
@@ -130,7 +128,7 @@ export class Coordinator {
     }
 
     const lifetime = this.lifetime.signal;
-    this.waiting.add(item.id);
+    this.waitingToolCalls.add(item.id);
 
     try {
       const result = await this.open(item.id, ctx, signal);
@@ -144,7 +142,7 @@ export class Coordinator {
 
       return { ...toolResult(outcome(item, "closed")), terminate: true };
     } finally {
-      this.waiting.delete(item.id);
+      this.waitingToolCalls.delete(item.id);
     }
   }
   async open(
@@ -158,7 +156,7 @@ export class Coordinator {
       ? AbortSignal.any([runSignal, lifetime])
       : lifetime;
 
-    const waiting = this.waiting.has(id);
+    const waiting = this.waitingToolCalls.has(id);
 
     return await this.prompt(signal, async (active) => {
       Coordinator.owner(lifetime);
@@ -187,10 +185,6 @@ export class Coordinator {
       }
     });
   }
-  /**
-   * Submits or dismisses a draft. A waiting tool call returns the outcome itself; any other
-   * outcome reaches the agent as a message.
-   */
   private finish(
     id: string,
     kind: "submit" | "dismiss",
@@ -208,7 +202,7 @@ export class Coordinator {
       answers
     );
 
-    if (this.waiting.has(id)) {
+    if (this.waitingToolCalls.has(id)) {
       this.save(after);
 
       return result;

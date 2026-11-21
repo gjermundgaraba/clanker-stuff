@@ -743,7 +743,6 @@ export class AgentsViewer implements Component {
   }
 }
 
-/** Shows the overlay until the user closes it. */
 export const openViewer = async (
   ui: Pick<ExtensionUIContext, "custom">,
   source: ViewerSource,

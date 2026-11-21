@@ -41,7 +41,6 @@ export const answersRows = (answers: Answers): Row[] =>
     ...answerRows(answer),
   ]);
 
-/** Rows for a draft's current answers, in question order. */
 export const draftRows = (item: Interaction): Row[] =>
   answersRows(
     Object.fromEntries(

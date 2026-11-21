@@ -47,12 +47,10 @@ export const queryKey = (
     ]),
   ]);
 
-/** The conversation as the decision needs it. */
 export interface SyncState {
   /** The pi messages Claude Code holds, oldest first. Only messages pi sent: never the
    *  continue prompt or anything Claude Code writes to its own file. */
   held: readonly Message[];
-  /** The Claude Code session holding them. */
   session: string | undefined;
   /** A query is running (streaming or parked at a tool call). */
   busy: boolean;
@@ -60,12 +58,9 @@ export interface SyncState {
   parked: { key: string; waiting: ReadonlySet<string> } | undefined;
 }
 
-/** One provider request as the decision reads it. */
 export interface SyncRequest {
   context: BridgeContext;
-  /** The request's `queryKey`. */
   key: string;
-  /** pi aborted the run the request belongs to. */
   aborted: boolean;
 }
 
@@ -89,7 +84,6 @@ export type Plan =
   | { kind: "side" }
   /** pi reports a tool's result after aborting the run: end the call with no query. */
   | { kind: "finish" }
-  /** Resume Claude Code's session with the new user turn. */
   | { kind: "resume"; session: string; turn: Message[] }
   /** Write a new session from `priors`, then send `turn`, or the continue prompt when the
    *  history ends in tool results and there is no turn. `matched` is how much of what

@@ -30,15 +30,12 @@ import type { SyncState } from "../sync.js";
 import type { Turn } from "../translate.js";
 import { userTurnBlocks } from "../turn.js";
 
-/** The answer an MCP handler is waiting on. */
 export type ResolveToolCall = (result: McpResult) => void;
 
-/** What one query was started with, kept for its lifetime. */
 export interface ActiveQuery {
   params: QueryParams;
   /** The query's stdin: steers go in while it runs, and a result closes it. */
   promptStream: PromptStream;
-  /** What the query is fixed to (`queryKey`); a parked query only continues under it. */
   key: string;
   model: Model<Api>;
   /** The signal of the provider call that started the query. pi aborts it for the whole
@@ -60,13 +57,12 @@ interface PendingDelivery {
 
 const NO_HANDLERS: ReadonlyMap<string, ResolveToolCall> = new Map();
 
-const NO_RESULTS: ReadonlyMap<string, McpResult> = new Map();
+const NO_RESULTS_AWAITING_HANDLER: ReadonlyMap<string, McpResult> = new Map();
 
 const NO_CALLS: ReadonlySet<string> = new Set();
 
 const ENDED = "Claude Code query ended";
 
-/** How long Claude Code may take to exit after its result before it is killed. */
 export const CLOSE_GRACE_MS = 10_000;
 
 const isClosing = (value: StateValue): boolean =>
@@ -79,7 +75,7 @@ const IDLE = {
   pending: null,
   waiting: NO_CALLS,
   handlers: NO_HANDLERS,
-  results: NO_RESULTS,
+  resultsAwaitingHandler: NO_RESULTS_AWAITING_HANDLER,
 } as const;
 
 const DROPPED = { ...IDLE, held: [] } as const;
@@ -206,14 +202,14 @@ const release = (
   delivered: ReadonlyMap<string, McpResult>
 ) => {
   const waiting = new Map(handlers);
-  const results = new Map(stored);
+  const resultsAwaitingHandler = new Map(stored);
   const answers: Array<() => void> = [];
 
   for (const [id, result] of delivered) {
     const resolve = waiting.get(id);
 
     if (resolve === undefined) {
-      results.set(id, result);
+      resultsAwaitingHandler.set(id, result);
       continue;
     }
 
@@ -225,7 +221,7 @@ const release = (
 
   return {
     handlers: waiting,
-    results,
+    resultsAwaitingHandler,
     answer: () => {
       for (const answer of answers) {
         answer();
@@ -242,25 +238,18 @@ export const conversationMachine = setup({
     context: types<{
       run: QueryFunction;
       notify: (message: string) => void;
-      /** The Claude Code session the conversation resumes, once a query reported it. */
       ccSessionId: string | undefined;
       /** The pi messages Claude Code holds, oldest first. Kept only through a clean exit:
        *  a query that failed or was killed may have left its session file short. */
       held: readonly Message[];
-      /** A rejection names the next failure as a quota error. */
       rateLimit: RateLimitRejection | null;
       query: ActiveQuery | null;
-      /** The provider call being answered. */
       turn: Turn | null;
-      /** The signal of the provider call that delivered results, when it differs. */
       callSignal: AbortSignal | undefined;
       pending: PendingDelivery | null;
-      /** The tool calls the parked query waits on. */
       waiting: ReadonlySet<string>;
-      /** MCP handlers parked on a tool call pi has not answered yet. */
       handlers: ReadonlyMap<string, ResolveToolCall>;
-      /** Tool results pi delivered before Claude Code's handler asked for them. */
-      results: ReadonlyMap<string, McpResult>;
+      resultsAwaitingHandler: ReadonlyMap<string, McpResult>;
     }>(),
     events: {
       "pi.start": types<QueryStart>(),
@@ -270,7 +259,6 @@ export const conversationMachine = setup({
         steer: readonly Message[];
         signal: AbortSignal | undefined;
       }>(),
-      /** pi's history moved on without the running query: stop it. */
       "pi.discard": types<object>(),
       "pi.abort": types<object>(),
       "cc.toolCall": types<{ id: string; resolve: ResolveToolCall }>(),
@@ -278,7 +266,6 @@ export const conversationMachine = setup({
       "cc.end": types<object>(),
       "cc.error": types<{ message: string }>(),
       "steer.done": types<{ error: string | undefined }>(),
-      /** The turn ended on tool calls Claude was cut off in the middle of. */
       "turn.truncated": types<object>(),
     },
     input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
@@ -384,7 +371,7 @@ export const conversationMachine = setup({
       },
       on: {
         "cc.toolCall": ({ context, event }, enq) => {
-          const result = context.results.get(event.id);
+          const result = context.resultsAwaitingHandler.get(event.id);
 
           if (result === undefined) {
             debug(`conversation: tool call ${event.id} waits for pi`);
@@ -403,11 +390,13 @@ export const conversationMachine = setup({
             event.resolve(result);
           });
 
-          const results = new Map(context.results);
+          const resultsAwaitingHandler = new Map(
+            context.resultsAwaitingHandler
+          );
 
-          results.delete(event.id);
+          resultsAwaitingHandler.delete(event.id);
 
-          return { context: { results } };
+          return { context: { resultsAwaitingHandler } };
         },
         "cc.message": ({ context, event }, enq) => {
           const { message } = event;
@@ -662,9 +651,9 @@ export const conversationMachine = setup({
                 );
               }
 
-              const { handlers, results, answer } = release(
+              const { handlers, resultsAwaitingHandler, answer } = release(
                 context.handlers,
-                context.results,
+                context.resultsAwaitingHandler,
                 pending.results
               );
 
@@ -681,7 +670,7 @@ export const conversationMachine = setup({
                 context: {
                   pending: null,
                   handlers,
-                  results,
+                  resultsAwaitingHandler,
                   held:
                     event.error === undefined
                       ? [...context.held, ...pending.steer]
@@ -714,7 +703,6 @@ export const conversationMachine = setup({
 
 export type ConversationSnapshot = SnapshotFrom<typeof conversationMachine>;
 
-/** The conversation as the sync decision reads it. */
 export const syncState = (snapshot: ConversationSnapshot): SyncState => {
   const { held, ccSessionId, query, waiting } = snapshot.context;
   const parked = snapshot.matches({ active: "parked" }) && query !== null;

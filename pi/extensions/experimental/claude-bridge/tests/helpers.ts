@@ -29,7 +29,6 @@ export const testModel = (
 export const transcript = (context: Context): TranscriptContext =>
   normalizeContext(context);
 
-/** One scripted query: the test pushes SDK messages and ends or fails it. */
 export interface FakeQuery extends BridgeQuery {
   readonly params: QueryParams;
   push: (message: SDKMessage) => void;
@@ -110,7 +109,6 @@ const createFakeQuery = (params: QueryParams): FakeQuery => {
   };
 };
 
-/** A query() stand-in recording every query it starts. */
 export const fakeQueryFunction = () => {
   const queries: FakeQuery[] = [];
 

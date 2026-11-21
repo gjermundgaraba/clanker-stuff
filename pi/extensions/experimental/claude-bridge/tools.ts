@@ -12,7 +12,6 @@ export const sdkToolName = (name: string): string =>
 export interface ServedTools {
   /** The tools, their descriptions carrying their guidelines. */
   tools: Tool[];
-  /** Their pi names. */
   names: ReadonlySet<string>;
 }
 

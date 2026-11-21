@@ -11,7 +11,6 @@ export type Wireframe = keyof typeof manifest.animations;
 
 export type Ink = keyof (typeof manifest.animations)[Wireframe];
 
-/** The theme background a wireframe's ink suits. */
 export type Background = keyof (typeof manifest.animations)[Wireframe][Ink];
 
 export interface Animation {

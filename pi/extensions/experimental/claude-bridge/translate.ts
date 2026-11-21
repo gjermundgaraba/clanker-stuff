@@ -54,7 +54,6 @@ interface TurnOptions {
 export class Turn {
   readonly output: AssistantMessage;
 
-  /** The stream was ended: on a tool call, completion or failure. Nothing more reaches it. */
   ended = false;
 
   private started = false;
@@ -64,15 +63,12 @@ export class Turn {
    *  non-streaming fallback for a stalled stream. */
   private streamMessageId: string | undefined;
   private streamOpen = false;
-  /** Block count at that message_start: where an abandoned attempt's blocks begin. */
   private streamBlockStart = 0;
   private readonly openBlocks = new Map<TurnBlock, OpenBlock>();
 
   private readonly model: Model<Api>;
   private readonly stream: AssistantMessageEventStream;
-  /** The pi names of the tools the query serves. */
   private readonly served: ReadonlySet<string>;
-  /** A one-off asks for text: a reply without any is a failure, not an answer. */
   private readonly options: TurnOptions;
 
   constructor(
@@ -104,7 +100,6 @@ export class Turn {
     };
   }
 
-  /** Observe the SDK's raw API event before this turn translates it. */
   async observeStreamEvent(message: SDKPartialAssistantMessage): Promise<void> {
     await this.options.onProviderStreamEvent?.(message.event, this.model);
   }
@@ -113,14 +108,12 @@ export class Turn {
     return this.output.content;
   }
 
-  /** The turn has a completed tool call; an open one may still be cut off and dropped. */
-  private get hasToolCall(): boolean {
+  private get hasCompletedToolCall(): boolean {
     return this.blocks.some(
       (block) => block.type === "toolCall" && !this.openBlocks.has(block)
     );
   }
 
-  /** Ids of the tool calls this turn handed to pi. */
   get toolCallIds(): string[] {
     return this.blocks.flatMap((block) =>
       block.type === "toolCall" ? [block.id] : []
@@ -153,7 +146,7 @@ export class Turn {
       return "length";
     }
 
-    if (this.hasToolCall) {
+    if (this.hasCompletedToolCall) {
       return "toolUse";
     }
 
@@ -164,7 +157,6 @@ export class Turn {
     return this.options.requireText === true && !hasText ? "error" : "stop";
   }
 
-  /** End the stream with the turn's outcome: the failure recorded by `fail`, or done. */
   finish(): void {
     if (this.ended) {
       return;
@@ -404,7 +396,7 @@ export class Turn {
         this.dropUnfinished(`message_stop for ${this.streamMessageId}`);
         this.streamOpen = false;
 
-        if (this.hasToolCall) {
+        if (this.hasCompletedToolCall) {
           this.finish();
         }
       }
@@ -479,7 +471,7 @@ export class Turn {
       output.stopReason = "length";
     }
 
-    if (this.hasToolCall) {
+    if (this.hasCompletedToolCall) {
       this.finish();
     }
   }
@@ -533,7 +525,6 @@ export class Turn {
     };
   }
 
-  /** Add a block and announce its start. Returns its content index. */
   private append(block: TurnBlock): number {
     this.start();
     this.blocks.push(block);
@@ -549,7 +540,6 @@ export class Turn {
     return contentIndex;
   }
 
-  /** Announce a block's end with its final content. */
   private end(block: TurnBlock, contentIndex: number): void {
     const partial = this.output;
 
@@ -577,7 +567,6 @@ export class Turn {
     }
   }
 
-  /** A block that arrived complete: its start, its content as one delta, its end. */
   private appendWhole(block: TurnBlock): void {
     const contentIndex = this.append(block);
     const partial = this.output;

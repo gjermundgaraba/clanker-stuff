@@ -85,7 +85,6 @@ export const renderResult: NonNullable<Definition["renderResult"]> = (
   return preview(() => new Text(body, 0, 0), context);
 };
 
-/** Renders answers and dismissals that arrived as messages, from their own details. */
 export const renderOutcomeMessage: MessageRenderer = (
   message,
   options,

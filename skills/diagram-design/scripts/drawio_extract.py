@@ -36,13 +36,9 @@ import sys
 import zlib
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
-
-# --------------------------------------------------------------------------
-# container / payload decoding
-# --------------------------------------------------------------------------
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 MAX_INPUT_BYTES = 32 * 1024 * 1024
@@ -55,7 +51,7 @@ class PayloadTooLarge(ValueError):
     """Raised when compressed metadata expands beyond the supported limit."""
 
 
-def _fail(msg: str) -> "NoReturn":  # type: ignore[valid-type]
+def _fail(msg: str) -> NoReturn:
     print(f"drawio_extract: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -188,10 +184,6 @@ def load_mxfile(path: Path) -> str:
     _fail(f"{path.name}: not a draw.io file (no mxfile, mxGraphModel, or payload)")
 
 
-# --------------------------------------------------------------------------
-# style + label helpers
-# --------------------------------------------------------------------------
-
 BR_RE = re.compile(r"<br\s*/?>|</p\s*>|</div\s*>", re.IGNORECASE)
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 # Tags draw.io actually writes. `List<String>` and `a < b > c` are text, and a
@@ -248,7 +240,6 @@ SHAPE_FAMILIES = (
     ("mxgraph.archimate", "archimate"),
 )
 
-# style key -> canonical shape name, checked in order
 SHAPE_KEYS = (
     ("swimlane", "swimlane"),
     ("ellipse", "ellipse"),
@@ -281,7 +272,6 @@ SHAPE_KEYS = (
 def classify_shape(style: dict[str, str]) -> str:
     raw = style.get("shape", "")
     if raw:
-        # An exact name wins over a prefix: "tableRow" starts with "table".
         for key, name in SHAPE_KEYS:
             if raw == key:
                 return name
@@ -306,11 +296,6 @@ def shape_family(shape: str) -> str:
     if shape.startswith("shape:"):
         return "custom"
     return shape
-
-
-# --------------------------------------------------------------------------
-# IR model
-# --------------------------------------------------------------------------
 
 
 @dataclass
@@ -402,7 +387,6 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             f"page {index}: cell limit exceeded (max {MAX_CELLS_PER_PAGE})"
         )
 
-    # Pass 1: collect raw cells, unwrapping <object>/<UserObject> containers.
     raw: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for element in root:
@@ -453,7 +437,6 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             hidden[seen] = result
         return result
 
-    # Pass 2: vertices (absolute geometry resolved after the pass).
     edge_label_parts: dict[str, list[str]] = {}
     relative_offsets: dict[str, tuple[float, float]] = {}
     for cid in order:
@@ -507,7 +490,6 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
 
     node_map = page.node_map
 
-    # Resolve absolute geometry + depth iteratively and reuse resolved prefixes.
     resolved_by_id: dict[str, tuple[float, float, int]] = {}
     for node in page.nodes:
         chain: list[Node] = []
@@ -546,7 +528,6 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             parent.children.append(node.id)
             parent.container = True
 
-    # Pass 3: edges.
     for cid in order:
         entry = raw[cid]
         cell = entry["cell"]
@@ -609,11 +590,6 @@ def parse_file(path: Path) -> list[Page]:
     return [parse_page(d, i) for i, d in enumerate(diagrams)]
 
 
-# --------------------------------------------------------------------------
-# structural analysis — signals, not decisions
-# --------------------------------------------------------------------------
-
-
 
 
 def _aligned(boxes: list[Node], tolerance: float = 8.0) -> bool:
@@ -652,7 +628,6 @@ def analyze(page: Page) -> dict[str, Any]:
     sinks = [name_of(n) for n in leaves if n.in_degree and not n.out_degree]
     orphans = [name_of(n) for n in leaves if not n.in_degree and not n.out_degree]
 
-    # Type candidates, strongest signal first. Advisory only.
     candidates: list[str] = []
     if shapes.get("lifeline"):
         candidates.append("sequence")
@@ -679,8 +654,6 @@ def analyze(page: Page) -> dict[str, Any]:
     seen: set[str] = set()
     candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
-    # Collapse candidates: containers whose children are all leaves, and
-    # fan-out clusters — the first things to merge when simplifying.
     collapsible = [
         {
             "id": c.id,
@@ -717,11 +690,6 @@ def analyze(page: Page) -> dict[str, Any]:
         "over_node_budget": len(drawable) > 9,
         "over_edge_budget": len(edges) > 12,
     }
-
-
-# --------------------------------------------------------------------------
-# rendering the digest
-# --------------------------------------------------------------------------
 
 
 def page_bounds(page: Page) -> tuple[float, float, float, float]:

@@ -8,7 +8,6 @@ import { AgentsWidget } from "./widget.js";
 
 const WIDGET_KEY = "subagents";
 
-/** The shortcut that opens the viewer; the widget advertises it. */
 export const VIEWER_SHORTCUT = "alt+a";
 
 type PresenterContext = Pick<ExtensionContext, "cwd" | "mode" | "ui">;

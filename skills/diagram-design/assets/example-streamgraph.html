@@ -104,13 +104,6 @@
         <rect width="100%" height="100%" fill="#f5f5f5" />
         <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
 
-        <!-- Symmetric baseline: every period is centred on y=230, so the top and
-           bottom of the envelope always average to the midline and the envelope
-           height IS the weekly total at 1.25px per minute. Shared boundaries use
-           straight segments between exact cumulative values. Adjacent layers reuse
-           the same boundary; nonnegative endpoint thicknesses stay nonnegative
-           between periods, and Docs stays at zero throughout W05–W06. The generic
-           structural checker does not verify quantitative geometry or data fidelity. -->
         <text
           transform="rotate(-90 24 230)"
           x="24"
@@ -124,8 +117,6 @@
           BUILD MINUTES PER WEEK
         </text>
 
-        <!-- No y-axis ticks: the form is about the shape of the envelope and the
-           layers inside it; per-pipeline totals are printed in the legend. -->
         <path
           data-layer="Docs"
           data-values="8,9,7,6,0,0,5,7,8,8,9,9"
@@ -150,10 +141,6 @@
           stroke="#f5f5f5"
           stroke-width="1"
         />
-        <!-- End-to-end FOCAL: the accent marks the editorially focal layer —
-           the pipeline whose growth is the story — and it is also the one
-           eating the budget. Every other layer rides the ink-opacity ramp,
-           strongest tone on the largest pipeline. -->
         <path
           data-layer="End-to-end"
           data-values="12,15,19,26,34,45,58,72,85,96,108,118"
@@ -171,8 +158,6 @@
           stroke-width="1"
         />
 
-        <!-- One landmark, one hairline: the week the end-to-end suite becomes the
-           largest pipeline. Nothing else is annotated — the shape is the story. -->
         <line
           x1="640"
           y1="52"
@@ -350,7 +335,6 @@
           W12
         </text>
 
-        <!-- Legend -->
         <line
           x1="40"
           y1="462"

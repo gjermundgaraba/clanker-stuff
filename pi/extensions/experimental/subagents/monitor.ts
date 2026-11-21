@@ -252,7 +252,6 @@ export class Monitor {
     }
   }
 
-  /** Forgets the activity of a runtime that is going away. */
   clear(path: string): void {
     this.#tracks.delete(path);
   }

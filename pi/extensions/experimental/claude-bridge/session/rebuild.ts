@@ -72,7 +72,6 @@ export interface Rebuild {
   previous: string | undefined;
 }
 
-/** Delete a session nothing will resume again. */
 export const discardSession = (sessionId: string, cwd: string): void => {
   try {
     deleteSession(sessionId, cwd, claudeDir());

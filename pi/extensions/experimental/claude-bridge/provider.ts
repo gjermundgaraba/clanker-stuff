@@ -57,7 +57,6 @@ export const CONTINUE_PROMPT =
   "result you were waiting for. Continue the task from there.]";
 
 export interface ProviderDeps {
-  /** The pi sessions this load of the extension serves, and how it starts queries. */
   sessions: Sessions;
   /** Pi's registered tools, whose prompt guidelines extend their MCP descriptions. */
   piTools: () => readonly ToolInfo[];
@@ -432,7 +431,6 @@ export const catalogNotice = (provider: Provider): string | undefined =>
     ? "claude-bridge: pi-ai's Anthropic catalog has no models; update @earendil-works/pi-ai"
     : undefined;
 
-/** Serve a pi session from its start, showing the catalog notice there when there is one. */
 export const startSession = (
   sessions: Sessions,
   notice: string | undefined,

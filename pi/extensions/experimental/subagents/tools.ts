@@ -273,7 +273,6 @@ const TOOLS = {
     }),
 };
 
-/** Whether the named tool is one this extension registers and draws. */
 export const isCollaborationTool = (name: string): boolean =>
   Object.hasOwn(TOOLS, name);
 

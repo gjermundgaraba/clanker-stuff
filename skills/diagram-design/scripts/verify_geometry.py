@@ -134,17 +134,16 @@ PATH_NUMBER_RE = re.compile(r"[\s,]*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"
 # Arc flags are one character and may run into the next number: `A 8 8 0 0120 20`.
 PATH_FLAG_RE = re.compile(r"[\s,]*([01])")
 PATH_END_RE = re.compile(r"[\s,]*$")
-# Parameters each path command consumes per repetition.
 PATH_ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "T": 2, "C": 6, "S": 4, "A": 7, "Z": 0}
 
-AXIS_TOLERANCE = 0.5  # a segment this close to axis-aligned is orthogonal
-BORDER_TOLERANCE = 1.0  # a segment this close to a node edge lies on it
-BORDER_MIN_RUN = 4.0  # shorter shared runs are a port touching the edge, not a ride
-PORT_TOLERANCE = 4.0  # an endpoint this close to a node outline attaches to it
-CORNER_CLEARANCE = 8.0  # ports keep this far from a corner (primitives-core rule 1)
-SHARED_PORT_MIN = 12.0  # two ports on one edge keep at least this far apart (rule 4)
-SMALL_PORT_MIN = 8.0  # rule 4's floor for very small boxes...
-SMALL_EDGE = 48.0  # ...meaning an edge shorter than this
+AXIS_TOLERANCE = 0.5
+BORDER_TOLERANCE = 1.0
+BORDER_MIN_RUN = 4.0
+PORT_TOLERANCE = 4.0
+CORNER_CLEARANCE = 8.0
+SHARED_PORT_MIN = 12.0
+SMALL_PORT_MIN = 8.0
+SMALL_EDGE = 48.0
 
 
 def attribute(attrs: str, name: str) -> str | None:
@@ -162,10 +161,10 @@ def number(attrs: str, name: str) -> float | None:
         return None
 
 
-Segment = tuple[str, float, float, float, float]  # (kind, x1, y1, x2, y2)
+Segment = tuple[str, float, float, float, float]
 
 
-CHORD_LENGTH = 2.0  # curves are flattened into chords about this long
+CHORD_LENGTH = 2.0
 
 
 def chord_count(points: list[tuple[float, float]]) -> int:
@@ -183,7 +182,7 @@ def bezier(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     for i in range(1, steps + 1):
         t = i / steps
         level = points
-        while len(level) > 1:  # de Casteljau
+        while len(level) > 1:
             level = [
                 (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
                 for a, b in zip(level, level[1:])
@@ -244,7 +243,7 @@ def path_segments(d: str) -> list[Segment] | None:
 
     segments: list[Segment] = []
     x = y = start_x = start_y = 0.0
-    previous_control: tuple[str, float, float] | None = None  # for S and T reflection
+    previous_control: tuple[str, float, float] | None = None
     command = ""
     pos = 0
     while not PATH_END_RE.match(d, pos):
@@ -257,14 +256,14 @@ def path_segments(d: str) -> list[Segment] | None:
                 x, y = start_x, start_y
                 continue
         elif not command or command in "Zz":
-            return None  # numbers before the first command or after a closepath
+            return None
         upper = command.upper()
         args: list[float] = []
         for slot in range(PATH_ARITY[upper]):
             pattern = PATH_FLAG_RE if upper == "A" and slot in (3, 4) else PATH_NUMBER_RE
             match = pattern.match(d, pos)
             if not match:
-                return None  # truncated arguments or an unexpected character
+                return None
             args.append(float(match.group(1)))
             pos = match.end()
         relative = command.islower()
@@ -277,7 +276,7 @@ def path_segments(d: str) -> list[Segment] | None:
             nx, ny = args[-2] + ox, args[-1] + oy
         if upper == "M":
             x, y = start_x, start_y = nx, ny
-            command = "l" if relative else "L"  # implicit lineto after moveto
+            command = "l" if relative else "L"
             previous_control = None
             continue
         if upper in "LHV":
@@ -337,7 +336,7 @@ def shapes(source: str):
     stack: list[Offset | None] = []
     containers: list[str] = []
     for match in TAG_RE.finditer(source):
-        if match.group("tag") is None:  # Inert comments cannot change paint custody.
+        if match.group("tag") is None:
             continue
         tag, attrs = match.group("tag").lower(), match.group("attrs")
         if tag in {"g", "svg"} or tag in DEFINITION_TAGS:
@@ -383,10 +382,9 @@ def connectors(source: str) -> list[tuple[int, str, list[Segment] | None]]:
             continue
         line = source.count("\n", 0, start) + 1
         if tag == "line":
-            coords = [number(attrs, key) for key in ("x1", "y1", "x2", "y2")]
-            if None in coords:
+            x1, y1, x2, y2 = (number(attrs, key) for key in ("x1", "y1", "x2", "y2"))
+            if x1 is None or y1 is None or x2 is None or y2 is None:
                 continue
-            x1, y1, x2, y2 = coords  # type: ignore[misc]
             segments: list[Segment] | None = [("line", x1, y1, x2, y2)]
             label = f"<line {x1:g},{y1:g} -> {x2:g},{y2:g}>"
         else:
@@ -406,7 +404,9 @@ def stroked_nodes(source: str) -> list[Rect]:
         if tag != "rect" or frame is None:
             continue
         x, y, w, h = (number(attrs, key) for key in ("x", "y", "width", "height"))
-        if None in (x, y, w, h) or w < NODE_MIN_W or h < NODE_MIN_H:  # type: ignore[operator]
+        if x is None or y is None or w is None or h is None:
+            continue
+        if w < NODE_MIN_W or h < NODE_MIN_H:
             continue
         stroke = (attribute(attrs, "stroke") or "none").strip().lower()
         if stroke in {"none", "transparent"} or number(attrs, "stroke-width") == 0:
@@ -519,8 +519,8 @@ def check_connectors(path: Path, source: str) -> list[str]:
     return findings
 
 
-STACK_TOLERANCE = 1.0  # strokes this close are drawn on top of each other
-SAMPLE_STEP = 1.0  # distance between samples when measuring a shared run
+STACK_TOLERANCE = 1.0
+SAMPLE_STEP = 1.0
 
 
 def bounds(segments: list[Segment], pad: float) -> tuple[float, float, float, float]:
@@ -647,7 +647,7 @@ def check(path: Path) -> list[str]:
     for mask in masks:
         for node in nodes:
             if node.offset <= mask.offset:
-                continue  # painted before the label; the label stays on top
+                continue
             dx, dy = overlap(mask, node)
             if dx <= 1.0 or dy <= 1.0 or contained(mask, node):
                 continue

@@ -62,7 +62,6 @@ class DrawioTests(unittest.TestCase):
             source.write_text("<mxfile>" + "<diagram/>" * (drawio.MAX_PAGES + 1) + "</mxfile>")
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 drawio.parse_file(source)
-        # The helper contributes two root cells; the cap counts all direct children.
         drawio_page(['<mxCell/>' for _ in range(drawio.MAX_CELLS_PER_PAGE - 2)])
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             drawio_page(['<mxCell/>' for _ in range(drawio.MAX_CELLS_PER_PAGE - 1)])
@@ -178,7 +177,6 @@ class MermaidTests(unittest.TestCase):
         parsed = mermaid_diagram("flowchart LR;" + statement + "; B --> C")
         self.assertEqual(len(parsed.nodes), 3)
         self.assertEqual(len(parsed.edges), 1)
-        # Closed and still-open oversized statements both fail before further parsing.
         for oversized in (statement + "x", 'A["' + "x" * mermaid.MAX_STATEMENT_CHARS):
             with self.subTest(oversized=oversized[-8:]):
                 with contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(SystemExit):

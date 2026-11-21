@@ -104,15 +104,6 @@
         <rect width="100%" height="100%" fill="#f5f5f5" />
         <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
 
-        <!-- Cell grid: 6 columns (x=160,280,400,520,640,760), 5 rows (y=64,124,184,244,304).
-           Cell size 116×56, gap 4px (col step=120, row step=60).
-           Fill: single ink ramp for non-focal cells — opacity = max(0.07, value/9·0.65).
-           Focal cell (payments·S4) uses the accent fill and carries data-focal="true".
-           Review monotone opacity against the declared values, complete 5×6 coverage,
-           and the single focal cell against the source data. The generic structural
-           checker does not verify this encoding or data fidelity. -->
-
-        <!-- SERVICE axis label (rotated) -->
         <text
           transform="rotate(-90 24 212)"
           x="24"
@@ -126,7 +117,6 @@
           SERVICE
         </text>
 
-        <!-- SPRINT axis label -->
         <text
           x="518"
           y="36"
@@ -139,7 +129,6 @@
           SPRINT
         </text>
 
-        <!-- Column headers -->
         <text
           data-axis="0"
           data-col="S1"
@@ -219,7 +208,6 @@
           S6
         </text>
 
-        <!-- Row labels -->
         <text
           data-row-label="auth"
           x="148"
@@ -276,7 +264,6 @@
           notifications
         </text>
 
-        <!-- Row: auth (y=64) — values 4,5,6,3,2,2 -->
         <rect x="160" y="64" width="116" height="56" fill="#f5f5f5" />
         <rect
           data-row="auth"
@@ -409,7 +396,6 @@
           2%
         </text>
 
-        <!-- Row: payments (y=124) — values 3,4,5,47(focal),6,4 -->
         <rect x="160" y="124" width="116" height="56" fill="#f5f5f5" />
         <rect
           data-row="payments"
@@ -476,7 +462,6 @@
           5%
         </text>
 
-        <!-- FOCAL CELL: payments·S4 = 47% deploy regression -->
         <rect x="520" y="124" width="116" height="56" fill="#f5f5f5" />
         <rect
           data-row="payments"
@@ -558,7 +543,6 @@
           4%
         </text>
 
-        <!-- Row: api-gateway (y=184) — values 2,3,4,2,1,1 -->
         <rect x="160" y="184" width="116" height="56" fill="#f5f5f5" />
         <rect
           data-row="api-gateway"
@@ -691,7 +675,6 @@
           1%
         </text>
 
-        <!-- Row: billing (y=244) — values 5,7,9,6,4,3 -->
         <rect x="160" y="244" width="116" height="56" fill="#f5f5f5" />
         <rect
           data-row="billing"
@@ -824,7 +807,6 @@
           3%
         </text>
 
-        <!-- Row: notifications (y=304) — values 1,2,2,2,1,1 -->
         <rect x="160" y="304" width="116" height="56" fill="#f5f5f5" />
         <rect
           data-row="notifications"
@@ -957,7 +939,6 @@
           1%
         </text>
 
-        <!-- Legend -->
         <line
           x1="40"
           y1="382"
@@ -988,7 +969,6 @@
           ILLUSTRATIVE CI FAILURE RATES · NOT A MEASURED REGISTRY
         </text>
 
-        <!-- Ink ramp strip: 8 steps low→high -->
         <rect x="120" y="386" width="20" height="12" fill="#f5f5f5" />
         <rect
           x="120"
@@ -1073,7 +1053,6 @@
           HIGH
         </text>
 
-        <!-- Focal accent swatch -->
         <rect x="360" y="386" width="20" height="12" fill="#f5f5f5" />
         <rect
           x="360"
@@ -1094,7 +1073,6 @@
           payments · S4 · 47% — deploy regression (now fixed)
         </text>
 
-        <!-- Scale note -->
         <text
           x="40"
           y="418"
