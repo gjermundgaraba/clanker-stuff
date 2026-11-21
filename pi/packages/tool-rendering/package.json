@@ -18,6 +18,7 @@
     "directory": "pi/packages/tool-rendering"
   },
   "files": [
+    "card.ts",
     "layout.ts",
     "preview.ts",
     "text.ts",
@@ -26,6 +27,7 @@
   ],
   "type": "module",
   "exports": {
+    "./card": "./card.ts",
     "./preview": "./preview.ts",
     "./text": "./text.ts",
     "./layout": "./layout.ts"

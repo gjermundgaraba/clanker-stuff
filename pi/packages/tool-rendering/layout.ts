@@ -1,8 +1,17 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export const fit = (text: string, width: number): string =>
   truncateToWidth(text, width, "…", true);
+
+/** `left` and `right` on one row of `width`, dropping `right` when both do not fit. */
+export const spread = (left: string, right: string, width: number): string => {
+  const room = width - visibleWidth(left) - visibleWidth(right);
+
+  return right !== "" && room >= 2
+    ? `${left}${" ".repeat(room)}${right}`
+    : fit(left, width);
+};
 
 export const renderScrollbar = (
   theme: Theme,
