@@ -1,6 +1,6 @@
 ---
 name: effect-codebase
-description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, assessing/adopting house style, setting up an Effect repository's `AGENTS.md`, or setting or reviewing how packages declare, pin and upgrade dependencies (Effect peer ranges, catalogs, the pnpm release-age gate, Vite+ toolchain pins, GitHub Actions pins). Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
+description: "Codebase organization and project conventions for Effect TypeScript (`effect` or `@effect/*`). Use when designing or reviewing domain boundaries, folder layout, placement of services, adapters, and composition roots, planning restructures, assessing/adopting house style, setting up an Effect repository's agent setup (its `AGENTS.md` Effect section and the `.agents/repos/effect` source clone), or setting or reviewing how packages declare, pin and upgrade dependencies (Effect peer ranges, catalogs, the pnpm release-age gate, Vite+ toolchain pins, GitHub Actions pins). Routine Effect implementation, debugging, API questions, and isolated service reviews do not need this skill."
 metadata:
   upstream-source: "https://ratstack.sh/lore/structure-effect-by-domain"
   upstream-relationship: "reference"
@@ -37,7 +37,7 @@ metadata:
 
 # Effect codebase
 
-Design or review an Effect codebase's organization and project conventions. This skill owns three things: the by-domain layout (folders, where services, Layers, ports, and adapters live, and the order of a restructure), the house style that goes with it (how operations, errors, tests, comments, and enforcement are handled), and the dependency conventions (how a library, a CLI and the workspace declare, pin and upgrade their dependencies). It does not teach Effect APIs: take mechanics from the project's pinned Effect version and its existing conventions.
+Design or review an Effect codebase's organization and project conventions. This skill owns three things: the by-domain layout (folders, where services, Layers, ports, and adapters live, and the order of a restructure), the house style that goes with it (how operations, errors, tests, comments, and enforcement are handled), and the dependency conventions (how a library, a CLI and the workspace declare, pin and upgrade their dependencies). It does not teach Effect APIs: take mechanics from the project's pinned Effect version, through the docs and source the [agent setup](#effect-agent-setup) points to, and from its existing conventions.
 
 ## Rules
 
@@ -87,14 +87,34 @@ The repository's own conventions outrank this skill: its lint and test policy, n
 
 **Write the decision down.** When a project adopts this layout, record it where the repository keeps such decisions, usually the README or `AGENTS.md`: the domains, where ports and adapters live, where Layers are provided, and which house-style practices are in force. A structural choice that exists only in a conversation gets reopened by the next reviewer.
 
-## The Effect section in `AGENTS.md`
+## Effect agent setup
 
-Every Effect repository's `AGENTS.md` carries this section, word for word, outside any generated block such as Vite+'s. Match the heading to the file's top-level section level. Add it when the repository is set up, or when you find it missing, provided the installed `effect` ships `AGENTS.md`; check that `node_modules/effect/AGENTS.md` exists in at least one package. Standing: house choice.
+Every Effect repository gives its agents two things: a shallow clone of Effect's source, and a section in `AGENTS.md` that points to it and to the installed docs. Add both when the repository is set up, or when you find either missing or outdated, provided the installed `effect` ships `AGENTS.md`: check that `node_modules/effect/AGENTS.md` exists in at least one package. Earlier versions ship neither the docs the section points to nor the guides the clone is for. Standing: house choice.
+
+### The source clone
+
+npm ships Effect's `AGENTS.md`, `ai-docs/` and types, but not `MIGRATION.md`, the guides under `packages/effect/` such as `SCHEMA.md`, or the tests. The clone supplies them at the version the code compiles against, for `effect` and for the lockstep `@effect/*` packages, which share its tag's commit.
+
+- Clone `Effect-TS/effect` at the tag of the installed `effect`, which takes the form `effect@<version>`:
+
+  ```sh
+  git clone --depth 1 --branch effect@<version> https://github.com/Effect-TS/effect .agents/repos/effect
+  ```
+
+  Take the version from the lockfile, not the declared range. When the workspace resolves more than one `effect`, clone the newest and report the split: under the dependency rules it is a finding.
+
+- Add `.agents/repos/` to `.gitignore`. The clone carries its own `package.json` files, `pnpm-workspace.yaml` and `.agents/`, so check that the repository's workspace discovery and its test, lint, format and type-check runs skip it; exclude it explicitly from any that does not.
+- The clone is read-only. Do not edit, commit or fetch history in it: comparing versions, as `bump-effect` does, needs a full checkout elsewhere.
+- When `effect` moves to another version, delete the clone and clone again at the new tag. Check its tag with `git -C .agents/repos/effect tag --points-at HEAD --list 'effect@*'`.
+
+### The Effect section in `AGENTS.md`
+
+Every Effect repository's `AGENTS.md` carries this section, word for word, outside any generated block such as Vite+'s. Match the heading to the file's top-level section level. Replace any earlier wording of it with this one.
 
 ```md
 ## Effect
 
-Before writing or reviewing Effect code, read `node_modules/effect/AGENTS.md` in the package you are changing and the examples it links under `ai-docs/`. They ship with the installed `effect`, so they match the APIs the code compiles against. For exact signatures, read that package's installed source and types in `node_modules/effect` and `node_modules/@effect/*`. Do not write Effect APIs from memory or from examples for another version.
+Before writing or reviewing Effect code, read `node_modules/effect/AGENTS.md` in the package you are changing and the examples it links under `ai-docs/`. They ship with the installed `effect`, so they match the APIs the code compiles against. For exact signatures, read that package's installed source and types in `node_modules/effect` and `node_modules/@effect/*`. For what npm does not ship, such as `MIGRATION.md`, the guides under `packages/effect/` and the tests, read `.agents/repos/effect`, a shallow clone of `Effect-TS/effect` at the installed version's tag. If it is missing, or `git -C .agents/repos/effect tag --points-at HEAD --list 'effect@*'` names another version, delete it and clone again with `git clone --depth 1 --branch effect@<version> https://github.com/Effect-TS/effect .agents/repos/effect`. Do not write Effect APIs from memory or from examples for another version.
 ```
 
 Keep the paragraph verbatim so a grep finds every copy. Project rules go in their own sections, not in this one.

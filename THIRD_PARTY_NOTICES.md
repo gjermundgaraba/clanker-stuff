@@ -9,7 +9,6 @@ Third-party sources and licenses are listed below. Skill provenance is recorded 
 | Claude Code provider port | [`pi/extensions/experimental/claude-bridge/`](pi/extensions/experimental/claude-bridge/), derived from v0.9.3 (`874fa7c`) | [elidickinson/pi-claude-bridge](https://github.com/elidickinson/pi-claude-bridge) | [MIT](pi/extensions/experimental/claude-bridge/LICENSE.pi-claude-bridge) |
 | Architecture-review skill | [`skills/architecture-review/`](skills/architecture-review/SKILL.md) | [poteto/how](https://github.com/poteto/how) | [MIT](skills/architecture-review/LICENSE) |
 | Diagram-design skill | [`skills/diagram-design/`](skills/diagram-design/SKILL.md) | [cathrynlavery/diagram-design](https://github.com/cathrynlavery/diagram-design) | [MIT](skills/diagram-design/LICENSE) |
-| Effect skill and references | [`skills/effect/`](skills/effect/SKILL.md) | [kitlangton/skills](https://github.com/kitlangton/skills) | [MIT](skills/effect/LICENSE) |
 | Humanizer skill | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [blader/humanizer](https://github.com/blader/humanizer) | [MIT](skills/humanizer/LICENSE) |
 | Additional humanizer guidance | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin) | [MIT](skills/humanizer/LICENSE.ce-noslop) |
 | Humanizer plain-speech guidance | [`skills/humanizer/`](skills/humanizer/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/humanizer/LICENSE.unslop) |

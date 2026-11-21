@@ -22,7 +22,7 @@ How an Effect project on pnpm and Vite+ declares, pins and upgrades its dependen
 ## Upgrading
 
 - **Vite+.** Run `vp migrate --no-interactive`, read its diff, and revert anything it changed inside a vendored subtree. Then validate.
-- **Effect.** Move `effect` and every lockstep `@effect/*` package to one version together; independently versioned tools such as `@effect/tsgo` move to their own latest. A library changes only its development pins unless rule 2 calls for a new floor.
+- **Effect.** Move `effect` and every lockstep `@effect/*` package to one version together; independently versioned tools such as `@effect/tsgo` move to their own latest. A library changes only its development pins unless rule 2 calls for a new floor. Clone `.agents/repos/effect` again at the new tag, as the skill's agent setup describes.
 - **Everything else.** `vp outdated -r`, then edit catalogs and manifests by hand so each change stays its own commit. A package whose new version breaks the build and needs more than a fix is held back and reported.
 - **pnpm.** Since pnpm 12.17, `vp exec pnpm outdated` and `vp exec pnpm update` also cover the pnpm version in `devEngines.packageManager`, so they can bump pnpm. They inspect and update `devEngines.runtime`, `engines.runtime` and `runtime:` dependencies as well. Revert any runtime change they make: the exact Node is bumped by hand in the Node step (rule 11), and an `engines` floor must not rise with the development version.
 - **Node.** Change `.node-version`, and every Dockerfile's `FROM node:` tag and digest, in the same commit. Resolve the digest with `docker buildx imagetools inspect node:<version>-trixie-slim`.
