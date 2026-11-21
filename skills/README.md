@@ -20,4 +20,4 @@ Source identities and baseline revisions live in `SKILL.md` metadata; licenses t
 
 ## Helper requirements and validation
 
-`vp run ready` includes the Python diagram and librarian suites as well as JavaScript/TypeScript helper tests. Python helpers require Python 3.10 or newer; `vp run check:skills` runs just the Python suites.
+`vp run check:skills` runs the Python test suites for `diagram-design` and `no-comments`. They require Python 3.10 or newer and also run as part of `vp run ready`.

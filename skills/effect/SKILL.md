@@ -31,7 +31,7 @@ Resolve `node_modules/effect` from the package being changed:
 - `src/`: types and JSDoc, which record gotchas. These are the API authority; where prose disagrees, the types win.
 - `node_modules/@effect/vitest/README.md`: test helpers.
 
-`MIGRATION.md`, `migration/`, and `packages/effect/{SCHEMA,CONFIG,HTTPAPI}.md` are not on npm. Read them at the tag matching the installed version, from a checkout of `Effect-TS/effect` (see the `librarian` skill). `https://effect.website/docs/v4/<guide-path>.md` serves the website guides as Markdown; it is unversioned, so verify it against the types.
+`MIGRATION.md`, `migration/`, and `packages/effect/{SCHEMA,CONFIG,HTTPAPI}.md` are not on npm. Read them at the tag matching the installed version, from a local checkout of `Effect-TS/effect`. `https://effect.website/docs/v4/<guide-path>.md` serves the website guides as Markdown; it is unversioned, so verify it against the types.
 
 ## Boundaries
 
