@@ -272,6 +272,7 @@ SHAPE_KEYS = (
 def classify_shape(style: dict[str, str]) -> str:
     raw = style.get("shape", "")
     if raw:
+        # An exact name wins over a prefix: "tableRow" starts with "table".
         for key, name in SHAPE_KEYS:
             if raw == key:
                 return name
@@ -387,6 +388,7 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             f"page {index}: cell limit exceeded (max {MAX_CELLS_PER_PAGE})"
         )
 
+    # Pass 1: collect raw cells, unwrapping <object>/<UserObject> containers.
     raw: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for element in root:

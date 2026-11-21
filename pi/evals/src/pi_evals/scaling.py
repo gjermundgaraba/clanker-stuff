@@ -37,6 +37,7 @@ def ledger_comparison(model=None, thinking=None):
 
 
 def copy_scaling_module(filename: str, destination: Path) -> None:
+    # Task assets share one directory; in the source tree verifiers are separate.
     source = ASSETS / filename
     shutil.copy(source, destination)
     target = destination / filename
@@ -146,6 +147,7 @@ def source_hashes():
         ),
         "profiles": ("code-mode.yaml", "native-codex.yaml"),
         "verifiers": ("tool-mode-core.mjs", "native-codex.mjs", "comparison.mjs", "records.mjs"),
+        # The lockfile pins Harbor and the other Python execution dependencies.
         ".": ("pyproject.toml", "uv.lock"),
     }
     return {
@@ -199,6 +201,7 @@ def prepare(output: Path, catalog: Path, model=None, thinking=None) -> None:
         for size in SIZES:
             task = generate_task(output, size, seed, replicate, expected)
             images[task.name] = build_image(output, task, version, base)
+            # task.toml names the image digest, so the task is complete only now.
             lint_generated_task(task)
             settings = json.loads((task / "environment/case.json").read_text())
             fixtures[task.name] = settings

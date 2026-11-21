@@ -552,6 +552,8 @@ def load_blocks(path: Path) -> list[SourceBlock]:
             add(start_line, text, kind, error)
         return collected
 
+    # Every fence is tracked, as the Mermaid importer does, so a plantuml
+    # fence quoted inside another fence (a Markdown example) is not imported.
     lines = source.splitlines()
     start: int | None = None
     fence = ""
@@ -911,7 +913,7 @@ def _parse_declaration_tail(
         if not alias or not (alias.group("quoted") or alias.group("bare")):
             malformed()
         if alias.group("quoted") is not None and not quoted_display:
-            node_id, label = display, alias.group("quoted")
+            node_id, label = display, alias.group("quoted")  # `L as "Long Name"`
         else:
             node_id = alias.group("quoted") if alias.group("quoted") is not None else alias.group("bare")
         position = alias.end()
@@ -1028,7 +1030,7 @@ def _scan_arrow(text: str, kind: str) -> tuple[str, re.Match[str], str] | None:
                 continue
         else:
             if left_head in {"o", "x"} and not (before.isspace() or before == '"'):
-                continue
+                continue  # the `o` ends a name such as `Foo--Bar`
             body = len(match.group("body1")) + len(match.group("body2"))
             if not (left_head or right_head) and (
                 body < 2 or not (before.isspace() or before == '"')
@@ -1288,6 +1290,9 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
         right, actions = _activation_shortcut(right)
         if left in {"[", "?"} or right in {"]", "?"}:
             _fail(f"unsupported sequence construct: boundary message at line {line_number}")
+        # Both ends must be one whole name (or an inline `as` declaration).
+        # Shortcuts follow the second participant only, so `A ++ -> B`
+        # fails here too. Participants are created in source order.
         edge_error = f"malformed edge at line {line_number}"
         source = lifeline(left, edge_error, allow_as=True)
         target = lifeline(right, edge_error, allow_as=True)
@@ -1411,6 +1416,7 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
         activate = re.match(r"^(activate|deactivate|destroy)\s+(.+)$", text, re.I)
         if activate:
             action = activate.group(1).casefold()
+            # `activate A #red` colors the bar; the color is not a name.
             target = lifeline(
                 _strip_trailing_colors(activate.group(2)),
                 f"malformed statement at line {line_number}",
@@ -1427,6 +1433,7 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             message: int | None = None
             if not participants:
                 if position in {"left", "right"} and not of_prefix:
+                    # `note left: text` sits beside the message just sent.
                     if not diagram.edges:
                         _fail(f"malformed statement at line {line_number}")
                     message = len(diagram.edges)
@@ -1513,6 +1520,8 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             diagram.add_node(node_id, clean_label(display) or node_id, "class")
         return node_id
 
+    # Declarations register first. A link or note before `class A` inside the
+    # same package then resolves to that class instead of a new top-level one.
     pending_links: list[tuple[tuple[str, re.Match[str], str], int, list[str]]] = []
     pending_notes: list[tuple[str, str, str, int, list[str]]] = []
     skin = _SkinBlocks()
@@ -1563,7 +1572,7 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
                 continue
             name, label, stereotype, body = _parse_declaration_tail(rest, line_number)
             if body not in ([], ["{}"]):
-                _fail(f"malformed statement at line {line_number}")
+                _fail(f"malformed statement at line {line_number}")  # `package p { class A }`
             enclosing = scope()
             parent = enclosing[-1] if enclosing else None
             node_id = f"{parent}.{name}" if parent else name
