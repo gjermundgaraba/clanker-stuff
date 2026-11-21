@@ -11,14 +11,8 @@ const run = async (command: string, timeoutMs = 5000, cwd = "/") =>
 
 describe("runCondition", () => {
   it("reports the condition's exit code", async () => {
-    await expect(run("exit 0")).resolves.toStrictEqual({
-      exitCode: 0,
-      timedOut: false,
-    });
-    await expect(run("exit 3")).resolves.toStrictEqual({
-      exitCode: 3,
-      timedOut: false,
-    });
+    await expect(run("exit 0")).resolves.toBe(0);
+    await expect(run("exit 3")).resolves.toBe(3);
   });
 
   it("runs in the given directory", async () => {
@@ -26,31 +20,25 @@ describe("runCondition", () => {
 
     try {
       await expect(
-        run('test "$(pwd -P)" = "$(cd "$0" && pwd -P)"', 5000, directory)
-      ).resolves.toMatchObject({ exitCode: 1 });
-      await expect(
         run(
           `test "$(pwd -P)" = "$(cd ${JSON.stringify(directory)} && pwd -P)"`,
           5000,
           directory
         )
-      ).resolves.toMatchObject({ exitCode: 0 });
+      ).resolves.toBe(0);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
 
-  it("kills the whole process group on timeout and reports no exit code", async () => {
+  it("kills the whole process group on timeout", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "waits-check-"));
     const pidFile = path.join(directory, "pid");
 
     try {
-      const outcome = await run(
-        `sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`,
-        300
-      );
-
-      expect(outcome).toStrictEqual({ exitCode: null, timedOut: true });
+      await expect(
+        run(`sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`, 300)
+      ).resolves.toBe("timeout");
 
       const pid = Number(await readFile(pidFile, "utf8"));
       expect(() => process.kill(pid, 0)).toThrow(/ESRCH/u);
@@ -59,7 +47,7 @@ describe("runCondition", () => {
     }
   });
 
-  it("kills the group when aborted", async () => {
+  it("rejects when aborted", async () => {
     const controller = new AbortController();
 
     const pending = runCondition(
@@ -69,15 +57,12 @@ describe("runCondition", () => {
 
     controller.abort();
 
-    await expect(pending).resolves.toStrictEqual({
-      exitCode: null,
-      timedOut: false,
-    });
+    await expect(pending).rejects.toThrow(/killed/u);
   });
 
-  it("reports no exit code when the shell cannot start", async () => {
-    await expect(run("exit 0", 5000, "/does/not/exist")).resolves.toStrictEqual(
-      { exitCode: null, timedOut: false }
+  it("rejects when the shell cannot start", async () => {
+    await expect(run("exit 0", 5000, "/does/not/exist")).rejects.toThrow(
+      /ENOENT/u
     );
   });
 });

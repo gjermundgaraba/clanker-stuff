@@ -12,13 +12,11 @@ import { WakeGate } from "../gate.js";
 const setup = () => {
   const state = { idle: true, pending: false, work: true, delivered: 0 };
 
-  const ctx = {
-    isIdle: () => state.idle,
-    hasPendingMessages: () => state.pending,
-  };
-
   const gate = new WakeGate({
-    context: () => ctx,
+    context: () => ({
+      isIdle: () => state.idle,
+      hasPendingMessages: () => state.pending,
+    }),
     hasWork: () => state.work,
     deliver: () => {
       state.delivered += 1;
@@ -45,7 +43,7 @@ describe("WakeGate", () => {
     expect(state.delivered).toBe(1);
   });
 
-  it("holds the wake while the agent runs and delivers on settle", async () => {
+  it("holds the work while the agent runs and delivers on settle", async () => {
     const { gate, state } = setup();
     state.idle = false;
     gate.request();
@@ -57,19 +55,15 @@ describe("WakeGate", () => {
     expect(state.delivered).toBe(1);
   });
 
-  it("rechecks on its own after a dialog or compaction, which end without a settle", async () => {
+  it("holds the work during a dialog and delivers within a second after it", async () => {
     const { gate, state } = setup();
     gate.setPrompting(true);
-    await vi.advanceTimersByTimeAsync(2000);
+    gate.request();
+    await vi.advanceTimersByTimeAsync(3000);
     expect(state.delivered).toBe(0);
 
     gate.setPrompting(false);
-    gate.setCompacting(true);
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(state.delivered).toBe(0);
-
-    gate.setCompacting(false);
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(state.delivered).toBe(1);
   });
 

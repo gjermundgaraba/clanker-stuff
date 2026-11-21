@@ -1,71 +1,70 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
-import { snapshotSchema } from "xstate/persist";
 
-import { waitMachine } from "./machine.js";
+import { specSchema } from "./spec.js";
 
-export const WAIT_ENTRY = "waits:wait";
+export const OPENED = "waits:opened";
 
-const envelopeSchema = Type.Object({
-  v: Type.Literal(1),
-  id: Type.String({ minLength: 1 }),
-  owner: Type.String({ minLength: 1 }),
-  snapshot: Type.Unknown(),
-});
+export const ENDED = "waits:ended";
 
-const thisMachineSchema = Type.Object({
-  machine: Type.Object({
-    id: Type.Literal(waitMachine.id),
-    version: Type.Literal(waitMachine.version ?? ""),
-  }),
-});
+const openedSchema = Type.Object(
+  {
+    id: Type.String({ minLength: 1 }),
+    owner: Type.String({ minLength: 1 }),
+    spec: specSchema,
+    expiresAt: Type.Number(),
+  },
+  { additionalProperties: false }
+);
 
-const persistedWait = snapshotSchema(waitMachine)["~standard"];
+const endedSchema = Type.Object(
+  {
+    id: Type.String({ minLength: 1 }),
+    outcome: Type.Union([
+      Type.Literal("satisfied"),
+      Type.Literal("expired"),
+      Type.Literal("cancelled"),
+    ]),
+  },
+  { additionalProperties: false }
+);
 
-/** One journaled phase change: the whole persisted actor, keyed and owned. */
-export const waitEntry = (owner: string, id: string, snapshot: unknown) => ({
-  v: 1,
-  id,
-  owner,
-  snapshot,
-});
+export type Opened = Static<typeof openedSchema>;
 
-const parseSnapshot = async (data: unknown) => {
-  if (!Value.Check(thisMachineSchema, data)) {
-    return undefined;
-  }
-
-  const result = await persistedWait.validate(data);
-
-  return result.issues === undefined ? result.value : undefined;
-};
+export type Ended = Static<typeof endedSchema>;
 
 /**
- * The newest snapshot of every wait on the branch that `owner` opened. A
- * fork or clone copies the branch under a new session id, so it inherits
- * none. A newest entry from another machine version, or one that does
- * not fit this machine, drops the wait rather than reviving an older entry.
+ * The waits `owner` opened that have not ended, in opening order. It reads
+ * the whole session, across branches, because an outcome happened in the
+ * world, not on a branch. A fork or clone copies entries under a new session
+ * id, so it inherits none.
  */
-export const ownedWaits = async (
-  branch: readonly SessionEntry[],
+export const liveWaits = (
+  entries: readonly SessionEntry[],
   owner: string
-) => {
-  const latest = new Map<string, unknown>();
+): Opened[] => {
+  const opened = new Map<string, Opened>();
+  const ended = new Set<string>();
 
-  for (const entry of branch) {
+  for (const entry of entries) {
+    if (entry.type !== "custom") {
+      continue;
+    }
+
     if (
-      entry.type === "custom" &&
-      entry.customType === WAIT_ENTRY &&
-      Value.Check(envelopeSchema, entry.data) &&
+      entry.customType === OPENED &&
+      Value.Check(openedSchema, entry.data) &&
       entry.data.owner === owner
     ) {
-      latest.delete(entry.data.id);
-      latest.set(entry.data.id, entry.data.snapshot);
+      opened.set(entry.data.id, entry.data);
+    }
+
+    if (entry.customType === ENDED && Value.Check(endedSchema, entry.data)) {
+      ended.add(entry.data.id);
     }
   }
 
-  const parsed = await Promise.all([...latest.values()].map(parseSnapshot));
-
-  return parsed.filter((snapshot) => snapshot !== undefined);
+  return [...opened.values()].filter((wait) => !ended.has(wait.id));
 };

@@ -2,38 +2,38 @@
 
 ## Tools and command
 
-`wait_start({label, condition, instruction, cwd?, intervalSeconds?, timeoutSeconds?, checkTimeoutSeconds?})` opens a wait. The condition runs with `/bin/sh -c` in `cwd` (default: Pi's), in its own process group, with output discarded. It runs at once, then every `intervalSeconds` (default 15) until it exits 0. Each check is killed after `checkTimeoutSeconds` (default 30). `timeoutSeconds` (default 3600, at most 7 days) is an absolute deadline from the start, and time while Pi is closed counts.
+`wait_start({label, condition, instruction, intervalSeconds?, timeoutSeconds?, checkTimeoutSeconds?})` opens a wait. The condition runs with `/bin/sh -c` in Pi's working directory at the time, in its own process group, with output discarded. It runs at once, then every `intervalSeconds` (default 15) until it exits 0. Each check is killed after `checkTimeoutSeconds` (default 30). `timeoutSeconds` (default 3600) is an absolute deadline from the start; time while Pi is closed counts. Every duration is at most 24 days, because Node's `setTimeout` overflows past about 24.8.
 
-`wait_list({})` lists this branch's waits. `wait_cancel({id})` ends an open or satisfied wait without a wake. `/waits` shows the same list. In the TUI, `waits.open` shows ⏳ and the number of open or satisfied waits.
+`wait_list({})` and `/waits` list live waits: state, last check result, label and ID. `wait_cancel({id})` ends a live wait without a wake. In the TUI, `waits.open` shows ⏳ and the number of live waits.
 
 Write conditions that fail closed and prove freshness. Exit 0 must be evidence that this run finished, such as a result ID the agent has not used yet. Missing input or an earlier run's output must not pass.
 
 ## Lifecycle
 
-Each wait is an XState machine:
+Each live wait is an XState machine:
 
 ```text
 open ─┬─ checking ──exit≠0──▶ waiting ──after(interval)──▶ checking
-      │     └──exit 0───────────────────────────────▶ satisfied ──delivered──▶ fired
-      ├─ deadline ──▶ expired
-      └─ cancel ────▶ cancelled            (satisfied also accepts cancel)
+      │     └──exit 0──────────────────────────────▶ satisfied
+      └─ deadline ──▶ expired
 ```
 
-Every change of top-level phase is appended to the session as a `waits:wait` entry holding the actor's persisted snapshot. Polling between `checking` and `waiting` writes nothing. On `session_start` and `/tree` navigation, the newest entry of each wait on the current branch is restored with `xstate/persist`. Timers keep their original deadlines, so an overdue check runs at once, and a wait whose deadline passed while Pi was closed ends as expired. A check interrupted by shutdown runs again.
+The session journal records two facts per wait: `waits:opened` (ID, owning session, spec, deadline) when it opens, and `waits:ended` (`satisfied`, `expired` or `cancelled`) when it ends. Each is appended before it takes effect. On `session_start` every wait this session opened and has not ended gets a new actor, which checks at once and keeps the original deadline. A wait whose deadline passed while Pi was closed expires at once.
+
+Waits belong to the session, not to a branch: the journal is read across the whole session file, because an outcome happened in the world.
 
 | Event | Waits |
 | --- | --- |
-| `/reload` | Stop, then restore from the journal |
-| Quit, then relaunch the same session | Restore on startup; a satisfied wait wakes the agent with no prompt |
-| Pi killed (`kill -9`) | Same as quit: nothing is written at shutdown, so the journal is already complete |
-| `/resume` to the session | Restore |
-| `/new`, fork, clone | Nothing is inherited: entries carry the session id that opened them |
-| `/tree` | The waits of the new branch, as journaled there |
-
-Print and JSON modes refuse `wait_start`, because those processes end when their prompt does.
+| `/reload` | Stop, then resume from the journal |
+| Quit, then relaunch the same session | Resume on startup; a finished wait wakes the agent with no prompt |
+| Pi killed (`kill -9`) | Same as quit, since nothing is written at shutdown |
+| `/resume` to the session | Resume |
+| `/tree` | No change: an ended wait stays ended on every branch |
+| `/new`, fork, clone | Nothing is inherited: a copied `waits:opened` names its original session |
+| Print or JSON run | Refuses `wait_start` and resumes nothing, since the run ends with its prompt |
 
 ## Delivery
 
-A satisfied wait waits for Pi to be idle: no agent run, no queued message, no extension dialog and no compaction. Then each satisfied wait is journaled as `fired`, and a single `waits:wake` custom message is handed to Pi with `triggerTurn: true`. It contains each wait's ID, label and instruction. Journaling comes first, so delivery is at most once. A process that dies between the two steps loses that wake instead of repeating it, and `wait_list` still shows the wait as fired.
+A finished wait waits for Pi to be idle: no agent run, no queued message and no extension dialog. Then each finished wait is journaled as ended, and one `waits:wake` custom message is handed to Pi with `triggerTurn: true`. It names each wait and repeats its instruction; an expired wait says so and asks the agent not to act on it unless the condition holds now. Journaling comes first, so delivery is at most once: a process that dies between the two steps loses that wake instead of repeating it. If journaling fails, nothing is sent, a warning is shown, and delivery is tried again later.
 
 A wake says the condition held when it was checked. The agent should confirm the state before acting on it.

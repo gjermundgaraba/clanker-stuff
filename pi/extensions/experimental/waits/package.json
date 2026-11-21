@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/waits",
   "version": "0.1.0",
   "private": true,
-  "description": "Lets the agent wait on a shell condition that survives reload and quit, and wakes it once when the condition holds.",
+  "description": "Lets the agent wait on a shell condition that survives reload and quit, and wakes it once when the condition holds or the wait expires.",
   "keywords": [
     "pi-package"
   ],
@@ -19,6 +19,7 @@
   "files": [
     "index.ts",
     "tools.ts",
+    "spec.ts",
     "runtime.ts",
     "machine.ts",
     "check.ts",

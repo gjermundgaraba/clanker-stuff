@@ -9,7 +9,9 @@ import { createAgentSessionHarness } from "../../../../tests/harness/agent-sessi
 import type { AgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
 import extension from "../index.js";
+import { OPENED } from "../journal.js";
 import { WAKE_TYPE } from "../runtime.js";
+import type { StartRequest } from "../spec.js";
 
 const launch = async (directory: string, continueSession: boolean) =>
   await createAgentSessionHarness({
@@ -28,17 +30,20 @@ const quit = async (h: AgentSessionHarness) => {
   h.cleanup();
 };
 
-const entries = (h: AgentSessionHarness) => h.sessionManager.getEntries();
-
 const wakes = (h: AgentSessionHarness) =>
-  entries(h).filter(
-    (entry) => entry.type === "custom_message" && entry.customType === WAKE_TYPE
-  );
+  h.sessionManager
+    .getEntries()
+    .filter(
+      (entry) =>
+        entry.type === "custom_message" && entry.customType === WAKE_TYPE
+    );
 
 const prompts = (h: AgentSessionHarness) =>
-  entries(h).filter(
-    (entry) => entry.type === "message" && entry.message.role === "user"
-  );
+  h.sessionManager
+    .getEntries()
+    .filter(
+      (entry) => entry.type === "message" && entry.message.role === "user"
+    );
 
 const until = async (condition: () => boolean, timeoutMs = 5000) => {
   const deadline = Date.now() + timeoutMs;
@@ -52,26 +57,38 @@ const until = async (condition: () => boolean, timeoutMs = 5000) => {
   }
 };
 
-describe("a wait across quitting and relaunching the same session", () => {
+const settledAfterWake = (h: AgentSessionHarness, count: number) => () =>
+  wakes(h).length === count &&
+  h.getPendingResponseCount() === 0 &&
+  !h.session.isStreaming;
+
+const openWait = async (
+  h: AgentSessionHarness,
+  args: Pick<StartRequest, "condition" | "timeoutSeconds">
+) => {
+  h.setResponses([
+    fauxAssistantMessage(
+      fauxToolCall("wait_start", {
+        label: "job result",
+        instruction: "Consume the result once.",
+        intervalSeconds: 1,
+        ...args,
+      }),
+      { stopReason: "toolUse" }
+    ),
+    fauxAssistantMessage("Waiting; ending my turn."),
+  ]);
+  await h.prompt("Start the job and wait for it");
+};
+
+describe("a wait across restarts", () => {
   it("wakes the relaunched session once, unprompted, and never again", async () => {
     const directory = await createTempDir("waits-restart-");
     const marker = path.join(directory, "result.json");
 
     try {
       const first = await launch(directory, false);
-      first.setResponses([
-        fauxAssistantMessage(
-          fauxToolCall("wait_start", {
-            label: "job result",
-            condition: `test -f ${JSON.stringify(marker)}`,
-            instruction: "Consume the result once.",
-            intervalSeconds: 1,
-          }),
-          { stopReason: "toolUse" }
-        ),
-        fauxAssistantMessage("Waiting; ending my turn."),
-      ]);
-      await first.prompt("Start the job and wait for it");
+      await openWait(first, { condition: `test -f ${JSON.stringify(marker)}` });
 
       const file = first.sessionManager.getSessionFile();
 
@@ -80,7 +97,6 @@ describe("a wait across quitting and relaunching the same session", () => {
       }
 
       const beforeQuit = await readFile(file, "utf8");
-      expect(beforeQuit).toContain('"customType":"waits:wait"');
       await quit(first);
       await expect(readFile(file, "utf8")).resolves.toBe(beforeQuit);
 
@@ -90,15 +106,10 @@ describe("a wait across quitting and relaunching the same session", () => {
       second.setResponses([fauxAssistantMessage("Consumed it.")]);
 
       try {
-        await until(
-          () =>
-            wakes(second).length === 1 &&
-            second.getPendingResponseCount() === 0 &&
-            !second.session.isStreaming
-        );
+        await until(settledAfterWake(second, 1));
         expect(prompts(second)).toHaveLength(1);
         expect(JSON.stringify(wakes(second)[0])).toContain(
-          "Consume the result once."
+          "is satisfied: its condition exited 0"
         );
       } finally {
         await quit(second);
@@ -117,34 +128,59 @@ describe("a wait across quitting and relaunching the same session", () => {
     }
   });
 
-  it("restores nothing into a new session", async () => {
-    const directory = await createTempDir("waits-new-");
+  it("wakes once with an expiry when the deadline passed while Pi was closed", async () => {
+    const directory = await createTempDir("waits-expiry-");
 
     try {
       const first = await launch(directory, false);
-      first.setResponses([
-        fauxAssistantMessage(
-          fauxToolCall("wait_start", {
-            label: "never",
-            condition: "true",
-            instruction: "Nothing.",
-          }),
-          { stopReason: "toolUse" }
-        ),
-        fauxAssistantMessage("Waiting."),
-      ]);
-      await first.prompt("Wait for something");
+      await openWait(first, { condition: "false", timeoutSeconds: 1 });
       await quit(first);
+      await delay(1200);
 
-      const fresh = await launch(directory, false);
+      const second = await launch(directory, true);
+      second.setResponses([fauxAssistantMessage("Noted.")]);
 
       try {
-        await delay(500);
-        expect(wakes(fresh)).toHaveLength(0);
+        await until(settledAfterWake(second, 1));
+        expect(JSON.stringify(wakes(second)[0])).toContain(
+          "expired before its condition exited 0"
+        );
       } finally {
-        await quit(fresh);
+        await quit(second);
       }
     } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not wake again after navigating back to before the wait ended", async () => {
+    const directory = await createTempDir("waits-tree-");
+    const marker = path.join(directory, "result.json");
+    const h = await launch(directory, false);
+
+    try {
+      await openWait(h, { condition: `test -f ${JSON.stringify(marker)}` });
+      h.setResponses([fauxAssistantMessage("Consumed it.")]);
+      await writeFile(marker, "{}");
+      await until(settledAfterWake(h, 1));
+
+      const openedEntry = h.sessionManager
+        .getEntries()
+        .find(
+          (entry) => entry.type === "custom" && entry.customType === OPENED
+        );
+
+      if (openedEntry === undefined) {
+        throw new Error("The wait was not journaled");
+      }
+
+      await h.session.navigateTree(openedEntry.id);
+      await h.session.reload();
+      await delay(1500);
+
+      expect(wakes(h)).toHaveLength(1);
+    } finally {
+      await quit(h);
       await rm(directory, { recursive: true, force: true });
     }
   });

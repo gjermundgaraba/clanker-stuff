@@ -1,66 +1,47 @@
 import { randomBytes } from "node:crypto";
-import path from "node:path";
 
+import { errorMessage } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   ExtensionAPI,
   ExtensionContext,
-  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { createActor } from "xstate";
 import type { Actor } from "xstate";
-import { restoreActor } from "xstate/persist";
 
 import { WakeGate } from "./gate.js";
-import { ownedWaits, waitEntry, WAIT_ENTRY } from "./journal.js";
-import { phaseOf, waitMachine } from "./machine.js";
-import type { WaitSpec } from "./machine.js";
-import { rowOf, summaryOf, wakeText } from "./report.js";
-import type { WaitSummary } from "./report.js";
+import { ENDED, liveWaits, OPENED } from "./journal.js";
+import type { Ended, Opened } from "./journal.js";
+import { waitMachine } from "./machine.js";
+import type { WaitSnapshot } from "./machine.js";
+import { rowOf, wakeText } from "./report.js";
+import { DEFAULTS } from "./spec.js";
+import type { StartRequest } from "./spec.js";
 
 export const WAKE_TYPE = "waits:wake";
 
 const STATUS_KEY = "waits.open";
 
-type WaitActor = Actor<typeof waitMachine>;
-
-export interface OpenRequest {
-  readonly label: string;
-  readonly condition: string;
-  readonly instruction: string;
-  readonly cwd?: string;
-  readonly intervalSeconds?: number;
-  readonly timeoutSeconds?: number;
-  readonly checkTimeoutSeconds?: number;
+interface LiveWait {
+  readonly actor: Actor<typeof waitMachine>;
+  readonly stop: () => void;
 }
 
-export const DEFAULTS = {
-  intervalSeconds: 15,
-  timeoutSeconds: 3600,
-  checkTimeoutSeconds: 30,
-} as const;
-
-const isLive = (actor: WaitActor): boolean => {
-  const phase = phaseOf(actor.getSnapshot());
-
-  return phase === "open" || phase === "satisfied";
-};
+const outlivesPrompt = (ctx: ExtensionContext): boolean =>
+  ctx.mode === "tui" || ctx.mode === "rpc";
 
 /**
- * Owns this session's wait actors. Every top-level phase change is journaled
- * as a session entry before anything acts on it; on session start the
- * journal is the only source, so reload, quit and relaunch, and a killed
- * process all restore the same way.
+ * Owns this session's live waits. Each opening and each outcome is journaled
+ * before it takes effect, and on session start the journal alone decides
+ * which waits run, so reload, quit and relaunch, and a killed Pi all resume
+ * the same way.
  */
 export class WaitRuntime {
   private readonly pi: ExtensionAPI;
-  private readonly waits = new Map<string, WaitActor>();
-  private readonly stops: Array<() => void> = [];
+  private readonly waits = new Map<string, LiveWait>();
   private ctx: ExtensionContext | undefined;
-  private owner: string | undefined;
-  private generation = 0;
   readonly gate = new WakeGate({
     context: () => this.ctx,
-    hasWork: () => this.satisfied().length > 0,
+    hasWork: () => this.finished().length > 0,
     deliver: () => {
       this.deliver();
     },
@@ -70,195 +51,168 @@ export class WaitRuntime {
     this.pi = pi;
   }
 
-  async startSession(ctx: ExtensionContext): Promise<void> {
+  startSession(ctx: ExtensionContext): void {
     this.ctx = ctx;
-    this.owner = ctx.sessionManager.getSessionId();
-    await this.restore(ctx.sessionManager.getBranch());
-  }
 
-  async tree(ctx: ExtensionContext): Promise<void> {
-    this.stopAll();
-    this.ctx = ctx;
-    await this.restore(ctx.sessionManager.getBranch());
-  }
-
-  shutdown(): void {
-    this.stopAll();
-    this.gate.clear();
-
-    if (this.ctx?.mode === "tui") {
-      this.ctx.ui.setStatus(STATUS_KEY, undefined);
-    }
-
-    this.ctx = undefined;
-    this.owner = undefined;
-  }
-
-  open(request: OpenRequest, ctx: ExtensionContext): WaitSummary {
-    if (ctx.mode === "print" || ctx.mode === "json") {
-      throw new Error(
-        "Waits need a live TUI or RPC session; print mode exits when its prompt ends."
-      );
-    }
-
-    const spec: WaitSpec = {
-      label: request.label,
-      condition: request.condition,
-      instruction: request.instruction,
-      cwd: path.resolve(ctx.cwd, request.cwd ?? "."),
-      intervalMs: (request.intervalSeconds ?? DEFAULTS.intervalSeconds) * 1000,
-      timeoutMs: (request.timeoutSeconds ?? DEFAULTS.timeoutSeconds) * 1000,
-      checkTimeoutMs:
-        (request.checkTimeoutSeconds ?? DEFAULTS.checkTimeoutSeconds) * 1000,
-    };
-
-    const actor = createActor(waitMachine, {
-      input: {
-        id: `w_${randomBytes(4).toString("hex")}`,
-        spec,
-        openedAt: Date.now(),
-      },
-    });
-
-    this.track(actor);
-    this.journal(actor);
-
-    return summaryOf(actor.getSnapshot());
-  }
-
-  list(): WaitSummary[] {
-    return [...this.waits.values()].map((actor) =>
-      summaryOf(actor.getSnapshot())
-    );
-  }
-
-  cancel(id: string): WaitSummary {
-    const actor = this.waits.get(id);
-
-    if (!actor) {
-      throw new Error(`No wait ${id} on this branch.`);
-    }
-
-    if (!isLive(actor)) {
-      throw new Error(`Wait ${id} has already ended.`);
-    }
-
-    actor.send({ type: "wait.cancel" });
-
-    return summaryOf(actor.getSnapshot());
-  }
-
-  rows(): string {
-    const rows = this.list().map(rowOf);
-
-    return rows.length ? rows.join("\n") : "No waits on this branch.";
-  }
-
-  /** A restore overtaken by a stop or a newer restore starts nothing. */
-  private async restore(branch: readonly SessionEntry[]): Promise<void> {
-    const { generation, owner } = this;
-
-    if (owner === undefined) {
+    if (!outlivesPrompt(ctx)) {
       return;
     }
 
-    const snapshots = await ownedWaits(branch, owner);
+    const owner = ctx.sessionManager.getSessionId();
 
-    if (generation !== this.generation) {
-      return;
-    }
-
-    for (const snapshot of snapshots) {
-      this.track(restoreActor(waitMachine, snapshot));
+    for (const wait of liveWaits(ctx.sessionManager.getEntries(), owner)) {
+      this.start(wait);
     }
 
     this.showStatus();
     this.gate.request();
   }
 
-  /** Starts an actor and journals each later change of its top-level phase. */
-  private track(actor: WaitActor): void {
-    let phase = phaseOf(actor.getSnapshot());
+  shutdown(): void {
+    for (const wait of this.waits.values()) {
+      wait.stop();
+    }
+
+    this.waits.clear();
+    this.gate.clear();
+    this.showStatus();
+    this.ctx = undefined;
+  }
+
+  open(request: StartRequest, ctx: ExtensionContext): string {
+    if (!outlivesPrompt(ctx)) {
+      throw new Error(
+        "Waits need a live TUI or RPC session; print and JSON runs end with their prompt."
+      );
+    }
+
+    const wait: Opened = {
+      id: `w_${randomBytes(4).toString("hex")}`,
+      owner: ctx.sessionManager.getSessionId(),
+      spec: {
+        label: request.label,
+        condition: request.condition,
+        instruction: request.instruction,
+        cwd: ctx.cwd,
+        intervalSeconds: request.intervalSeconds ?? DEFAULTS.intervalSeconds,
+        checkTimeoutSeconds:
+          request.checkTimeoutSeconds ?? DEFAULTS.checkTimeoutSeconds,
+      },
+      expiresAt:
+        Date.now() + (request.timeoutSeconds ?? DEFAULTS.timeoutSeconds) * 1000,
+    };
+
+    this.pi.appendEntry(OPENED, wait);
+    this.start(wait);
+
+    return this.row(wait.id);
+  }
+
+  cancel(id: string): string {
+    const row = this.row(id);
+    this.end(id, "cancelled");
+
+    return row;
+  }
+
+  rows(): string {
+    const rows = [...this.waits.values()].map((wait) =>
+      rowOf(wait.actor.getSnapshot())
+    );
+
+    return rows.length ? rows.join("\n") : "No live waits in this session.";
+  }
+
+  private row(id: string): string {
+    const wait = this.waits.get(id);
+
+    if (!wait) {
+      throw new Error(`No live wait ${id} in this session.`);
+    }
+
+    return rowOf(wait.actor.getSnapshot());
+  }
+
+  private start(wait: Opened): void {
+    const actor = createActor(waitMachine, {
+      input: {
+        id: wait.id,
+        spec: wait.spec,
+        remainingMs: Math.max(0, wait.expiresAt - Date.now()),
+      },
+    });
 
     const subscription = actor.subscribe((snapshot) => {
-      const next = phaseOf(snapshot);
-
-      if (next === phase) {
-        return;
-      }
-
-      phase = next;
-      this.journal(actor);
-      this.showStatus();
-
-      if (next === "satisfied") {
+      if (snapshot.status === "done") {
         this.gate.request();
       }
     });
 
-    this.waits.set(actor.getSnapshot().context.id, actor);
-    this.stops.push(() => {
-      subscription.unsubscribe();
-      actor.stop();
+    this.waits.set(wait.id, {
+      actor,
+      stop: () => {
+        subscription.unsubscribe();
+        actor.stop();
+      },
     });
     actor.start();
     this.showStatus();
   }
 
-  private journal(actor: WaitActor): void {
-    if (this.owner !== undefined) {
-      this.pi.appendEntry(
-        WAIT_ENTRY,
-        waitEntry(
-          this.owner,
-          actor.getSnapshot().context.id,
-          actor.getPersistedSnapshot()
-        )
-      );
+  private end(id: string, outcome: Ended["outcome"]): void {
+    const wait = this.waits.get(id);
+
+    if (!wait) {
+      throw new Error(`No live wait ${id} in this session.`);
     }
+
+    this.pi.appendEntry(ENDED, { id, outcome } satisfies Ended);
+    wait.stop();
+    this.waits.delete(id);
+    this.showStatus();
   }
 
-  private satisfied(): WaitActor[] {
-    return [...this.waits.values()].filter(
-      (actor) => phaseOf(actor.getSnapshot()) === "satisfied"
-    );
+  private finished(): WaitSnapshot[] {
+    return [...this.waits.values()].flatMap((wait) => {
+      const snapshot = wait.actor.getSnapshot();
+
+      return snapshot.status === "done" ? [snapshot] : [];
+    });
   }
 
   /**
-   * Journals each satisfied wait as fired, then hands one wake to Pi. A
-   * process that dies between the two loses the wake rather than repeating
-   * it: at most once, because a repeated wake can act on a result twice.
+   * Journals each finished wait as ended, then hands one wake for them to
+   * Pi. A process that dies between the two loses the wake rather than
+   * repeating it: a repeated wake can act on a result twice.
    */
   private deliver(): void {
-    const ready = this.satisfied().map((actor) => {
-      actor.send({ type: "wait.delivered" });
+    const delivered: WaitSnapshot[] = [];
 
-      return actor.getSnapshot();
-    });
-
-    if (!ready.length) {
-      return;
+    try {
+      for (const snapshot of this.finished()) {
+        this.end(
+          snapshot.context.id,
+          snapshot.matches("satisfied") ? "satisfied" : "expired"
+        );
+        delivered.push(snapshot);
+      }
+    } catch (error) {
+      this.ctx?.ui.notify(
+        `A finished wait could not be recorded, so it was not delivered yet: ${errorMessage(error)}`,
+        "warning"
+      );
     }
 
-    this.pi.sendMessage(
-      {
-        customType: WAKE_TYPE,
-        content: wakeText(ready),
-        display: true,
-        details: { waits: ready.map(summaryOf) },
-      },
-      { triggerTurn: true }
-    );
-  }
-
-  private stopAll(): void {
-    this.generation += 1;
-
-    for (const stop of this.stops.splice(0)) {
-      stop();
+    if (delivered.length) {
+      this.pi.sendMessage(
+        {
+          customType: WAKE_TYPE,
+          content: wakeText(delivered),
+          display: true,
+        },
+        { triggerTurn: true }
+      );
     }
-
-    this.waits.clear();
   }
 
   private showStatus(): void {
@@ -268,11 +222,11 @@ export class WaitRuntime {
       return;
     }
 
-    const live = [...this.waits.values()].filter(isLive).length;
-
     ctx.ui.setStatus(
       STATUS_KEY,
-      live ? ctx.ui.theme.fg("accent", `⏳ ${live}`) : undefined
+      this.waits.size
+        ? ctx.ui.theme.fg("accent", `⏳ ${this.waits.size}`)
+        : undefined
     );
   }
 }

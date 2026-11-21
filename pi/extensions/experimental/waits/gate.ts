@@ -13,13 +13,12 @@ export interface GateTarget {
 }
 
 /**
- * Decides when a wake may be handed to Pi: only while it is idle, with no
- * queued message, extension dialog or compaction in progress. Dialogs and
- * compaction end without `agent_settled`, so a busy gate rechecks itself.
+ * Hands work to Pi only while it is idle, with no queued message and no
+ * extension dialog open. Delivery is attempted on settle; while Pi is busy,
+ * the gate rechecks every second.
  */
 export class WakeGate {
   private prompting = false;
-  private compacting = false;
   private readonly target: GateTarget;
   private readonly check = createScheduledCheck(() => {
     this.tick();
@@ -40,12 +39,6 @@ export class WakeGate {
 
   setPrompting(active: boolean): void {
     this.prompting = active;
-    this.request();
-  }
-
-  setCompacting(active: boolean): void {
-    this.compacting = active;
-    this.request();
   }
 
   clear(): void {
@@ -59,12 +52,7 @@ export class WakeGate {
       return;
     }
 
-    if (
-      this.prompting ||
-      this.compacting ||
-      !ctx.isIdle() ||
-      ctx.hasPendingMessages()
-    ) {
+    if (this.prompting || !ctx.isIdle() || ctx.hasPendingMessages()) {
       this.check.request(RECHECK_MS);
 
       return;

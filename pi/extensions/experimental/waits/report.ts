@@ -1,49 +1,58 @@
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 
-import { phaseOf } from "./machine.js";
-import type { Phase, WaitSnapshot } from "./machine.js";
+import type { LastResult, WaitSnapshot } from "./machine.js";
 
-export interface WaitSummary {
-  readonly id: string;
-  readonly label: string;
-  readonly phase: Phase;
-  readonly attempts: number;
-  readonly lastExitCode: number | null | undefined;
-  readonly openedAt: string;
-  readonly endedAt?: string;
-}
+const lastCheck = (result: LastResult | undefined): string => {
+  if (result === undefined) {
+    return "not checked yet";
+  }
 
-export const summaryOf = (snapshot: WaitSnapshot): WaitSummary => {
-  const { context } = snapshot;
+  if (result === "timeout") {
+    return "last check timed out";
+  }
 
-  return {
-    id: context.id,
-    label: context.spec.label,
-    phase: phaseOf(snapshot),
-    attempts: context.attempts,
-    lastExitCode: context.lastCheck?.exitCode,
-    openedAt: new Date(context.openedAt).toISOString(),
-    ...(context.endedAt === undefined
-      ? {}
-      : { endedAt: new Date(context.endedAt).toISOString() }),
-  };
+  if (result === "error") {
+    return "last check could not run";
+  }
+
+  return `last check exited ${result}`;
 };
 
-export const rowOf = (summary: WaitSummary): string =>
+const stateOf = (snapshot: WaitSnapshot): string => {
+  if (snapshot.status === "active") {
+    return "open";
+  }
+
+  return snapshot.matches("satisfied") ? "satisfied" : "expired";
+};
+
+export const rowOf = (snapshot: WaitSnapshot): string =>
   [
-    summary.phase,
-    `${summary.attempts} ${summary.attempts === 1 ? "check" : "checks"}`,
-    inlineText(summary.label),
-    summary.id,
+    stateOf(snapshot),
+    lastCheck(snapshot.context.lastResult),
+    inlineText(snapshot.context.spec.label),
+    snapshot.context.id,
   ].join(" · ");
 
-/** The model-facing wake for waits whose condition passed. */
+const wakeLines = (snapshot: WaitSnapshot): string[] => {
+  const { context } = snapshot;
+  const name = `Wait ${context.id} (${inlineText(context.spec.label)})`;
+
+  return snapshot.matches("satisfied")
+    ? [
+        `${name} is satisfied: its condition exited 0.`,
+        `Your instruction for it: ${context.spec.instruction}`,
+      ]
+    : [
+        `${name} expired before its condition exited 0 (${lastCheck(context.lastResult)}).`,
+        `It was waiting so that you could: ${context.spec.instruction}`,
+        "Do not follow that instruction unless you confirm the condition holds now.",
+      ];
+};
+
+/** The model-facing wake for finished waits. */
 export const wakeText = (snapshots: readonly WaitSnapshot[]): string =>
   [
-    ...snapshots.flatMap(({ context }) => [
-      `Wait ${context.id} (${inlineText(context.spec.label)}) is satisfied: its condition exited 0 on check ${context.attempts}.`,
-      `Your instruction for it: ${context.spec.instruction}`,
-      "",
-    ]),
-    "This wake is sent once. The condition held when it was checked; confirm the state before acting, and act on each result once.",
+    ...snapshots.flatMap((snapshot) => [...wakeLines(snapshot), ""]),
+    "Each wait wakes you once. A condition held when it was checked; confirm the state before acting, and act on each result once.",
   ].join("\n");

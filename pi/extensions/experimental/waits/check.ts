@@ -7,22 +7,19 @@ export interface CheckInput {
   readonly timeoutMs: number;
 }
 
-/** `exitCode` is null when the shell could not start or was killed. */
-export interface CheckOutcome {
-  readonly exitCode: number | null;
-  readonly timedOut: boolean;
-}
+/** The condition's exit code, or "timeout" when its check ran out of time. */
+export type CheckResult = number | "timeout";
 
 /**
  * Runs a condition with `/bin/sh -c` in its own process group, output
  * discarded. Abort and timeout kill the whole group, or the shell when the
  * group cannot be signalled (macOS refuses a group of zombies with EPERM).
- * Killing never throws: it runs from timer and abort callbacks.
+ * Rejects when the shell cannot start or something else kills it.
  */
 export const runCondition = async (
   input: CheckInput,
   signal: AbortSignal
-): Promise<CheckOutcome> => {
+): Promise<CheckResult> => {
   const child = spawn("/bin/sh", ["-c", input.command], {
     cwd: input.cwd,
     detached: true,
@@ -56,12 +53,18 @@ export const runCondition = async (
 
   try {
     await once(child, "close");
-
-    return { exitCode: timedOut ? null : child.exitCode, timedOut };
-  } catch {
-    return { exitCode: null, timedOut };
   } finally {
     clearTimeout(timer);
     signal.removeEventListener("abort", killGroupOrShell);
   }
+
+  if (timedOut) {
+    return "timeout";
+  }
+
+  if (child.exitCode === null) {
+    throw new Error("The condition's shell was killed by a signal");
+  }
+
+  return child.exitCode;
 };
