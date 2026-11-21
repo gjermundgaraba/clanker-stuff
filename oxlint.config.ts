@@ -148,7 +148,6 @@ export default config({
         "pi/extensions/experimental/mcp-skills/runtime.ts",
         "pi/extensions/experimental/mcp-skills/skill-reads.ts",
         "pi/extensions/experimental/mcp-skills/tests/config.test.ts",
-        "pi/extensions/experimental/plannotator/tests/commands/last.test.ts",
         "pi/extensions/experimental/shape-spinner/scripts/render.ts",
         "pi/extensions/experimental/subagents/monitor.ts",
         "pi/extensions/experimental/subagents/renderers.ts",
