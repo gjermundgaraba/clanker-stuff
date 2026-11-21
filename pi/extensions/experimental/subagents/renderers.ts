@@ -129,7 +129,6 @@ const listing = (
     ];
   });
 
-/** How the collaboration tools draw, in transcripts too. */
 export const agentRenderers = (name: string): Renderers => ({
   renderCall(args, theme, context) {
     const data = Value.Check(CallDisplaySchema, args) ? args : {};

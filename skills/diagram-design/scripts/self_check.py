@@ -41,7 +41,6 @@ UNSTATIC_CSS = {"transform", "translate", "rotate", "scale", "display", "visibil
 UNSTATIC_CSS_PREFIXES = ("animation", "offset", "clip", "mask")
 CSS_KEYFRAMES = re.compile(r"@(?:-[a-z]+-)?keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", re.I)
 CSS_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
-# Width budget per character: 0.60em sans, 0.62em mono, 1em for wide and full-width.
 SANS_ADVANCE, MONO_ADVANCE, WIDE_ADVANCE = 0.60, 0.62, 1.0
 # Half a narrow glyph. The budget averages wider than most faces draw, so a smaller
 # overshoot is budget error on a label that fits; a whole character past the edge is not.
@@ -49,7 +48,6 @@ TEXT_FIT_TOLERANCE_EM = 0.3
 TEXT_FIT_PROPERTIES = ("font-size", "font-family", "text-anchor", "letter-spacing")
 # Weight and style move real glyph widths, but the budget already averages over them.
 TEXT_FIT_IGNORED = {"font-weight", "font-style"}
-# Bidi, vertical and preserved-space text lays out in ways the left-to-right budget can't place.
 TEXT_LAYOUT_PROPERTIES = ("direction", "unicode-bidi", "writing-mode", "white-space", "xml:space")
 PAINT_PROPERTIES = frozenset({"fill", "stroke", "stroke-width", "fill-opacity", "stroke-opacity", "opacity"})
 
@@ -174,7 +172,6 @@ def completeness_errors(source: str) -> list[str]:
     if parser.opens["html"] and not ends_with_html_close(source):
         errors.append("document does not end with </html>; the file looks truncated")
     if parser.rcdata:
-        # Everything after it reads as text, so tag counts would describe the damage, not the cause.
         return [*errors, f"<{parser.rcdata}> is never closed; the rest of the document reads as its text"]
     for tag in PAIRED_TAGS:
         if parser.opens[tag] != parser.closes[tag]:

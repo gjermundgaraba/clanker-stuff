@@ -44,9 +44,6 @@ MAX_EDGES = 5000
 EXCALIDRAW_SUFFIXES = (".excalidraw", ".json")
 EXPORT_SUFFIXES = (".png", ".svg")
 
-# Excalidraw element type -> IR shape family. Everything else is either an
-# edge (arrow, line), folded (text), counted-and-dropped (freedraw, image
-# pixels), or reported as unknown.
 NODE_SHAPES = {
     "rectangle": "rect",
     "ellipse": "ellipse",
@@ -62,11 +59,6 @@ CONTAINER_TYPES = {"frame", "magicframe"}
 def _fail(message: str) -> NoReturn:
     print(f"excalidraw_extract: {message}", file=sys.stderr)
     raise SystemExit(2)
-
-
-# --------------------------------------------------------------------------
-# IR model — mirrors the draw.io / Mermaid extractors' digest shape
-# --------------------------------------------------------------------------
 
 
 @dataclass
@@ -234,7 +226,6 @@ def parse_scene(path: Path, document: dict[str, Any]) -> Scene:
         if element.get("type") in NODE_SHAPES or element.get("type") in EDGE_TYPES
     }
 
-    # Pass 1: fold bound text into its container (node label or edge label).
     bound_labels: dict[str, list[str]] = {}
     for element in live:
         if element.get("type") != "text":
@@ -248,7 +239,6 @@ def parse_scene(path: Path, document: dict[str, Any]) -> Scene:
     def label_for(element: dict[str, Any]) -> str:
         return "\n".join(bound_labels.get(element["id"], []))
 
-    # Pass 2: nodes (frames become containers; standalone text stays a node).
     frame_ids: set[str] = set()
     for element in live:
         kind = element.get("type")
@@ -259,7 +249,7 @@ def parse_scene(path: Path, document: dict[str, Any]) -> Scene:
             continue
         if kind == "text":
             if isinstance(element.get("containerId"), str) and element["containerId"] in foldable_ids:
-                continue  # folded into its container in pass 1
+                continue
             shape, label = "text", text_label(element)
         elif kind in CONTAINER_TYPES:
             frame_ids.add(element_id)
@@ -269,7 +259,6 @@ def parse_scene(path: Path, document: dict[str, Any]) -> Scene:
             shape = NODE_SHAPES[kind]
             label = label_for(element)
             if kind == "image":
-                # The pixels never cross the trust boundary; only the box does.
                 scene.discarded["image_payloads"] += 1
             if kind in ("embeddable", "iframe"):
                 scene.discarded["embeds"] += 1
@@ -322,8 +311,6 @@ def parse_scene(path: Path, document: dict[str, Any]) -> Scene:
         member.depth = 1
         parent.children.append(member.id)
 
-    # Pass 3: edges. Arrows are directed unless both arrowheads vanish; lines
-    # are undirected unless the author added arrowheads.
     def binding_id(element: dict[str, Any], key: str) -> str | None:
         binding = element.get(key)
         if isinstance(binding, dict) and isinstance(binding.get("elementId"), str):
@@ -376,11 +363,6 @@ def parse_scene(path: Path, document: dict[str, Any]) -> Scene:
     return scene
 
 
-# --------------------------------------------------------------------------
-# structural analysis — signals, not decisions
-# --------------------------------------------------------------------------
-
-
 
 
 def analyze(scene: Scene) -> dict[str, Any]:
@@ -425,8 +407,6 @@ def analyze(scene: Scene) -> dict[str, Any]:
     seen: set[str] = set()
     candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
-    # Collapse candidates: frames whose members are all leaves, then explicit
-    # groups — the first things to merge when simplifying.
     collapsible = [
         {
             "id": container.id,
@@ -443,7 +423,6 @@ def analyze(scene: Scene) -> dict[str, Any]:
         and all(not scene.node_map[child].children for child in container.children)
     ]
     # Excalidraw orders group ids from deepest to shallowest (inner to outer).
-    # Count every membership: selecting either endpoint alone loses a cluster.
     group_members: dict[str, list[Node]] = {}
     for node in nodes:
         seen_groups: set[str] = set()
@@ -485,11 +464,6 @@ def analyze(scene: Scene) -> dict[str, Any]:
         "over_node_budget": len(drawable) > 9,
         "over_edge_budget": len(edges) > 12,
     }
-
-
-# --------------------------------------------------------------------------
-# rendering the digest
-# --------------------------------------------------------------------------
 
 
 def scene_bounds(scene: Scene) -> tuple[float, float, float, float]:

@@ -241,17 +241,11 @@ class Diagram:
     fragments: list[dict[str, Any]] = field(default_factory=list)
     activations: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    # One entry per note: text, position (left/right/over/across/top/bottom),
-    # every participant or class it covers, and where it sits in the message
-    # sequence (`after_message`; `message` when it is attached to a message).
     note_details: list[dict[str, Any]] = field(default_factory=list)
     discarded: dict[str, int] = field(
         default_factory=lambda: {"skin": 0, "includes": 0}
     )
     _nodes_by_id: dict[str, Node] = field(default_factory=dict, init=False, repr=False)
-    # Per statement line: "edge", "declaration", or "statement", as kind
-    # detection read it and as the parser used it. Not part of the IR; the
-    # verifier compares the two so they cannot drift apart.
     detected_roles: dict[int, str] = field(default_factory=dict, init=False, repr=False)
     parsed_roles: dict[int, str] = field(default_factory=dict, init=False, repr=False)
     _aliases: dict[str, str] = field(default_factory=dict, init=False, repr=False)
@@ -407,8 +401,6 @@ class SourceBlock:
     text: str
     source_line: int
     start_kind: str = "uml"
-    # A failure found while splitting the file (an unclosed block comment).
-    # It belongs to this block alone and is raised only when it is selected.
     error: str | None = None
 
 
@@ -560,8 +552,6 @@ def load_blocks(path: Path) -> list[SourceBlock]:
             add(start_line, text, kind, error)
         return collected
 
-    # Every fence is tracked, as the Mermaid importer does, so a plantuml
-    # fence quoted inside another fence (a Markdown example) is not imported.
     lines = source.splitlines()
     start: int | None = None
     fence = ""
@@ -595,8 +585,6 @@ def load_blocks(path: Path) -> list[SourceBlock]:
         elif capture:
             content.append(line)
     if start is not None and capture:
-        # The open fence is its own block's error, so earlier blocks stay
-        # selectable; it is raised only when this block is selected.
         add(start, "\n".join(content), "uml", f"unterminated plantuml fence starting at line {start - 1}")
     if not collected:
         _fail(f"{path.name}: no fenced plantuml block found")
@@ -696,7 +684,7 @@ def _statement_lines(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
             continue
         statements.append((_line_number, text))
         if _edge_split(text, "sequence") or _edge_split(text, "class"):
-            continue  # an edge never opens a note or class body
+            continue
         if re.match(r"^note\b", text, re.I) and not _note_has_inline_body(text):
             in_note = True
         elif CLASS_DECL_RE.match(text) and text.endswith("{"):
@@ -734,7 +722,7 @@ def _edge_split(text: str, kind: str) -> tuple[str, re.Match[str], str] | None:
     left = split[0]
     if kind == "sequence":
         if left in {"[", "?"}:
-            return split  # a boundary message; the parser names it
+            return split
         return split if _endpoint_code(left, allow_as=True) else None
     left_name, _cardinality = _split_cardinality(left, before_arrow=True)
     return split if _endpoint_code(left_name) else None
@@ -758,7 +746,6 @@ def _detect_kind(lines: list[tuple[int, str]]) -> tuple[str, dict[int, str]]:
         class_split = _edge_split(text, "class")
         is_class_decl = is_seq_decl = False
         if seq_split or class_split:
-            # Arrow first: an edge line is never a declaration.
             if class_split and _is_structural_link(class_split[1]):
                 has_class_rel = True
             if seq_split:
@@ -776,7 +763,6 @@ def _detect_kind(lines: list[tuple[int, str]]) -> tuple[str, dict[int, str]]:
         _fail("mixed or unknown kind")
     if unsupported and not has_class and not has_seq_decl:
         _fail(_unsupported_kind_message(unsupported))
-    # A structural relationship is class even when a later plain arrow is labeled.
     if has_class or (has_class_rel and not has_seq_decl):
         kind = "class"
     elif has_seq_decl or has_seq_arrow:
@@ -820,8 +806,6 @@ def _quoted_or_token(text: str) -> tuple[str, str]:
 
 
 COLOR_TOKEN_RE = re.compile(r"^#{1,2}(?:\[[^\]]*\])?[\w:;.#/\\|-]*$")
-# A participant or class reference: one quoted string, or one bare name with
-# no whitespace, quotes, arrow heads, colons, brackets, or commas.
 _BARE_NAME = r'[^\s"\'<>:\[\]{}|,#][^\s"\'<>:\[\]{}|,]*'
 ENDPOINT_RE = re.compile(rf'^(?:"[^"]+"|{_BARE_NAME})$')
 # An arrow end may declare a participant inline: `"Long Name" as L` or
@@ -927,7 +911,7 @@ def _parse_declaration_tail(
         if not alias or not (alias.group("quoted") or alias.group("bare")):
             malformed()
         if alias.group("quoted") is not None and not quoted_display:
-            node_id, label = display, alias.group("quoted")  # `L as "Long Name"`
+            node_id, label = display, alias.group("quoted")
         else:
             node_id = alias.group("quoted") if alias.group("quoted") is not None else alias.group("bare")
         position = alias.end()
@@ -1044,7 +1028,7 @@ def _scan_arrow(text: str, kind: str) -> tuple[str, re.Match[str], str] | None:
                 continue
         else:
             if left_head in {"o", "x"} and not (before.isspace() or before == '"'):
-                continue  # the `o` ends a name such as `Foo--Bar`
+                continue
             body = len(match.group("body1")) + len(match.group("body2"))
             if not (left_head or right_head) and (
                 body < 2 or not (before.isspace() or before == '"')
@@ -1132,7 +1116,6 @@ def _class_relationship(
         return "association", style, bool(left), False, False, hidden, ""
     if head == "inheritance":
         return "inheritance", style, bool(left), False, False, hidden, ""
-    # Composition and aggregation: the diamond side is the source.
     return head, style, bool(right), False, False, hidden, ""
 
 
@@ -1305,9 +1288,6 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
         right, actions = _activation_shortcut(right)
         if left in {"[", "?"} or right in {"]", "?"}:
             _fail(f"unsupported sequence construct: boundary message at line {line_number}")
-        # Both ends must be one whole name (or an inline `as` declaration).
-        # Shortcuts follow the second participant only, so `A ++ -> B`
-        # fails here too. Participants are created in source order.
         edge_error = f"malformed edge at line {line_number}"
         source = lifeline(left, edge_error, allow_as=True)
         target = lifeline(right, edge_error, allow_as=True)
@@ -1322,8 +1302,6 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             arrowhead,
             bidirectional=bidirectional,
         )
-        # `source` and `target` are already the sender and receiver after
-        # a reverse arrow swapped them, so shortcuts follow the message.
         for action in actions:
             diagram.add_activation(source if action == "deactivate" else target, action)
 
@@ -1352,7 +1330,6 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             continue
         if skin.consume(diagram, text, line_number):
             continue
-        # Arrow first, with the classifier kind detection uses.
         split = _edge_split(text, "sequence")
         if split:
             diagram.parsed_roles[line_number] = "edge"
@@ -1434,7 +1411,6 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
         activate = re.match(r"^(activate|deactivate|destroy)\s+(.+)$", text, re.I)
         if activate:
             action = activate.group(1).casefold()
-            # `activate A #red` colors the bar; the color is not a name.
             target = lifeline(
                 _strip_trailing_colors(activate.group(2)),
                 f"malformed statement at line {line_number}",
@@ -1451,7 +1427,6 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             message: int | None = None
             if not participants:
                 if position in {"left", "right"} and not of_prefix:
-                    # `note left: text` sits beside the message just sent.
                     if not diagram.edges:
                         _fail(f"malformed statement at line {line_number}")
                     message = len(diagram.edges)
@@ -1488,7 +1463,6 @@ def _parse_sequence(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
 def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
     current: Node | None = None
     current_line = 0
-    # Open `{` blocks: a package id, or None for a layout-only `together`.
     blocks: list[tuple[str | None, int]] = []
 
     def scope() -> list[str]:
@@ -1539,8 +1513,6 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             diagram.add_node(node_id, clean_label(display) or node_id, "class")
         return node_id
 
-    # Declarations register first. A link or note before `class A` inside the
-    # same package then resolves to that class instead of a new top-level one.
     pending_links: list[tuple[tuple[str, re.Match[str], str], int, list[str]]] = []
     pending_notes: list[tuple[str, str, str, int, list[str]]] = []
     skin = _SkinBlocks()
@@ -1551,7 +1523,6 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
         if len(text) > MAX_STATEMENT_CHARS:
             _statement_too_long(line_number)
         if current is not None:
-            # Everything inside a class body is a member until its `}`.
             if text == "}":
                 current = None
                 continue
@@ -1561,7 +1532,6 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             continue
         if skin.consume(diagram, text, line_number):
             continue
-        # Arrow first, with the classifier kind detection uses.
         split = _edge_split(text, "class")
         if split:
             diagram.parsed_roles[line_number] = "edge"
@@ -1591,11 +1561,9 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
                     _fail(f"malformed statement at line {line_number}")
                 blocks.append((None, line_number))
                 continue
-            # Same tokenizer as participants and classes: one name, one alias,
-            # then color and stereotype, and nothing else.
             name, label, stereotype, body = _parse_declaration_tail(rest, line_number)
             if body not in ([], ["{}"]):
-                _fail(f"malformed statement at line {line_number}")  # `package p { class A }`
+                _fail(f"malformed statement at line {line_number}")
             enclosing = scope()
             parent = enclosing[-1] if enclosing else None
             node_id = f"{parent}.{name}" if parent else name
@@ -1625,7 +1593,6 @@ def _parse_class(diagram: Diagram, lines: list[tuple[int, str]]) -> None:
             raw_target = _strip_trailing_colors(of_prefix.group(1) if of_prefix else rest)
             if body is None or position in {"over", "across"}:
                 _fail(f"malformed statement at line {line_number}")
-            # Resolve after declarations, with the package scope of this line.
             pending_notes.append((position, raw_target, body, line_number, list(scope())))
             continue
         if CLASS_REL_RE.search(text) or "--" in text or ".." in text:
@@ -1669,7 +1636,6 @@ def parse_block(block: SourceBlock) -> Diagram:
         (block.source_line + offset, text)
         for offset, text in enumerate(_blank_comments(block.text.splitlines()))
     ]
-    # Before kind detection: a dash-only line makes the arrow scan quadratic.
     for line_number, text in lines:
         if len(text.strip()) > MAX_STATEMENT_CHARS:
             _statement_too_long(line_number)

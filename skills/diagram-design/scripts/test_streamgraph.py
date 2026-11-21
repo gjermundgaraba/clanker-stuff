@@ -25,8 +25,6 @@ class StreamgraphTests(unittest.TestCase):
         ]
 
     def boundaries(self, layer):
-        # This fixture deliberately uses 24 explicit M/L vertices and a close.
-        # Reject curves rather than pretending endpoints can prove their thickness.
         tokens = layer.attrib["d"].split()
         self.assertEqual(tokens[-1], "Z")
         self.assertEqual(len(tokens), 24 * 3 + 1)
@@ -78,8 +76,6 @@ class StreamgraphTests(unittest.TestCase):
 
     def test_docs_zero_interval_stays_zero_between_w05_and_w06(self):
         upper, lower = self.boundaries(self.layers[0])
-        # The original independent cubic boundaries crossed at x=440 despite
-        # correct zero observations. Linear shared boundaries cannot cross.
         for fraction in (0, 0.25, 0.5, 0.75, 1):
             top = upper[4] + fraction * (upper[5] - upper[4])
             bottom = lower[4] + fraction * (lower[5] - lower[4])

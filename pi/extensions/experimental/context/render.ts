@@ -304,7 +304,6 @@ export const renderOverlay = (
   layout: Layout,
   body: readonly string[],
   footer: string,
-  /** Highlights the tree/preview divider when the preview pane has focus. */
   previewFocused = false
 ): string[] => {
   const { width, innerWidth, treeWidth, previewWidth, bodyHeight } = layout;

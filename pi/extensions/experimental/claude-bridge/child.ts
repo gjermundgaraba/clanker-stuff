@@ -7,7 +7,6 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-/** The part of the SDK's `Query` the bridge uses: its messages, and stopping it. */
 export interface BridgeQuery
   extends AsyncIterable<SDKMessage>, Pick<Query, "interrupt" | "close"> {}
 

@@ -57,9 +57,6 @@ UNSUPPORTED_KINDS = {
 }
 MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
 MERMAID_SUFFIXES = {".mmd", ".mermaid"}
-# ER entity names start with a letter (any script) or underscore. The regex
-# shapes the token; _er_name enforces the first character, because \w also
-# matches non-decimal numerals such as "²" and "½" that \d does not exclude.
 ER_IDENTIFIER = r"[^\W\d][\w.-]*"
 
 
@@ -72,9 +69,6 @@ def _er_name(name: str) -> bool:
 ER_QUOTED_NAME = r'"[^"%\r\n\v\b\\]+"'
 ER_NAME = rf"(?:{ER_QUOTED_NAME}|{ER_IDENTIFIER})"
 
-# Mermaid's ER cardinality tokens, each with the symbol it draws at the
-# (left, right) end of a relationship. Mermaid reads the words as
-# case-insensitive aliases for the symbols.
 _ER_ZERO_OR_ONE = ("|o", "o|")
 _ER_ONLY_ONE = ("||", "||")
 _ER_ZERO_OR_MORE = ("}o", "o{")
@@ -187,7 +181,6 @@ class Diagram:
     edges: list[Edge] = field(default_factory=list)
     fragments: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    # Sequence `autonumber` directives: step numbers are content, prose cites them.
     autonumber: list[dict[str, Any]] = field(default_factory=list)
     discarded: dict[str, int] = field(
         default_factory=lambda: {"style_directives": 0, "click_handlers": 0, "config_directives": 0}
@@ -569,10 +562,6 @@ def _logical_statements(
         combined = "\n".join(pending)
         statements = _split_top_level(combined, ";")
         complete = _statement_complete(combined)
-        # Everything before the last top-level semicolon is finished even while
-        # a quote or bracket after it stays open, so only that open statement is
-        # carried to the next line. Each statement is bounded on its own, and
-        # the open one is bounded before the next line joins and rescans it.
         for statement in statements if complete else statements[:-1]:
             if len(statement) > MAX_STATEMENT_CHARS:
                 _statement_too_long(start_line)
@@ -823,12 +812,6 @@ def _edge_operators(text: str) -> list[_Operator]:
                     opening = opening[1:]
             token = opening + match.group("closing")
             style, arrowhead, bidirectional, undirected = _operator_style(token)
-            # Read the label from the whole span between the operators rather
-            # than from the matched group. The mask blanks quoted spans, so a
-            # quoted label — `A-- "text" -->B` — leaves the spaced group
-            # nothing but blanks to settle on, and slicing that group returns
-            # a stray quote instead of the text. `clean_label` strips the
-            # padding and quotes.
             operators.append(
                 _Operator(
                     operator_start,
@@ -848,11 +831,6 @@ def _edge_operators(text: str) -> list[_Operator]:
         r"[xo][-=.]{2,}[xo]|<[-=.]+>|-+\.+-+>|=+>|-+>|-{2,}[xo]|={2,}[xo]|-+\.+-+|={3,}|-{3,}|~{3,}"
     )
     for match in pattern.finditer(mask):
-        # Overlap, not just a contained start. An unlabeled token can begin
-        # before a labeled operator and end inside it — `Ao-.x y.->B` offers
-        # `o-.x` to `[xo][-=.]{2,}[xo]`, one character ahead of the `-.x y.->`
-        # span already claimed above. Keeping both cuts the line into
-        # segments that no longer reconstruct it.
         if any(match.start() < end and start < match.end() for start, end in occupied):
             continue
         token = match.group()
@@ -887,7 +865,6 @@ def _endpoint_group(
         if parsed is None:
             return None
         node_id, label, shape = parsed
-        # A link token outside any shape means a link that did not parse.
         if shape != "asymmetric" and re.search(r"--|==|-\.|\s[-=][xo]", _top_level_mask(raw)):
             return None
         diagram.add_node(node_id, label, shape, parent)
@@ -990,8 +967,6 @@ def _parse_flowchart(
             valid_groups = [group for group in groups if group is not None]
             for index, operator in enumerate(operators):
                 if operator.style == "invisible":
-                    # The endpoints were declared above; the link itself is a
-                    # layout hint with no meaning of its own.
                     invisible_links += 1
                     continue
                 for source in valid_groups[index]:
@@ -1007,8 +982,6 @@ def _parse_flowchart(
                         )
             continue
         parsed = _parse_node_expression(text)
-        # The mask blanks shaped labels, so a link token left in it sits
-        # outside any shape. The asymmetric `>` opener is not masked.
         masked = _top_level_mask(text)
         malformed_link = re.search(
             r"(?:--|==|-\.).*?(?:>|x|o|-)|\s[-=][xo]",
@@ -1024,8 +997,6 @@ def _parse_flowchart(
         if (
             malformed_link
             or bare_link_start
-            # Not a node but link-like (`A- >B`): fail instead of dropping it.
-            # The dot matches any character on purpose.
             or (parsed is None and re.search(r"(?:==|-.).*?(?:>|x|o|-)", masked))
         ):
             _fail(f"malformed edge at line {line_number}")
@@ -1037,7 +1008,6 @@ def _parse_flowchart(
 def _parse_sequence(
     diagram: Diagram, lines: list[tuple[int, str]], header_position: int
 ) -> None:
-    # None marks a visual-only rect block: its end must not close a semantic fragment.
     fragment_stack: list[dict[str, Any] | None] = []
     semantic_depth = 0
     participant_re = re.compile(
@@ -1129,8 +1099,6 @@ def _parse_sequence(
         message = message_re.match(text)
         if message:
             source, token, target, label = message.groups()
-            # Auto-add endpoints only when undeclared, so an earlier
-            # `actor`/`participant` declaration keeps its shape and label.
             for endpoint in (source, target):
                 if endpoint not in diagram.node_map:
                     diagram.add_node(endpoint, endpoint, "lifeline")
@@ -1231,7 +1199,6 @@ def _parse_state(
         if alias:
             label, node_id, opening = alias.groups()
             diagram.add_node(node_id, clean_label(label), "container" if opening else "state", parent, container=bool(opening))
-            # A renaming alias discards earlier descriptions; later ones build on it.
             if node_id not in pending_descriptions:
                 descriptions.pop(node_id, None)
             if opening:
@@ -1279,7 +1246,6 @@ def _parse_state(
     if note_start is not None:
         _fail(f"unterminated state note at line {note_start}")
 
-    # Materialize each accumulated label once; later explicit aliases still win.
     for node_id, parts in pending_descriptions.items():
         label = "\n".join(parts)
         if label:

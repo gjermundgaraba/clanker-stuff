@@ -9,7 +9,6 @@ const IMAGE_MEDIA_TYPES = [
   "image/webp",
 ] as const;
 
-/** A content block of a user turn, as Claude Code reads it in a prompt or a session. */
 export type UserBlock =
   | { type: "text"; text: string }
   | {

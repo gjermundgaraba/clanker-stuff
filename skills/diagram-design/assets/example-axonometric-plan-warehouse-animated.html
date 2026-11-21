@@ -69,7 +69,6 @@
         overflow-x: auto;
       }
 
-      /* Static source is complete. Only an initialized enhancement hides items. */
       .motion-ready [data-motion-item] {
         opacity: 0.12;
         transform: translateY(8px);
@@ -183,9 +182,6 @@
         }
       }
       @media print {
-        /* Paper has no scrollbar, so the local scroller would clip instead of
-         scroll. Let the diagram scale down to the sheet: smaller but whole
-         beats sharp but cut off. */
         .diagram-container {
           overflow-x: visible;
         }
@@ -204,8 +200,6 @@
         }
       }
 
-      /* Static source is the finished plan. Only an initialized enhancement hides
-       the buildings, which then drop in by phase, never further than 16px. */
       .motion-ready [data-motion-item][data-appear] {
         opacity: 0;
         transform: translateY(-16px);

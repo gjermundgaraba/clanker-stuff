@@ -44,9 +44,7 @@ export type AgentMessage = AgentSession["state"]["messages"][number];
 export interface ChildSnapshot {
   /** The session's current branch, which includes history that compaction removed from context. */
   branch: readonly SessionEntry[];
-  /** Ids of the tool calls executing now. */
   executing: ReadonlySet<string>;
-  /** The partial response being streamed, if any. */
   streaming: AgentMessage | undefined;
 }
 

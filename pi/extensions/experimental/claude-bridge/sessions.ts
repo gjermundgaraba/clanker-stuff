@@ -69,7 +69,6 @@ export class Sessions {
     return session.conversation;
   }
 
-  /** A conversation no session keeps, for a one-off request. */
   ephemeral(piSessionId: string | undefined): Conversation {
     return createActor(conversationMachine, {
       input: {

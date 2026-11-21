@@ -50,7 +50,6 @@ export const toJsonValue = (value: unknown): JsonValue | undefined => {
   return result;
 };
 
-/** `value` as a JSON object, or undefined when it is not one. */
 export const toJsonObject = (value: unknown): JsonObject | undefined => {
   const json = toJsonValue(value);
 

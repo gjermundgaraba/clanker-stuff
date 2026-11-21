@@ -59,7 +59,6 @@ export const describeRateLimitFailure = (
   return `Claude quota exceeded — rate limit${kind}${resets}: ${failure}`;
 };
 
-/** The rejection a rate-limit event reports, or undefined when it reports none. */
 export const rateLimitRejection = (
   info: SDKRateLimitInfo
 ): RateLimitRejection | undefined => {
@@ -75,7 +74,6 @@ export const rateLimitRejection = (
   };
 };
 
-/** The notice a rejection raises once. */
 export const rateLimitNotice = (rejection: RateLimitRejection): string => {
   const resetsAt =
     rejection.resetsAt === undefined

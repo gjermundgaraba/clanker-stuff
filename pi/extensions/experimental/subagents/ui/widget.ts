@@ -50,8 +50,7 @@ export class AgentsWidget implements Component {
   private readonly theme: Theme;
   private readonly source: WidgetSource;
   private readonly marks: Marks;
-  /** When the widget appeared; agents that finished earlier are not part of this burst. */
-  private readonly since: number;
+  private readonly burstStartedAt: number;
   private readonly hint: string;
   private readonly now: () => number;
 
@@ -60,7 +59,7 @@ export class AgentsWidget implements Component {
     theme: Theme,
     source: WidgetSource,
     marks: Marks,
-    since: number,
+    burstStartedAt: number,
     hint: string,
     now: () => number = Date.now
   ) {
@@ -68,7 +67,7 @@ export class AgentsWidget implements Component {
     this.theme = theme;
     this.source = source;
     this.marks = marks;
-    this.since = since;
+    this.burstStartedAt = burstStartedAt;
     this.hint = hint;
     this.now = now;
     this.#timer = setInterval(() => {
@@ -76,12 +75,11 @@ export class AgentsWidget implements Component {
     }, FRAME_MS);
   }
 
-  /** The rows to draw, and the agents of this burst: drawn ones and those the limit left out. */
   #layout() {
     const nodes = this.source.nodes();
 
     const inBurst = (node: AgentNode) =>
-      node.status === "running" || (node.endedAt ?? 0) >= this.since;
+      node.status === "running" || (node.endedAt ?? 0) >= this.burstStartedAt;
 
     const burst = nodes.filter(inBurst);
     let rows = treeRows(nodes, inBurst);

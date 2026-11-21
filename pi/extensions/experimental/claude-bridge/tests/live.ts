@@ -28,10 +28,8 @@ export const LIVE = process.env["CLAUDE_BRIDGE_LIVE"] === "1";
 const LIVE_MODEL =
   process.env["CLAUDE_BRIDGE_LIVE_MODEL"] ?? "claude-haiku-5-5";
 
-/** Real Claude Code round trips: process start, API latency, and tool waits. */
 export const LIVE_TIMEOUT = 240_000;
 
-/** The bridge's debug log, read in slices so each test asserts only on what it caused. */
 export interface DebugLog {
   readonly path: string;
   mark: () => number;
@@ -86,18 +84,14 @@ export const liveEnvironment = () => {
 
 export interface LiveSession {
   readonly h: AgentSessionHarness;
-  /** Claude Code's project directory for this session's cwd. */
   readonly projectDir: string;
   /** Prompt and wait for the agent to settle; returns the final assistant text. */
   ask: (text: string) => Promise<string>;
-  /** Switch to the claude-bridge model under test. */
   useBridge: () => Promise<void>;
-  /** Switch to the harness's faux model: "another provider" without credentials. */
   useFaux: () => Promise<void>;
   close: () => Promise<void>;
 }
 
-/** The final assistant message's text, asserting the run ended in an answer, not an error. */
 export const expectAnswer = (h: AgentSessionHarness): string => {
   const message = h.messages().findLast((m) => m.role === "assistant");
 
@@ -169,7 +163,6 @@ export const createLiveSession = async (
   };
 };
 
-/** Resolves on the session's next event that `matches`. */
 export const nextEvent = async (
   h: AgentSessionHarness,
   matches: (event: AgentSessionEvent) => boolean
@@ -188,7 +181,6 @@ export const nextEvent = async (
   await promise;
 };
 
-/** One `sync:` line: what a provider call did with the session's conversation. */
 export interface SyncLine {
   kind: "deliver" | "side" | "resume" | "rebuild";
   reason: string | undefined;

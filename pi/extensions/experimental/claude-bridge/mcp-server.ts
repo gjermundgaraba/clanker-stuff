@@ -46,7 +46,6 @@ export const toolResultToMcpContent = (
 export interface McpToolDef {
   name: string;
   description: string;
-  /** The tool's JSON Schema: pi's TypeBox parameters as plain JSON. */
   inputSchema: JsonObject;
   handler: (toolCallId: string) => Promise<McpResult>;
 }

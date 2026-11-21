@@ -426,8 +426,6 @@ class CodexEval(Codex):
                 env=env,
             )
         finally:
-            # Each run uploads auth again, and capture reads only the sessions
-            # and events, so the credentials need not outlive the runner.
             try:
                 await self.exec_as_root(environment, command=f"rm -f {remote_auth}")
             except Exception:

@@ -48,8 +48,7 @@ export class SubagentManager {
   readonly #controller: Controller;
   readonly #dataDir: string;
   readonly #pi: ExtensionAPI;
-  /** Root mail handed to Pi; a handoff is not acknowledgement. */
-  readonly #sent = new Set<string>();
+  readonly #handedOffMailIds = new Set<string>();
   readonly #pendingFinals = new Set<string>();
   readonly #check = createScheduledCheck(() => {
     this.#wake();
@@ -82,7 +81,7 @@ export class SubagentManager {
     this.#wakePaused = false;
     this.#prompting = false;
     this.#ctx = ctx;
-    this.#sent.clear();
+    this.#handedOffMailIds.clear();
 
     if (this.#configError !== undefined) {
       ctx.ui.notify(this.#configError, "warning");
@@ -241,7 +240,6 @@ export class SubagentManager {
     );
   }
 
-  /** The tree and live activity, read-only, for presentation. */
   get source(): ViewerSource {
     return this.#controller;
   }
@@ -253,11 +251,11 @@ export class SubagentManager {
   }
 
   #deliverRoot(mail: Mail, allowWake = true): void {
-    if (this.#ctx === undefined || this.#sent.has(mail.id)) {
+    if (this.#ctx === undefined || this.#handedOffMailIds.has(mail.id)) {
       return;
     }
 
-    this.#sent.add(mail.id);
+    this.#handedOffMailIds.add(mail.id);
     this.#pi.sendMessage(mailMessage(mail), { triggerTurn: false });
     this.#reconcile().catch((error: unknown) => {
       this.#report(error);

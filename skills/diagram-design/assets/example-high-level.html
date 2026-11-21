@@ -131,13 +131,9 @@
           </marker>
         </defs>
 
-        <!-- Background -->
         <rect width="100%" height="100%" fill="#f5f5f5" />
         <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55" />
 
-        <!-- ═══════════════════════════════════════════
-           PHASE CHEVRON BANNER
-           ═══════════════════════════════════════════ -->
         <polygon points="0,4 188,4 200,18 188,32 0,32" fill="#2d3142" />
         <polygon
           points="200,4 388,4 400,18 388,32 200,32 212,18"
@@ -209,10 +205,6 @@
           VISUALIZATION
         </text>
 
-        <!-- ═══════════════════════════════════════════
-           STRUCTURAL ZONES
-           ═══════════════════════════════════════════ -->
-        <!-- Data sources zone (external, dashed border) -->
         <rect
           x="4"
           y="40"
@@ -236,7 +228,6 @@
           SOURCES
         </text>
 
-        <!-- Kubernetes boundary (solid) -->
         <rect
           x="164"
           y="40"
@@ -248,7 +239,6 @@
           stroke-width="1.2"
         />
 
-        <!-- Identity Manager bar -->
         <rect
           x="4"
           y="388"
@@ -260,11 +250,6 @@
           stroke-width="0.8"
         />
 
-        <!-- ═══════════════════════════════════════════
-           ARROWS — drawn before boxes (z-order rule)
-           ═══════════════════════════════════════════ -->
-
-        <!-- Data sources → NiFi: WEB and FTP enter the left edge, DB and Legacy rise into the bottom edge -->
         <path
           d="M 128,124 Q 128,132 136,132 H 176"
           fill="none"
@@ -294,7 +279,6 @@
           marker-end="url(#arrow)"
         />
 
-        <!-- Airflow → tools (dashed orchestration drops) -->
         <line
           x1="452"
           y1="96"
@@ -326,7 +310,6 @@
           marker-end="url(#arrow-sm)"
         />
 
-        <!-- NiFi → Trino (straight, own port) -->
         <path
           d="M 328,140 H 372"
           fill="none"
@@ -335,7 +318,6 @@
           marker-end="url(#arrow)"
         />
 
-        <!-- NiFi → MinIO (bend down — ACCENT primary path) -->
         <path
           d="M 328,164 H 344 Q 352,164 352,172 V 240 Q 352,248 360,248 H 372"
           fill="none"
@@ -344,7 +326,6 @@
           marker-end="url(#arrow-accent)"
         />
 
-        <!-- Trino → MinIO (vertical, Trino queries storage) -->
         <line
           x1="444"
           y1="176"
@@ -354,7 +335,6 @@
           stroke-width="1"
           marker-end="url(#arrow)"
         />
-        <!-- MinIO → Trino (write-back, dashed) -->
         <line
           x1="460"
           y1="208"
@@ -366,7 +346,6 @@
           marker-end="url(#arrow)"
         />
 
-        <!-- Trino → Data Modeling (bend down) -->
         <path
           d="M 532,140 H 556 Q 564,140 564,148 V 160 Q 564,168 572,168 H 600"
           fill="none"
@@ -375,7 +354,6 @@
           marker-end="url(#arrow)"
         />
 
-        <!-- MinIO → Data Modeling (bend up — ACCENT primary path) -->
         <path
           d="M 532,248 H 556 Q 564,248 564,240 V 208 Q 564,200 572,200 H 600"
           fill="none"
@@ -384,7 +362,6 @@
           marker-end="url(#arrow-accent)"
         />
 
-        <!-- Data Modeling → Dashboards (straight) -->
         <line
           x1="764"
           y1="184"
@@ -395,11 +372,6 @@
           marker-end="url(#arrow)"
         />
 
-        <!-- ═══════════════════════════════════════════
-           NODES
-           ═══════════════════════════════════════════ -->
-
-        <!-- ── WEB ── -->
         <rect x="12" y="60" width="132" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="12"
@@ -471,7 +443,6 @@
           Census · Survey · Admin
         </text>
 
-        <!-- ── FTP ── -->
         <rect x="12" y="140" width="132" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="12"
@@ -543,7 +514,6 @@
           Census · Business
         </text>
 
-        <!-- ── DB Connection ── -->
         <rect x="12" y="220" width="132" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="12"
@@ -615,7 +585,6 @@
           CDC · SQL · API
         </text>
 
-        <!-- ── Legacy System ── -->
         <rect x="12" y="304" width="132" height="64" rx="6" fill="#f5f5f5" />
         <rect
           x="12"
@@ -692,7 +661,6 @@
           Trade data
         </text>
 
-        <!-- ── Airflow orchestration bar ── -->
         <rect
           x="176"
           y="52"
@@ -738,7 +706,6 @@
           (Apache Airflow)
         </text>
 
-        <!-- ── Apache NiFi ── -->
         <rect x="176" y="112" width="152" height="80" rx="6" fill="#f5f5f5" />
         <rect
           x="176"
@@ -806,7 +773,6 @@
           Collect · route · transform
         </text>
 
-        <!-- ── Trino ── -->
         <rect x="372" y="104" width="160" height="72" rx="6" fill="#f5f5f5" />
         <rect
           x="372"
@@ -874,7 +840,6 @@
           SQL · data virtualization
         </text>
 
-        <!-- ── MinIO / S3 (FOCAL) ── -->
         <rect x="372" y="208" width="160" height="80" rx="8" fill="#f5f5f5" />
         <rect
           x="372"
@@ -943,7 +908,6 @@
           Object store · S3-API
         </text>
 
-        <!-- ── Data Modeling & Analysis ── -->
         <rect x="600" y="144" width="164" height="80" rx="6" fill="#f5f5f5" />
         <rect
           x="600"
@@ -1011,7 +975,6 @@
           Notebook · Python · R
         </text>
 
-        <!-- ── Dashboards & Report ── -->
         <rect x="820" y="144" width="152" height="80" rx="6" fill="#f5f5f5" />
         <rect
           x="820"
@@ -1079,7 +1042,6 @@
           Superset · reports
         </text>
 
-        <!-- ── Kubernetes label (bottom-left of boundary) ── -->
         <svg
           x="180"
           y="348"
@@ -1115,7 +1077,6 @@
           Kubernetes
         </text>
 
-        <!-- ── Identity Manager bar ── -->
         <svg
           x="16"
           y="398"
@@ -1157,9 +1118,6 @@
           (Active Directory)
         </text>
 
-        <!-- ═══════════════════════════════════
-           LEGEND
-           ═══════════════════════════════════ -->
         <line
           x1="40"
           y1="440"

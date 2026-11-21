@@ -3,7 +3,6 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Coordinator } from "../coordinator.js";
 import { inboxLabel } from "./render.js";
 
-/** Lists the open questionnaires and opens the chosen one. */
 export const showInbox = async (
   ctx: ExtensionContext,
   coordinator: Coordinator,

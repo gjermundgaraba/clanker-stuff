@@ -19,7 +19,6 @@ export const FRAME_MS = 100;
 const spinner = (now: number): string =>
   SPINNER[Math.floor(now / FRAME_MS) % SPINNER.length] ?? "●";
 
-/** Statuses presentation shows; tools also report agents that do not exist. */
 export type DisplayStatus = AgentStatus | "not_found";
 
 const STATUS_LOOK: Record<
@@ -45,9 +44,7 @@ export const isDisplayStatus = (value: string): value is DisplayStatus =>
 export const statusGlyph = (theme: Theme, status: DisplayStatus): string =>
   theme.fg(STATUS_LOOK[status].tone, STATUS_LOOK[status].glyph);
 
-/** How the live surfaces mark running agents. */
 export interface Marks {
-  /** Columns every mark takes, so names line up whatever their status. */
   readonly width: number;
   running: (theme: Theme, path: string, now: number) => string;
 }
@@ -201,7 +198,6 @@ export const activityText = (
   return `${theme.bold(inlineText(activity.label))}${theme.fg("muted", target)}`;
 };
 
-/** What a finished agent left behind: the first line of its answer, or its error. */
 export const outcomeText = (theme: Theme, node: AgentNode): string => {
   if (node.status === "errored") {
     return theme.fg("error", inlineText(node.error ?? "failed"));
@@ -222,7 +218,6 @@ export interface TreeRow<Item> {
   /** Undefined for the root and for ancestors the listing does not include. */
   item: Item | undefined;
   path: string;
-  /** Box-drawing connectors from the root down to this row. */
   prefix: string;
 }
 
@@ -298,7 +293,6 @@ export const countStatuses = (nodes: readonly AgentNode[]): StatusCounts => {
   return counts;
 };
 
-/** "2 running · 1 done · 1 failed", spending hue only on live and failed work. */
 export const countsText = (theme: Theme, counts: StatusCounts): string =>
   [
     counts.running > 0 ? theme.fg("accent", `${counts.running} running`) : "",
@@ -371,7 +365,6 @@ export const frameBottom = (
   }${theme.fg("border", "╯")}`;
 };
 
-/** A frame shorter than its two borders has no room for content. */
 export const frameLine = (theme: Theme, width: number, text: string): string =>
   width < 2
     ? " ".repeat(Math.max(0, width))
