@@ -25,6 +25,7 @@ A personal collection of extensions, plugins, and skills for Pi, Claude Code, an
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents) | Adds durable hierarchical subagents with a live tree and viewer, branch-local proactive delegation, and a one-shot /ultra thinking boost. |
 | [`@clanker-stuff/turn-recap`](pi/extensions/experimental/turn-recap) | Adds a turn card with timing, usage, tool activity, and optional LLM recaps to the chat after each run. |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage) | Shows account usage for supported providers in a status line and on demand. |
+| [`@clanker-stuff/waits`](pi/extensions/experimental/waits) | Lets the agent wait on a shell condition that survives reload and quit, and wakes it once when the condition holds. |
 
 Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.
 

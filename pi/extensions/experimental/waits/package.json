@@ -1,0 +1,58 @@
+{
+  "name": "@clanker-stuff/waits",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lets the agent wait on a shell condition that survives reload and quit, and wakes it once when the condition holds.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/waits#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/experimental/waits"
+  },
+  "files": [
+    "index.ts",
+    "tools.ts",
+    "runtime.ts",
+    "machine.ts",
+    "check.ts",
+    "journal.ts",
+    "gate.ts",
+    "report.ts",
+    "docs/usage.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/pi-tool-rendering": "workspace:^",
+    "@clanker-stuff/scheduled-check": "workspace:^",
+    "xstate": "catalog:"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=26.13.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
