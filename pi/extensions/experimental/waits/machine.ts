@@ -16,6 +16,7 @@ export interface WaitInput {
 
 interface WaitContext extends WaitInput {
   readonly lastResult?: LastResult;
+  readonly checkedAt?: number;
 }
 
 export const checkLogic = createAsyncLogic({
@@ -64,15 +65,27 @@ export const waitMachine = setup({
               event.output === 0
                 ? {
                     target: "#wait.satisfied",
-                    context: { ...context, lastResult: event.output },
+                    context: {
+                      ...context,
+                      lastResult: event.output,
+                      checkedAt: Date.now(),
+                    },
                   }
                 : {
                     target: "waiting",
-                    context: { ...context, lastResult: event.output },
+                    context: {
+                      ...context,
+                      lastResult: event.output,
+                      checkedAt: Date.now(),
+                    },
                   },
             onError: ({ context }) => ({
               target: "waiting",
-              context: { ...context, lastResult: "error" },
+              context: {
+                ...context,
+                lastResult: "error",
+                checkedAt: Date.now(),
+              },
             }),
           },
         },

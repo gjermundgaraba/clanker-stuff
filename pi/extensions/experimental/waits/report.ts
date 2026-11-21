@@ -1,4 +1,6 @@
 import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 
 import type { LastResult, WaitSnapshot } from "./machine.js";
 
@@ -18,7 +20,27 @@ const lastCheck = (result: LastResult | undefined): string => {
   return `last check exited ${result}`;
 };
 
-const stateOf = (snapshot: WaitSnapshot): string => {
+const stateSchema = Type.Union([
+  Type.Literal("open"),
+  Type.Literal("satisfied"),
+  Type.Literal("expired"),
+  Type.Literal("cancelled"),
+]);
+
+export const rowSchema = Type.Object({
+  id: Type.String(),
+  label: Type.String(),
+  state: stateSchema,
+  lastCheck: Type.String(),
+});
+
+export type WaitRow = Static<typeof rowSchema>;
+
+export const toolDetailsSchema = Type.Object({ rows: Type.Array(rowSchema) });
+
+export type ToolDetails = Static<typeof toolDetailsSchema>;
+
+const stateOf = (snapshot: WaitSnapshot): WaitRow["state"] => {
   if (snapshot.status === "active") {
     return "open";
   }
@@ -26,13 +48,43 @@ const stateOf = (snapshot: WaitSnapshot): string => {
   return snapshot.matches("satisfied") ? "satisfied" : "expired";
 };
 
-export const rowOf = (snapshot: WaitSnapshot): string =>
-  [
-    stateOf(snapshot),
-    lastCheck(snapshot.context.lastResult),
-    inlineText(snapshot.context.spec.label),
-    snapshot.context.id,
-  ].join(" · ");
+export const rowOf = (snapshot: WaitSnapshot): WaitRow => ({
+  id: snapshot.context.id,
+  label: snapshot.context.spec.label,
+  state: stateOf(snapshot),
+  lastCheck: lastCheck(snapshot.context.lastResult),
+});
+
+/** One row as the model reads it. */
+export const rowText = (row: WaitRow): string =>
+  [row.state, row.lastCheck, inlineText(row.label), row.id].join(" · ");
+
+export const wakeDetailsSchema = Type.Object({
+  waits: Type.Array(
+    Type.Object({
+      id: Type.String(),
+      label: Type.String(),
+      outcome: Type.Union([Type.Literal("satisfied"), Type.Literal("expired")]),
+      lastCheck: Type.String(),
+      instruction: Type.String(),
+    })
+  ),
+});
+
+export type WakeDetails = Static<typeof wakeDetailsSchema>;
+
+/** What the wake's card draws, one entry per finished wait. */
+export const wakeDetails = (
+  snapshots: readonly WaitSnapshot[]
+): WakeDetails => ({
+  waits: snapshots.map((snapshot) => ({
+    id: snapshot.context.id,
+    label: snapshot.context.spec.label,
+    outcome: snapshot.matches("satisfied") ? "satisfied" : "expired",
+    lastCheck: lastCheck(snapshot.context.lastResult),
+    instruction: snapshot.context.spec.instruction,
+  })),
+});
 
 const wakeLines = (snapshot: WaitSnapshot): string[] => {
   const { context } = snapshot;

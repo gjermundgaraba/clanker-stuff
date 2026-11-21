@@ -26,6 +26,8 @@
     "journal.ts",
     "gate.ts",
     "report.ts",
+    "render.ts",
+    "widget.ts",
     "docs/usage.md",
     "README.md",
     "LICENSE"
@@ -45,7 +47,9 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "engines": {

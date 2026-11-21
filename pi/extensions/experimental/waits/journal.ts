@@ -9,7 +9,7 @@ export const OPENED = "waits:opened";
 
 export const ENDED = "waits:ended";
 
-const openedSchema = Type.Object(
+export const openedSchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
     owner: Type.String({ minLength: 1 }),
@@ -19,7 +19,7 @@ const openedSchema = Type.Object(
   { additionalProperties: false }
 );
 
-const endedSchema = Type.Object(
+export const endedSchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
     outcome: Type.Union([
@@ -67,4 +67,23 @@ export const liveWaits = (
   }
 
   return [...opened.values()].filter((wait) => !ended.has(wait.id));
+};
+
+/** The label a wait opened with, wherever in the session it was opened. */
+export const labelOf = (
+  entries: readonly SessionEntry[],
+  id: string
+): string | undefined => {
+  for (const entry of entries) {
+    if (
+      entry.type === "custom" &&
+      entry.customType === OPENED &&
+      Value.Check(openedSchema, entry.data) &&
+      entry.data.id === id
+    ) {
+      return entry.data.spec.label;
+    }
+  }
+
+  return undefined;
 };

@@ -9,20 +9,22 @@ import { createActor } from "xstate";
 import type { Actor } from "xstate";
 
 import { WakeGate } from "./gate.js";
-import { ENDED, liveWaits, OPENED } from "./journal.js";
+import { ENDED, labelOf, liveWaits, OPENED } from "./journal.js";
 import type { Ended, Opened } from "./journal.js";
 import { waitMachine } from "./machine.js";
 import type { WaitSnapshot } from "./machine.js";
-import { rowOf, wakeText } from "./report.js";
+import { rowOf, wakeDetails, wakeText } from "./report.js";
+import type { WaitRow } from "./report.js";
 import { DEFAULTS } from "./spec.js";
 import type { StartRequest } from "./spec.js";
+import { WaitsView } from "./widget.js";
+import type { LiveWait as WaitView } from "./widget.js";
 
 export const WAKE_TYPE = "waits:wake";
 
-const STATUS_KEY = "waits.open";
-
 interface LiveWait {
   readonly actor: Actor<typeof waitMachine>;
+  readonly expiresAt: number;
   readonly stop: () => void;
 }
 
@@ -39,6 +41,7 @@ export class WaitRuntime {
   private readonly pi: ExtensionAPI;
   private readonly waits = new Map<string, LiveWait>();
   private ctx: ExtensionContext | undefined;
+  private readonly view = new WaitsView(() => this.live());
   readonly gate = new WakeGate({
     context: () => this.ctx,
     hasWork: () => this.finished().length > 0,
@@ -79,7 +82,7 @@ export class WaitRuntime {
     this.ctx = undefined;
   }
 
-  open(request: StartRequest, ctx: ExtensionContext): string {
+  open(request: StartRequest, ctx: ExtensionContext): WaitRow {
     if (!outlivesPrompt(ctx)) {
       throw new Error(
         "Waits need a live TUI or RPC session; print and JSON runs end with their prompt."
@@ -108,22 +111,33 @@ export class WaitRuntime {
     return this.row(wait.id);
   }
 
-  cancel(id: string): string {
+  cancel(id: string): WaitRow {
     const row = this.row(id);
     this.end(id, "cancelled");
 
-    return row;
+    return { ...row, state: "cancelled" };
   }
 
-  rows(): string {
-    const rows = [...this.waits.values()].map((wait) =>
+  rows(): WaitRow[] {
+    return [...this.waits.values()].map((wait) =>
       rowOf(wait.actor.getSnapshot())
     );
-
-    return rows.length ? rows.join("\n") : "No live waits in this session.";
   }
 
-  private row(id: string): string {
+  live(): WaitView[] {
+    return [...this.waits.values()].map((wait) => ({
+      snapshot: wait.actor.getSnapshot(),
+      expiresAt: wait.expiresAt,
+    }));
+  }
+
+  labelOf(id: string): string | undefined {
+    return this.ctx === undefined
+      ? undefined
+      : labelOf(this.ctx.sessionManager.getEntries(), id);
+  }
+
+  private row(id: string): WaitRow {
     const wait = this.waits.get(id);
 
     if (!wait) {
@@ -150,6 +164,7 @@ export class WaitRuntime {
 
     this.waits.set(wait.id, {
       actor,
+      expiresAt: wait.expiresAt,
       stop: () => {
         subscription.unsubscribe();
         actor.stop();
@@ -209,6 +224,7 @@ export class WaitRuntime {
           customType: WAKE_TYPE,
           content: wakeText(delivered),
           display: true,
+          details: wakeDetails(delivered),
         },
         { triggerTurn: true }
       );
@@ -216,17 +232,6 @@ export class WaitRuntime {
   }
 
   private showStatus(): void {
-    const { ctx } = this;
-
-    if (ctx?.mode !== "tui") {
-      return;
-    }
-
-    ctx.ui.setStatus(
-      STATUS_KEY,
-      this.waits.size
-        ? ctx.ui.theme.fg("accent", `⏳ ${this.waits.size}`)
-        : undefined
-    );
+    this.view.update(this.ctx);
   }
 }

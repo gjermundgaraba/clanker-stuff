@@ -1,13 +1,22 @@
+import { inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { callLine, rowsResult } from "./render.js";
+import { rowText } from "./report.js";
+import type { ToolDetails, WaitRow } from "./report.js";
 import type { WaitRuntime } from "./runtime.js";
 import { startParameters } from "./spec.js";
 
-const text = (value: string) => ({
-  content: [{ type: "text" as const, text: value }],
-  details: undefined,
+const reply = (text: string, rows: readonly WaitRow[]) => ({
+  content: [{ type: "text" as const, text }],
+  details: { rows: [...rows] } satisfies ToolDetails,
 });
+
+export const listText = (rows: readonly WaitRow[]): string =>
+  rows.length
+    ? rows.map((row) => rowText(row)).join("\n")
+    : "No live waits in this session.";
 
 export const registerWaitTools = (
   pi: ExtensionAPI,
@@ -26,10 +35,17 @@ export const registerWaitTools = (
       "Put everything a later session needs into instruction: what to do with the result, and how to tell a new result from one already used.",
     ],
     parameters: startParameters,
-    execute: async (_id, params, _signal, _update, ctx) =>
-      text(
-        `Started ${runtime.open(params, ctx)}. End your turn; you will be woken once it is satisfied or expires.`
-      ),
+    execute: async (_id, params, _signal, _update, ctx) => {
+      const row = runtime.open(params, ctx);
+
+      return reply(
+        `Started ${rowText(row)}. End your turn; you will be woken once it is satisfied or expires.`,
+        [row]
+      );
+    },
+    renderCall: (args, theme) => callLine(theme, "wait_start", args.label),
+    renderResult: (result, options, theme, context) =>
+      rowsResult(theme, result, options, context.isError),
   });
   pi.registerTool({
     name: "wait_list",
@@ -37,7 +53,14 @@ export const registerWaitTools = (
     description:
       "List this session's live waits: each one's state, last check result, label and ID.",
     parameters: Type.Object({}, { additionalProperties: false }),
-    execute: async () => text(runtime.rows()),
+    execute: async () => {
+      const rows = runtime.rows();
+
+      return reply(listText(rows), rows);
+    },
+    renderCall: (_args, theme) => callLine(theme, "wait_list", undefined),
+    renderResult: (result, options, theme, context) =>
+      rowsResult(theme, result, options, context.isError),
   });
   pi.registerTool({
     name: "wait_cancel",
@@ -47,7 +70,16 @@ export const registerWaitTools = (
       { id: Type.String({ minLength: 1 }) },
       { additionalProperties: false }
     ),
-    execute: async (_id, params) =>
-      text(`Cancelled ${runtime.cancel(params.id)}.`),
+    execute: async (_id, params) => {
+      const row = runtime.cancel(params.id);
+
+      return reply(
+        `Cancelled ${inlineText(row.label)} (${row.id}); it will not wake you.`,
+        [row]
+      );
+    },
+    renderCall: (args, theme) => callLine(theme, "wait_cancel", args.id),
+    renderResult: (result, options, theme, context) =>
+      rowsResult(theme, result, options, context.isError),
   });
 };
