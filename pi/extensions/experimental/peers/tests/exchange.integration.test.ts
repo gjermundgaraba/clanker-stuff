@@ -1,8 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { PARKED_CHANNEL } from "@clanker-stuff/presence-protocol";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -12,15 +10,9 @@ import { SENT, UNDELIVERED, MESSAGE_TYPE } from "../entries.js";
 import extension from "../index.js";
 import { letterSchema } from "../mailbox.js";
 
-const launch = async (name: string | undefined, reports: unknown[] = []) => {
-  const listen = (pi: ExtensionAPI) => {
-    pi.events.on(PARKED_CHANNEL, (data) => {
-      reports.push(data);
-    });
-  };
-
+const launch = async (name: string | undefined) => {
   const h = await createAgentSessionHarness({
-    extensionFactories: [extension, listen],
+    extensionFactories: [extension],
     mode: "rpc",
   });
 
@@ -116,9 +108,8 @@ const lastLetterId = (h: AgentSessionHarness): string => {
 };
 
 describe("two sessions talking by name", () => {
-  it("counts a question as parked work until its answer comes back", async () => {
-    const reports: unknown[] = [];
-    const a = await launch("questioner", reports);
+  it("delivers an answer to the asker as answering its question", async () => {
+    const a = await launch("questioner");
     const b = await launch("expert");
 
     try {
@@ -133,45 +124,11 @@ describe("two sessions talking by name", () => {
       ]);
 
       await a.prompt("Ask expert whether the API change is approved");
-      await until(() =>
-        reports.some((r) => JSON.stringify(r).includes("a reply from expert"))
-      );
 
       a.setResponses([fauxAssistantMessage("Carrying on.")]);
       await until(() => letters(a).length === 1 && settled(a) && settled(b));
-      await until(
-        () => JSON.stringify(reports.at(-1)) === '{"source":"peers","items":[]}'
-      );
 
       expect(letters(a)[0]).toContain("answering your message");
-    } finally {
-      await quit(a);
-      await quit(b);
-    }
-  });
-
-  it("does not count an answer as a question of its own", async () => {
-    const reports: unknown[] = [];
-    const a = await launch("caller");
-    const b = await launch("helper", reports);
-
-    try {
-      await delay(100);
-      b.setResponses([
-        () => send("caller", "Here you go.", lastLetterId(b)),
-        fauxAssistantMessage("Answered."),
-      ]);
-      a.setResponses([
-        send("helper", "Got a minute?"),
-        fauxAssistantMessage("Asked."),
-        fauxAssistantMessage("Thanks."),
-      ]);
-
-      await a.prompt("Ask helper");
-      await until(() => letters(a).length === 1 && settled(a) && settled(b));
-      await delay(1200);
-
-      expect(JSON.stringify(reports)).not.toContain("a reply from");
     } finally {
       await quit(a);
       await quit(b);

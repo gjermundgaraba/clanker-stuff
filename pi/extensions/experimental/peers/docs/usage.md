@@ -8,7 +8,7 @@ A session's peer name is its Pi session name, set with `/name` or by another ext
 
 ## Questions and answers
 
-A letter sent without `replyTo` is a question. Until a letter whose `replyTo` is that question's ID arrives, the asker reports it to [presence](../../presence/docs/usage.md) as parked work, `a reply from <name>`, so the asker counts as working rather than waiting on you. A question stops being reported while no live session has the name it went to, since no answer can come. Open questions are read from the session's own `peers:sent` entries and delivered `peers:message` details, so they survive reload and relaunch. The message the recipient reads gives the ID to pass as `replyTo`.
+A letter sent without `replyTo` is a question. The message the recipient reads gives the ID to pass as `replyTo`.
 
 ## Display
 

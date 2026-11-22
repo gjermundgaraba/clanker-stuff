@@ -25,7 +25,6 @@
     "entries.ts",
     "report.ts",
     "render.ts",
-    "questions.ts",
     "docs/usage.md",
     "README.md",
     "LICENSE"
@@ -38,7 +37,6 @@
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
-    "@clanker-stuff/presence-protocol": "workspace:^",
     "@clanker-stuff/scheduled-check": "workspace:^"
   },
   "devDependencies": {

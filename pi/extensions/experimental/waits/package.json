@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
-    "@clanker-stuff/presence-protocol": "workspace:^",
     "@clanker-stuff/scheduled-check": "workspace:^",
     "xstate": "catalog:"
   },

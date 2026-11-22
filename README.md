@@ -22,7 +22,6 @@ A personal collection of extensions, plugins, and skills for Pi, Claude Code, an
 | [`@clanker-stuff/context`](pi/extensions/experimental/context) | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details. |
 | [`@clanker-stuff/footer`](pi/extensions/experimental/footer) | Lays out built-in widgets and native extension statuses in the footer and editor border. |
 | [`@clanker-stuff/peers`](pi/extensions/experimental/peers) | Lets running Pi sessions message each other by session name, waking the recipient, with a visible error for a name nobody has. |
-| [`@clanker-stuff/presence`](pi/extensions/experimental/presence) | Shows every running Pi session as working, waiting on you, or stopped, counting work parked on a wait or another session as working. |
 | [`@clanker-stuff/shape-spinner`](pi/extensions/experimental/shape-spinner) | Replaces Pi's working spinner with selectable Rubik's cube or wireframe shape animations. |
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents) | Adds durable hierarchical subagents with a live tree and viewer, branch-local proactive delegation, and a one-shot /ultra thinking boost. |
 | [`@clanker-stuff/turn-recap`](pi/extensions/experimental/turn-recap) | Adds a turn card with timing, usage, tool activity, and optional LLM recaps to the chat after each run. |
