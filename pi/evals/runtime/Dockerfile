@@ -1,6 +1,6 @@
 FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS runtime
 
-RUN npm install --global pnpm@12.18.0
+RUN npm install --global pnpm@12.21.0
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY pi/evals/runtime ./pi/evals/runtime
