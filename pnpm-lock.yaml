@@ -408,8 +408,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       '@pierre/highlights':
-        specifier: 0.5.0
-        version: 0.5.0
+        specifier: 0.5.2
+        version: 0.5.2
       diff:
         specifier: 9.0.0
         version: 9.0.0
@@ -1621,8 +1621,8 @@ packages:
     resolution: {integrity: sha512-YT6htikBOBQ00XDxZpRZLZ0anEDo7h9s4+YvjRU0/Ng/cLd0D6SZQ3tsms4g/GDer/z8UKlegC5iptEfyRXJcw==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@pierre/highlights@0.5.0':
-    resolution: {integrity: sha512-G8gscrHrik3YjKd+tPTcmivJ/W0zRrtg4adVxnfX7+415+0Qplo6qUWuEX5R0UkA1fMhmE2sOSuLBMNGDtLhIw==}
+  '@pierre/highlights@0.5.2':
+    resolution: {integrity: sha512-CV+yFa8dodaU3w7U42FR+AfoavrsfcH0/n3rckDu1A/UXan1Dzo6OdM/MPOAAsGM/EbKhDxD6k+qMcNUtnLfsg==}
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -4046,7 +4046,7 @@ snapshots:
 
   '@oxlint/plugins@1.94.0': {}
 
-  '@pierre/highlights@0.5.0': {}
+  '@pierre/highlights@0.5.2': {}
 
   '@polka/url@1.0.0-next.29': {}
 
