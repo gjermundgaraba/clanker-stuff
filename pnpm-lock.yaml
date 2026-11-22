@@ -195,7 +195,7 @@ overrides:
   '@earendil-works/pi-coding-agent': 1.6.0
   '@earendil-works/pi-telemetry': 1.6.0
   '@earendil-works/pi-tui': 1.6.0
-  typebox: 1.4.6
+  typebox: 1.4.7
   vite@*: npm:@voidzero-dev/vite-plus-core@8.3.8000
 
 importers:
@@ -227,8 +227,8 @@ importers:
         specifier: 2.7.0
         version: 2.7.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -272,8 +272,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
 
   pi/extensions/ask-question:
     dependencies:
@@ -290,8 +290,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -346,8 +346,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
       xstate:
         specifier: 'catalog:'
         version: 6.0.0-beta.4
@@ -390,8 +390,8 @@ importers:
         specifier: 1.12.0
         version: 1.12.0(zod@4.6.7)
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
 
   pi/extensions/experimental/codemode-diffs:
     dependencies:
@@ -414,8 +414,8 @@ importers:
         specifier: 9.0.0
         version: 9.0.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
 
   pi/extensions/experimental/context:
     dependencies:
@@ -466,8 +466,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       '@earendil-works/pi-ai':
         specifier: 1.6.0
@@ -500,8 +500,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -526,8 +526,8 @@ importers:
         version: 1.6.0
     devDependencies:
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
       vite:
         specifier: 'catalog:'
         version: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
@@ -565,8 +565,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
       xstate:
         specifier: 'catalog:'
         version: 6.0.0-beta.4
@@ -592,8 +592,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -626,8 +626,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -654,8 +654,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
       xstate:
         specifier: 'catalog:'
         version: 6.0.0-beta.4
@@ -688,8 +688,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       '@earendil-works/pi-ai':
         specifier: 1.6.0
@@ -723,8 +723,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.3)(google-auth-library@10.6.2)(ws@8.22.0)(zod@4.6.7)
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -833,8 +833,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.3)(google-auth-library@10.6.2)(ws@8.22.0)(zod@4.6.7)
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -871,8 +871,8 @@ importers:
   pi/packages/tool-schema:
     dependencies:
       typebox:
-        specifier: 1.4.6
-        version: 1.4.6
+        specifier: 1.4.7
+        version: 1.4.7
     devDependencies:
       vite:
         specifier: 'catalog:'
@@ -3182,8 +3182,8 @@ packages:
     resolution: {integrity: sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA==}
     engines: {node: '>= 18'}
 
-  typebox@1.4.6:
-    resolution: {integrity: sha512-Yh8Mi4hzD7gqcuv9ZIk6HK1KVJKubTlfxaNxkrYK35HCvxoCjCuWVr8cBjQ/ChfA7yliPteJEBWHGFVGWDuF5Q==}
+  typebox@1.4.7:
+    resolution: {integrity: sha512-KonYdBj3gOgG/rH96TlUs/f+eaEDqiKRW7KU4/LE/tEjEnRCcfpYLofBfHfNMBAiBosmY55e4YeCPuE+NXmJtg==}
 
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
@@ -3708,7 +3708,7 @@ snapshots:
       proper-lockfile: 4.1.2
       quickjs-wasi: 3.6.2
       semver: 7.8.5
-      typebox: 1.4.6
+      typebox: 1.4.7
       undici: 8.12.4
       yaml: 2.9.0
     transitivePeerDependencies:
@@ -5412,7 +5412,7 @@ snapshots:
       media-typer: 1.1.0
       mime-types: 3.0.2
 
-  typebox@1.4.6: {}
+  typebox@1.4.7: {}
 
   typescript@7.0.2:
     optionalDependencies:
