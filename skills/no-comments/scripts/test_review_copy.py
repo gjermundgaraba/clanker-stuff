@@ -41,12 +41,15 @@ class ReviewCopyTests(unittest.TestCase):
         self.git('add', '.')
         self.git('commit', '-m', 'base')
         self.git('switch', '-c', 'feature')
+        self.git('remote', 'add', 'origin', 'https://example.invalid/repo.git')
 
         self.write('both.txt', lines(l5='staged\n'))
         self.git('add', 'both.txt')
         self.write('both.txt', lines(l5='staged then unstaged\n'))
         self.write('dir with space/file name.txt', 'unstaged\n')
         self.write('untracked.txt', 'untracked\n')
+        self.write('intent.txt', 'intent to add\n')
+        self.git('add', '-N', 'intent.txt')
         self.before = self.worktree()
         self.before_status = self.git('status', '--porcelain=v1', '-z').stdout
         self.before_staged = self.git('diff', '--cached').stdout
@@ -81,7 +84,7 @@ class ReviewCopyTests(unittest.TestCase):
         self.write('created.txt', 'new\n', root=copy)
 
     def concurrent_edits(self):
-        self.write('both.txt', lines(l1='concurrent\n', l5='staged then unstaged\n'))
+        self.write('both.txt', lines(l5='staged then unstaged\n', l7='concurrent\n'))
         self.write('other.txt', 'concurrent\n')
 
     def read_only_git_dir(self):
@@ -95,7 +98,7 @@ class ReviewCopyTests(unittest.TestCase):
                 path.chmod(mode)
         self.addCleanup(restore_modes)
 
-    def test_take_copies_head_branches_and_uncommitted_state(self):
+    def test_take_copies_head_branches_remotes_and_uncommitted_state(self):
         copy = self.take()
 
         self.assertNotEqual(copy, self.repo)
@@ -105,6 +108,9 @@ class ReviewCopyTests(unittest.TestCase):
         self.assertEqual(self.git('diff', '--cached', repo=copy).stdout, self.before_staged)
         self.assertEqual(self.git('rev-parse', 'HEAD', 'main', repo=copy).stdout,
                          self.git('rev-parse', 'HEAD', 'main').stdout)
+        self.assertEqual(self.git('remote', 'get-url', 'origin', repo=copy).stdout,
+                         'https://example.invalid/repo.git\n')
+        self.assertIn('intent.txt', self.git('diff', '--name-only', 'main', repo=copy).stdout)
         self.assertEqual(self.worktree(), self.before)
 
     def test_diff_lists_only_edits_made_in_the_copy(self):
@@ -124,7 +130,7 @@ class ReviewCopyTests(unittest.TestCase):
         ]))
         self.assertIn('-line 9\n+reviewed', self.helper('diff', copy, 'both.txt').stdout)
 
-    def test_apply_adds_the_copy_edits_to_concurrent_edits(self):
+    def test_apply_merges_the_copy_edits_with_nearby_concurrent_edits(self):
         copy = self.take()
         self.review(copy)
         self.concurrent_edits()
@@ -132,9 +138,10 @@ class ReviewCopyTests(unittest.TestCase):
         self.helper('apply', copy)
 
         self.assertEqual(self.worktree(), {
-            'both.txt': lines(l1='concurrent\n', l5='staged then unstaged\n', l9='reviewed\n'),
+            'both.txt': lines(l5='staged then unstaged\n', l7='concurrent\n', l9='reviewed\n'),
             'created.txt': 'new\n',
             'dir with space/file name.txt': 'reviewed\n',
+            'intent.txt': 'intent to add\n',
             'other.txt': 'concurrent\n',
             'untracked.txt': 'reviewed\n',
         })
@@ -152,6 +159,35 @@ class ReviewCopyTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn('both.txt', refused.stderr)
         self.assertEqual(self.worktree(), edited)
+
+    def test_apply_never_moves_a_conflicting_edit_to_a_matching_block(self):
+        block = 'p\nq\nr\n// redundant\ns\nt\nu\n'
+        self.write('repeated.txt', block + 'x\n' + block)
+        copy = self.take()
+        self.write('repeated.txt', block.replace('redundant', 'rewritten') + 'x\n' + block)
+        self.write('repeated.txt', block.replace('// redundant\n', '') + 'x\n' + block, root=copy)
+        edited = self.worktree()
+
+        refused = self.helper('apply', copy, check=False)
+
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('repeated.txt', refused.stderr)
+        self.assertEqual(self.worktree(), edited)
+
+    def test_works_with_a_split_index(self):
+        self.git('config', 'core.splitIndex', 'true')
+        self.git('update-index', '--split-index')
+        git_files = sorted((self.repo / '.git').glob('sharedindex.*'))
+
+        copy = self.take()
+        self.review(copy)
+        changed = self.helper('diff', copy, '--name-only').stdout
+        self.helper('apply', copy)
+
+        self.assertIn('created.txt\n', changed)
+        self.assertEqual(sorted((self.repo / '.git').glob('sharedindex.*')), git_files)
+        self.assertEqual(self.worktree(), self.worktree(copy))
+        self.assertEqual(self.git('diff', '--cached').stdout, self.before_staged)
 
     def test_drop_deletes_only_a_copy_and_leaves_the_checkout_alone(self):
         copy = self.take()

@@ -62,9 +62,9 @@ Use the caller's files or diff. Otherwise use the current diff against the base 
 
 The scope can include uncommitted work, and people may keep editing the checkout during the review. Comment Sicko therefore edits a private copy, and only accepted edits reach the checkout. Use `scripts/review-copy.sh` beside this file, by its absolute path. It works from any directory in the repository and does not write to the repository's `.git` or index.
 
-- `review-copy.sh take` prints a copy directory: a repository with the checkout's `HEAD`, branches, and staged, unstaged and untracked files. Shell state may not persist between calls, so pass it literally as `<copy>`.
+- `review-copy.sh take` prints a copy directory: a repository with the checkout's `HEAD`, branches, remote URLs, and staged, unstaged, intent-to-add and untracked files. Shell state may not persist between calls, so pass it literally as `<copy>`.
 - `review-copy.sh diff <copy> [git diff options and paths]` shows every edit made in the copy since `take`.
-- `review-copy.sh apply <copy>` applies those edits to the checkout's files and leaves its index alone. If any edit conflicts with an edit made to the checkout since `take`, it names the conflict and writes nothing.
+- `review-copy.sh apply <copy>` three-way merges those edits with any edits made to the checkout since `take`, writes the result to the checkout's files, and leaves its index alone. If both sides changed the same lines, it names the conflicting files and writes nothing.
 - `review-copy.sh drop <copy>` deletes the copy. It never touches the checkout.
 
 Drop every copy whenever `/no-comments` ends, whether it succeeds or fails.

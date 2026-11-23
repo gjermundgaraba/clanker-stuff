@@ -12,10 +12,34 @@ open_copy() {
   base=$(cat "$copy/.git/no-comments-base")
 }
 
-copy_diff() {
+stage_copy() {
   cd "$copy"
   GIT_INDEX_FILE="$copy/.git/no-comments-index" git add -A
-  GIT_INDEX_FILE="$copy/.git/no-comments-index" git diff --cached "$base" "$@"
+}
+
+enter_checkout() {
+  cd "$1"
+  repo_objects=$(git rev-parse --path-format=absolute --git-path objects)
+  repo_index=$(git rev-parse --path-format=absolute --git-path index)
+}
+
+checkout_trees() {
+  rm -f "$1"
+  if [ -f "$repo_index" ]; then
+    cp "$repo_index" "$1"
+  fi
+  (
+    export GIT_OBJECT_DIRECTORY="$copy/.git/objects"
+    export GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects"
+    export GIT_INDEX_FILE="$1"
+    if [ -f "$1" ]; then
+      git -c core.splitIndex=false update-index --no-split-index
+    fi
+    git -c core.splitIndex=false write-tree >"$2-staged"
+    git -c core.splitIndex=false diff --name-only --diff-filter=A -z >"$2-intent"
+    git -c core.splitIndex=false add -A
+    git -c core.splitIndex=false write-tree >"$2-worktree"
+  )
 }
 
 [ $# -ge 1 ] || usage
@@ -25,9 +49,7 @@ shift
 case $command in
   take)
     [ $# -eq 0 ] || usage
-    cd "$(git rev-parse --show-toplevel)"
-    repo_objects=$(git rev-parse --path-format=absolute --git-path objects)
-    repo_index=$(git rev-parse --path-format=absolute --git-path index)
+    enter_checkout "$(git rev-parse --show-toplevel)"
     repo_shallow=$(git rev-parse --path-format=absolute --git-path shallow)
     copy=$(mktemp -d "${TMPDIR:-/tmp}/no-comments.XXXXXX")
     trap 'rm -rf "$copy"' EXIT
@@ -41,24 +63,21 @@ case $command in
     if head=$(git rev-parse -q --verify HEAD); then
       git -C "$copy" update-ref --no-deref HEAD "$head"
     fi
+    git config --get-regexp '^remote\..*\.url$' | while read -r key url; do
+      git -C "$copy" config --add "$key" "$url"
+    done
     pwd >"$copy/.git/no-comments-origin"
 
-    if [ -f "$repo_index" ]; then
-      cp "$repo_index" "$copy/.git/no-comments-index"
-    fi
-    (
-      export GIT_OBJECT_DIRECTORY="$copy/.git/objects"
-      export GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects"
-      export GIT_INDEX_FILE="$copy/.git/no-comments-index"
-      git write-tree >"$copy/.git/no-comments-staged"
-      git add -A
-      git write-tree >"$copy/.git/no-comments-base"
-    )
+    checkout_trees "$copy/.git/no-comments-index" "$copy/.git/no-comments"
+    mv "$copy/.git/no-comments-worktree" "$copy/.git/no-comments-base"
 
     cd "$copy"
     git read-tree "$(cat .git/no-comments-base)"
     git checkout-index -a
     git read-tree "$(cat .git/no-comments-staged)"
+    if [ -s .git/no-comments-intent ]; then
+      git add -N --pathspec-from-file=.git/no-comments-intent --pathspec-file-nul
+    fi
     trap - EXIT
     printf '%s\n' "$copy"
     ;;
@@ -66,15 +85,35 @@ case $command in
     [ $# -ge 1 ] || usage
     open_copy "$1"
     shift
-    copy_diff "$@"
+    stage_copy
+    GIT_INDEX_FILE="$copy/.git/no-comments-index" git diff --cached "$base" "$@"
     ;;
   apply)
     [ $# -eq 1 ] || usage
     open_copy "$1"
-    copy_diff --binary --no-renames --no-color --no-ext-diff \
-      --src-prefix=a/ --dst-prefix=b/ >"$copy/.git/no-comments.patch"
-    if [ -s "$copy/.git/no-comments.patch" ]; then
-      cd "$(cat "$copy/.git/no-comments-origin")"
+    stage_copy
+    reviewed=$(GIT_INDEX_FILE="$copy/.git/no-comments-index" git write-tree)
+    [ "$reviewed" != "$base" ] || exit 0
+
+    origin=$(cat "$copy/.git/no-comments-origin")
+    enter_checkout "$origin"
+    checkout_trees "$copy/.git/no-comments-checkout-index" "$copy/.git/no-comments-checkout"
+    current=$(cat "$copy/.git/no-comments-checkout-worktree")
+
+    cd "$copy"
+    status=0
+    merged=$(git merge-tree --write-tree --name-only --no-messages -X no-renames \
+      --merge-base="$base" "$current" "$reviewed") || status=$?
+    if [ "$status" -eq 1 ]; then
+      echo "review-copy.sh: edits made since take conflict with the review in:" >&2
+      printf '%s\n' "$merged" | sed -e 1d -e '/^$/d' | uniq >&2
+      exit 1
+    fi
+    [ "$status" -eq 0 ] || exit "$status"
+    git diff --binary --no-renames --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ \
+      "$current" "$merged" >.git/no-comments.patch
+    if [ -s .git/no-comments.patch ]; then
+      cd "$origin"
       git apply --whitespace=nowarn "$copy/.git/no-comments.patch"
     fi
     ;;
