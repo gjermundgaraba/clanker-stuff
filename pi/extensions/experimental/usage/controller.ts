@@ -3,6 +3,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { mapClaudeBridgeHeaders } from "./adapters/claude-bridge.js";
 import { fetchClaudeUsage } from "./adapters/claude.js";
 import { fetchCodexUsage } from "./adapters/codex.js";
 import { fetchCopilotUsage } from "./adapters/copilot.js";
@@ -25,6 +26,7 @@ import {
 } from "./format.js";
 import { defaultFetchJson } from "./http.js";
 import {
+  isReportedProvider,
   isSupportedProvider,
   quotaUnavailableMessage,
   resolveQuotaProvider,
@@ -32,6 +34,8 @@ import {
   usageFailure,
 } from "./providers.js";
 import type {
+  FetchedProvider,
+  ReportedProvider,
   SupportedProvider,
   UsageFetchResult,
   UsageSnapshot,
@@ -40,6 +44,15 @@ import { STATUS_KEY, statusText } from "./status.js";
 import type { UsagePresentation } from "./status.js";
 
 const REFRESH_INTERVAL_MS = 5 * 60_000;
+
+const REPORTED_SCOPE = "reported";
+
+const reportedUsage = {
+  "claude-bridge": mapClaudeBridgeHeaders,
+} satisfies Record<
+  ReportedProvider,
+  (headers: Readonly<Record<string, string>>, nowMs: number) => UsageFetchResult
+>;
 
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
   "usage: no supported providers are available (log in to a supported provider)";
@@ -106,7 +119,7 @@ const fixedEndpointFetchers = {
   xai: fetchXaiUsage,
   zai: fetchZaiUsage,
 } satisfies Record<
-  Exclude<SupportedProvider, "radius">,
+  Exclude<FetchedProvider, "radius">,
   (deps: AdapterDeps) => Promise<UsageFetchResult>
 >;
 
@@ -121,7 +134,7 @@ export const createUsageController = (
   const cache = new UsageCache(now);
 
   const resolveEndpoint = (
-    provider: SupportedProvider,
+    provider: FetchedProvider,
     ctx: ExtensionContext
   ) => {
     if (provider !== "radius") {
@@ -165,6 +178,14 @@ export const createUsageController = (
     force: boolean,
     onScopeResolved?: (last: UsageSnapshot | undefined) => void
   ): Promise<UsageReading> => {
+    if (isReportedProvider(provider)) {
+      const snapshot = cache.getLastSuccess(provider, REPORTED_SCOPE);
+
+      return snapshot === undefined
+        ? { result: usageFailure("no usage reported yet", "unavailable") }
+        : { result: { ok: true, snapshot }, snapshot };
+    }
+
     const endpoint = resolveEndpoint(provider, ctx);
 
     if (endpoint === undefined) {
@@ -356,6 +377,28 @@ export const createUsageController = (
     refresh: (ctx: ExtensionContext): void => {
       if (ctx.mode === "tui") {
         refresh(ctx, resolveQuotaProvider(ctx));
+      }
+    },
+    report: (
+      ctx: ExtensionContext,
+      headers: Readonly<Record<string, string>>
+    ): void => {
+      const provider = ctx.model?.provider;
+
+      if (disposed || !isReportedProvider(provider)) {
+        return;
+      }
+
+      const result = reportedUsage[provider](headers, now());
+
+      if (!result.ok) {
+        return;
+      }
+
+      cache.record(provider, REPORTED_SCOPE, result.snapshot);
+
+      if (current?.provider === provider && ctx.mode === "tui") {
+        refresh(ctx, provider);
       }
     },
   };

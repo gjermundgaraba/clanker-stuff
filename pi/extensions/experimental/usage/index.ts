@@ -39,6 +39,9 @@ export const createUsageExtension = (
     pi.on("session_tree", (_event, ctx) => {
       runtime.refresh(ctx);
     });
+    pi.on("after_provider_response", (event, ctx) => {
+      runtime.providerResponse(ctx, event.headers);
+    });
     pi.on("session_shutdown", async () => {
       await runtime.shutdown();
     });

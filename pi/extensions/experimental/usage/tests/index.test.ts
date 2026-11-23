@@ -15,6 +15,13 @@ const fakeController = () => {
       vi.fn<(args: string, ctx: ExtensionCommandContext) => Promise<void>>(),
     start: vi.fn<(ctx: ExtensionContext) => void>(),
     refresh: vi.fn<(ctx: ExtensionContext) => void>(),
+    report:
+      vi.fn<
+        (
+          ctx: ExtensionContext,
+          headers: Readonly<Record<string, string>>
+        ) => void
+      >(),
   };
 
   const createController = vi.fn<typeof createUsageController>(

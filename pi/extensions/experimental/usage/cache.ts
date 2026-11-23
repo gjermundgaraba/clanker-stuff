@@ -50,6 +50,21 @@ export class UsageCache {
     return slot?.scope === scope ? slot.snapshot : undefined;
   }
 
+  /** Keeps a snapshot the provider reported, as the scope's latest success. */
+  record(
+    provider: SupportedProvider,
+    scope: string,
+    snapshot: UsageSnapshot
+  ): void {
+    const slot = this.slots.get(provider);
+
+    if (slot?.scope === scope) {
+      slot.snapshot = snapshot;
+    } else {
+      this.slots.set(provider, { scope, snapshot });
+    }
+  }
+
   async getOrFetch(
     provider: SupportedProvider,
     scope: string,

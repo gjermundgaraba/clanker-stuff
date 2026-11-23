@@ -1,10 +1,11 @@
 # Provider support
 
-The usage extension reads credentials already configured for pi and uses them only to request account usage from supported providers. It does not store or transmit credentials anywhere else.
+The usage extension reads credentials already configured for pi and uses them only to request account usage from supported providers. It does not store or transmit credentials anywhere else. Claude Code through claude-bridge is the exception: it sends no request, and reads the usage that provider's responses report.
 
 | Provider       | Usage source              |
 | -------------- | ------------------------- |
 | Anthropic      | Anthropic OAuth usage API |
+| Claude Code    | claude-bridge responses   |
 | OpenAI Codex   | ChatGPT Codex usage API   |
 | GitHub Copilot | GitHub Copilot usage API  |
 | Kimi           | Moonshot usage API        |
@@ -35,6 +36,12 @@ If only feature quotas are reported, the footer says “account quota not report
 The session-local cache keeps one entry per provider for its latest scope: the resolved usage credential and, for Radius, the resolved billing URL. Snapshots and in-flight requests are shared only within that scope; a different credential or URL discards the provider's entry, and a request still running for the old scope cannot fill the new one. A missing credential or ambiguous gateway cannot reuse an older snapshot. An OAuth token refresh changes the credential, so it costs one extra usage request and, if that request fails, shows an error instead of the previous snapshot.
 
 Pi 1.6.0 does not expose a login/logout event to extensions. The extension checks the credential Pi resolves at the next status refresh or `/usage` invocation; an idle footer is not updated immediately on login or logout. Even a cache hit may run Pi's configured credential resolver. A server-side account reassignment that leaves the request credential and URL unchanged cannot be detected from Pi's auth result. Use `/usage refresh` to request a new snapshot in that case.
+
+## Claude Code
+
+claude-bridge runs on Claude Code's own login, which pi holds no credential for, so the extension sends no usage request for it. The bridge reports Claude Code's plan usage on `after_provider_response` as the `anthropic-ratelimit-unified-*` headers, and the extension reads the 5-hour and weekly windows from them: utilization is a fraction and resets are Unix seconds. The response does not name its provider, so a report is credited to claude-bridge only while the selected model is a `claude-bridge` model; a virtual model routed to claude-bridge gets none.
+
+The snapshot is the latest report, and it changes only when a claude-bridge request runs: `/usage refresh` cannot fetch a newer one. Before the first report in a session, the target shows as unavailable.
 
 ## OpenAI Codex
 

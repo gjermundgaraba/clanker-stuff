@@ -4,7 +4,8 @@ import {
 } from "@clanker-stuff/model-history";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const SUPPORTED_PROVIDERS = [
+/** Providers whose usage the extension requests with the provider's pi credential. */
+export const FETCHED_PROVIDERS = [
   "anthropic",
   "openai-codex",
   "openrouter",
@@ -15,6 +16,19 @@ export const SUPPORTED_PROVIDERS = [
   "zai",
   "opencode-go",
 ] as const;
+
+/** Providers that report their usage through `after_provider_response` instead, since pi
+ *  holds no credential for it: claude-bridge runs on Claude Code's own login. */
+export const REPORTED_PROVIDERS = ["claude-bridge"] as const;
+
+export const SUPPORTED_PROVIDERS = [
+  ...FETCHED_PROVIDERS,
+  ...REPORTED_PROVIDERS,
+] as const;
+
+export type FetchedProvider = (typeof FETCHED_PROVIDERS)[number];
+
+export type ReportedProvider = (typeof REPORTED_PROVIDERS)[number];
 
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
@@ -72,10 +86,17 @@ export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
 
 const SUPPORTED_PROVIDER_IDS = new Set<string>(SUPPORTED_PROVIDERS);
 
+const REPORTED_PROVIDER_IDS = new Set<string>(REPORTED_PROVIDERS);
+
 export const isSupportedProvider = (
   provider: string | undefined
 ): provider is SupportedProvider =>
   provider !== undefined && SUPPORTED_PROVIDER_IDS.has(provider);
+
+export const isReportedProvider = (
+  provider: string | undefined
+): provider is ReportedProvider =>
+  provider !== undefined && REPORTED_PROVIDER_IDS.has(provider);
 
 export const resolveQuotaProvider = (
   ctx: Pick<ExtensionContext, "model" | "sessionManager">
@@ -99,6 +120,7 @@ export const quotaUnavailableMessage = (provider: string | undefined): string =>
 
 const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Claude",
+  "claude-bridge": "Claude Code",
   "openai-codex": "Codex",
   "github-copilot": "Copilot",
   "kimi-coding": "Kimi",

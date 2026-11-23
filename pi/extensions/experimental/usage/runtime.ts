@@ -17,6 +17,11 @@ export const createUsageRuntime = (
   dependencies?: UsageControllerDependencies
 ) => {
   let pendingStart: ExtensionContext | undefined;
+
+  let pendingReport:
+    | { ctx: ExtensionContext; headers: Readonly<Record<string, string>> }
+    | undefined;
+
   let startupLoad: ReturnType<typeof setImmediate> | undefined;
 
   const usage = createLazySingleton(
@@ -31,6 +36,12 @@ export const createUsageRuntime = (
         const ctx = pendingStart;
         pendingStart = undefined;
         controller.start(ctx);
+      }
+
+      if (pendingReport !== undefined) {
+        const { ctx, headers } = pendingReport;
+        pendingReport = undefined;
+        controller.report(ctx, headers);
       }
     }
   );
@@ -82,6 +93,7 @@ export const createUsageRuntime = (
     },
     shutdown: async (): Promise<void> => {
       pendingStart = undefined;
+      pendingReport = undefined;
 
       if (startupLoad !== undefined) {
         clearImmediate(startupLoad);
@@ -98,6 +110,18 @@ export const createUsageRuntime = (
       }
 
       usage.get()?.refresh(ctx);
+    },
+    providerResponse: (
+      ctx: ExtensionContext,
+      headers: Readonly<Record<string, string>>
+    ): void => {
+      const controller = usage.get();
+
+      if (controller === undefined) {
+        pendingReport = { ctx, headers };
+      } else {
+        controller.report(ctx, headers);
+      }
     },
   };
 };

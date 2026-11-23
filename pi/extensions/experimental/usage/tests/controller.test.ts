@@ -1,3 +1,5 @@
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { radiusProvider } from "@earendil-works/pi-ai/providers/all";
@@ -516,6 +518,49 @@ describe("usage controller", () => {
     });
     await host.emitSessionShutdown(context);
     expect(host.getStatus("usage")).toBeUndefined();
+  });
+
+  it("shows claude-bridge usage from the headers its responses report, without a request", async () => {
+    const { extension, fetchJson } = stubDependencies({ value: 1000 });
+
+    const bridgeModel: Model<Api> = {
+      ...claudeModel,
+      provider: "claude-bridge",
+    };
+
+    const host = createExtensionHost(extension, { model: bridgeModel });
+    const context = host.createContext({ model: bridgeModel });
+
+    const usageHeaders = {
+      "anthropic-ratelimit-unified-5h-utilization": "0.25",
+      "anthropic-ratelimit-unified-7d-utilization": "0.5",
+    };
+
+    await host.emitSessionStart(context);
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toBe("Claude Code usage unavailable");
+    });
+
+    await host.emit(
+      "after_provider_response",
+      { type: "after_provider_response", status: 200, headers: usageHeaders },
+      host.createContext({ model: claudeModel })
+    );
+    await host.emit("agent_settled", { type: "agent_settled" }, context);
+    await yieldToEventLoop();
+    expect(host.getStatus("usage")).toBe("Claude Code usage unavailable");
+
+    await host.emit(
+      "after_provider_response",
+      { type: "after_provider_response", status: 200, headers: usageHeaders },
+      context
+    );
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toMatch(/^Claude Code week .* 50%$/u);
+    });
+
+    expect(fetchJson).not.toHaveBeenCalled();
+    await host.emitSessionShutdown(context);
   });
 
   it("renders Radius balance usage from the effective gateway", async () => {

@@ -3,10 +3,10 @@ import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { usageFailure } from "./providers.js";
-import type { SupportedProvider, UsageFetchFailure } from "./providers.js";
+import type { FetchedProvider, UsageFetchFailure } from "./providers.js";
 
 export type GetAuth = (
-  provider: SupportedProvider
+  provider: FetchedProvider
 ) => Promise<AuthResult | undefined>;
 
 /**
@@ -39,7 +39,7 @@ export interface UsageCredential {
 
 export const resolveUsageCredential = async (
   getAuth: GetAuth,
-  provider: SupportedProvider
+  provider: FetchedProvider
 ): Promise<{ ok: true; credential: UsageCredential } | UsageFetchFailure> => {
   let auth: AuthResult | undefined;
 
