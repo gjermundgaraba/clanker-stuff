@@ -9,7 +9,7 @@ import { debug } from "./log.js";
 import { conversationMachine } from "./machine/conversation.js";
 import type { ConversationSnapshot } from "./machine/conversation.js";
 import { adoptable, sameRecord, sessionRecord } from "./session/warm.js";
-import type { SessionRecord } from "./session/warm.js";
+import type { Adoption, SessionRecord } from "./session/warm.js";
 
 export type Conversation = Actor<typeof conversationMachine>;
 
@@ -23,7 +23,6 @@ interface PiSession {
   cwd?: string;
   ui?: ExtensionUIContext;
   conversation?: Conversation;
-  recordToAdopt?: SessionRecord;
   recorded?: SessionRecord;
 }
 
@@ -49,35 +48,8 @@ export class Sessions {
       ...this.byId.get(piSessionId),
       cwd,
       ...(ui === undefined ? {} : { ui }),
-      ...(recorded === undefined ? {} : { recordToAdopt: recorded, recorded }),
+      ...(recorded === undefined ? {} : { recorded }),
     });
-  }
-
-  /** Seeds a session's conversation with the Claude Code session pi's session recorded,
-   *  when no query has run yet and that session still holds the start of `history`.
-   *  Only the session's first request tries. */
-  adoptRecorded(piSessionId: string, history: readonly Message[]): void {
-    const session = this.byId.get(piSessionId);
-    const record = session?.recordToAdopt;
-
-    if (session === undefined || record === undefined) {
-      return;
-    }
-
-    delete session.recordToAdopt;
-
-    const conversation = this.conversation(piSessionId);
-    const { context } = conversation.getSnapshot();
-
-    if (context.ccSessionId !== undefined || context.held.length > 0) {
-      return;
-    }
-
-    const held = adoptable(record, this.cwd(piSessionId), history);
-
-    if (held !== undefined) {
-      conversation.send({ type: "pi.adopt", session: record.session, held });
-    }
   }
 
   /** Forget a session, stopping its conversation and the query it runs. */
@@ -106,13 +78,19 @@ export class Sessions {
     }
   }
 
-  /** The session's conversation, started on its first request. Each time it settles
-   *  after Claude Code exited cleanly, a changed session is recorded. */
-  conversation(piSessionId: string): Conversation {
+  /** The session's conversation, started on its first request: on the Claude Code
+   *  session pi's session recorded, when that still holds the start of `history`. Each
+   *  time it settles after Claude Code exited cleanly, a changed session is recorded. */
+  conversation(piSessionId: string, history: readonly Message[]): Conversation {
     const session = this.byId.get(piSessionId) ?? {};
 
     if (session.conversation === undefined) {
-      const conversation = this.ephemeral(piSessionId);
+      const conversation = this.started(
+        piSessionId,
+        session.recorded === undefined
+          ? undefined
+          : adoptable(session.recorded, this.cwd(piSessionId), history)
+      );
 
       conversation.subscribe((snapshot) => {
         this.recordSettled(piSessionId, session, snapshot);
@@ -152,12 +130,20 @@ export class Sessions {
   }
 
   ephemeral(piSessionId: string | undefined): Conversation {
+    return this.started(piSessionId, undefined);
+  }
+
+  private started(
+    piSessionId: string | undefined,
+    adopt: Adoption | undefined
+  ): Conversation {
     return createActor(conversationMachine, {
       input: {
         run: this.run,
         notify: (message) => {
           this.notify(piSessionId, message);
         },
+        ...(adopt === undefined ? {} : { adopt }),
       },
     }).start();
   }

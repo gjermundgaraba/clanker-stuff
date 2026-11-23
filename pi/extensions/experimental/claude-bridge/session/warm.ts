@@ -108,14 +108,20 @@ const refusal = (
     : "its transcript changed or is gone";
 };
 
-/** The messages `record`'s session holds, when `history` starts with them, the request
- *  runs in the recorded project directory, and the transcript is as Claude Code left it.
- *  Undefined otherwise: the turn then rebuilds as it would without a record. */
+/** A Claude Code session a conversation can start on, with the messages it holds. */
+export interface Adoption {
+  session: string;
+  held: readonly Message[];
+}
+
+/** `record`'s session to start on, when `history` starts with the messages it holds, the
+ *  request runs in the recorded project directory, and the transcript is as Claude Code
+ *  left it. Undefined otherwise: the turn then rebuilds as it would without a record. */
 export const adoptable = (
   record: SessionRecord,
   cwd: string,
   history: readonly Message[]
-): Message[] | undefined => {
+): Adoption | undefined => {
   const held = history.slice(0, record.held);
   const refused = refusal(record, cwd, held);
 
@@ -123,5 +129,5 @@ export const adoptable = (
     `warm: ${refused === undefined ? "adopting" : `not adopting (${refused})`} session ${record.session.slice(0, 8)} holding ${record.held} messages`
   );
 
-  return refused === undefined ? held : undefined;
+  return refused === undefined ? { session: record.session, held } : undefined;
 };

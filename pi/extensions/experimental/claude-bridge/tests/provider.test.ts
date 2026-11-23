@@ -365,7 +365,7 @@ describe("streamClaudeCode", () => {
 
       await vi.waitFor(() => {
         expect(
-          sessions?.conversation(SESSION).getSnapshot().context.turn
+          sessions?.conversation(SESSION, []).getSnapshot().context.turn
         ).not.toBeNull();
       });
       const followUp = messageStart("msg_follow_up");

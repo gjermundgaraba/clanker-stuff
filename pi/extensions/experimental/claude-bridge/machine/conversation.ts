@@ -28,6 +28,7 @@ import {
   resultErrorText,
 } from "../query/result.js";
 import type { RateLimitRejection } from "../query/result.js";
+import type { Adoption } from "../session/warm.js";
 import type { SyncState } from "../sync.js";
 import type { Turn } from "../translate.js";
 import { userTurnBlocks } from "../turn.js";
@@ -273,7 +274,6 @@ export const conversationMachine = setup({
     }>(),
     events: {
       "pi.start": types<QueryStart>(),
-      "pi.adopt": types<{ session: string; held: readonly Message[] }>(),
       "pi.deliver": types<{
         turn: Turn;
         results: readonly ToolResultMessage[];
@@ -289,7 +289,11 @@ export const conversationMachine = setup({
       "steer.done": types<{ error: string | undefined }>(),
       "turn.truncated": types<object>(),
     },
-    input: types<{ run: QueryFunction; notify: (message: string) => void }>(),
+    input: types<{
+      run: QueryFunction;
+      notify: (message: string) => void;
+      adopt?: Adoption;
+    }>(),
   },
   states: {
     idle: {
@@ -321,9 +325,9 @@ export const conversationMachine = setup({
   context: ({ input }) => ({
     run: input.run,
     notify: input.notify,
-    ccSessionId: undefined,
-    held: [],
-    adopted: false,
+    ccSessionId: input.adopt?.session,
+    held: input.adopt === undefined ? [] : copies(input.adopt.held),
+    adopted: input.adopt !== undefined,
     rateLimit: null,
     unreportedUsage: null,
     ...IDLE,
@@ -353,13 +357,6 @@ export const conversationMachine = setup({
     idle: {
       id: "idle",
       on: {
-        "pi.adopt": ({ event }) => ({
-          context: {
-            ccSessionId: event.session,
-            held: copies(event.held),
-            adopted: true,
-          },
-        }),
         "pi.start": ({ context, event }, enq) => {
           reportUnreportedUsage(context.unreportedUsage, event.turn, enq);
 

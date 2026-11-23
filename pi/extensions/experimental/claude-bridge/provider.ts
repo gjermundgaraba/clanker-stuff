@@ -274,9 +274,11 @@ const serve = async (request: Request): Promise<void> => {
     return;
   }
 
-  request.deps.sessions.adoptRecorded(piSession, context.messages);
+  const conversation = request.deps.sessions.conversation(
+    piSession,
+    context.messages
+  );
 
-  const conversation = request.deps.sessions.conversation(piSession);
   const snapshot = await settled(conversation);
   const state = syncState(snapshot);
 
