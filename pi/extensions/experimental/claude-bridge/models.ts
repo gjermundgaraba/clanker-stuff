@@ -54,8 +54,8 @@ export const claudeCodeModelId = (
 
 /** pi-ai's Anthropic models projected onto pi's provider registration, newest
  *  generation first, with the context window Claude Code serves by default rather than
- *  the one pi-ai declares. Costs default to zero for subscription usage and may be
- *  overridden per model in `models.json`. */
+ *  the one pi-ai declares. Costs are pi-ai's Anthropic list prices, so subscription
+ *  usage shows what it would cost on the API; `models.json` may override them per model. */
 export const buildModels = (
   catalog: ReadonlyArray<Model<Api>>
 ): Array<Model<Api>> =>
@@ -96,7 +96,7 @@ export const buildModels = (
       ...(model.thinkingLevelMap === undefined
         ? {}
         : { thinkingLevelMap: model.thinkingLevelMap }),
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: model.cost,
     }));
 
 export const catalogModels = (): Array<Model<Api>> =>
