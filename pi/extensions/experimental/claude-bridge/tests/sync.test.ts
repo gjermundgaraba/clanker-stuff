@@ -94,6 +94,7 @@ const holding = (
 ): SyncState => ({
   held,
   session: "cc-1",
+  adopted: false,
   busy: false,
   parked: undefined,
   ...extra,
@@ -118,6 +119,7 @@ describe("ordinary turns", () => {
     expect(plan(holding([u1, a1]), request([u1, a1, u2]))).toStrictEqual({
       kind: "resume",
       session: "cc-1",
+      fork: false,
       turn: [u2],
     });
   });
@@ -129,8 +131,17 @@ describe("ordinary turns", () => {
     expect(plan(holding([u1, a1]), request([...copies, u2]))).toStrictEqual({
       kind: "resume",
       session: "cc-1",
+      fork: false,
       turn: [u2],
     });
+  });
+
+  it("resumes a session adopted from another process as a fork", () => {
+    const [u1, a1, u2] = [user("hi"), say("hello"), user("again")];
+
+    expect(
+      plan(holding([u1, a1], { adopted: true }), request([u1, a1, u2]))
+    ).toMatchObject({ kind: "resume", session: "cc-1", fork: true });
   });
 
   it("rebuilds when Claude Code never reported its session", () => {
@@ -157,6 +168,7 @@ describe("ordinary turns", () => {
     ).toStrictEqual({
       kind: "resume",
       session: "cc-1",
+      fork: false,
       turn: [next],
     });
   });

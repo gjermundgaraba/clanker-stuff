@@ -4,7 +4,9 @@ import type { BridgeContext } from "./prompt.js";
 import { systemText } from "./prompt.js";
 import { turnStart } from "./turn.js";
 
-const identity = (message: Message): string =>
+/** What makes two pi messages the same message to Claude Code: role, content, and the
+ *  call a tool result answers. */
+export const messageIdentity = (message: Message): string =>
   JSON.stringify([
     message.role,
     message.content,
@@ -20,7 +22,10 @@ export const matchedPrefix = (
   const index = held.findIndex((message, at) => {
     const current = history[at];
 
-    return current === undefined || identity(current) !== identity(message);
+    return (
+      current === undefined ||
+      messageIdentity(current) !== messageIdentity(message)
+    );
   });
 
   return index === -1 ? held.length : index;
@@ -52,6 +57,9 @@ export interface SyncState {
    *  continue prompt or anything Claude Code writes to its own file. */
   held: readonly Message[];
   session: string | undefined;
+  /** `session` is another process's, adopted from pi's session: resume it as a fork, and
+   *  never delete it. */
+  adopted: boolean;
   /** A query is running (streaming or parked at a tool call). */
   busy: boolean;
   /** The query parked at a tool call: what it is fixed to and the calls it waits on. */
@@ -84,7 +92,7 @@ export type Plan =
   | { kind: "side" }
   /** pi reports a tool's result after aborting the run: end the call with no query. */
   | { kind: "finish" }
-  | { kind: "resume"; session: string; turn: Message[] }
+  | { kind: "resume"; session: string; fork: boolean; turn: Message[] }
   /** Write a new session from `priors`, then send `turn`, or the continue prompt when the
    *  history ends in tool results and there is no turn. `matched` is how much of what
    *  Claude Code held pi's history still starts with. */
@@ -185,6 +193,7 @@ export const plan = (state: SyncState, request: SyncRequest): Plan => {
     return {
       kind: "resume",
       session: state.session,
+      fork: state.adopted,
       turn: history.slice(start),
     };
   }

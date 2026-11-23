@@ -318,6 +318,7 @@ describe("the conversation machine", () => {
       expect(syncState(actor.getSnapshot())).toStrictEqual({
         held: [prompt, lastDone(first.pi)],
         session: undefined,
+        adopted: false,
         busy: true,
         parked: { key: "key", waiting: new Set(["toolu_1"]) },
       });

@@ -256,6 +256,9 @@ export const conversationMachine = setup({
       /** The pi messages Claude Code holds, oldest first. Kept only through a clean exit:
        *  a query that failed or was killed may have left its session file short. */
       held: readonly Message[];
+      /** `ccSessionId` is another process's session, adopted from pi's session: it is
+       *  resumed as a fork and never deleted, until Claude Code reports its own. */
+      adopted: boolean;
       rateLimit: RateLimitRejection | null;
       /** The latest plan usage that arrived while no provider call was open, for the
        *  next call to report. */
@@ -270,6 +273,7 @@ export const conversationMachine = setup({
     }>(),
     events: {
       "pi.start": types<QueryStart>(),
+      "pi.adopt": types<{ session: string; held: readonly Message[] }>(),
       "pi.deliver": types<{
         turn: Turn;
         results: readonly ToolResultMessage[];
@@ -319,6 +323,7 @@ export const conversationMachine = setup({
     notify: input.notify,
     ccSessionId: undefined,
     held: [],
+    adopted: false,
     rateLimit: null,
     unreportedUsage: null,
     ...IDLE,
@@ -348,6 +353,13 @@ export const conversationMachine = setup({
     idle: {
       id: "idle",
       on: {
+        "pi.adopt": ({ event }) => ({
+          context: {
+            ccSessionId: event.session,
+            held: copies(event.held),
+            adopted: true,
+          },
+        }),
         "pi.start": ({ context, event }, enq) => {
           reportUnreportedUsage(context.unreportedUsage, event.turn, enq);
 
@@ -427,7 +439,9 @@ export const conversationMachine = setup({
           if (message.type === "system" && message.subtype === "init") {
             debug(`conversation: session ${message.session_id}`);
 
-            return { context: { ccSessionId: message.session_id } };
+            return {
+              context: { ccSessionId: message.session_id, adopted: false },
+            };
           }
 
           if (message.type === "rate_limit_event") {
@@ -740,12 +754,13 @@ export const conversationMachine = setup({
 export type ConversationSnapshot = SnapshotFrom<typeof conversationMachine>;
 
 export const syncState = (snapshot: ConversationSnapshot): SyncState => {
-  const { held, ccSessionId, query, waiting } = snapshot.context;
+  const { held, ccSessionId, adopted, query, waiting } = snapshot.context;
   const parked = snapshot.matches({ active: "parked" }) && query !== null;
 
   return {
     held,
     session: ccSessionId,
+    adopted,
     busy: snapshot.matches("active"),
     parked: parked ? { key: query.key, waiting } : undefined,
   };

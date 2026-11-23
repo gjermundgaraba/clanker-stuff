@@ -40,6 +40,7 @@ import type { BridgeContext } from "./prompt.js";
 import { makePromptStream, userMessage } from "./query/prompt-stream.js";
 import { PROVIDER_ID } from "./session/convert.js";
 import { discardSession, rebuildSession } from "./session/rebuild.js";
+import { latestRecord } from "./session/warm.js";
 import { settled } from "./sessions.js";
 import type { Conversation, Sessions } from "./sessions.js";
 import { plan, queryKey } from "./sync.js";
@@ -105,6 +106,7 @@ interface QueryStart {
   systemPrompt: SystemPrompt | undefined;
   cwd: string;
   resume: string | undefined;
+  forkResumed?: boolean;
   turn: readonly Message[];
 }
 
@@ -200,13 +202,14 @@ const startQuery = (
       : { effort, extraArgs: { "thinking-display": "summarized" } }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
     ...(start.resume === undefined ? {} : { resume: start.resume }),
+    ...(start.forkResumed === true ? { forkSession: true } : {}),
     ...cliDebugOptions("provider"),
   };
 
   debug(
     "provider: query",
     `model=${cliModel} msgs=${context.messages.length} tools=${served.tools.length}`,
-    `resume=${start.resume?.slice(0, 8) ?? "none"}`
+    `resume=${start.resume?.slice(0, 8) ?? "none"}${start.forkResumed === true ? " fork" : ""}`
   );
 
   conversation.send({
@@ -271,6 +274,8 @@ const serve = async (request: Request): Promise<void> => {
 
     return;
   }
+
+  request.deps.sessions.adoptRecorded(piSession, context.messages);
 
   const conversation = request.deps.sessions.conversation(piSession);
   const snapshot = await settled(conversation);
@@ -338,6 +343,7 @@ const serve = async (request: Request): Promise<void> => {
       systemPrompt,
       cwd,
       resume: decision.session,
+      forkResumed: decision.fork,
       turn: decision.turn,
     });
 
@@ -348,7 +354,7 @@ const serve = async (request: Request): Promise<void> => {
     priors: decision.priors,
     cwd,
     modelId: claudeCodeModelId(request.model),
-    previous: state.session,
+    previous: state.adopted ? undefined : state.session,
   });
 
   startQuery(request, turn, conversation, {
@@ -439,7 +445,12 @@ export const startSession = (
 ): void => {
   const sessionId = ctx.sessionManager.getSessionId();
 
-  sessions.start(sessionId, ctx.cwd, ctx.ui);
+  sessions.start(
+    sessionId,
+    ctx.cwd,
+    ctx.ui,
+    latestRecord(ctx.sessionManager.getBranch())
+  );
 
   if (notice !== undefined) {
     sessions.notify(sessionId, notice);

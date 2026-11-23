@@ -4,13 +4,20 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { recordStream } from "./child.js";
 import type { QueryFunction } from "./child.js";
 import { bridgeProvider, catalogNotice, startSession } from "./provider.js";
+import { SESSION_ENTRY } from "./session/warm.js";
 import { Sessions } from "./sessions.js";
 
 /** The extension, with the Agent SDK's query() replaceable for tests. */
 export const createClaudeBridge =
   (runQuery: QueryFunction): ((pi: ExtensionAPI) => void) =>
   (pi) => {
-    const sessions = new Sessions(runQuery);
+    let boundSession: string | undefined;
+
+    const sessions = new Sessions(runQuery, (piSessionId, record) => {
+      if (piSessionId === boundSession) {
+        pi.appendEntry(SESSION_ENTRY, record);
+      }
+    });
 
     const provider = bridgeProvider({
       sessions,
@@ -22,6 +29,7 @@ export const createClaudeBridge =
     pi.registerProvider(provider);
 
     pi.on("session_start", (_event, ctx) => {
+      boundSession = ctx.sessionManager.getSessionId();
       startSession(sessions, notice, ctx);
     });
 

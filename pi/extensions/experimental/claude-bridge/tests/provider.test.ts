@@ -10,7 +10,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
-import { openSession } from "cc-session-io";
+import { createSession, openSession } from "cc-session-io";
 import { Type } from "typebox";
 import {
   afterEach,
@@ -30,6 +30,7 @@ import {
   CONTINUE_PROMPT,
   streamClaudeCode,
 } from "../provider.js";
+import type { SessionRecord } from "../session/warm.js";
 import { Sessions } from "../sessions.js";
 import {
   assistantMessage,
@@ -98,11 +99,14 @@ let restoreEnv: () => void;
 
 let sessions: Sessions | undefined;
 
-const bridge = () => {
+const bridge = (recorded?: SessionRecord) => {
   const fake = fakeQueryFunction();
+  const records: SessionRecord[] = [];
 
-  sessions = new Sessions(recordStream(fake.run));
-  sessions.start(SESSION, cwd);
+  sessions = new Sessions(recordStream(fake.run), (_, record) => {
+    records.push(record);
+  });
+  sessions.start(SESSION, cwd, undefined, recorded);
 
   const deps = { sessions, piTools: () => [] };
 
@@ -139,7 +143,7 @@ const bridge = () => {
       return started;
     });
 
-  return { fake, call, query };
+  return { fake, call, query, records };
 };
 
 const promptOf = async (
@@ -170,10 +174,48 @@ const answer = (query: FakeQuery, text: string, sessionId = "cc-1"): void => {
 const sessionPath = (sessionId: string) =>
   openSession({ sessionId, projectPath: cwd }).jsonlPath;
 
+const writeTranscript = (sessionId: string, text: string): void => {
+  const session = createSession({
+    sessionId,
+    projectPath: cwd,
+    model: model.id,
+    claudeDir: configDir,
+  });
+
+  session.importMessages([{ role: "user", content: text }]);
+  session.save();
+};
+
+const firstProcessTurnAndRecord = async () => {
+  const { call, query, records } = bridge();
+  const u1 = user("hi");
+  const first = call([u1]);
+  const q1 = await query(0);
+
+  writeTranscript("cc-1", "hi");
+  answer(q1, "hello");
+
+  const a1 = await first.result();
+
+  const [record] = await vi.waitFor(() => {
+    expect(records).toHaveLength(1);
+
+    return records;
+  });
+
+  sessions?.end(SESSION);
+
+  if (record === undefined) {
+    throw new Error("no session was recorded");
+  }
+
+  return { u1, a1, record };
+};
+
 describe("the empty-catalog notice", () => {
   it("warns only when pi-ai's catalog leaves no models to register", () => {
     const provider = bridgeProvider({
-      sessions: new Sessions(fakeQueryFunction().run),
+      sessions: new Sessions(fakeQueryFunction().run, () => undefined),
       piTools: () => [],
     });
 
@@ -632,6 +674,54 @@ describe("streamClaudeCode", () => {
       await expect(promptOf(q2)).resolves.toStrictEqual([
         { type: "text", text: CONTINUE_PROMPT },
       ]);
+    });
+  });
+
+  describe("a pi session restarted in a new process", () => {
+    it("records Claude Code's session once it exits and resumes it as a fork", async () => {
+      const { u1, a1, record } = await firstProcessTurnAndRecord();
+
+      expect(record).toMatchObject({ session: "cc-1", cwd, held: 2 });
+
+      const { call, query } = bridge(record);
+
+      call([u1, a1, user("again")]);
+
+      const q = await query(0);
+
+      expect(q.params.options.resume).toBe("cc-1");
+      expect(q.params.options.forkSession).toBe(true);
+      await expect(promptOf(q)).resolves.toStrictEqual([
+        { type: "text", text: "again" },
+      ]);
+    });
+
+    it("rebuilds without deleting the adopted transcript when the history outgrew it", async () => {
+      const { u1, a1, record } = await firstProcessTurnAndRecord();
+      const { call, query } = bridge(record);
+
+      call([u1, a1, user("one"), said("faux"), user("two")]);
+
+      const q = await query(0);
+
+      expect(q.params.options.resume).not.toBe("cc-1");
+      expect(q.params.options.forkSession).toBeUndefined();
+      expect(existsSync(sessionPath("cc-1"))).toBe(true);
+    });
+
+    it("rebuilds when the transcript was written to after it was recorded", async () => {
+      const { u1, a1, record } = await firstProcessTurnAndRecord();
+
+      writeTranscript("cc-1", "a turn the record does not know");
+
+      const { call, query } = bridge(record);
+
+      call([u1, a1, user("again")]);
+
+      const q = await query(0);
+
+      expect(q.params.options.resume).not.toBe("cc-1");
+      expect(q.params.options.forkSession).toBeUndefined();
     });
   });
 
