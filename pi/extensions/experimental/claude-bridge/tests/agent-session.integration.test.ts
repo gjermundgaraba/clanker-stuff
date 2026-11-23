@@ -135,6 +135,90 @@ describe("the bridge inside an AgentSession", () => {
     }
   });
 
+  it("runs a bash call that sets no timeout with Claude Code's 120 seconds, storing it as Claude wrote it", async () => {
+    const fake = fakeQueryFunction();
+    const ran: unknown[] = [];
+
+    const bash = defineTool({
+      name: "bash",
+      label: "bash",
+      description: "Run a command",
+      parameters: Type.Object({
+        command: Type.String(),
+        timeout: Type.Optional(Type.Number()),
+      }),
+      execute: async (_id, params) => {
+        ran.push(params);
+
+        return { content: [{ type: "text", text: "ok" }], details: {} };
+      },
+    });
+
+    const h = await createAgentSessionHarness({
+      extensionFactories: [createClaudeBridge(fake.run)],
+      tools: [bash],
+    });
+
+    try {
+      const bridgeModel = h.session.modelRuntime.getModel(
+        "claude-bridge",
+        "claude-haiku-5-5"
+      );
+
+      if (bridgeModel === undefined) {
+        throw new Error("claude-bridge model not registered");
+      }
+
+      await h.session.setModel(bridgeModel);
+
+      const run = h.prompt("List the files.");
+
+      const query = await vi.waitFor(() => {
+        const [started] = fake.queries;
+
+        if (started === undefined) {
+          throw new Error("the query has not started");
+        }
+
+        return started;
+      });
+
+      query.push(init("cc-1"));
+      query.push(
+        assistantMessage("msg_1", [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "mcp__custom-tools__bash",
+            input: { command: "ls" },
+          },
+        ])
+      );
+
+      await vi.waitFor(() => {
+        expect(h.session.messages.at(-1)?.role).toBe("toolResult");
+      });
+
+      query.push(assistantMessage("msg_2", [textBlock("Listed.")]));
+      query.push(successResult("Listed."));
+      query.end();
+      await run;
+
+      expect(ran).toStrictEqual([{ command: "ls", timeout: 120 }]);
+      expect(
+        h.session.messages.flatMap((message) =>
+          message.role === "assistant"
+            ? message.content.flatMap((block) =>
+                block.type === "toolCall" ? [block.arguments] : []
+              )
+            : []
+        )
+      ).toStrictEqual([{ command: "ls" }]);
+    } finally {
+      h.cleanup();
+    }
+  });
+
   it("resumes the Claude Code session a restarted pi session recorded, as a fork", async () => {
     const cwd = await createTempDir("claude-bridge-cwd-");
     const sessionDir = await createTempDir("claude-bridge-sessions-");

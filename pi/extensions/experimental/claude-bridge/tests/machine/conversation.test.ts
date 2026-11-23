@@ -46,7 +46,7 @@ import { user } from "../session/messages.js";
 
 const model = testModel();
 
-const served = resolveServedTools([
+const { names: served } = resolveServedTools([
   { name: "read", description: "Read a file", parameters: Type.Object({}) },
 ]);
 

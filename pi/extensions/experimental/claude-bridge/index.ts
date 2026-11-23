@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { giveBashTimeout } from "./bash-timeout.js";
 import { recordStream } from "./child.js";
 import type { QueryFunction } from "./child.js";
 import { bridgeProvider, catalogNotice, startSession } from "./provider.js";
@@ -31,6 +32,10 @@ export const createClaudeBridge =
     pi.on("session_start", (_event, ctx) => {
       boundSession = ctx.sessionManager.getSessionId();
       startSession(sessions, notice, ctx);
+    });
+
+    pi.on("tool_call", (event, ctx) => {
+      giveBashTimeout(event, ctx.sessionManager.getBranch());
     });
 
     pi.on("session_shutdown", (_event, ctx) => {

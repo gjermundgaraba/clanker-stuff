@@ -2,12 +2,7 @@ import type { Tool } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  piToolName,
-  resolveServedTools,
-  sdkToolName,
-  withArgumentDefaults,
-} from "../tools.js";
+import { piToolName, resolveServedTools, sdkToolName } from "../tools.js";
 
 const tool = (name: string): Tool => ({
   name,
@@ -45,26 +40,8 @@ const bash = (parameters: Tool["parameters"]): Tool => ({
   parameters,
 });
 
-describe("argument defaults", () => {
-  it("give a bash call Claude Code's 120 second timeout when it sets none", () => {
-    const served = resolveServedTools([
-      bash(
-        Type.Object({
-          command: Type.String(),
-          timeout: Type.Optional(Type.Number()),
-        })
-      ),
-    ]);
-
-    expect(
-      withArgumentDefaults(served, "bash", { command: "ls" })
-    ).toStrictEqual({ timeout: 120, command: "ls" });
-    expect(
-      withArgumentDefaults(served, "bash", { command: "make", timeout: 900 })
-    ).toStrictEqual({ timeout: 900, command: "make" });
-  });
-
-  it("are what Claude reads in the served schema, in place of pi's no-default text", () => {
+describe("bash's served timeout", () => {
+  it("is described by the default the bridge gives, in place of pi's no-default text", () => {
     const served = resolveServedTools([
       bash(
         Type.Object({
@@ -74,28 +51,27 @@ describe("argument defaults", () => {
           ),
         })
       ),
-    ]);
-
-    expect(served.tools[0]?.inputSchema["properties"]).toStrictEqual({
-      command: { type: "string", description: "Command to run" },
-      timeout: {
-        type: "number",
-        description:
-          "Timeout in seconds. A call that sets none stops after 120 seconds.",
+      {
+        ...tool("read"),
+        parameters: Type.Object({
+          timeout: Type.Number({ description: "unchanged" }),
+        }),
       },
-    });
-  });
-
-  it("add nothing a tool's schema does not take", () => {
-    const served = resolveServedTools([
-      bash(Type.Object({ command: Type.String() })),
-      { ...tool("read"), parameters: Type.Object({ timeout: Type.Number() }) },
     ]);
 
     expect(
-      withArgumentDefaults(served, "bash", { command: "ls" })
-    ).toStrictEqual({ command: "ls" });
-    expect(withArgumentDefaults(served, "read", {})).toStrictEqual({});
+      served.tools.map(({ inputSchema }) => inputSchema["properties"])
+    ).toStrictEqual([
+      {
+        command: { type: "string", description: "Command to run" },
+        timeout: {
+          type: "number",
+          description:
+            "Timeout in seconds. A call that sets none stops after 120 seconds.",
+        },
+      },
+      { timeout: { type: "number", description: "unchanged" } },
+    ]);
   });
 });
 

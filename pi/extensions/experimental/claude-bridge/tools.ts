@@ -16,7 +16,7 @@ export interface ServedTool {
   name: string;
   /** The tool's description, carrying its prompt guidelines. */
   description: string;
-  /** The tool's parameters as JSON Schema, a defaulted argument described by its
+  /** The tool's parameters as JSON Schema, `bash`'s timeout described by the bridge's
    *  default. */
   inputSchema: JsonObject;
 }
@@ -24,92 +24,34 @@ export interface ServedTool {
 export interface ServedTools {
   tools: ServedTool[];
   names: ReadonlySet<string>;
-  /** Per tool, the arguments a call that leaves them out gets, where the tool's schema
-   *  takes them: defaults Claude Code's own tools apply and pi's do not. Claude Code's
-   *  Bash stops a command after 120 seconds, and the model writes its calls expecting
-   *  that, while pi's bash runs it unbounded. */
-  argumentDefaults: ReadonlyMap<string, JsonObject>;
 }
 
-interface ArgumentDefault {
-  value: number;
-  description: string;
-}
+/** The timeout a claude-bridge `bash` call that sets none gets. Claude Code's Bash stops
+ *  a command after 120 seconds, and Claude writes its calls expecting that, while pi's
+ *  bash runs one unbounded. */
+export const BASH_TIMEOUT_SECONDS = 120;
 
-const CLAUDE_CODE_ARGUMENT_DEFAULTS = new Map<
-  string,
-  Readonly<Record<string, ArgumentDefault>>
->([
-  [
-    "bash",
-    {
-      timeout: {
-        value: 120,
-        description:
-          "Timeout in seconds. A call that sets none stops after 120 seconds.",
-      },
-    },
-  ],
-]);
+const BASH_TIMEOUT_DESCRIPTION = `Timeout in seconds. A call that sets none stops after ${BASH_TIMEOUT_SECONDS} seconds.`;
 
-const takenDefaults = (
-  name: string,
-  properties: JsonObject
-): Array<[string, ArgumentDefault]> =>
-  Object.entries(CLAUDE_CODE_ARGUMENT_DEFAULTS.get(name) ?? {}).filter(
-    ([key]) => isJsonObject(properties[key])
-  );
-
-interface ResolvedTool {
-  served: ServedTool;
-  defaults: JsonObject | undefined;
-}
-
-const serve = (tool: Tool, description: string): ResolvedTool => {
+const inputSchema = (tool: Tool): JsonObject => {
   const schema = toJsonObject(tool.parameters) ?? {};
+  const { properties } = schema;
 
-  const properties = isJsonObject(schema["properties"])
-    ? schema["properties"]
-    : {};
-
-  const taken = takenDefaults(tool.name, properties);
-
-  if (taken.length === 0) {
-    return {
-      served: { name: tool.name, description, inputSchema: schema },
-      defaults: undefined,
-    };
+  if (tool.name !== "bash" || !isJsonObject(properties)) {
+    return schema;
   }
 
-  const described: JsonObject = { ...properties };
+  const { timeout } = properties;
 
-  for (const [key, { description: text }] of taken) {
-    const property = properties[key];
-
-    if (isJsonObject(property)) {
-      described[key] = { ...property, description: text };
-    }
-  }
-
-  return {
-    served: {
-      name: tool.name,
-      description,
-      inputSchema: { ...schema, properties: described },
-    },
-    defaults: Object.fromEntries(taken.map(([key, { value }]) => [key, value])),
-  };
-};
-
-/** `args` with the tool's argument defaults filled in where the call left them out. */
-export const withArgumentDefaults = (
-  served: Pick<ServedTools, "argumentDefaults">,
-  name: string,
-  args: JsonObject
-): JsonObject => {
-  const defaults = served.argumentDefaults.get(name);
-
-  return defaults === undefined ? args : { ...defaults, ...args };
+  return isJsonObject(timeout)
+    ? {
+        ...schema,
+        properties: {
+          ...properties,
+          timeout: { ...timeout, description: BASH_TIMEOUT_DESCRIPTION },
+        },
+      }
+    : schema;
 };
 
 const describeTool = (
@@ -133,18 +75,13 @@ export const resolveServedTools = (
     piTools.map((tool) => [tool.name, tool.promptGuidelines])
   );
 
-  const resolved = tools.map((tool) =>
-    serve(tool, describeTool(tool.description, guidelines.get(tool.name)))
-  );
-
   return {
-    tools: resolved.map(({ served }) => served),
+    tools: tools.map((tool) => ({
+      name: tool.name,
+      description: describeTool(tool.description, guidelines.get(tool.name)),
+      inputSchema: inputSchema(tool),
+    })),
     names: new Set(tools.map((tool) => tool.name)),
-    argumentDefaults: new Map(
-      resolved.flatMap(({ served, defaults }) =>
-        defaults === undefined ? [] : [[served.name, defaults] as const]
-      )
-    ),
   };
 };
 

@@ -384,7 +384,7 @@ export const streamClaudeCode = (
   );
 
   const answer: Request["answer"] = (tools, turnOptions) => {
-    turn = new Turn(model, stream, tools, {
+    turn = new Turn(model, stream, tools.names, {
       ...turnOptions,
       onProviderStreamEvent: options?.onProviderStreamEvent,
       onResponse: options?.onResponse,
