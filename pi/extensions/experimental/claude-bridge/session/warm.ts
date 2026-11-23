@@ -9,6 +9,7 @@ import { Value } from "typebox/value";
 
 import { debug } from "../log.js";
 import { messageIdentity } from "../sync.js";
+import { claudeDir } from "./rebuild.js";
 
 /** The custom entry type that records, in pi's session, the Claude Code session a pi
  *  session last left in a clean state. It never reaches the model. */
@@ -31,8 +32,6 @@ export const historyDigest = (messages: readonly Message[]): string =>
   createHash("sha256")
     .update(JSON.stringify(messages.map(messageIdentity)))
     .digest("hex");
-
-const claudeDir = (): string | undefined => process.env["CLAUDE_CONFIG_DIR"];
 
 const transcriptBytes = (session: string, cwd: string): number | undefined => {
   try {

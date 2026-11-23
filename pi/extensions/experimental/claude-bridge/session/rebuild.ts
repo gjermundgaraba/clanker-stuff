@@ -5,7 +5,9 @@ import type { Session } from "cc-session-io";
 import { debug } from "../log.js";
 import { convertPiMessages } from "./convert.js";
 
-const claudeDir = (): string | undefined => process.env["CLAUDE_CONFIG_DIR"];
+/** Where Claude Code keeps its sessions, when pi's environment moves it from `~/.claude`. */
+export const claudeDir = (): string | undefined =>
+  process.env["CLAUDE_CONFIG_DIR"];
 
 const importMessages = (
   session: Session,
