@@ -2,6 +2,7 @@ import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { createSession } from "cc-session-io";
 import { Type } from "typebox";
 import {
   afterEach,
@@ -16,6 +17,7 @@ import { createAgentSessionHarness } from "../../../../tests/harness/agent-sessi
 import { patchEnv } from "../../../../tests/helpers/env.js";
 import { createTempDir } from "../../../../tests/helpers/fs.js";
 import { createClaudeBridge } from "../index.js";
+import { SESSION_ENTRY } from "../session/warm.js";
 import {
   assistantMessage,
   blockStop,
@@ -29,6 +31,14 @@ import {
   toolUseStart,
 } from "./fixtures/sdk.js";
 import { fakeQueryFunction } from "./helpers.js";
+import type { FakeQuery } from "./helpers.js";
+
+const answerAsCc1 = (query: FakeQuery, text: string): void => {
+  query.push(init("cc-1"));
+  query.push(assistantMessage(`msg_${text}`, [textBlock(text)]));
+  query.push(successResult(text));
+  query.end();
+};
 
 describe("the bridge inside an AgentSession", () => {
   let configDir: string;
@@ -122,6 +132,117 @@ describe("the bridge inside an AgentSession", () => {
       expect(fake.queries).toHaveLength(1);
     } finally {
       h.cleanup();
+    }
+  });
+
+  it("resumes the Claude Code session a restarted pi session recorded, as a fork", async () => {
+    const cwd = await createTempDir("claude-bridge-cwd-");
+    const sessionDir = await createTempDir("claude-bridge-sessions-");
+
+    const writeTranscript = (texts: string[]): void => {
+      const transcript = createSession({
+        sessionId: "cc-1",
+        projectPath: cwd,
+        model: "claude-haiku-5-5",
+        claudeDir: configDir,
+      });
+
+      transcript.importMessages(
+        texts.map((content) => ({ role: "user" as const, content }))
+      );
+      transcript.save();
+    };
+
+    const openOnBridge = async (
+      continueSession: boolean
+    ): Promise<{
+      h: Awaited<ReturnType<typeof createAgentSessionHarness>>;
+      started: (index: number) => Promise<FakeQuery>;
+    }> => {
+      const fake = fakeQueryFunction();
+
+      const h = await createAgentSessionHarness({
+        extensionFactories: [createClaudeBridge(fake.run)],
+        cwd,
+        sessionDir,
+        continueSession,
+      });
+
+      const bridgeModel = h.session.modelRuntime.getModel(
+        "claude-bridge",
+        "claude-haiku-5-5"
+      );
+
+      if (bridgeModel === undefined) {
+        throw new Error("claude-bridge model not registered");
+      }
+
+      await h.session.setModel(bridgeModel);
+
+      const started = async (index: number) =>
+        await vi.waitFor(() => {
+          const query = fake.queries[index];
+
+          if (query === undefined) {
+            throw new Error(`query ${index} has not started`);
+          }
+
+          return query;
+        });
+
+      return { h, started };
+    };
+
+    try {
+      const first = await openOnBridge(false);
+
+      try {
+        const firstRun = first.h.prompt("one");
+        const q1 = await first.started(0);
+
+        writeTranscript(["one"]);
+        answerAsCc1(q1, "first");
+        await firstRun;
+
+        const secondRun = first.h.prompt("two");
+        const q2 = await first.started(1);
+
+        expect(q2.params.options.resume).toBe("cc-1");
+        writeTranscript(["one", "two"]);
+        answerAsCc1(q2, "second");
+        await secondRun;
+
+        await vi.waitFor(() => {
+          expect(
+            first.h.sessionManager
+              .getBranch()
+              .filter(
+                (entry) =>
+                  entry.type === "custom" && entry.customType === SESSION_ENTRY
+              )
+          ).toHaveLength(2);
+        });
+      } finally {
+        first.h.cleanup();
+      }
+
+      const second = await openOnBridge(true);
+
+      try {
+        const thirdRun = second.h.prompt("three");
+        const q3 = await second.started(0);
+
+        expect(q3.params.options.resume).toBe("cc-1");
+        expect(q3.params.options.forkSession).toBe(true);
+
+        answerAsCc1(q3, "third");
+        await thirdRun;
+      } finally {
+        second.h.cleanup();
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(sessionDir, { recursive: true, force: true });
     }
   });
 
