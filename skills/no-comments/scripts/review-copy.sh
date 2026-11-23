@@ -23,6 +23,12 @@ enter_checkout() {
   repo_index=$(git rev-parse --path-format=absolute --git-path index)
 }
 
+tree_commit() {
+  GIT_AUTHOR_NAME=no-comments GIT_AUTHOR_EMAIL=no-comments@invalid \
+    GIT_COMMITTER_NAME=no-comments GIT_COMMITTER_EMAIL=no-comments@invalid \
+    git commit-tree -m no-comments "$@"
+}
+
 checkout_trees() {
   rm -f "$1"
   if [ -f "$repo_index" ]; then
@@ -49,6 +55,12 @@ shift
 case $command in
   take)
     [ $# -eq 0 ] || usage
+    version=$(git version | sed 's/^git version \([0-9]*\)\.\([0-9]*\).*/\1 \2/')
+    set -- $version
+    if [ "$1" -lt 2 ] || { [ "$1" -eq 2 ] && [ "$2" -lt 43 ]; }; then
+      echo "review-copy.sh: needs Git 2.43 or newer, found $(git version)" >&2
+      exit 2
+    fi
     enter_checkout "$(git rev-parse --show-toplevel)"
     repo_shallow=$(git rev-parse --path-format=absolute --git-path shallow)
     copy=$(mktemp -d "${TMPDIR:-/tmp}/no-comments.XXXXXX")
@@ -101,9 +113,11 @@ case $command in
     current=$(cat "$copy/.git/no-comments-checkout-worktree")
 
     cd "$copy"
+    base_commit=$(tree_commit "$base")
     status=0
     merged=$(git merge-tree --write-tree --name-only --no-messages -X no-renames \
-      --merge-base="$base" "$current" "$reviewed") || status=$?
+      --merge-base="$base_commit" "$(tree_commit -p "$base_commit" "$current")" \
+      "$(tree_commit -p "$base_commit" "$reviewed")") || status=$?
     if [ "$status" -eq 1 ]; then
       echo "review-copy.sh: edits made since take conflict with the review in:" >&2
       printf '%s\n' "$merged" | sed -e 1d -e '/^$/d' | uniq >&2
