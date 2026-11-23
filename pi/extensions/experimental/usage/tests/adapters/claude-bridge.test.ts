@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { planUsageResponse } from "../../../claude-bridge/query/rate-limit.js";
 import {
   CLAUDE_BRIDGE_PLAN_USAGE_HEADER,
   mapClaudeBridgePlanUsage,
@@ -79,5 +80,28 @@ describe("claude-bridge usage", () => {
         NOW
       )
     ).toBeUndefined();
+  });
+
+  it("reads what claude-bridge reports for a rate_limit_event", () => {
+    const event: Parameters<typeof planUsageResponse>[0] & {
+      unifiedWindows: unknown;
+    } = {
+      status: "allowed",
+      unifiedWindows: {
+        five_hour: { status: "allowed", utilization: 0.25, resetsAt: 1 },
+      },
+    };
+
+    const response = planUsageResponse(event);
+
+    const result = mapClaudeBridgePlanUsage(response?.headers ?? {}, NOW);
+
+    expect(result?.ok === true && result.snapshot.quotaWindows).toStrictEqual([
+      {
+        label: "5h",
+        remainingPercent: 75,
+        resetsAt: new Date(1000).toISOString(),
+      },
+    ]);
   });
 });
