@@ -96,7 +96,7 @@ const envelope = {
   session_id: SESSION_ID,
 } as const;
 
-const usage = (): BetaUsage => ({
+const usage = (counts: Partial<BetaUsage> = {}): BetaUsage => ({
   cache_creation: null,
   cache_creation_input_tokens: null,
   cache_read_input_tokens: null,
@@ -109,12 +109,14 @@ const usage = (): BetaUsage => ({
   server_tool_use: null,
   service_tier: null,
   speed: null,
+  ...counts,
 });
 
 const betaMessage = (
   id: string,
   content: BetaContentBlock[],
-  model: string
+  model: string,
+  counts: Partial<BetaUsage> = {}
 ): BetaMessage => ({
   id,
   container: null,
@@ -127,7 +129,7 @@ const betaMessage = (
   stop_reason: null,
   stop_sequence: null,
   type: "message",
-  usage: usage(),
+  usage: usage(counts),
 });
 
 /** Claude Code's first message: the session id the bridge records for the query. */
@@ -157,10 +159,13 @@ const streamEvent = (
   ...envelope,
 });
 
-export const messageStart = (id: string): SDKPartialAssistantMessage =>
+export const messageStart = (
+  id: string,
+  counts: Partial<BetaUsage> = {}
+): SDKPartialAssistantMessage =>
   streamEvent({
     type: "message_start",
-    message: betaMessage(id, [], "claude-haiku-4-5"),
+    message: betaMessage(id, [], "claude-haiku-4-5", counts),
   });
 
 export const textStart = (index: number): SDKPartialAssistantMessage =>
@@ -258,10 +263,11 @@ export const textBlock = (text: string): BetaTextBlock => ({
 export const assistantMessage = (
   id: string,
   content: BetaContentBlock[],
-  model = "claude-haiku-4-5"
+  model = "claude-haiku-4-5",
+  counts: Partial<BetaUsage> = {}
 ): SDKAssistantMessage => ({
   type: "assistant",
-  message: betaMessage(id, content, model),
+  message: betaMessage(id, content, model, counts),
   ...envelope,
 });
 

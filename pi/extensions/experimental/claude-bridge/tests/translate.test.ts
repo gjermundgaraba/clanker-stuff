@@ -122,6 +122,33 @@ const fallback = (id: string): SDKMessage =>
   ]);
 
 describe("a non-streaming fallback after a stalled stream", () => {
+  it("counts what the stalled request and the fallback each billed", () => {
+    const { turn } = run(
+      [
+        messageStart("msg_dead", {
+          input_tokens: 10,
+          cache_read_input_tokens: 100,
+        }),
+        ...stalledStream("msg_dead").slice(1),
+        assistantMessage(
+          "msg_fallback",
+          [textBlock("Done.")],
+          "claude-haiku-4-5",
+          { input_tokens: 12, cache_read_input_tokens: 100, output_tokens: 50 }
+        ),
+        successResult("Done."),
+      ],
+      served("bash")
+    );
+
+    expect(turn.output.usage).toMatchObject({
+      input: 22,
+      cacheRead: 200,
+      output: 50,
+      totalTokens: 12 + 100 + 50,
+    });
+  });
+
   it("delivers the fallback's tool calls and ends the pi turn on them", () => {
     const { turn, pi } = run(
       [...stalledStream("msg_dead"), fallback("msg_fallback")],
@@ -620,6 +647,25 @@ describe("a failed turn", () => {
     expect(turn.output.content).toStrictEqual([
       { type: "text", text: RATE_LIMITED },
     ]);
+  });
+
+  it("keeps the usage the real request reported", () => {
+    const { turn } = run([
+      messageStart("msg_partial", {
+        input_tokens: 10,
+        cache_read_input_tokens: 100,
+      }),
+      textStart(0),
+      textDelta(0, "Partial"),
+      syntheticReport(RATE_LIMITED),
+      successResult(RATE_LIMITED, true),
+    ]);
+
+    expect(turn.output.usage).toMatchObject({
+      input: 10,
+      cacheRead: 100,
+      totalTokens: 110,
+    });
   });
 
   it("drops the abandoned partial blocks of a stalled stream", () => {

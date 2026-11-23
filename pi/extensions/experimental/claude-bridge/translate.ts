@@ -15,7 +15,7 @@ import type {
 
 import { toJsonObject } from "./json.js";
 import { debug } from "./log.js";
-import { recordUsage } from "./query/usage.js";
+import { MessageUsage } from "./query/usage.js";
 import { piToolName } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
@@ -65,6 +65,7 @@ export class Turn {
   private streamOpen = false;
   private streamBlockStart = 0;
   private readonly openBlocks = new Map<TurnBlock, OpenBlock>();
+  private readonly usage: MessageUsage;
 
   private readonly model: Model<Api>;
   private readonly stream: AssistantMessageEventStream;
@@ -81,6 +82,7 @@ export class Turn {
     this.stream = stream;
     this.served = served;
     this.options = options;
+    this.usage = new MessageUsage(model);
     this.output = {
       role: "assistant",
       content: [],
@@ -269,7 +271,7 @@ export class Turn {
         this.streamMessageId = event.message.id;
         this.streamOpen = true;
         this.streamBlockStart = this.blocks.length;
-        recordUsage(output, event.message.usage, this.model);
+        this.usage.record(output.usage, event.message.id, event.message.usage);
 
         return;
       }
@@ -387,7 +389,11 @@ export class Turn {
 
       case "message_delta": {
         output.stopReason = mapStopReason(event.delta.stop_reason);
-        recordUsage(output, event.usage, this.model);
+        this.usage.record(
+          output.usage,
+          this.streamMessageId ?? "",
+          event.usage
+        );
 
         return;
       }
@@ -405,7 +411,8 @@ export class Turn {
 
   /** A complete assistant message. A no-op when stream events already delivered it; the
    *  content path when the next response arrives before any stream event, and when a
-   *  stalled stream was retried without streaming (a new message id, no events). */
+   *  stalled stream was retried without streaming (a new message id, no events). A
+   *  `<synthetic>` failure report is no request: its all-zero usage is not recorded. */
   assistantMessage(message: SDKAssistantMessage): void {
     if (this.ended) {
       return;
@@ -424,8 +431,6 @@ export class Turn {
           this.blocks.push({ type: "text", text: block.text });
         }
       }
-
-      recordUsage(output, assistant.usage, this.model);
 
       return;
     }
@@ -465,7 +470,7 @@ export class Turn {
       }
     }
 
-    recordUsage(output, assistant.usage, this.model);
+    this.usage.record(output.usage, assistant.id, assistant.usage);
 
     if (mapStopReason(assistant.stop_reason) === "length") {
       output.stopReason = "length";
