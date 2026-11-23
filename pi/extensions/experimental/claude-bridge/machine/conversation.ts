@@ -19,7 +19,7 @@ import { toolResultToMcpContent } from "../mcp-server.js";
 import type { McpResult } from "../mcp-server.js";
 import type { PromptStream } from "../query/prompt-stream.js";
 import { userMessage } from "../query/prompt-stream.js";
-import { rateLimitResponse } from "../query/rate-limit.js";
+import { planUsageResponse } from "../query/rate-limit.js";
 import {
   describeRateLimitFailure,
   logServedContextWindow,
@@ -447,16 +447,18 @@ export const conversationMachine = setup({
           if (message.type === "rate_limit_event") {
             debug("conversation: rate_limit_event", message.rate_limit_info);
 
-            const usage = rateLimitResponse(message.rate_limit_info);
+            const usage = planUsageResponse(message.rate_limit_info);
             const { turn } = context;
 
-            if (turn !== null) {
+            if (turn !== null && usage !== undefined) {
               enq(() => {
                 turn.reportResponse(usage);
               });
             }
 
-            const unreportedUsage = turn === null ? usage : null;
+            const unreportedUsage =
+              turn === null ? (usage ?? context.unreportedUsage) : null;
+
             const rejection = rateLimitRejection(message.rate_limit_info);
 
             if (rejection === undefined) {

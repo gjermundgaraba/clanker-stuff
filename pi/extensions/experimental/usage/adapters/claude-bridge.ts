@@ -1,53 +1,66 @@
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageResult } from "../providers.js";
 import { isDefined, isoFromEpochMs, makeUsageWindow } from "./util.js";
 
-const HEADER_PREFIX = "anthropic-ratelimit-unified";
+/** The `after_provider_response` header claude-bridge reports Claude Code's plan usage
+ *  in, as the JSON of Claude Code's windows. */
+export const CLAUDE_BRIDGE_PLAN_USAGE_HEADER = "x-claude-bridge-plan-usage";
 
-const headerNumber = (
-  headers: Readonly<Record<string, string>>,
-  name: string
-): number | undefined => {
-  const raw = headers[`${HEADER_PREFIX}-${name}`];
+const WindowSchema = Type.Object({
+  utilization: Type.Number(),
+  resetsAt: Type.Optional(Type.Number()),
+});
 
-  const value =
-    raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
+const PlanUsageSchema = Type.Object({
+  five_hour: Type.Optional(Type.Unknown()),
+  seven_day: Type.Optional(Type.Unknown()),
+});
 
-  return Number.isFinite(value) ? value : undefined;
+const readPlanUsage = (raw: string): Static<typeof PlanUsageSchema> => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+
+    return Value.Check(PlanUsageSchema, parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 };
 
-const headerWindow = (
-  headers: Readonly<Record<string, string>>,
-  header: string,
-  label: string
-): UsageWindow | undefined => {
-  const utilization = headerNumber(headers, `${header}-utilization`);
+const planWindow = (window: unknown, label: string): UsageWindow | undefined =>
+  Value.Check(WindowSchema, window)
+    ? makeUsageWindow(
+        label,
+        100 - window.utilization * 100,
+        window.resetsAt === undefined
+          ? undefined
+          : isoFromEpochMs(window.resetsAt * 1000)
+      )
+    : undefined;
 
-  if (utilization === undefined) {
+/** claude-bridge's plan usage from a response's headers, or nothing when the response
+ *  is not claude-bridge's. Utilization is a fraction and resets are Unix seconds. */
+export const mapClaudeBridgePlanUsage = (
+  headers: Readonly<Record<string, string>>,
+  nowMs: number
+): UsageFetchResult | undefined => {
+  const raw = headers[CLAUDE_BRIDGE_PLAN_USAGE_HEADER];
+
+  if (raw === undefined) {
     return undefined;
   }
 
-  const resetsAt = headerNumber(headers, `${header}-reset`);
+  const usage = readPlanUsage(raw);
 
-  return makeUsageWindow(
-    label,
-    100 - utilization * 100,
-    resetsAt === undefined ? undefined : isoFromEpochMs(resetsAt * 1000)
-  );
-};
-
-/** claude-bridge's plan usage from the `anthropic-ratelimit-unified-*` headers it reports
- *  through `after_provider_response`: utilization is a fraction and resets are Unix
- *  seconds, as the Anthropic API sends them. */
-export const mapClaudeBridgeHeaders = (
-  headers: Readonly<Record<string, string>>,
-  nowMs: number
-): UsageFetchResult =>
-  usageResult({
+  return usageResult({
     fetchedAt: nowMs,
     provider: "claude-bridge",
     quotaWindows: [
-      headerWindow(headers, "5h", "5h"),
-      headerWindow(headers, "7d", "week"),
+      planWindow(usage.five_hour, "5h"),
+      planWindow(usage.seven_day, "week"),
     ].filter(isDefined),
   });
+};

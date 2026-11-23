@@ -7,6 +7,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { CLAUDE_BRIDGE_PLAN_USAGE_HEADER } from "../adapters/claude-bridge.js";
 import { contextAuth } from "../auth.js";
 import type { GetAuth } from "../auth.js";
 import { resolveRadiusBillingUrl } from "../controller.js";
@@ -520,7 +521,7 @@ describe("usage controller", () => {
     expect(host.getStatus("usage")).toBeUndefined();
   });
 
-  it("shows claude-bridge usage from the headers its responses report, without a request", async () => {
+  it("shows claude-bridge usage from the header its responses report, whichever model is selected", async () => {
     const { extension, fetchJson } = stubDependencies({ value: 1000 });
 
     const bridgeModel: Model<Api> = {
@@ -532,6 +533,13 @@ describe("usage controller", () => {
     const context = host.createContext({ model: bridgeModel });
 
     const usageHeaders = {
+      [CLAUDE_BRIDGE_PLAN_USAGE_HEADER]: JSON.stringify({
+        five_hour: { utilization: 0.25 },
+        seven_day: { utilization: 0.5 },
+      }),
+    };
+
+    const anthropicHeaders = {
       "anthropic-ratelimit-unified-5h-utilization": "0.25",
       "anthropic-ratelimit-unified-7d-utilization": "0.5",
     };
@@ -543,8 +551,12 @@ describe("usage controller", () => {
 
     await host.emit(
       "after_provider_response",
-      { type: "after_provider_response", status: 200, headers: usageHeaders },
-      host.createContext({ model: claudeModel })
+      {
+        type: "after_provider_response",
+        status: 200,
+        headers: anthropicHeaders,
+      },
+      context
     );
     await host.emit("agent_settled", { type: "agent_settled" }, context);
     await yieldToEventLoop();
@@ -553,7 +565,7 @@ describe("usage controller", () => {
     await host.emit(
       "after_provider_response",
       { type: "after_provider_response", status: 200, headers: usageHeaders },
-      context
+      host.createContext({ model: claudeModel })
     );
     await vi.waitFor(() => {
       expect(host.getStatus("usage")).toMatch(/^Claude Code week .* 50%$/u);

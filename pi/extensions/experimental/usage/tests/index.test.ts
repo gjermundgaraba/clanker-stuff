@@ -76,6 +76,40 @@ describe("usage registration", () => {
     expect(createController).not.toHaveBeenCalled();
   });
 
+  it("hands a response that arrives while the controller loads to it once loaded", async () => {
+    const { controller, createController } = fakeController();
+    const loadStarted = Promise.withResolvers<undefined>();
+    const loaded = Promise.withResolvers<typeof createUsageController>();
+
+    const host = createExtensionHost(
+      createUsageExtension(undefined, async () => {
+        loadStarted.resolve(undefined);
+
+        return await loaded.promise;
+      })
+    );
+
+    const ctx = host.createContext();
+    const headers = { "x-claude-bridge-plan-usage": "{}" };
+
+    const command = host.runCommand("usage", "", ctx);
+    await loadStarted.promise;
+    await host.emit(
+      "after_provider_response",
+      { type: "after_provider_response", status: 200, headers },
+      ctx
+    );
+    expect(controller.report).not.toHaveBeenCalled();
+
+    loaded.resolve(createController);
+    await command;
+
+    expect(controller.report).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      headers
+    );
+  });
+
   it("reports background startup failures", async () => {
     const { controller, createController } = fakeController();
     createController.mockImplementationOnce(() => {

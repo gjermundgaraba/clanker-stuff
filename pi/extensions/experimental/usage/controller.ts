@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { mapClaudeBridgeHeaders } from "./adapters/claude-bridge.js";
+import { mapClaudeBridgePlanUsage } from "./adapters/claude-bridge.js";
 import { fetchClaudeUsage } from "./adapters/claude.js";
 import { fetchCodexUsage } from "./adapters/codex.js";
 import { fetchCopilotUsage } from "./adapters/copilot.js";
@@ -26,6 +26,7 @@ import {
 } from "./format.js";
 import { defaultFetchJson } from "./http.js";
 import {
+  REPORTED_PROVIDERS,
   isReportedProvider,
   isSupportedProvider,
   quotaUnavailableMessage,
@@ -48,10 +49,13 @@ const REFRESH_INTERVAL_MS = 5 * 60_000;
 const REPORTED_SCOPE = "reported";
 
 const reportedUsage = {
-  "claude-bridge": mapClaudeBridgeHeaders,
+  "claude-bridge": mapClaudeBridgePlanUsage,
 } satisfies Record<
   ReportedProvider,
-  (headers: Readonly<Record<string, string>>, nowMs: number) => UsageFetchResult
+  (
+    headers: Readonly<Record<string, string>>,
+    nowMs: number
+  ) => UsageFetchResult | undefined
 >;
 
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
@@ -383,22 +387,20 @@ export const createUsageController = (
       ctx: ExtensionContext,
       headers: Readonly<Record<string, string>>
     ): void => {
-      const provider = ctx.model?.provider;
-
-      if (disposed || !isReportedProvider(provider)) {
+      if (disposed) {
         return;
       }
 
-      const result = reportedUsage[provider](headers, now());
+      for (const provider of REPORTED_PROVIDERS) {
+        const result = reportedUsage[provider](headers, now());
 
-      if (!result.ok) {
-        return;
-      }
+        if (result?.ok === true) {
+          cache.record(provider, REPORTED_SCOPE, result.snapshot);
 
-      cache.record(provider, REPORTED_SCOPE, result.snapshot);
-
-      if (current?.provider === provider && ctx.mode === "tui") {
-        refresh(ctx, provider);
+          if (current?.provider === provider) {
+            refresh(ctx, provider);
+          }
+        }
       }
     },
   };

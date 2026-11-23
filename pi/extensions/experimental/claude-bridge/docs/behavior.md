@@ -57,7 +57,7 @@ For each Claude Agent SDK `stream_event` read while a Pi call is streaming, the 
 
 The SDK does not expose Claude Code's outgoing HTTP payload or response status and headers to the bridge at a replaceable boundary. The bridge therefore cannot call Pi's `before_provider_request` hook, including payload replacement, for those requests, and `after_provider_response` never sees a real response.
 
-Plan usage reaches `after_provider_response` instead. Claude Code sends a `rate_limit_event` when a usage window changes, and the bridge reports it as the `anthropic-ratelimit-unified-*` headers the Anthropic API uses: the status, reset and representative claim, the overage status and reset, and each window's utilization (a fraction) and reset (Unix seconds), as in `anthropic-ratelimit-unified-5h-utilization`. The status is always 200. An event is reported through the provider call that is open when it arrives; one that arrives while a tool runs waits for the next call, and only the latest is kept. An extension that reads these headers from the built-in `anthropic` provider can read `claude-bridge` the same way. In the experimental `/context` inspector, **Input** shows a separately labeled Pi-side context snapshot; it is not Claude Code's wire request and does not include Claude Code's own preset prompt or transformations.
+Plan usage reaches `after_provider_response` instead. Claude Code sends a `rate_limit_event` when a usage window changes, and the bridge reports its windows as the JSON of one `x-claude-bridge-plan-usage` header with status 200: keyed by Claude Code's window name (`five_hour`, `seven_day`, and others), each with `utilization` as a fraction and `resetsAt` in Unix seconds. The header names the bridge as the source, since the hook does not name the provider. An event is reported through the provider call that is open when it arrives; one that arrives while a tool runs waits for the next call, and only the latest is kept. In the experimental `/context` inspector, **Input** shows a separately labeled Pi-side context snapshot; it is not Claude Code's wire request and does not include Claude Code's own preset prompt or transformations.
 
 ## Debugging
 
@@ -91,7 +91,7 @@ Facts about Claude Code, Agent SDK 0.3.316 (Claude Code 2.1.316), pi and XState 
 - Claude Code writes a stop reason only on a message's last block.
 - `thinking_tokens` in usage is part of `output_tokens`, never an addend to the total or the cost.
 - A rate-limit `resetsAt` is in Unix seconds.
-- A `rate_limit_event` carries every usage window in `unifiedWindows`, a field the SDK does not declare, keyed by Claude Code's window name with `utilization` as a fraction and `resetsAt` in Unix seconds. The bridge checks its shape and reports no windows when it changes.
+- A `rate_limit_event` carries every usage window in `unifiedWindows`, a field the SDK does not declare, keyed by Claude Code's window name with `utilization` as a fraction and `resetsAt` in Unix seconds. The bridge passes it on unread, and the usage extension checks its shape.
 - Claude Code finishes writing its session file after its stdin closes; stopping it sooner can cut the file short.
 - Some models default to an omitted thinking display. The bridge passes the raw `thinking-display` flag because the typed option would force a thinking mode on every model.
 - Pi passes a session id on every agent turn, so a call without one is an extension's one-off. Compaction, branch and bug-report summaries carry `cacheRetention: "none"`.

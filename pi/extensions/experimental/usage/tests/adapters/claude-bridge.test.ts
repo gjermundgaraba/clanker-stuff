@@ -1,20 +1,31 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { mapClaudeBridgeHeaders } from "../../adapters/claude-bridge.js";
+import {
+  CLAUDE_BRIDGE_PLAN_USAGE_HEADER,
+  mapClaudeBridgePlanUsage,
+} from "../../adapters/claude-bridge.js";
 import { NOW } from "./helpers.js";
 
-const headers = {
-  "anthropic-ratelimit-unified-status": "allowed",
-  "anthropic-ratelimit-unified-representative-claim": "five_hour",
-  "anthropic-ratelimit-unified-5h-utilization": "0.25",
-  "anthropic-ratelimit-unified-5h-reset": "1793120400",
-  "anthropic-ratelimit-unified-7d-utilization": "0.5",
-  "anthropic-ratelimit-unified-7d-reset": "1793642400",
-};
+const reporting = (windows: unknown) => ({
+  [CLAUDE_BRIDGE_PLAN_USAGE_HEADER]: JSON.stringify(windows),
+});
 
 describe("claude-bridge usage", () => {
   it("maps the 5-hour and weekly windows from fractions and Unix-second resets", () => {
-    expect(mapClaudeBridgeHeaders(headers, NOW)).toStrictEqual({
+    expect(
+      mapClaudeBridgePlanUsage(
+        reporting({
+          five_hour: {
+            status: "allowed",
+            utilization: 0.25,
+            resetsAt: 1_793_120_400,
+          },
+          seven_day: { utilization: 0.5, resetsAt: 1_793_642_400 },
+          seven_day_overage_included: { utilization: 0.9 },
+        }),
+        NOW
+      )
+    ).toStrictEqual({
       ok: true,
       snapshot: {
         fetchedAt: NOW,
@@ -35,30 +46,38 @@ describe("claude-bridge usage", () => {
     });
   });
 
-  it("keeps a window whose reset is missing or unreadable", () => {
-    const result = mapClaudeBridgeHeaders(
-      {
-        "anthropic-ratelimit-unified-5h-utilization": "0.25",
-        "anthropic-ratelimit-unified-5h-reset": "soon",
-      },
+  it("keeps the windows it can read when another changed shape", () => {
+    const result = mapClaudeBridgePlanUsage(
+      reporting({
+        five_hour: { utilization: 0.25 },
+        seven_day: { utilization: "half" },
+      }),
       NOW
     );
 
-    expect(result.ok && result.snapshot.quotaWindows).toStrictEqual([
+    expect(result?.ok === true && result.snapshot.quotaWindows).toStrictEqual([
       { label: "5h", remainingPercent: 75 },
     ]);
   });
 
-  it("fails a response that reports no window, such as another provider's", () => {
+  it("fails a report it cannot read", () => {
     expect(
-      mapClaudeBridgeHeaders(
+      mapClaudeBridgePlanUsage(
+        { [CLAUDE_BRIDGE_PLAN_USAGE_HEADER]: "{not json" },
+        NOW
+      )?.ok
+    ).toBe(false);
+  });
+
+  it("is not claude-bridge's usage without its header, such as an Anthropic response", () => {
+    expect(
+      mapClaudeBridgePlanUsage(
         {
-          "anthropic-ratelimit-unified-status": "allowed",
-          "anthropic-ratelimit-unified-5h-utilization": "",
+          "anthropic-ratelimit-unified-5h-utilization": "0.25",
           "content-type": "text/event-stream",
         },
         NOW
-      ).ok
-    ).toBe(false);
+      )
+    ).toBeUndefined();
   });
 });

@@ -21,6 +21,7 @@ import {
 import type { ResolveToolCall } from "../../machine/conversation.js";
 import type { McpResult } from "../../mcp-server.js";
 import { makePromptStream, userMessage } from "../../query/prompt-stream.js";
+import { PLAN_USAGE_HEADER } from "../../query/rate-limit.js";
 import { resolveServedTools } from "../../tools.js";
 import { Turn } from "../../translate.js";
 import {
@@ -197,11 +198,10 @@ const lastDone = (pi: RecordingStream) => {
 };
 
 const rejection = () =>
-  rateLimitEvent({
-    status: "rejected",
-    resetsAt: 1_786_141_800,
-    rateLimitType: "five_hour",
-  });
+  rateLimitEvent(
+    { status: "rejected", resetsAt: 1_786_141_800, rateLimitType: "five_hour" },
+    { five_hour: { utilization: 1, resetsAt: 1_786_141_800 } }
+  );
 
 describe("the conversation machine", () => {
   describe("a turn", () => {
@@ -625,7 +625,7 @@ describe("the conversation machine", () => {
 
     const UNRELATED = "API Error: Overloaded";
 
-    it("reaches the provider call that is open as plan usage headers", async () => {
+    it("reaches the provider call that is open as the plan usage header", async () => {
       const { query, settle, start } = conversation();
       const responses: ProviderResponse[] = [];
 
@@ -642,9 +642,9 @@ describe("the conversation machine", () => {
         {
           status: 200,
           headers: {
-            "anthropic-ratelimit-unified-status": "rejected",
-            "anthropic-ratelimit-unified-reset": "1786141800",
-            "anthropic-ratelimit-unified-representative-claim": "five_hour",
+            [PLAN_USAGE_HEADER]: JSON.stringify({
+              five_hour: { utilization: 1, resetsAt: 1_786_141_800 },
+            }),
           },
         },
       ]);
@@ -663,8 +663,15 @@ describe("the conversation machine", () => {
       query().push(readToolCall("toolu_1"));
       await settle({ active: "parked" });
 
-      query().push(rateLimitEvent({ status: "allowed", resetsAt: 1 }));
-      query().push(rateLimitEvent({ status: "allowed", resetsAt: 2 }));
+      for (const utilization of [0.1, 0.2]) {
+        query().push(
+          rateLimitEvent(
+            { status: "allowed" },
+            { five_hour: { utilization, resetsAt: 1 } }
+          )
+        );
+      }
+
       await yieldToEventLoop();
 
       actor.send(handler("toolu_1").event);
@@ -677,10 +684,10 @@ describe("the conversation machine", () => {
 
       expect(parkedOn).toStrictEqual([]);
       expect(
-        deliveredTo.map(
-          ({ headers }) => headers["anthropic-ratelimit-unified-reset"]
-        )
-      ).toStrictEqual(["2"]);
+        deliveredTo.map(({ headers }) => headers[PLAN_USAGE_HEADER])
+      ).toStrictEqual([
+        JSON.stringify({ five_hour: { utilization: 0.2, resetsAt: 1 } }),
+      ]);
     });
 
     it("names the failure it caused as a rate limit, so fallback chains fire", async () => {

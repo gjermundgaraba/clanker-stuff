@@ -328,12 +328,21 @@ export const errorResult = (
   ...resultFields(),
 });
 
-export const rateLimitEvent = (info: SDKRateLimitInfo): SDKRateLimitEvent => ({
-  type: "rate_limit_event",
-  rate_limit_info: info,
-  uuid: envelope.uuid,
-  session_id: SESSION_ID,
-});
+/** `unifiedWindows` is the undeclared field Claude Code reports every window in. */
+export const rateLimitEvent = (
+  info: SDKRateLimitInfo,
+  unifiedWindows?: Record<string, { utilization: number; resetsAt: number }>
+): SDKRateLimitEvent => {
+  const reported: SDKRateLimitInfo & { unifiedWindows?: unknown } =
+    unifiedWindows === undefined ? info : { ...info, unifiedWindows };
+
+  return {
+    type: "rate_limit_event",
+    rate_limit_info: reported,
+    uuid: envelope.uuid,
+    session_id: SESSION_ID,
+  };
+};
 
 export const readToolCall = (id: string) =>
   assistantMessage(`msg_${id}`, [
