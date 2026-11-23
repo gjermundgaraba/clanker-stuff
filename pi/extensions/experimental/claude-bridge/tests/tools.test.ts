@@ -64,6 +64,28 @@ describe("argument defaults", () => {
     ).toStrictEqual({ timeout: 900, command: "make" });
   });
 
+  it("are what Claude reads in the served schema, in place of pi's no-default text", () => {
+    const served = resolveServedTools([
+      bash(
+        Type.Object({
+          command: Type.String({ description: "Command to run" }),
+          timeout: Type.Optional(
+            Type.Number({ description: "Timeout in seconds (no default)" })
+          ),
+        })
+      ),
+    ]);
+
+    expect(served.tools[0]?.inputSchema["properties"]).toStrictEqual({
+      command: { type: "string", description: "Command to run" },
+      timeout: {
+        type: "number",
+        description:
+          "Timeout in seconds. A call that sets none stops after 120 seconds.",
+      },
+    });
+  });
+
   it("add nothing a tool's schema does not take", () => {
     const served = resolveServedTools([
       bash(Type.Object({ command: Type.String() })),

@@ -25,7 +25,6 @@ import { waitFor } from "xstate";
 
 import { childEnv } from "./child.js";
 import type { ChildGateway } from "./child.js";
-import { toJsonObject } from "./json.js";
 import { cliDebugOptions, debug, errorMessage } from "./log.js";
 import { syncState } from "./machine/conversation.js";
 import { createToolServer } from "./mcp-server.js";
@@ -123,7 +122,7 @@ const toolServers = (
     served.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: toJsonObject(tool.parameters) ?? {},
+      inputSchema: tool.inputSchema,
       handler: async (toolCallId: string) => {
         const { promise, resolve } = Promise.withResolvers<McpResult>();
 

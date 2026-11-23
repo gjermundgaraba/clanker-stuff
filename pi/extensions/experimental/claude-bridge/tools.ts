@@ -11,9 +11,18 @@ const MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 export const sdkToolName = (name: string): string =>
   `${MCP_TOOL_PREFIX}${name}`;
 
+/** A pi tool as the bridge's MCP server serves it to Claude Code. */
+export interface ServedTool {
+  name: string;
+  /** The tool's description, carrying its prompt guidelines. */
+  description: string;
+  /** The tool's parameters as JSON Schema, a defaulted argument described by its
+   *  default. */
+  inputSchema: JsonObject;
+}
+
 export interface ServedTools {
-  /** The tools, their descriptions carrying their guidelines. */
-  tools: Tool[];
+  tools: ServedTool[];
   names: ReadonlySet<string>;
   /** Per tool, the arguments a call that leaves them out gets, where the tool's schema
    *  takes them: defaults Claude Code's own tools apply and pi's do not. Claude Code's
@@ -22,23 +31,74 @@ export interface ServedTools {
   argumentDefaults: ReadonlyMap<string, JsonObject>;
 }
 
-const CLAUDE_CODE_ARGUMENT_DEFAULTS = new Map<string, JsonObject>([
-  ["bash", { timeout: 120 }],
+interface ArgumentDefault {
+  value: number;
+  description: string;
+}
+
+const CLAUDE_CODE_ARGUMENT_DEFAULTS = new Map<
+  string,
+  Readonly<Record<string, ArgumentDefault>>
+>([
+  [
+    "bash",
+    {
+      timeout: {
+        value: 120,
+        description:
+          "Timeout in seconds. A call that sets none stops after 120 seconds.",
+      },
+    },
+  ],
 ]);
 
-const defaultsTakenBy = (tool: Tool): JsonObject | undefined => {
-  const defaults = CLAUDE_CODE_ARGUMENT_DEFAULTS.get(tool.name);
-  const properties = toJsonObject(tool.parameters)?.["properties"];
-
-  if (defaults === undefined || !isJsonObject(properties)) {
-    return undefined;
-  }
-
-  const taken = Object.fromEntries(
-    Object.entries(defaults).filter(([key]) => key in properties)
+const takenDefaults = (
+  name: string,
+  properties: JsonObject
+): Array<[string, ArgumentDefault]> =>
+  Object.entries(CLAUDE_CODE_ARGUMENT_DEFAULTS.get(name) ?? {}).filter(
+    ([key]) => isJsonObject(properties[key])
   );
 
-  return Object.keys(taken).length === 0 ? undefined : taken;
+interface ResolvedTool {
+  served: ServedTool;
+  defaults: JsonObject | undefined;
+}
+
+const serve = (tool: Tool, description: string): ResolvedTool => {
+  const schema = toJsonObject(tool.parameters) ?? {};
+
+  const properties = isJsonObject(schema["properties"])
+    ? schema["properties"]
+    : {};
+
+  const taken = takenDefaults(tool.name, properties);
+
+  if (taken.length === 0) {
+    return {
+      served: { name: tool.name, description, inputSchema: schema },
+      defaults: undefined,
+    };
+  }
+
+  const described: JsonObject = { ...properties };
+
+  for (const [key, { description: text }] of taken) {
+    const property = properties[key];
+
+    if (isJsonObject(property)) {
+      described[key] = { ...property, description: text };
+    }
+  }
+
+  return {
+    served: {
+      name: tool.name,
+      description,
+      inputSchema: { ...schema, properties: described },
+    },
+    defaults: Object.fromEntries(taken.map(([key, { value }]) => [key, value])),
+  };
 };
 
 /** `args` with the tool's argument defaults filled in where the call left them out. */
@@ -73,23 +133,18 @@ export const resolveServedTools = (
     piTools.map((tool) => [tool.name, tool.promptGuidelines])
   );
 
-  const served = tools.map((tool) => ({
-    ...tool,
-    description: describeTool(tool.description, guidelines.get(tool.name)),
-  }));
-
-  const argumentDefaults = new Map(
-    served.flatMap((tool) => {
-      const defaults = defaultsTakenBy(tool);
-
-      return defaults === undefined ? [] : [[tool.name, defaults] as const];
-    })
+  const resolved = tools.map((tool) =>
+    serve(tool, describeTool(tool.description, guidelines.get(tool.name)))
   );
 
   return {
-    tools: served,
-    names: new Set(served.map((tool) => tool.name)),
-    argumentDefaults,
+    tools: resolved.map(({ served }) => served),
+    names: new Set(tools.map((tool) => tool.name)),
+    argumentDefaults: new Map(
+      resolved.flatMap(({ served, defaults }) =>
+        defaults === undefined ? [] : [[served.name, defaults] as const]
+      )
+    ),
   };
 };
 
