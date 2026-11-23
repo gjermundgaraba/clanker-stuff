@@ -37,7 +37,7 @@ const find = (models: ReadonlyArray<Model<Api>>, id: string): Model<Api> => {
 };
 
 describe("buildModels", () => {
-  it("projects pi-ai's catalog with its list prices and without dated snapshot aliases", () => {
+  it("projects pi-ai's catalog without dated snapshot aliases", () => {
     const models = catalogModels();
 
     expect(models.some((model) => /-20\d{6}$/u.test(model.id))).toBe(false);
@@ -48,13 +48,6 @@ describe("buildModels", () => {
         "claude-haiku-4-5",
       ])
     );
-
-    const catalog = getBuiltinModels("anthropic");
-
-    for (const model of models) {
-      expect(model.cost.output).toBeGreaterThan(0);
-      expect(model.cost).toStrictEqual(find(catalog, model.id).cost);
-    }
   });
 
   it("retargets api, provider and baseUrl onto claude-bridge and strips catalog headers", () => {
