@@ -64,7 +64,7 @@ The scope can include uncommitted work, so review and revert only Comment Sicko'
 
 - `snapshot.sh take` prints a snapshot directory. Shell state may not persist between calls, so pass it literally as `<snapshot>`.
 - `snapshot.sh diff <snapshot> [git diff options and paths]` shows every edit made since `take`.
-- `snapshot.sh restore <snapshot>` reverts every edit made since `take`, including created and deleted files, and leaves the index alone.
+- `snapshot.sh restore <snapshot>` reverts every edit made since `take`, including created and deleted files, and leaves the index alone. It cannot tell who made an edit, so it also reverts edits that anyone else made during the review. Ask the user not to edit the worktree while `/no-comments` runs.
 - `snapshot.sh drop <snapshot>` deletes the snapshot directory. Drop it whenever `/no-comments` ends, whether it succeeds or fails.
 
 ## Steps
