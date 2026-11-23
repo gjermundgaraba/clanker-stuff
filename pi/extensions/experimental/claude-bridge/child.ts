@@ -23,6 +23,10 @@ export interface ChildGateway {
   authToken?: string;
 }
 
+const CHILD_DEFAULTS = {
+  CLAUDE_CODE_MAX_RETRIES: "15",
+} as const;
+
 const CHILD_ENV = {
   ENABLE_CLAUDEAI_MCP_SERVERS: "0",
   DISABLE_AUTO_COMPACT: "1",
@@ -31,6 +35,7 @@ const CHILD_ENV = {
 
 export const childEnv = (gateway?: ChildGateway): NodeJS.ProcessEnv => {
   const env: NodeJS.ProcessEnv = {
+    ...CHILD_DEFAULTS,
     ...process.env,
     ...CHILD_ENV,
   };

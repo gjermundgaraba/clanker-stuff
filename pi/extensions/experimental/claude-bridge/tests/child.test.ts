@@ -25,6 +25,17 @@ describe("childEnv", () => {
     });
   });
 
+  it("retries Claude Code's API calls 15 times unless pi's env says otherwise", () => {
+    restoreEnv = patchEnv({ CLAUDE_CODE_MAX_RETRIES: undefined });
+
+    expect(childEnv()["CLAUDE_CODE_MAX_RETRIES"]).toBe("15");
+
+    restoreEnv();
+    restoreEnv = patchEnv({ CLAUDE_CODE_MAX_RETRIES: "3" });
+
+    expect(childEnv()["CLAUDE_CODE_MAX_RETRIES"]).toBe("3");
+  });
+
   it("injects gateway settings into the child env and clears conflicting ANTHROPIC_API_KEY", () => {
     restoreEnv = patchEnv({
       ANTHROPIC_API_KEY: "sk-parent-key",

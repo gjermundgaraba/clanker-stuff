@@ -25,7 +25,7 @@ It started as a port of [pi-claude-bridge](https://github.com/elidickinson/pi-cl
 }
 ```
 
-`apiKey` supports Pi's standard `$ENV`, `!command`, or literal values, or you can omit it from `models.json` and store the token in `auth.json` via `/login claude-bridge`. The resolved `baseUrl` and `apiKey` are injected only into the Claude Code child process as `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` (clearing any inherited `ANTHROPIC_API_KEY` when a token is configured), without exporting them to pi's process environment or tools. Model costs are pi-ai's Anthropic list prices, including 1h cache writes at twice the input rate, so subscription usage shows what it would cost on the API; a gateway with other pricing can supply it via `modelOverrides.<id>.cost` in `models.json`.
+`apiKey` supports Pi's standard `$ENV`, `!command`, or literal values, or you can omit it from `models.json` and store the token in `auth.json` via `/login claude-bridge`. The resolved `baseUrl` and `apiKey` are injected only into the Claude Code child process as `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` (clearing any inherited `ANTHROPIC_API_KEY` when a token is configured), without exporting them to pi's process environment or tools. Claude Code retries a failed API call 15 times by default under the bridge, enough to ride out a gateway that refuses connections for a few minutes; set `CLAUDE_CODE_MAX_RETRIES` in pi's environment to change it. Model costs are pi-ai's Anthropic list prices, including 1h cache writes at twice the input rate, so subscription usage shows what it would cost on the API; a gateway with other pricing can supply it via `modelOverrides.<id>.cost` in `models.json`.
 
 ## Models
 
