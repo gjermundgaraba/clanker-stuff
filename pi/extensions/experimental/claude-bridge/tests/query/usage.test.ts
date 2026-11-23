@@ -91,7 +91,7 @@ describe("updateUsage", () => {
     expect(output.usage.cost.total).toBe(210);
   });
 
-  it("bills 1h cache writes at twice the input rate", () => {
+  it("bills 1h cache writes at twice the input rate and keeps the split across a frame without it", () => {
     const cached: Model<Api> = {
       ...testModel(),
       cost: {
