@@ -89,7 +89,8 @@ export interface LiveSession {
   ask: (text: string) => Promise<string>;
   useBridge: () => Promise<void>;
   useFaux: () => Promise<void>;
-  close: () => Promise<void>;
+  /** Shut the session down; `keepTranscripts` leaves Claude Code's files for a restart. */
+  close: (options?: { keepTranscripts?: boolean }) => Promise<void>;
 }
 
 export const expectAnswer = (h: AgentSessionHarness): string => {
@@ -111,7 +112,12 @@ export const expectAnswer = (h: AgentSessionHarness): string => {
 export const createLiveSession = async (
   options: Pick<
     AgentSessionHarnessOptions,
-    "settings" | "systemPrompt" | "tools"
+    | "settings"
+    | "systemPrompt"
+    | "tools"
+    | "cwd"
+    | "sessionDir"
+    | "continueSession"
   > = {}
 ): Promise<LiveSession> => {
   const h = await createAgentSessionHarness({
@@ -119,7 +125,7 @@ export const createLiveSession = async (
     extensionFactories: [claudeBridge],
   });
 
-  const projectDir = getProjectDir(h.tempDir);
+  const projectDir = getProjectDir(options.cwd ?? h.tempDir);
   const fauxModel = h.session.model;
 
   const bridgeModel = h.session.modelRuntime.getModel(
@@ -148,7 +154,7 @@ export const createLiveSession = async (
     useFaux: async () => {
       await h.session.setModel(fauxModel);
     },
-    async close() {
+    async close({ keepTranscripts = false } = {}) {
       try {
         await h.session.abort();
         await h.session.extensionRunner.emit({
@@ -157,7 +163,10 @@ export const createLiveSession = async (
         });
       } finally {
         h.cleanup();
-        rmSync(projectDir, { force: true, recursive: true });
+
+        if (!keepTranscripts) {
+          rmSync(projectDir, { force: true, recursive: true });
+        }
       }
     },
   };

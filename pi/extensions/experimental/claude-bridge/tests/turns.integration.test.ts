@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { getProjectDir, getSessionPath } from "cc-session-io";
 import {
   afterAll,
   afterEach,
@@ -9,8 +10,11 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vite-plus/test";
 
+import { createTempDir } from "../../../../tests/helpers/fs.js";
+import { latestRecord } from "../session/warm.js";
 import {
   LIVE,
   LIVE_TIMEOUT,
@@ -124,6 +128,86 @@ describe.skipIf(!LIVE)("claude-bridge live conversations", () => {
           usages[index - 1]?.cacheRead ?? 0
         );
         expect(usage.cacheRead / total, label).toBeGreaterThanOrEqual(0.9);
+      }
+    },
+    LIVE_TIMEOUT
+  );
+
+  it(
+    "resumes a restarted pi session's Claude Code session as a fork, reading its prompt cache",
+    async () => {
+      const cwd = await createTempDir("claude-bridge-live-cwd-");
+      const sessionDir = await createTempDir("claude-bridge-live-sessions-");
+
+      const reference = Array.from(
+        { length: 600 },
+        (_, line) =>
+          `Reference line ${line + 1}: the archive keeps this sentence for later turns.`
+      ).join("\n");
+
+      try {
+        const first = await createLiveSession({ cwd, sessionDir });
+        let record: ReturnType<typeof latestRecord>;
+
+        try {
+          await first.ask(
+            `Remember the word kumquat. Keep this reference text in mind too:\n${reference}\nReply with just OK.`
+          );
+          record = await vi.waitFor(() => {
+            const latest = latestRecord(first.h.sessionManager.getBranch());
+
+            expect(latest).toBeDefined();
+
+            return latest;
+          });
+        } finally {
+          await first.close({ keepTranscripts: true });
+        }
+
+        const mark = log.mark();
+        const second = await open({ cwd, sessionDir, continueSession: true });
+
+        const text = await second.ask(
+          "What word did I ask you to remember? Reply with just the word."
+        );
+
+        const written = log.since(mark);
+
+        const usage = second.h
+          .messages()
+          .findLast((m) => m.role === "assistant");
+
+        const label = JSON.stringify(
+          usage?.role === "assistant" ? usage.usage : usage
+        );
+
+        expect(text.toLowerCase()).toContain("kumquat");
+        expect(written).toContain("warm: adopting");
+        expect(syncLines(written)[0]).toStrictEqual({
+          kind: "resume",
+          reason: undefined,
+        });
+        expect(
+          usage?.role === "assistant" && usage.usage.cacheRead,
+          label
+        ).toBeGreaterThan(8000);
+        expect(
+          usage?.role === "assistant" && usage.usage.cacheWrite,
+          label
+        ).toBeLessThan(2000);
+        expect(
+          statSync(
+            getSessionPath(
+              record?.session ?? "",
+              cwd,
+              process.env["CLAUDE_CONFIG_DIR"]
+            )
+          ).size
+        ).toBe(record?.bytes);
+      } finally {
+        rmSync(getProjectDir(cwd), { force: true, recursive: true });
+        rmSync(cwd, { force: true, recursive: true });
+        rmSync(sessionDir, { force: true, recursive: true });
       }
     },
     LIVE_TIMEOUT

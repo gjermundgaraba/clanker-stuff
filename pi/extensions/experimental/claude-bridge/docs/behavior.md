@@ -82,7 +82,7 @@ Facts about Claude Code, Agent SDK 0.3.316 (Claude Code 2.1.316), pi and XState 
 - Claude Code answers a call to a tool it does not serve with "No such tool available" and retries under a fresh id, so such a call must never reach pi.
 - `--strict-mcp-config` does not keep claude.ai connectors out; `ENABLE_CLAUDEAI_MCP_SERVERS=0` does.
 - 1M context is requested only through the `[1m]` model id suffix. A model not entitled to it fails every turn with a 400 or 429, so only measured models get the suffix.
-- Resuming with `forkSession` continues under a new session id, as the SDK documents, and the bridge relies on that leaving the original transcript unwritten, so two pi sessions can adopt one transcript. Neither that nor the adopted request reading the previous process's prompt cache has been checked against the live suite yet.
+- Resuming with `forkSession` continues under a new session id and leaves the original transcript unwritten, so two pi sessions can adopt one transcript, and the fork's first request reads the previous process's prompt cache. The live suite checks both: on Haiku 5.5, the first request after a restart read 17,846 tokens from cache and wrote 402, where a rebuild of the same history read 3,765 and wrote 14,483.
 - `--resume` does not follow records appended as a branch and re-reads the session file on every resume, so a rebuild rewrites the file whole.
 - Anthropic rejects thinking signatures it cannot verify, so only thinking blocks Claude Code signed are replayed.
 - An image with an unsupported media type or no data fails its request, and every later one once it is in the session, so images are checked on both the prompt and the tool-result path.
