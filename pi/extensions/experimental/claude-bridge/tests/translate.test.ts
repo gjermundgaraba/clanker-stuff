@@ -182,12 +182,13 @@ describe("a bash call without a timeout", () => {
 });
 
 describe("a non-streaming fallback after a stalled stream", () => {
-  it("counts what the stalled request and the fallback each billed", () => {
+  it("reports the fallback's request alone, as one prompt", () => {
     const { turn } = run(
       [
         messageStart("msg_dead", {
           input_tokens: 10,
           cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 40,
         }),
         ...stalledStream("msg_dead").slice(1),
         assistantMessage(
@@ -202,8 +203,9 @@ describe("a non-streaming fallback after a stalled stream", () => {
     );
 
     expect(turn.output.usage).toMatchObject({
-      input: 22,
-      cacheRead: 200,
+      input: 12,
+      cacheRead: 100,
+      cacheWrite: 0,
       output: 50,
       totalTokens: 12 + 100 + 50,
     });

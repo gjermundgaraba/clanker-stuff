@@ -24,7 +24,7 @@ const usageOfOneRequest = (
   const ledger = new MessageUsage(priced);
 
   for (const frame of frames) {
-    ledger.record(usage, "msg_1", frame);
+    ledger.record(usage, frame, "msg_1");
   }
 
   return usage;
@@ -128,114 +128,60 @@ describe("one request's usage", () => {
       ])
     ).toMatchObject({ input: 5, cacheRead: 3, output: 7, totalTokens: 15 });
   });
-
-  it("reports the cache share of the prompt, zero without a prompt", () => {
-    const { usage } = assistant([]);
-
-    expect(
-      new MessageUsage(model).record(usage, "msg_1", {
-        input_tokens: 25,
-        cache_read_input_tokens: 75,
-      }).cachePct
-    ).toBe(75);
-    expect(
-      new MessageUsage(model).record(usage, "msg_2", { output_tokens: 10 })
-        .cachePct
-    ).toBe(0);
-  });
-
-  it("reports only the thinking count this frame carries", () => {
-    const { usage } = assistant([]);
-    const ledger = new MessageUsage(model);
-
-    const first = ledger.record(usage, "msg_1", {
-      output_tokens: 100,
-      output_tokens_details: { thinking_tokens: 40 },
-    });
-
-    const second = ledger.record(usage, "msg_1", { output_tokens: 120 });
-
-    expect(first.reasoning).toBe(40);
-    expect(second).not.toHaveProperty("reasoning");
-    expect(usage.reasoning).toBe(40);
-  });
 });
 
 describe("a message spanning several requests", () => {
-  it("sums what each request billed and keeps the latest request as the total", () => {
+  it("reports the last request, with nothing an earlier one carried", () => {
     const { usage } = assistant([]);
     const ledger = new MessageUsage(pricedModel);
 
-    ledger.record(usage, "msg_stalled", {
-      input_tokens: 10,
-      cache_read_input_tokens: 1000,
-      output_tokens: 5,
-      output_tokens_details: { thinking_tokens: 3 },
-    });
-    ledger.record(usage, "msg_retry", {
-      input_tokens: 12,
-      cache_read_input_tokens: 1000,
-      output_tokens: 40,
-      output_tokens_details: { thinking_tokens: 20 },
-    });
+    ledger.record(
+      usage,
+      {
+        input_tokens: 10,
+        cache_creation_input_tokens: 1000,
+        cache_creation: { ephemeral_1h_input_tokens: 1000 },
+        output_tokens: 5,
+        output_tokens_details: { thinking_tokens: 3 },
+      },
+      "msg_stalled"
+    );
+    ledger.record(usage, { input_tokens: 12, output_tokens: 40 }, "msg_retry");
 
-    expect(usage).toMatchObject({
-      input: 22,
-      output: 45,
-      cacheRead: 2000,
-      reasoning: 23,
-      totalTokens: 12 + 1000 + 40,
-    });
-    expect(usage.cost.total).toBe(22 + 45 * 2);
-  });
-
-  it("does not count a request again when its frames repeat", () => {
-    const { usage } = assistant([]);
-    const ledger = new MessageUsage(model);
-    const start = { input_tokens: 10, output_tokens: 1 };
-
-    ledger.record(usage, "msg_a", start);
-    ledger.record(usage, "msg_b", { input_tokens: 20, output_tokens: 2 });
-    ledger.record(usage, "msg_a", { ...start, output_tokens: 30 });
-
-    expect(usage).toMatchObject({ input: 30, output: 32, totalTokens: 22 });
-  });
-
-  it("prices each request at its own tier, not the summed prompt's", () => {
-    const tiered: Model<Api> = {
-      ...testModel(),
+    expect(usage).toStrictEqual({
+      input: 12,
+      output: 40,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 52,
       cost: {
-        input: 1_000_000,
-        output: 0,
+        input: 12,
+        output: 80,
         cacheRead: 0,
         cacheWrite: 0,
-        tiers: [
-          {
-            inputTokensAbove: 150,
-            input: 2_000_000,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-          },
-        ],
+        total: 92,
+        totalFromProvider: false,
       },
-    };
-
-    const { usage } = assistant([]);
-    const ledger = new MessageUsage(tiered);
-
-    ledger.record(usage, "msg_a", { input_tokens: 100 });
-    ledger.record(usage, "msg_b", { input_tokens: 100 });
-
-    expect(usage.cost.total).toBe(200);
+    });
   });
 
-  it("matches Claude Code's own cost for a recorded two-request query", () => {
+  it("applies a frame without an id to the request the last frame came from", () => {
+    const { usage } = assistant([]);
+    const ledger = new MessageUsage(model);
+
+    ledger.record(usage, { input_tokens: 10 }, "msg_a");
+    ledger.record(usage, { output_tokens: 30 });
+
+    expect(usage).toMatchObject({ input: 10, output: 30, totalTokens: 40 });
+  });
+});
+
+describe("pricing", () => {
+  it("matches Claude Code's own cost for a recorded two-request query, request by request", () => {
     const haiku = catalogModels().find(({ id }) => id === "claude-haiku-4-5");
     const messages: SDKMessage[] = recordedStream("parallel-tools");
-    const { usage } = assistant([]);
-    const ledger = new MessageUsage(haiku ?? model);
-    let streaming = "";
+    const requests: Usage[] = [];
+    let ledger = new MessageUsage(haiku ?? model);
 
     for (const message of messages) {
       if (message.type !== "stream_event") {
@@ -245,16 +191,21 @@ describe("a message spanning several requests", () => {
       const { event } = message;
 
       if (event.type === "message_start") {
-        streaming = event.message.id;
-        ledger.record(usage, streaming, event.message.usage);
-      } else if (event.type === "message_delta") {
-        ledger.record(usage, streaming, event.usage);
+        const { usage } = assistant([]);
+
+        requests.push(usage);
+        ledger = new MessageUsage(haiku ?? model);
+        ledger.record(usage, event.message.usage, event.message.id);
+      } else if (event.type === "message_delta" && requests.length > 0) {
+        ledger.record(requests.at(-1) ?? assistant([]).usage, event.usage);
       }
     }
 
     const result = messages.find((message) => message.type === "result");
+    const billed = requests.reduce((sum, usage) => sum + usage.cost.total, 0);
 
     expect(haiku).toBeDefined();
-    expect(usage.cost.total).toBeCloseTo(result?.total_cost_usd ?? -1, 9);
+    expect(requests).toHaveLength(2);
+    expect(billed).toBeCloseTo(result?.total_cost_usd ?? -1, 9);
   });
 });

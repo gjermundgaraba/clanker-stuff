@@ -292,7 +292,7 @@ export class Turn {
         this.streamMessageId = event.message.id;
         this.streamOpen = true;
         this.streamBlockStart = this.blocks.length;
-        this.usage.record(output.usage, event.message.id, event.message.usage);
+        this.usage.record(output.usage, event.message.usage, event.message.id);
 
         return;
       }
@@ -423,11 +423,7 @@ export class Turn {
 
       case "message_delta": {
         output.stopReason = mapStopReason(event.delta.stop_reason);
-        this.usage.record(
-          output.usage,
-          this.streamMessageId ?? "",
-          event.usage
-        );
+        this.usage.record(output.usage, event.usage);
 
         return;
       }
@@ -504,7 +500,7 @@ export class Turn {
       }
     }
 
-    this.usage.record(output.usage, assistant.id, assistant.usage);
+    this.usage.record(output.usage, assistant.usage, assistant.id);
 
     if (mapStopReason(assistant.stop_reason) === "length") {
       output.stopReason = "length";

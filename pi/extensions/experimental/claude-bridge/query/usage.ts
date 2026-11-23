@@ -16,19 +16,18 @@ export interface SdkUsage {
   cache_creation?: { ephemeral_1h_input_tokens?: number | null } | null;
 }
 
-interface UsageReport {
-  cachePct: number;
-  reasoning?: number;
-}
-
-const emptyUsage = (): Usage => ({
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-});
+const resetUsage = (usage: Usage): void => {
+  Object.assign(usage, {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  });
+  delete usage.cacheWrite1h;
+  delete usage.reasoning;
+};
 
 const present = (value: number | null | undefined): value is number =>
   value !== null && value !== undefined;
@@ -66,19 +65,14 @@ const overwriteCarriedCounters = (usage: Usage, frame: SdkUsage): void => {
     usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 };
 
-const addOptional = (
-  sum: number | undefined,
-  value: number | undefined
-): number | undefined => (value === undefined ? sum : (sum ?? 0) + value);
-
-/** The usage of one pi assistant message, which can span several Claude Code API
- *  requests: a stalled stream and its non-streaming retry, or a call to a tool the query
- *  does not serve, which Claude Code answers itself before asking again. Each request is
- *  kept under its API message id, so a repeated frame updates its request rather than
- *  counting it twice, and is priced on its own, since a pricing tier depends on one
- *  request's prompt. */
+/** The usage of one pi assistant message, which reports its last Claude Code API
+ *  request. A message can span several: a stalled stream and its non-streaming retry, or
+ *  a call to a tool the query does not serve, which Claude Code answers itself before
+ *  asking again. pi reads a message's usage as one request's prompt, for its cache
+ *  warmer, cache-miss detection and footer, so an earlier request's tokens and cost are
+ *  not counted. */
 export class MessageUsage {
-  private readonly requests = new Map<string, Usage>();
+  private request: string | undefined;
 
   private readonly model: Model<Api>;
 
@@ -86,65 +80,29 @@ export class MessageUsage {
     this.model = model;
   }
 
-  /** Applies a frame to request `id`, then writes the sum of every request onto
-   *  `target`. Counters a frame omits keep their previous value, so a partial frame never
-   *  zeroes what an earlier one set. Tokens and costs are what was billed; `totalTokens`
-   *  stays the latest request's prompt plus output, since pi reads it as the context
-   *  size. */
-  record(target: Usage, id: string, frame: SdkUsage): UsageReport {
-    let request = this.requests.get(id);
-
-    if (request === undefined) {
-      request = emptyUsage();
-      this.requests.set(id, request);
+  /** Applies a frame from request `id`, by default the request the last frame came
+   *  from, onto `target` and prices it. A frame from another request replaces the usage;
+   *  counters a frame omits keep their previous value, so a partial frame never zeroes
+   *  what an earlier one of the same request set. */
+  record(target: Usage, frame: SdkUsage, id = this.request): void {
+    if (id !== this.request) {
+      resetUsage(target);
+      this.request = id;
     }
 
-    overwriteCarriedCounters(request, frame);
-    calculateCost(this.model, request);
+    overwriteCarriedCounters(target, frame);
+    calculateCost(this.model, target);
 
-    const sum = emptyUsage();
-    let latest = request;
-
-    for (const usage of this.requests.values()) {
-      sum.input += usage.input;
-      sum.output += usage.output;
-      sum.cacheRead += usage.cacheRead;
-      sum.cacheWrite += usage.cacheWrite;
-      sum.cost.input += usage.cost.input;
-      sum.cost.output += usage.cost.output;
-      sum.cost.cacheRead += usage.cost.cacheRead;
-      sum.cost.cacheWrite += usage.cost.cacheWrite;
-      sum.cost.total += usage.cost.total;
-
-      const cacheWrite1h = addOptional(sum.cacheWrite1h, usage.cacheWrite1h);
-      const reasoning = addOptional(sum.reasoning, usage.reasoning);
-
-      if (cacheWrite1h !== undefined) {
-        sum.cacheWrite1h = cacheWrite1h;
-      }
-
-      if (reasoning !== undefined) {
-        sum.reasoning = reasoning;
-      }
-
-      latest = usage;
-    }
-
-    sum.totalTokens = latest.totalTokens;
-    Object.assign(target, sum);
-
-    const promptTokens = latest.input + latest.cacheRead + latest.cacheWrite;
+    const promptTokens = target.input + target.cacheRead + target.cacheWrite;
     const reasoning = frame.output_tokens_details?.thinking_tokens;
 
     const cachePct =
       promptTokens > 0
-        ? Math.round((latest.cacheRead / promptTokens) * 100)
+        ? Math.round((target.cacheRead / promptTokens) * 100)
         : 0;
 
     debug(
-      `usage: request=${id} in=${target.input} out=${target.output} cacheRead=${target.cacheRead} cacheWrite=${target.cacheWrite} total=${target.totalTokens}${present(reasoning) ? ` reasoning=${reasoning}` : ""} cachePct=${cachePct}% model=${this.model.id}`
+      `usage: request=${id ?? "unknown"} in=${target.input} out=${target.output} cacheRead=${target.cacheRead} cacheWrite=${target.cacheWrite} total=${target.totalTokens}${present(reasoning) ? ` reasoning=${reasoning}` : ""} cachePct=${cachePct}% model=${this.model.id}`
     );
-
-    return { cachePct, ...(present(reasoning) ? { reasoning } : {}) };
   }
 }
