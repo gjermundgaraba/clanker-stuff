@@ -109,6 +109,20 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(self.git('status', '--porcelain=v1', '-z').stdout, self.before_status)
         self.assertEqual(self.git('diff', '--cached').stdout, self.before_staged)
 
+    def test_drop_deletes_only_a_snapshot(self):
+        snapshot = self.helper('take').stdout.strip()
+        not_snapshot = self.temp / 'not-a-snapshot'
+        not_snapshot.mkdir()
+
+        self.helper('drop', snapshot)
+        refused = subprocess.run(['sh', str(HELPER), 'drop', str(not_snapshot)], cwd=self.repo,
+                                 env=self.env, capture_output=True, text=True)
+
+        self.assertFalse(Path(snapshot).exists())
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertTrue(not_snapshot.exists())
+        self.assertEqual(self.worktree(), self.before)
+
     def test_works_from_a_subdirectory_with_a_read_only_git_dir(self):
         subdir = self.repo / 'dir with space'
         self.read_only_git_dir()
