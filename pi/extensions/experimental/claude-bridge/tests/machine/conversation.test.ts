@@ -4,6 +4,7 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai";
 import type {
   Message,
+  ProviderResponse,
   SimpleStreamOptions,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
@@ -66,15 +67,15 @@ const textOf = (result: McpResult): string =>
     .map((block) => (block.type === "text" ? block.text : "[image]"))
     .join("");
 
-const turn = (
-  onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"]
-) => {
+type CallObservers = Pick<
+  SimpleStreamOptions,
+  "onProviderStreamEvent" | "onResponse"
+>;
+
+const turn = (observers: CallObservers = {}) => {
   const pi = recordingStream();
 
-  return {
-    turn: new Turn(model, pi.stream, served, { onProviderStreamEvent }),
-    pi,
-  };
+  return { turn: new Turn(model, pi.stream, served, observers), pi };
 };
 
 const conversation = (ignoresClose = false) => {
@@ -117,8 +118,8 @@ const conversation = (ignoresClose = false) => {
     });
   };
 
-  const start = (signal?: AbortSignal) => {
-    const opened = turn();
+  const start = (signal?: AbortSignal, observers?: CallObservers) => {
+    const opened = turn(observers);
     const promptStream = makePromptStream();
 
     promptStream.push(userMessage("read a")).catch(() => {});
@@ -140,9 +141,9 @@ const conversation = (ignoresClose = false) => {
     results: ToolResultMessage[],
     steer: Message[] = [],
     signal?: AbortSignal,
-    onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"]
+    observers?: CallObservers
   ) => {
-    const opened = turn(onProviderStreamEvent);
+    const opened = turn(observers);
 
     actor.send({
       type: "pi.deliver",
@@ -403,8 +404,10 @@ describe("the conversation machine", () => {
           scheduled = true;
           queueMicrotask(() => {
             delivered.resolve(
-              deliver([toolResult("toolu_1", "ok")], [], undefined, (event) => {
-                observed.push(event);
+              deliver([toolResult("toolu_1", "ok")], [], undefined, {
+                onProviderStreamEvent: (event) => {
+                  observed.push(event);
+                },
               })
             );
           });
@@ -620,6 +623,64 @@ describe("the conversation machine", () => {
       "You're out of extra usage · resets 6:30pm (America/New_York)";
 
     const UNRELATED = "API Error: Overloaded";
+
+    it("reaches the provider call that is open as plan usage headers", async () => {
+      const { query, settle, start } = conversation();
+      const responses: ProviderResponse[] = [];
+
+      start(undefined, {
+        onResponse: (response) => {
+          responses.push(response);
+        },
+      });
+      query().push(rejection());
+      query().push(successResult(OUT_OF_USAGE, true));
+      await settle({ active: "closing" });
+
+      expect(responses).toStrictEqual([
+        {
+          status: 200,
+          headers: {
+            "anthropic-ratelimit-unified-status": "rejected",
+            "anthropic-ratelimit-unified-reset": "1786141800",
+            "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          },
+        },
+      ]);
+    });
+
+    it("waits for the next provider call when it arrives while a tool runs", async () => {
+      const { actor, query, settle, start, deliver } = conversation();
+      const parkedOn: ProviderResponse[] = [];
+      const deliveredTo: ProviderResponse[] = [];
+
+      start(undefined, {
+        onResponse: (response) => {
+          parkedOn.push(response);
+        },
+      });
+      query().push(readToolCall("toolu_1"));
+      await settle({ active: "parked" });
+
+      query().push(rateLimitEvent({ status: "allowed", resetsAt: 1 }));
+      query().push(rateLimitEvent({ status: "allowed", resetsAt: 2 }));
+      await yieldToEventLoop();
+
+      actor.send(handler("toolu_1").event);
+      deliver([toolResult("toolu_1", "ok")], [], undefined, {
+        onResponse: (response) => {
+          deliveredTo.push(response);
+        },
+      });
+      await settle({ active: "streaming" });
+
+      expect(parkedOn).toStrictEqual([]);
+      expect(
+        deliveredTo.map(
+          ({ headers }) => headers["anthropic-ratelimit-unified-reset"]
+        )
+      ).toStrictEqual(["2"]);
+    });
 
     it("names the failure it caused as a rate limit, so fallback chains fire", async () => {
       const { query, settle, start } = conversation();

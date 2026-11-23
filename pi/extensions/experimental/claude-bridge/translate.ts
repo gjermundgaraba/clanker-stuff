@@ -9,6 +9,7 @@ import type {
   AssistantMessage,
   AssistantMessageEventStream,
   Model,
+  ProviderResponse,
   SimpleStreamOptions,
   ToolCall,
 } from "@earendil-works/pi-ai";
@@ -50,6 +51,7 @@ const describeBlock = (block: TurnBlock): string =>
 interface TurnOptions {
   requireText?: boolean;
   onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
+  onResponse?: SimpleStreamOptions["onResponse"];
 }
 
 export class Turn {
@@ -105,6 +107,24 @@ export class Turn {
 
   async observeStreamEvent(message: SDKPartialAssistantMessage): Promise<void> {
     await this.options.onProviderStreamEvent?.(message.event, this.model);
+  }
+
+  /** Hands `response` to the provider call this turn answers, which pi reports as
+   *  `after_provider_response`. A failing observer never fails the turn. */
+  reportResponse(response: ProviderResponse): void {
+    const { onResponse } = this.options;
+
+    if (onResponse === undefined) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await onResponse(response, this.model);
+      } catch (error) {
+        debug("turn: onResponse failed:", error);
+      }
+    })();
   }
 
   private get blocks(): TurnBlock[] {

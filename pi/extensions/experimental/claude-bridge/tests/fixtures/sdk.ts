@@ -48,7 +48,7 @@ export const recordedStream = (name: RecordedStream): SDKMessage[] => {
     .map((line) => {
       const raw: unknown = JSON.parse(line);
 
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Claude Code output from SDK 0.3.310, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. No bridge logic reads those fields; debug logging writes the rate-limit info whole.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Claude Code output from SDK 0.3.310, which its own declaration does not fully describe: it adds fields the types lack (`thinking_display`, `api_message_id`, `tool_result_meta`, `unifiedWindows`, `subagent_stats`) and omits fields they require (`usage.fallback_credit`, `iterations`, `server_tool_use`, text-block `citations`); the init frame is cut down by the scrub. Of those fields the bridge reads only `unifiedWindows`, whose shape it checks; debug logging writes the rate-limit info whole.
       return raw as SDKMessage;
     });
 };

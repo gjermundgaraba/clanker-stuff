@@ -6,6 +6,7 @@ import type {
   Api,
   Message,
   Model,
+  ProviderResponse,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { createCallbackLogic, setup, types } from "xstate";
@@ -18,6 +19,7 @@ import { toolResultToMcpContent } from "../mcp-server.js";
 import type { McpResult } from "../mcp-server.js";
 import type { PromptStream } from "../query/prompt-stream.js";
 import { userMessage } from "../query/prompt-stream.js";
+import { rateLimitResponse } from "../query/rate-limit.js";
 import {
   describeRateLimitFailure,
   logServedContextWindow,
@@ -230,6 +232,18 @@ const release = (
   };
 };
 
+const reportUnreportedUsage = (
+  usage: ProviderResponse | null,
+  turn: Turn,
+  enq: (action: () => void) => void
+): void => {
+  if (usage !== null) {
+    enq(() => {
+      turn.reportResponse(usage);
+    });
+  }
+};
+
 const stuckNotice = (count: number): string =>
   `Claude bridge: ${count} tool handler(s) still waiting; provider may be stuck`;
 
@@ -243,6 +257,9 @@ export const conversationMachine = setup({
        *  a query that failed or was killed may have left its session file short. */
       held: readonly Message[];
       rateLimit: RateLimitRejection | null;
+      /** The latest plan usage that arrived while no provider call was open, for the
+       *  next call to report. */
+      unreportedUsage: ProviderResponse | null;
       query: ActiveQuery | null;
       turn: Turn | null;
       callSignal: AbortSignal | undefined;
@@ -303,6 +320,7 @@ export const conversationMachine = setup({
     ccSessionId: undefined,
     held: [],
     rateLimit: null,
+    unreportedUsage: null,
     ...IDLE,
   }),
   initial: "idle",
@@ -330,21 +348,26 @@ export const conversationMachine = setup({
     idle: {
       id: "idle",
       on: {
-        "pi.start": ({ event }) => ({
-          target: "active.streaming",
-          context: {
-            query: {
-              params: event.params,
-              promptStream: event.promptStream,
-              key: event.key,
-              model: event.model,
-              signal: event.signal,
+        "pi.start": ({ context, event }, enq) => {
+          reportUnreportedUsage(context.unreportedUsage, event.turn, enq);
+
+          return {
+            target: "active.streaming",
+            context: {
+              unreportedUsage: null,
+              query: {
+                params: event.params,
+                promptStream: event.promptStream,
+                key: event.key,
+                model: event.model,
+                signal: event.signal,
+              },
+              turn: event.turn,
+              held: copies(event.held),
+              rateLimit: null,
             },
-            turn: event.turn,
-            held: copies(event.held),
-            rateLimit: null,
-          },
-        }),
+          };
+        },
       },
     },
     active: {
@@ -410,10 +433,20 @@ export const conversationMachine = setup({
           if (message.type === "rate_limit_event") {
             debug("conversation: rate_limit_event", message.rate_limit_info);
 
+            const usage = rateLimitResponse(message.rate_limit_info);
+            const { turn } = context;
+
+            if (turn !== null) {
+              enq(() => {
+                turn.reportResponse(usage);
+              });
+            }
+
+            const unreportedUsage = turn === null ? usage : null;
             const rejection = rateLimitRejection(message.rate_limit_info);
 
             if (rejection === undefined) {
-              return {};
+              return { context: { unreportedUsage } };
             }
 
             if (context.rateLimit === null) {
@@ -422,7 +455,7 @@ export const conversationMachine = setup({
               });
             }
 
-            return { context: { rateLimit: rejection } };
+            return { context: { rateLimit: rejection, unreportedUsage } };
           }
 
           if (message.type !== "result") {
@@ -585,12 +618,15 @@ export const conversationMachine = setup({
             input: ({ context }) => context.query.signal,
           },
           on: {
-            "pi.deliver": ({ context, event }) => {
+            "pi.deliver": ({ context, event }, enq) => {
               const blocks = userTurnBlocks(event.steer);
+
+              reportUnreportedUsage(context.unreportedUsage, event.turn, enq);
 
               return {
                 target: "delivering",
                 context: {
+                  unreportedUsage: null,
                   turn: event.turn,
                   callSignal:
                     event.signal === context.query.signal

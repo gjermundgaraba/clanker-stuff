@@ -382,6 +382,7 @@ export const streamClaudeCode = (
     turn = new Turn(model, stream, tools, {
       ...turnOptions,
       onProviderStreamEvent: options?.onProviderStreamEvent,
+      onResponse: options?.onResponse,
     });
 
     return turn;
