@@ -12,6 +12,8 @@ export interface SdkUsage {
   cache_read_input_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
   output_tokens_details?: { thinking_tokens?: number | null } | null;
+  /** The split of `cache_creation_input_tokens` by retention; Claude Code writes 1h. */
+  cache_creation?: { ephemeral_1h_input_tokens?: number | null } | null;
 }
 
 interface UsageReport {
@@ -47,6 +49,12 @@ export const updateUsage = (
     usage.cache_creation_input_tokens !== undefined
   ) {
     output.usage.cacheWrite = usage.cache_creation_input_tokens;
+  }
+
+  const oneHourCacheWrite = usage.cache_creation?.ephemeral_1h_input_tokens;
+
+  if (oneHourCacheWrite !== null && oneHourCacheWrite !== undefined) {
+    output.usage.cacheWrite1h = oneHourCacheWrite;
   }
 
   const reasoning = usage.output_tokens_details?.thinking_tokens;

@@ -91,6 +91,39 @@ describe("updateUsage", () => {
     expect(output.usage.cost.total).toBe(210);
   });
 
+  it("bills 1h cache writes at twice the input rate", () => {
+    const cached: Model<Api> = {
+      ...testModel(),
+      cost: {
+        input: 1_000_000,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 1_250_000,
+      },
+    };
+
+    const output = emptyOutput();
+
+    updateUsage(
+      output,
+      {
+        cache_creation_input_tokens: 10,
+        cache_creation: { ephemeral_1h_input_tokens: 8 },
+      },
+      cached
+    );
+
+    const messageDeltaWithoutSplit = {
+      cache_creation_input_tokens: 10,
+      output_tokens: 1,
+    };
+
+    updateUsage(output, messageDeltaWithoutSplit, cached);
+
+    expect(output.usage.cacheWrite1h).toBe(8);
+    expect(output.usage.cost.cacheWrite).toBe(2 * 1.25 + 8 * 2);
+  });
+
   it("reports the cache share of the prompt, zero without a prompt", () => {
     expect(
       updateUsage(

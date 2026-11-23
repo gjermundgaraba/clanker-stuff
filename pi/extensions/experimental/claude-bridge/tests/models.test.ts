@@ -37,7 +37,7 @@ const find = (models: ReadonlyArray<Model<Api>>, id: string): Model<Api> => {
 };
 
 describe("buildModels", () => {
-  it("projects pi-ai's catalog onto unpriced registrations without dated snapshot aliases", () => {
+  it("projects pi-ai's catalog with its list prices and without dated snapshot aliases", () => {
     const models = catalogModels();
 
     expect(models.some((model) => /-20\d{6}$/u.test(model.id))).toBe(false);
@@ -49,13 +49,11 @@ describe("buildModels", () => {
       ])
     );
 
+    const catalog = getBuiltinModels("anthropic");
+
     for (const model of models) {
-      expect(model.cost).toStrictEqual({
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-      });
+      expect(model.cost.output).toBeGreaterThan(0);
+      expect(model.cost).toStrictEqual(find(catalog, model.id).cost);
     }
   });
 
@@ -72,7 +70,7 @@ describe("buildModels", () => {
       input: ["text"],
       contextWindow: 200_000,
       maxTokens: 8000,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 },
     });
   });
 
