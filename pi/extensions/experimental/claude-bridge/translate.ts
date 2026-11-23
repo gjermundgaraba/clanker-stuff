@@ -16,7 +16,8 @@ import type {
 import { toJsonObject } from "./json.js";
 import { debug } from "./log.js";
 import { MessageUsage } from "./query/usage.js";
-import { piToolName } from "./tools.js";
+import { piToolName, withArgumentDefaults } from "./tools.js";
+import type { ServedTools } from "./tools.js";
 
 export type TurnBlock = AssistantMessage["content"][number];
 
@@ -69,13 +70,13 @@ export class Turn {
 
   private readonly model: Model<Api>;
   private readonly stream: AssistantMessageEventStream;
-  private readonly served: ReadonlySet<string>;
+  private readonly served: Pick<ServedTools, "names" | "argumentDefaults">;
   private readonly options: TurnOptions;
 
   constructor(
     model: Model<Api>,
     stream: AssistantMessageEventStream,
-    served: ReadonlySet<string>,
+    served: Pick<ServedTools, "names" | "argumentDefaults">,
     options: TurnOptions = {}
   ) {
     this.model = model;
@@ -379,7 +380,20 @@ export class Turn {
         this.openBlocks.delete(block);
 
         if ("arguments" in open) {
-          Object.assign(open.block, open.arguments.finish());
+          const finished = open.arguments.finish();
+
+          Object.assign(
+            open.block,
+            finished.argumentsError === undefined
+              ? {
+                  arguments: withArgumentDefaults(
+                    this.served,
+                    open.block.name,
+                    finished.arguments
+                  ),
+                }
+              : finished
+          );
         }
 
         this.end(block, contentIndex);
@@ -512,7 +526,7 @@ export class Turn {
     name: string;
     input: unknown;
   }): ToolCall | undefined {
-    const name = piToolName(block.name, this.served);
+    const name = piToolName(block.name, this.served.names);
 
     if (name === undefined) {
       debug(
@@ -526,7 +540,11 @@ export class Turn {
       type: "toolCall",
       id: block.id,
       name,
-      arguments: toJsonObject(block.input) ?? {},
+      arguments: withArgumentDefaults(
+        this.served,
+        name,
+        toJsonObject(block.input) ?? {}
+      ),
     };
   }
 

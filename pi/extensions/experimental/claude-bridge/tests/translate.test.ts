@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveServedTools } from "../tools.js";
+import type { ServedTools } from "../tools.js";
 import { mapStopReason, Turn } from "../translate.js";
 import type { TurnBlock } from "../translate.js";
 import {
@@ -31,14 +32,14 @@ import { testModel } from "./helpers.js";
 
 const model = testModel();
 
-const served = (...names: string[]): ReadonlySet<string> =>
+const served = (...names: string[]): ServedTools =>
   resolveServedTools(
     names.map((name) => ({
       name,
       description: name,
       parameters: Type.Object({}),
     }))
-  ).names;
+  );
 
 const BASH = "mcp__custom-tools__bash";
 
@@ -65,7 +66,7 @@ const feed = (turn: Turn, messages: readonly SDKMessage[]): void => {
   }
 };
 
-const open = (toPi: ReadonlySet<string> = served("read")) => {
+const open = (toPi: ServedTools = served("read")) => {
   const pi = recordingStream();
 
   return { turn: new Turn(model, pi.stream, toPi), pi };
@@ -73,7 +74,7 @@ const open = (toPi: ReadonlySet<string> = served("read")) => {
 
 const run = (
   messages: readonly SDKMessage[],
-  toPi?: ReadonlySet<string>
+  toPi?: ServedTools
 ): { turn: Turn; pi: RecordingStream } => {
   const opened = open(toPi);
 
@@ -120,6 +121,65 @@ const fallback = (id: string): SDKMessage =>
       input: { command: "pwd" },
     },
   ]);
+
+describe("a bash call without a timeout", () => {
+  const bash = resolveServedTools([
+    {
+      name: "bash",
+      description: "bash",
+      parameters: Type.Object({
+        command: Type.String(),
+        timeout: Type.Optional(Type.Number()),
+      }),
+    },
+  ]);
+
+  it("gets Claude Code's 120 second timeout when streamed", () => {
+    const { turn } = run(
+      [
+        messageStart("msg_1"),
+        toolUseStart(0, BASH, "toolu_1"),
+        inputJsonDelta(0, '{"command":"ls"}'),
+        blockStop(0),
+        messageDelta("tool_use"),
+        messageStop(),
+      ],
+      bash
+    );
+
+    expect(toolCalls(turn)[0]?.arguments).toStrictEqual({
+      timeout: 120,
+      command: "ls",
+    });
+  });
+
+  it("gets it in a complete message, and keeps a timeout it set", () => {
+    const { turn } = run(
+      [
+        assistantMessage("msg_1", [
+          {
+            type: "tool_use",
+            name: BASH,
+            id: "toolu_1",
+            input: { command: "ls" },
+          },
+          {
+            type: "tool_use",
+            name: BASH,
+            id: "toolu_2",
+            input: { command: "make", timeout: 600 },
+          },
+        ]),
+      ],
+      bash
+    );
+
+    expect(toolCalls(turn).map((call) => call.arguments)).toStrictEqual([
+      { timeout: 120, command: "ls" },
+      { timeout: 600, command: "make" },
+    ]);
+  });
+});
 
 describe("a non-streaming fallback after a stalled stream", () => {
   it("counts what the stalled request and the fallback each billed", () => {
@@ -378,7 +438,7 @@ describe("completed tool-call arguments", () => {
               ]),
             ];
 
-      const { turn } = run(messages, resolveServedTools([tool]).names);
+      const { turn } = run(messages, resolveServedTools([tool]));
       const [call] = toolCalls(turn);
 
       if (call === undefined) {
@@ -762,10 +822,8 @@ describe("mapStopReason", () => {
   });
 });
 
-const replay = (
-  name: RecordedStream,
-  toPi: ReadonlySet<string> = served("read")
-) => run(recordedStream(name), toPi);
+const replay = (name: RecordedStream, toPi: ServedTools = served("read")) =>
+  run(recordedStream(name), toPi);
 
 const thinkingTokenCounts = (messages: readonly SDKMessage[]): number[] =>
   messages.flatMap((message) => {

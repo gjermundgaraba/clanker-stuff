@@ -1,5 +1,7 @@
-import type { Tool } from "@earendil-works/pi-ai";
+import type { JsonObject, Tool } from "@earendil-works/pi-ai";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
+
+import { isJsonObject, toJsonObject } from "./json.js";
 
 export const MCP_SERVER_NAME = "custom-tools";
 
@@ -13,7 +15,42 @@ export interface ServedTools {
   /** The tools, their descriptions carrying their guidelines. */
   tools: Tool[];
   names: ReadonlySet<string>;
+  /** Per tool, the arguments a call that leaves them out gets, where the tool's schema
+   *  takes them: defaults Claude Code's own tools apply and pi's do not. Claude Code's
+   *  Bash stops a command after 120 seconds, and the model writes its calls expecting
+   *  that, while pi's bash runs it unbounded. */
+  argumentDefaults: ReadonlyMap<string, JsonObject>;
 }
+
+const CLAUDE_CODE_ARGUMENT_DEFAULTS = new Map<string, JsonObject>([
+  ["bash", { timeout: 120 }],
+]);
+
+const defaultsTakenBy = (tool: Tool): JsonObject | undefined => {
+  const defaults = CLAUDE_CODE_ARGUMENT_DEFAULTS.get(tool.name);
+  const properties = toJsonObject(tool.parameters)?.["properties"];
+
+  if (defaults === undefined || !isJsonObject(properties)) {
+    return undefined;
+  }
+
+  const taken = Object.fromEntries(
+    Object.entries(defaults).filter(([key]) => key in properties)
+  );
+
+  return Object.keys(taken).length === 0 ? undefined : taken;
+};
+
+/** `args` with the tool's argument defaults filled in where the call left them out. */
+export const withArgumentDefaults = (
+  served: Pick<ServedTools, "argumentDefaults">,
+  name: string,
+  args: JsonObject
+): JsonObject => {
+  const defaults = served.argumentDefaults.get(name);
+
+  return defaults === undefined ? args : { ...defaults, ...args };
+};
 
 const describeTool = (
   description: string,
@@ -41,7 +78,19 @@ export const resolveServedTools = (
     description: describeTool(tool.description, guidelines.get(tool.name)),
   }));
 
-  return { tools: served, names: new Set(served.map((tool) => tool.name)) };
+  const argumentDefaults = new Map(
+    served.flatMap((tool) => {
+      const defaults = defaultsTakenBy(tool);
+
+      return defaults === undefined ? [] : [[tool.name, defaults] as const];
+    })
+  );
+
+  return {
+    tools: served,
+    names: new Set(served.map((tool) => tool.name)),
+    argumentDefaults,
+  };
 };
 
 export const piToolName = (
