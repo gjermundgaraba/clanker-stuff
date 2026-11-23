@@ -39,7 +39,7 @@ Pi 1.6.0 does not expose a login/logout event to extensions. The extension check
 
 ## Claude Code
 
-claude-bridge runs on Claude Code's own login, which pi holds no credential for, so the extension sends no usage request for it. The bridge reports Claude Code's plan usage on `after_provider_response` as the `anthropic-ratelimit-unified-*` headers, and the extension reads the 5-hour and weekly windows from them: utilization is a fraction and resets are Unix seconds. The response does not name its provider, so a report is credited to claude-bridge only while the selected model is a `claude-bridge` model; a virtual model routed to claude-bridge gets none.
+claude-bridge runs on Claude Code's own login, which pi holds no credential for, so the extension sends no usage request for it. The bridge reports Claude Code's plan usage on `after_provider_response` as the `anthropic-ratelimit-unified-*` headers, and the extension reads the 5-hour and weekly windows from them: utilization is a fraction and resets are Unix seconds. The response does not name its provider, so a report is credited to claude-bridge only while the selected model is a `claude-bridge` model; a virtual model routed to claude-bridge gets none. For the same reason, another provider's response that carries these headers while a `claude-bridge` model is selected is credited to claude-bridge.
 
 The snapshot is the latest report, and it changes only when a claude-bridge request runs: `/usage refresh` cannot fetch a newer one. Before the first report in a session, the target shows as unavailable.
 
