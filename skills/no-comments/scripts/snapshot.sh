@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-  echo "usage: snapshot.sh take | diff <snapshot> [git diff options and paths] | restore <snapshot>" >&2
+  echo "usage: snapshot.sh take | diff <snapshot> [git diff options and paths] | restore <snapshot> | drop <snapshot>" >&2
   exit 2
 }
 
@@ -51,6 +51,11 @@ case $command in
     tree=$(snapshot_tree "$1")
     stage_worktree "$1"
     git restore --source="$tree" --worktree -- .
+    ;;
+  drop)
+    [ $# -eq 1 ] || usage
+    snapshot_tree "$1" >/dev/null
+    rm -rf "$1"
     ;;
   *)
     usage
