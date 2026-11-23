@@ -1,6 +1,6 @@
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import type {
-  SessionEntry,
+  ExtensionContext,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 
@@ -8,11 +8,11 @@ import { PROVIDER_ID } from "./session/convert.js";
 import { BASH_TIMEOUT_SECONDS } from "./tools.js";
 
 /** Gives a `bash` call that sets no timeout {@link BASH_TIMEOUT_SECONDS}, from pi's
- *  `tool_call` event, when the call is claude-bridge's: `branch` holds the assistant
- *  message making it, which names its provider. */
+ *  `tool_call` event, when the call is claude-bridge's: the session's branch holds the
+ *  assistant message making it, which names its provider. */
 export const giveBashTimeout = (
   event: ToolCallEvent,
-  branch: readonly SessionEntry[]
+  session: Pick<ExtensionContext["sessionManager"], "getBranch">
 ): void => {
   if (
     !isToolCallEventType("bash", event) ||
@@ -21,9 +21,11 @@ export const giveBashTimeout = (
     return;
   }
 
-  const caller = branch.findLast(
-    (entry) => entry.type === "message" && entry.message.role === "assistant"
-  );
+  const caller = session
+    .getBranch()
+    .findLast(
+      (entry) => entry.type === "message" && entry.message.role === "assistant"
+    );
 
   if (
     caller?.type === "message" &&

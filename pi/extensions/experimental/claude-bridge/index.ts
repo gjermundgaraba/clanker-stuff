@@ -35,7 +35,7 @@ export const createClaudeBridge =
     });
 
     pi.on("tool_call", (event, ctx) => {
-      giveBashTimeout(event, ctx.sessionManager.getBranch());
+      giveBashTimeout(event, ctx.sessionManager);
     });
 
     pi.on("session_shutdown", (_event, ctx) => {

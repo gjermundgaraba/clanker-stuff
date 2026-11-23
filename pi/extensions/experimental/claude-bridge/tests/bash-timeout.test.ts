@@ -35,7 +35,7 @@ const calling = (provider: string, id = "toolu_1"): SessionEntry[] =>
   });
 
 const timeoutAfter = (event: BashToolCallEvent, branch: SessionEntry[]) => {
-  giveBashTimeout(event, branch);
+  giveBashTimeout(event, { getBranch: () => branch });
 
   return event.input.timeout;
 };
@@ -68,7 +68,7 @@ describe(giveBashTimeout, () => {
       input: { path: "a" },
     };
 
-    giveBashTimeout(read, calling("claude-bridge"));
+    giveBashTimeout(read, { getBranch: () => calling("claude-bridge") });
     expect(read.input).toStrictEqual({ path: "a" });
     expect(
       timeoutAfter(call({ command: "ls" }), calling("claude-bridge", "toolu_2"))
