@@ -65,13 +65,6 @@ export default config({
     },
     {
       files: [
-        "pi/extensions/experimental/claude-bridge/query/prompt-stream.ts",
-        "pi/extensions/experimental/claude-bridge/tests/helpers.ts",
-      ],
-      rules: { "no-unmodified-loop-condition": "off" },
-    },
-    {
-      files: [
         "pi/extensions/experimental/turn-recap/conversation.ts",
         "pi/extensions/experimental/turn-recap/tests/runtime.test.ts",
       ],
@@ -80,8 +73,6 @@ export default config({
     {
       files: [
         "pi/extensions/experimental/background-tasks/tests/protocol.test.ts",
-        "pi/extensions/experimental/claude-bridge/tests/agent-session.integration.test.ts",
-        "pi/extensions/experimental/claude-bridge/tests/provider.test.ts",
       ],
       rules: { "unicorn/prefer-single-call": "off" },
     },
@@ -90,13 +81,6 @@ export default config({
         "pi/extensions/experimental/background-tasks/tests/renderers.test.ts",
       ],
       rules: { "unicorn/prefer-structured-clone": "off" },
-    },
-    {
-      files: [
-        "pi/extensions/experimental/claude-bridge/tests/query/prompt-stream.test.ts",
-      ],
-      plugins: ["vitest"],
-      rules: { "vitest/valid-expect": "off" },
     },
     {
       files: ["pi/extensions/experimental/subagents/tests/controller.test.ts"],
@@ -124,18 +108,6 @@ export default config({
     {
       files: [
         "pi/evals/**/*.{js,mjs}",
-        "pi/extensions/experimental/claude-bridge/content.ts",
-        "pi/extensions/experimental/claude-bridge/json.ts",
-        "pi/extensions/experimental/claude-bridge/log.ts",
-        "pi/extensions/experimental/claude-bridge/machine/conversation.ts",
-        "pi/extensions/experimental/claude-bridge/mcp-server.ts",
-        "pi/extensions/experimental/claude-bridge/session/convert.ts",
-        "pi/extensions/experimental/claude-bridge/session/rebuild.ts",
-        "pi/extensions/experimental/claude-bridge/tests/machine/conversation.test.ts",
-        "pi/extensions/experimental/claude-bridge/tests/provider.test.ts",
-        "pi/extensions/experimental/claude-bridge/tests/query/prompt-stream.test.ts",
-        "pi/extensions/experimental/claude-bridge/tests/session/convert.test.ts",
-        "pi/extensions/experimental/claude-bridge/tests/session/messages.ts",
         "pi/extensions/experimental/codemode-diffs/diffs.ts",
         "pi/extensions/experimental/context/observation.ts",
         "pi/extensions/experimental/footer/tests/layout.test.ts",

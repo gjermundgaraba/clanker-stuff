@@ -17,7 +17,6 @@ A personal collection of extensions, plugins, and skills for Pi, Claude Code, an
 | Extension | Description |
 | --- | --- |
 | [`@clanker-stuff/background-tasks`](pi/extensions/experimental/background-tasks) | Runs session-owned background jobs and agent-authored watchers with automatic notifications. |
-| [`@clanker-stuff/claude-bridge`](pi/extensions/experimental/claude-bridge) | Uses Claude Code with your Claude subscription as a Pi model provider. |
 | [`@clanker-stuff/codemode-diffs`](pi/extensions/experimental/codemode-diffs) | Shows nested edit diffs beneath Code Mode results. |
 | [`@clanker-stuff/context`](pi/extensions/experimental/context) | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details. |
 | [`@clanker-stuff/footer`](pi/extensions/experimental/footer) | Lays out built-in widgets and native extension statuses in the footer and editor border. |

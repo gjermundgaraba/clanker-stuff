@@ -130,11 +130,9 @@ The overrides `oxlint.config.ts` passes to the shared preset, and why each exist
 - **`unicorn/prefer-dom-node-remove` off for the subagents transcript.** pi-tui's `Container.removeChild` is not a DOM node method.
 - **`class-methods-use-this` with `ignoreClassesWithImplements`.** These classes implement Pi's `Component` or the runtime interface their fakes stand in for, so a method stays an instance method even when it ignores `this`.
 - **`node/callback-return` off for the diff renderer.** Its `next` is Pi's renderer chain, not a Node callback, so `return next(...)` would be wrong.
-- **`no-unmodified-loop-condition` off for claude-bridge's prompt stream.** The loop condition reads `done` and `failure`, which `end()` and `fail()` set while the loop awaits.
 - **`unicorn/prefer-spread` off for turn-recap's conversation and its runtime test.** They count code points: `Array.from(text)` trips `prefer-spread`, and `[...text]` trips `typescript/no-misused-spread`.
-- **`unicorn/prefer-single-call` off for three test files.** Their fakes' `push` takes one message by contract (the SDK query, the watch decoder); the rule reads them as `Array#push`.
+- **`unicorn/prefer-single-call` off for the background-tasks protocol test.** Its fake's `push` takes one message by contract, as the watch decoder's does; the rule reads it as `Array#push`.
 - **`unicorn/prefer-structured-clone` off for the background-tasks renderer test.** The JSON round trip is the point: the expectation is what the tool's JSON text or a reloaded session holds, which drops `undefined` fields that `structuredClone` keeps.
-- **`vitest/valid-expect` off for claude-bridge's prompt-stream test.** A rejection assertion is attached before the action that rejects and awaited after it, which the rule cannot express: awaiting it at once hangs, and a bare promise rejects unhandled.
 - **`vitest/no-standalone-expect` off for the subagents controller test.** The fake runtime's `settle()` and `finish()` poll with `vi.waitFor` and make assertions outside the test body.
 - **`prefer-const` with `ignoreReadBeforeAssign` for the subagents runtime integration test.** Callbacks registered before the runtime exists read `steer`, which is destructured from the runtime afterwards.
 - **`anti-slop/no-shape-in-symbol-names` off for Shape Spinner and its glyph package.** "Shape" names that domain and the product: the glyph package, its persisted settings and the published `SHAPE_SPINNER_COMMAND`.
