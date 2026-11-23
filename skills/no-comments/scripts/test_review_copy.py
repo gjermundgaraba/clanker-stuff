@@ -91,9 +91,8 @@ class ReviewCopyTests(unittest.TestCase):
             path.chmod(mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
 
         def restore_modes():
-            for path, mode in sorted(modes.items(), key=lambda item: -len(item[0].parts)):
+            for path, mode in modes.items():
                 path.chmod(mode)
-            git_dir.chmod(modes[git_dir])
         self.addCleanup(restore_modes)
 
     def test_take_copies_head_branches_and_uncommitted_state(self):

@@ -71,8 +71,8 @@ case $command in
   apply)
     [ $# -eq 1 ] || usage
     open_copy "$1"
-    (copy_diff --binary --full-index --no-renames --no-color --no-ext-diff \
-      --src-prefix=a/ --dst-prefix=b/) >"$copy/.git/no-comments.patch"
+    copy_diff --binary --no-renames --no-color --no-ext-diff \
+      --src-prefix=a/ --dst-prefix=b/ >"$copy/.git/no-comments.patch"
     if [ -s "$copy/.git/no-comments.patch" ]; then
       cd "$(cat "$copy/.git/no-comments-origin")"
       git apply --whitespace=nowarn "$copy/.git/no-comments.patch"
