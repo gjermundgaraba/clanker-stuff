@@ -1,0 +1,7 @@
+interface:
+  display_name: "Maintain Verification Skill"
+  short_description: "Keep a verify skill and its feature map true to the app"
+  default_prompt: "Use $maintain-verification-skill on this repository's verify skill."
+
+policy:
+  allow_implicit_invocation: false
