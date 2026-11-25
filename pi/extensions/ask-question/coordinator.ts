@@ -47,7 +47,6 @@ export class Coordinator {
       throw new Error("Questionnaire belongs to an inactive session branch");
     }
   }
-  /** Open questionnaires, most recently changed first. */
   list(): Interaction[] {
     return [...this.items.values()]
       .filter((item) => item.draft !== undefined)
@@ -217,7 +216,6 @@ export class Coordinator {
 
     return result;
   }
-  /** Only a recorded outcome confirms a handoff; absence at a boundary is inconclusive. */
   settled(ctx: ExtensionContext): void {
     const pending = this.list().filter((item) => item.pending === true);
 

@@ -23,7 +23,6 @@ export const letterText = (letter: Letter): string =>
     `To answer, call peer_send with to "${letter.from}" and replyTo "${letter.id}"; your own reply text is not sent to it.`,
   ].join("\n");
 
-/** A working directory with the home directory shown as ~. */
 export const shortPath = (cwd: string, home = homedir()): string =>
   cwd === home || cwd.startsWith(`${home}/`)
     ? `~${cwd.slice(home.length)}`

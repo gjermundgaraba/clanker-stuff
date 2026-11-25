@@ -23,13 +23,6 @@ const TICK_MS = 1000;
 const outlivesPrompt = (ctx: ExtensionContext): boolean =>
   ctx.mode === "tui" || ctx.mode === "rpc";
 
-/**
- * Makes this session reachable by its Pi session name and delivers what
- * other sessions send it. One reconcile step, run every second and whenever
- * the name changes, does all of its file writes: it moves the registry entry
- * to the current name and empties this session's inbox. Sending only reads
- * the registry and writes into another session's inbox.
- */
 export class PeerRuntime {
   private readonly pi: ExtensionAPI;
   private ctx: ExtensionContext | undefined;
@@ -214,11 +207,6 @@ export class PeerRuntime {
     this.showStatus(ctx);
   }
 
-  /**
-   * Hands each waiting letter to Pi as a message that starts a turn, or
-   * follows the current one. The letter file is deleted first, so delivery is
-   * at most once: a Pi that dies in between loses the letter.
-   */
   private async deliver(sessionId: string): Promise<void> {
     for (const letter of await take(PeerRuntime.dirs().inbox, sessionId)) {
       this.pi.sendMessage(

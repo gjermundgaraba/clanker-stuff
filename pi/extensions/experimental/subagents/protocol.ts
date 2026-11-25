@@ -8,13 +8,10 @@ export const ROOT_AGENT_PATH = "/root";
 
 export const SUBAGENT_MESSAGE_TYPE = "subagent-communication";
 
-/** A rough character limit for task, message, and final-answer text, which sessions and the tree keep. */
 export const MAX_DURABLE_TEXT = 256 * 1024;
 
-/** A character limit for errors and the answers `list_agents` repeats; mail carries the full answer once. */
 export const MAX_STATUS_TEXT = 1000;
 
-/** Cuts text to `maximum` characters, ending in an ellipsis and never splitting a surrogate pair. */
 export const bound = (value: string, maximum: number): string => {
   if (value.length <= maximum) {
     return value;
@@ -147,7 +144,6 @@ const ENVELOPE_PATTERN =
 const isEnvelopeKind = (value: string): value is Envelope["kind"] =>
   Object.hasOwn(ENVELOPE_KINDS, value);
 
-/** Reads an envelope back for display; the model always receives the text itself. */
 export const readEnvelope = (text: string): Envelope | undefined => {
   const match = ENVELOPE_PATTERN.exec(text);
   const kind = match?.groups?.["kind"];
@@ -180,7 +176,6 @@ export const mailMessage = (mail: Mail) => ({
   display: true,
 });
 
-/** Identifies delivered mail in a custom message or session entry; the outcome and other details are display-only. */
 export const mailDetails = (message: {
   customType: string;
   details?: unknown;

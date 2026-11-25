@@ -39,14 +39,12 @@ interface Expandable {
   setExpanded: (expanded: boolean) => void;
 }
 
-/** Whatever Pi's tool row accepts: an extension's renderers or a whole tool definition. */
 export type ToolDisplay = ConstructorParameters<
   typeof ToolExecutionComponent
 >[4];
 
 export interface TranscriptOptions {
   cwd: string;
-  /** How to draw calls to a tool; undefined falls back to Pi's generic call display. */
   renderers: (name: string) => ToolDisplay;
   theme: Theme;
   tui: TUI;
@@ -77,7 +75,6 @@ export class Transcript extends Container {
     }
   }
 
-  /** Draws stored history, then what a live agent was doing when the viewer opened. */
   load(
     messages: readonly AgentMessage[],
     streaming: AgentMessage | undefined,

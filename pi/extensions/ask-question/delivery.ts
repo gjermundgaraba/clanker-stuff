@@ -6,7 +6,6 @@ import { Value } from "typebox/value";
 import { AnswersSchema } from "./interaction.js";
 import type { Answers, Interaction } from "./interaction.js";
 
-/** Custom message type of answers and dismissals that arrive outside a waiting tool call. */
 export const MESSAGE_TYPE = "ask-question";
 
 const OutcomeSchema = Type.Object(
@@ -20,10 +19,6 @@ const OutcomeSchema = Type.Object(
   { additionalProperties: false }
 );
 
-/**
- * What the model learns about a questionnaire. The same object is the text the model reads and
- * the `details` the transcript renders.
- */
 export type Outcome = Static<typeof OutcomeSchema>;
 
 export const outcome = (
@@ -46,10 +41,6 @@ export const toolResult = (details: Outcome) => ({
   details,
 });
 
-/**
- * Hands an outcome to Pi as a custom message. The model reads it as a user message; while the
- * agent runs it steers the run.
- */
 export const sendOutcome = (
   pi: Pick<ExtensionAPI, "sendMessage">,
   details: Outcome

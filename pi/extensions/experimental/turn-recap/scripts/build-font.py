@@ -150,7 +150,6 @@ def build(source_bytes, pairs):
     font.setGlyphOrder(order)
     FontBuilder(font=font).setupCharacterMap(mapping)
 
-    # Retain source copyright/license/trademark metadata, not its family identity.
     notices = [
         record for record in font["name"].names if record.nameID in (0, 7, 8, 9, 13, 14)
     ]

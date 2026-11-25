@@ -31,7 +31,6 @@ const runFetch = async (
   }
 };
 
-/** Keeps each provider's latest scope only, so a credential or endpoint change discards its usage. */
 export class UsageCache {
   private readonly slots = new Map<SupportedProvider, ScopedUsage>();
 
@@ -50,7 +49,6 @@ export class UsageCache {
     return slot?.scope === scope ? slot.snapshot : undefined;
   }
 
-  /** Keeps a snapshot the provider reported, as the scope's latest success. */
   record(
     provider: SupportedProvider,
     scope: string,

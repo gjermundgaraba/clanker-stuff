@@ -137,7 +137,6 @@ const findModel = (
 export interface ChildSettings {
   instructions: string | undefined;
   model: Model<Api>;
-  /** Undefined lets the child session choose its model's default. */
   thinking: AgentThinkingLevel | undefined;
 }
 
@@ -153,7 +152,6 @@ interface ParentSettings {
   thinking: AgentThinkingLevel | undefined;
 }
 
-/** A configured role fixes model and reasoning; explicit requests apply otherwise; the parent fills the rest. */
 export const resolveChildSettings = (
   config: SubagentsConfig,
   request: SpawnRequest,

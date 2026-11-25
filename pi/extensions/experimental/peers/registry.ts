@@ -48,7 +48,6 @@ const readPeer = async (file: string): Promise<Peer | undefined> => {
   }
 };
 
-/** Writes through a temporary file and a rename, so a reader never sees half a file. */
 export const writeAtomic = async (
   file: string,
   value: unknown
@@ -64,7 +63,6 @@ export const writeAtomic = async (
   await rename(temporary, file);
 };
 
-/** The live session holding `name`, if any. A file left by a dead process counts as no one. */
 export const lookup = async (
   dir: string,
   name: string
@@ -74,7 +72,6 @@ export const lookup = async (
   return peer?.name === name && isAlive(peer.pid) ? peer : undefined;
 };
 
-/** Every live session with a name, sorted by name. */
 export const livePeers = async (dir: string): Promise<Peer[]> => {
   const names = await readdir(dir).catch(() => []);
 
@@ -89,10 +86,6 @@ export const livePeers = async (dir: string): Promise<Peer[]> => {
     .toSorted((a, b) => a.name.localeCompare(b.name));
 };
 
-/**
- * Takes `self.name` for `self`, unless another live session holds it.
- * Returns that holder, or undefined once the name is this session's.
- */
 export const claim = async (
   dir: string,
   self: Peer
@@ -110,7 +103,6 @@ export const claim = async (
   return after?.sessionId === self.sessionId ? undefined : after;
 };
 
-/** Gives up `name` if `sessionId` still holds it. */
 export const release = async (
   dir: string,
   name: string,

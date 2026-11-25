@@ -41,7 +41,6 @@ const mailIds = (
     )
   );
 
-/** Durable delivery is acknowledged from the transcript; automatic handling tracks request opportunities. */
 export class SubagentManager {
   readonly #config: SubagentsConfig;
   readonly #configError: string | undefined;

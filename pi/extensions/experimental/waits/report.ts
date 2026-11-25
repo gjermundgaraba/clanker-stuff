@@ -55,7 +55,6 @@ export const rowOf = (snapshot: WaitSnapshot): WaitRow => ({
   lastCheck: lastCheck(snapshot.context.lastResult),
 });
 
-/** One row as the model reads it. */
 export const rowText = (row: WaitRow): string =>
   [row.state, row.lastCheck, inlineText(row.label), row.id].join(" · ");
 
@@ -73,7 +72,6 @@ export const wakeDetailsSchema = Type.Object({
 
 export type WakeDetails = Static<typeof wakeDetailsSchema>;
 
-/** What the wake's card draws, one entry per finished wait. */
 export const wakeDetails = (
   snapshots: readonly WaitSnapshot[]
 ): WakeDetails => ({
@@ -102,7 +100,6 @@ const wakeLines = (snapshot: WaitSnapshot): string[] => {
       ];
 };
 
-/** The model-facing wake for finished waits. */
 export const wakeText = (snapshots: readonly WaitSnapshot[]): string =>
   [
     ...snapshots.flatMap((snapshot) => [...wakeLines(snapshot), ""]),

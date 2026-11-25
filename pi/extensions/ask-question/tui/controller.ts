@@ -38,7 +38,6 @@ import {
   textLines,
 } from "./render.js";
 
-/** A submitted or dismissed outcome; "closed" keeps the draft; "stopped" means the view was aborted. */
 export type FormResult = Outcome | "closed" | "stopped";
 
 export interface FormPort {

@@ -53,7 +53,6 @@ const AnswerSchema = Type.Object(
 
 export const AnswersSchema = record(AnswerSchema);
 
-/** Readers ignore fields that earlier versions recorded, such as `updated_at`, so open questionnaires survive an upgrade. */
 export const RequestRecordSchema = Type.Object({
   id: Id,
   request: QuestionnaireSchema,
@@ -69,7 +68,6 @@ export type RequestRecord = Static<typeof RequestRecordSchema>;
 
 type StateRecord = Static<typeof StateRecordSchema>;
 
-/** A questionnaire is open, and answerable, exactly while it has a draft. */
 export type Interaction = RequestRecord & StateRecord;
 
 export type Draft = Static<typeof DraftSchema>;
@@ -151,7 +149,6 @@ export const draftAnswer = (item: Interaction, q: Question): Answer => {
   return answer;
 };
 
-/** Validates a complete draft and snapshots its selected answers and notes. */
 export const collectAnswers = (item: Interaction): Answers => {
   const { draft } = item;
 

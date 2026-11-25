@@ -5,7 +5,6 @@ import { runCondition } from "./check.js";
 import type { CheckInput, CheckResult } from "./check.js";
 import type { WaitSpec } from "./spec.js";
 
-/** The last check's exit code, or why it has none. */
 export type LastResult = CheckResult | "error";
 
 export interface WaitInput {
@@ -24,11 +23,6 @@ export const checkLogic = createAsyncLogic({
     await runCondition(input, signal),
 });
 
-/**
- * One wait: its condition is checked at once and then on its interval, until
- * it exits 0 or the remaining time runs out. Both ends are final; the runtime
- * journals and delivers them.
- */
 export const waitMachine = setup({
   schemas: {
     context: types<WaitContext>(),

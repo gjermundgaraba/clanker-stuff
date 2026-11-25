@@ -316,10 +316,6 @@ export const agentRenderers = (name: string): Renderers => ({
 
 const PREVIEW_ROWS = { FINAL_ANSWER: 6, MESSAGE: 2, NEW_TASK: 6 } as const;
 
-/**
- * Mail as a card: a final answer naming its sender and outcome, a task steered into a running turn,
- * or a quieter note for a message. The model receives the envelope text either way.
- */
 export const mailRenderer: MessageRenderer = (message, options, theme) => {
   const text = contentText(message.content);
 

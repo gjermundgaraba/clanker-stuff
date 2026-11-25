@@ -301,8 +301,6 @@ class FakeEnvironment:
         self.execs.append(SimpleNamespace(command=command, user=user, env=dict(env or {})))
         if self.runner_fails and "codex-eval " in command:
             return SimpleNamespace(return_code=1, stdout="", stderr="codex failed")
-        # Harbor creates /installed-agent as root; only root can hand a home in
-        # it to the dedicated agent user.
         if user == "root" and f"mkdir -p {HOME}" in command and "chown -R 1000:1000" in command:
             self.agent_owns_home = True
         elif user != "root" and HOME in command and not self.agent_owns_home:

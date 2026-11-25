@@ -17,7 +17,6 @@ import { endedSchema, openedSchema } from "./journal.js";
 import { toolDetailsSchema, wakeDetailsSchema } from "./report.js";
 import type { WaitRow, WakeDetails } from "./report.js";
 
-/** A duration as its two largest units: 9s, 57m, 3h 2m, 2d 4h. */
 export const span = (ms: number): string => {
   const seconds = Math.max(0, Math.round(ms / 1000));
 
@@ -42,7 +41,6 @@ export const span = (ms: number): string => {
   return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
 };
 
-/** A local wall-clock time, with the date when it is not today. */
 export const clock = (at: number, now = Date.now()): string => {
   const date = new Date(at);
 
@@ -100,10 +98,6 @@ export const openedCard =
     );
   };
 
-/**
- * Draws a cancellation. A satisfied or expired wait draws nothing here,
- * because the wake that follows it carries the outcome.
- */
 export const endedCard =
   (
     labelOf: (id: string) => string | undefined,

@@ -12,7 +12,6 @@ export const VIEWER_SHORTCUT = "alt+a";
 
 type PresenterContext = Pick<ExtensionContext, "cwd" | "mode" | "ui">;
 
-/** Shows the live tree while any child runs, and opens the viewer on request. TUI mode only. */
 export class Presenter {
   readonly #source: ViewerSource;
   #ctx: PresenterContext | undefined;

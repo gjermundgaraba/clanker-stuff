@@ -6,8 +6,6 @@ import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageResult } from "../providers.js";
 import { isDefined, isoFromEpochMs, makeUsageWindow } from "./util.js";
 
-/** The `after_provider_response` header claude-bridge reports Claude Code's plan usage
- *  in, as the JSON of Claude Code's windows. */
 export const CLAUDE_BRIDGE_PLAN_USAGE_HEADER = "x-claude-bridge-plan-usage";
 
 const WindowSchema = Type.Object({

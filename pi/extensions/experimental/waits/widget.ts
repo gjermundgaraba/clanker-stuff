@@ -94,10 +94,6 @@ export class LiveWaitsWidget implements Component {
   }
 }
 
-/**
- * The waits that are live, shown as a count in the footer and as a widget
- * above the editor. Both appear only while a wait is open, and only in the TUI.
- */
 export class WaitsView {
   private readonly source: () => readonly LiveWait[];
   private shown = false;

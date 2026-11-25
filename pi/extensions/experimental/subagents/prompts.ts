@@ -2,7 +2,6 @@
 import type { RoleConfig, SubagentsConfig } from "./config.js";
 import type { DelegationPolicy } from "./delegation.js";
 
-/** System prompt section carrying collaboration guidance; Pi wraps it in `<collaboration>`. */
 export const COLLABORATION_SECTION = "collaboration";
 
 const mailbox = (messageTypes: string) => `Mailbox input has this form:
