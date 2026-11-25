@@ -206,6 +206,20 @@ const cases = {
         "load();"
       ),
     },
+    {
+      name: "a reason marked Why:, up to four lines, leading or trailing",
+      code: lines(
+        "// Why: bash 3.2 slows with each variable it holds.",
+        "load();",
+        "export const run = () => {",
+        "  // Why: a shell copies a string whole at each append, so values",
+        "  // wait in at most 1000 variables, named in strings of 100, and",
+        "  // a value's lines are joined 1000 at a time, then its pieces",
+        "  // at once.",
+        "  return load(); // Why: the store announces each write.",
+        "};"
+      ),
+    },
   ],
   invalid: [
     {
@@ -291,6 +305,41 @@ const cases = {
       name: "prose separated from a linked comment by a blank line",
       code: "// https://example.com/docs\nload();\n\n// Loads again.\nload();",
       errors: prose,
+    },
+    {
+      name: "a Why: comment of five lines",
+      code: lines(
+        "// Why: one.",
+        "// two.",
+        "// three.",
+        "// four.",
+        "// five.",
+        "load();"
+      ),
+      errors: [{ messageId: "longWhy", line: 1, endLine: 5 }],
+    },
+    {
+      name: "prose directly above a Why: comment",
+      code: lines(
+        "// Loads the user.",
+        "// Why: the cache is cold at start.",
+        "load();"
+      ),
+      errors: [{ messageId: "prose", line: 1 }],
+    },
+    {
+      name: "a Why: in a block comment, in lower case, or with no reason",
+      code: lines(
+        "/* Why: the cache is cold at start. */",
+        "load();",
+        "// why: the cache is cold at start.",
+        "load();",
+        "// Why:",
+        "load();",
+        "// Because Why: comes later.",
+        "load();"
+      ),
+      errors: [...prose, ...prose, ...prose, ...prose],
     },
     {
       name: "an empty JSDoc block",

@@ -21,6 +21,10 @@ const licenseNotice = /Copyright|SPDX-License-Identifier|License/iu;
 
 const upstreamLink = /https?:\/\//u;
 
+const whyMark = /^\s*Why:\s+\S/u;
+
+const whyLines = 4;
+
 const typeTagTails: ReadonlyMap<string, RegExp> = new Map([
   ["type", /(?:)/uy],
   ["satisfies", /(?:)/uy],
@@ -237,6 +241,7 @@ const isPublicApi = (node: Node | null, exported: Set<string>): boolean => {
 const continuesRun = (previous: Comment | undefined, comment: Comment) =>
   previous?.type === "Line" &&
   comment.type === "Line" &&
+  !whyMark.test(comment.value) &&
   comment.loc.start.line === previous.loc.end.line + 1 &&
   comment.loc.start.column === previous.loc.start.column;
 
@@ -266,16 +271,20 @@ const isLicenseHeader = (
     (program.body[0]?.start ?? Number.POSITIVE_INFINITY) &&
   run.some((comment) => licenseNotice.test(comment.value));
 
+const isWhy = (run: readonly Comment[]): boolean =>
+  run[0]?.type === "Line" && whyMark.test(run[0].value);
+
 export const noProseComments: Rule = {
   meta: {
     type: "suggestion",
     docs: {
       description:
-        "Allow only license headers, tool directives, tag-only JSDoc, public-API JSDoc and comments that link an upstream source.",
+        "Allow only license headers, tool directives, tag-only JSDoc, public-API JSDoc, comments that link an upstream source and short `// Why:` comments.",
     },
     messages: {
       prose:
-        "Express this in names or types; a comment must be a directive, public-API JSDoc, or link an upstream source.",
+        "Express this in names or types; a comment must be a directive, public-API JSDoc, a `// Why:` reason, or link an upstream source.",
+      longWhy: `A \`// Why:\` comment is at most ${String(whyLines)} lines: keep the reason, and move the rest to a test, a name or the commit message.`,
     },
     schema: [],
   },
@@ -289,6 +298,20 @@ export const noProseComments: Rule = {
         const exported = exportedNames(program);
 
         for (const [index, run] of commentRuns(comments).entries()) {
+          const [first] = run;
+          const last = run.at(-1);
+
+          if (first !== undefined && last !== undefined && isWhy(run)) {
+            if (run.length > whyLines) {
+              context.report({
+                loc: { start: first.loc.start, end: last.loc.end },
+                messageId: "longWhy",
+              });
+            }
+
+            continue;
+          }
+
           const runAllowed =
             isLicenseHeader(run, index, program) ||
             run.some((comment) => upstreamLink.test(comment.value));
