@@ -1,0 +1,7 @@
+interface:
+  display_name: "Maintain Formal Verification Skill"
+  short_description: "Bring a formal model back in line with the code it checks"
+  default_prompt: "Use $maintain-formal-verification-skill on this repository's formal verify skill."
+
+policy:
+  allow_implicit_invocation: false

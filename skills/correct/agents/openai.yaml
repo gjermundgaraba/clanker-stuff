@@ -1,0 +1,7 @@
+interface:
+  display_name: "Correct"
+  short_description: "Make the mistakes agents repeat here impossible"
+  default_prompt: "Use $correct on this repository."
+
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Blast Radius"
+  short_description: "Find what a change breaks beyond its diff, and prove it"
+  default_prompt: "Use $blast-radius on the current diff against main."
+
+policy:
+  allow_implicit_invocation: false
