@@ -47,7 +47,7 @@ Experimental extensions are not published to npm and are not stable daily driver
 
 ## Development
 
-Requires Vite+, Node.js 26.13 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. Linting and formatting use [Ultracite](https://www.ultracite.ai/)'s presets through `vp check`, with the shared Oxlint config from [`@clanker-stuff/oxlint-config`](packages/oxlint-config); `vp check --fix` applies fixes. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
+Requires Vite+, Node.js 26.13 or newer, and Python 3.10 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. Linting and formatting use [Ultracite](https://www.ultracite.ai/)'s presets through `vp check`, with the shared Oxlint config from [`@clanker-stuff/oxlint-config`](packages/oxlint-config); `vp check --fix` applies fixes. See [native Pi](docs/native-pi.md) for the Pi settings these extensions expect and Pi's known limits.
 
 ## Releasing
 

@@ -109,8 +109,6 @@ Keep reflection and chained/widen-then assertion restrictions. Prefer typed call
 
 The same policy covers tests, harnesses, scripts, and maintained JavaScript. Foreign code, generated artifacts, and intentionally malformed fixtures require explicit boundary treatment, not accidental gaps in coverage. Never move code to an untyped file to escape enforcement. Preserve real persisted state and external contracts during clean-break refactors; remove compatibility machinery only for interfaces actually being retired.
 
-The [evaluation record](lint-policy-evaluation.md) explains the evidence behind these decisions. It is historical rationale, not a second policy or permission to leave its original migration backlog excluded from enforcement.
-
 ## Evaluation tooling and deployed modules
 
 Maintained evaluation JavaScript is checked with `allowJs` and `checkJs`; JSDoc uses the actual owner types, not parallel interfaces. `tsconfig.json` maps the container's absolute module paths to their checked-in sources. Its `rootDirs` models directories merged by the evaluation image/task generators. These are compile-time resolution settings, not runtime aliases or compatibility shims. Update the generators and their tests whenever the deployed layout changes.

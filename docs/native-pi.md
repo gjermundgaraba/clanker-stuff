@@ -1,35 +1,19 @@
-# Native Pi baseline
+# Native Pi
 
-The workspace pins Pi **1.6.0**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
+These extensions rely on Pi's built-in providers, Code Mode, MCP, coding tools, and compaction. Repository changes do not upgrade installed Pi or alter user settings.
 
-## Local adoption
-
-Repository changes do not upgrade installed Pi or alter user settings. Stop loading the retired provider and MCP packages in your installation before using native MCP: an extension registering `/mcp` replaces Pi's built-in implementation. Use native `/login` with `openai`; do not rename or copy legacy provider credentials.
+## Settings
 
 Pi defaults to fullscreen terminal mode. Set `"tuiMode": "regular"` or pass `--tui-mode regular` to retain terminal scrollback.
 
-Enable native Code Mode in Pi settings with `"defaultTools": ["+codemode"]`. Set `"codemode": { "mode": "only" }` for code-only declarations, or keep the default hybrid mode. Ordinary coding tools remain `read`, `bash`, `edit`, and `write`. Scripts call `tools.<name>()`, not the retired `exec`/`wait` APIs.
+Enable native Code Mode in Pi settings with `"defaultTools": ["+codemode"]`. Set `"codemode": { "mode": "only" }` for code-only declarations, or keep the default hybrid mode. Ordinary coding tools remain `read`, `bash`, `edit`, and `write`; scripts call `tools.<name>()`.
 
-Configure native MCP in `~/.pi/agent/mcp.json` or trusted project `.pi/mcp.json`, under `mcpServers`. Review old entries against native configuration; do not assume saved loaded-server selections or OAuth records are interchangeable. Native `/mcp` and `pi mcp list` own discovery, connection, exposure, and authentication. Default MCP exposure is `codemode`; scripts discover tools with `searchTools()` and inspect instructions with `describeNamespace()`.
+Configure native MCP in `~/.pi/agent/mcp.json` or trusted project `.pi/mcp.json`, under `mcpServers`. Native `/mcp` and `pi mcp list` own discovery, connection, exposure, and authentication; an extension that registers `/mcp` replaces Pi's built-in implementation. Default MCP exposure is `codemode`; scripts discover tools with `searchTools()` and inspect instructions with `describeNamespace()`. Use native `/login` with `openai`.
 
-## History and execution contracts
+## Known limits
 
-Use a fresh session or an explicit textual handoff from a retired-provider session. Do not rewrite opaque checkpoint records, old child-model identities, or host-lifetime store data into native state. Historical files/results remain historical; they are not evidence of safe opaque replay. Native Code Mode's store is persisted and branch-aware and does not import the old V8 store.
+Native Code Mode uses QuickJS/WASM and its own result, error, and resource semantics. Unawaited nested work can be aborted, but an outer result can finalize before delayed cleanup returns usage. Await nested calls; that does not by itself guarantee settlement when a script fails or is cancelled.
 
-Current evaluation conversion consumes native execution events only. It does not reconstruct retired V8 cells or interpret arbitrary tool-result trace fields. Historical reporting reads stored trajectories without rewriting archived raw logs or metrics. Exact native operation totals require closed invocation capture and matched execution records; incomplete capture retains observed lower bounds. Bounded argument/summary omission alone does not invalidate a complete execution-event capture.
+Pi shares native Code Mode workers across all sessions in one process, including subagents: two by default, or `PI_CODEMODE_MAX_WORKERS`. Cancelled workers keep their slots until they exit; a script result or sandbox close can settle before that exit. At capacity, a new script waits up to 60 seconds for a worker and then fails.
 
-Native Code Mode uses QuickJS/WASM and its own result/error/resource semantics, not the custom host's guarantees. An offline real-session probe on **0.99.2** confirmed that unawaited nested work can be aborted but outer results can finalize before delayed cleanup returns usage. This native limitation is accepted without a local patch or second runtime. Await nested calls; that guidance does not itself guarantee settlement under script failure/cancellation.
-
-Pi limits native Code Mode to two live workers across all sessions in one process, including subagents. Cancelled workers retain their slots until they exit; a script result or sandbox close can settle before that exit. At capacity, new scripts fail immediately and may be retried after a worker exits. This is separate from the subagent runtime limit; no local worker scheduler overrides it.
-
-Native OpenAI subscription requests omit server output-token caps. Local output limits are not generation or billing ceilings. No live inference or backend-acceptance test was performed for this retirement.
-
-## Optional extensions
-
-- **Background tasks:** retained as a separate extension with ordinary Pi tools, job lifecycle, notifications, and bounded inspection output. Native Code Mode supplies nesting and permissions; no Code Mode-specific registration layer remains.
-- **Subagents:** children load native Code Mode, MCP and tool search as Pi built-ins, so `-builtin:<name>` settings and replacement extensions apply; inherited selection initializes activation without freezing dynamic discovery. Root-only exclusions and native permissions remain enforced. Children may use any registered provider, including with text-only forked history. Only the hierarchical path/mailbox tools remain; mail travels through Pi's custom-message queues and is acknowledged from transcripts. Earlier control snapshots are ignored, not migrated.
-- **Usage:** legacy OpenAI Codex quota reporting and its cookie transport are retired. Quota reporting is unsupported for native OpenAI; `/usage` and the `usage` status report it like any unsupported provider, without sending native credentials to a usage endpoint. Inference and session token/cost accounting remain native Pi responsibilities.
-- **Delegation and Ultra:** Subagents now separates branch-local delegation policy from its one-shot native thinking boost. Historical `ultra` entries are ignored without migration or changes to current native thinking; policy falls back to configured delegation until a new branch policy is saved. See [delegation and thinking](../pi/extensions/experimental/subagents/docs/delegation.md) for commands, inheritance and the optional orchestration preset.
-- **Compaction:** native Pi textual summarization only. No remote-checkpoint adapter or standalone compaction extension is retained. Native settings/custom instructions cover ordinary policy changes.
-
-Future evaluations keep all three explicit arms: **Pi without Code Mode**, **Pi with Code Mode**, and **native Codex**. Historical evaluation outputs are not relabeled.
+Native OpenAI subscription requests omit server output-token caps, so local output limits are not generation or billing ceilings. Quota reporting is unsupported for native OpenAI: `/usage` and the `usage` status report it like any unsupported provider.
