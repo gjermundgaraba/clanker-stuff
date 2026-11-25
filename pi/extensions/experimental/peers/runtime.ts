@@ -10,7 +10,7 @@ import type {
 
 import { MESSAGE_TYPE, SENT, UNDELIVERED, undeliveredText } from "./entries.js";
 import type { Undelivered } from "./entries.js";
-import { post, take } from "./mailbox.js";
+import { post, takeAtMostOnce } from "./mailbox.js";
 import type { Letter } from "./mailbox.js";
 import { claim, livePeers, lookup, release } from "./registry.js";
 import { letterText } from "./report.js";
@@ -208,7 +208,10 @@ export class PeerRuntime {
   }
 
   private async deliver(sessionId: string): Promise<void> {
-    for (const letter of await take(PeerRuntime.dirs().inbox, sessionId)) {
+    for (const letter of await takeAtMostOnce(
+      PeerRuntime.dirs().inbox,
+      sessionId
+    )) {
       this.pi.sendMessage(
         {
           customType: MESSAGE_TYPE,

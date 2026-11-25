@@ -35,7 +35,7 @@ export type Opened = Static<typeof openedSchema>;
 
 export type Ended = Static<typeof endedSchema>;
 
-export const liveWaits = (
+export const liveWaitsAcrossBranches = (
   entries: readonly SessionEntry[],
   owner: string
 ): Opened[] => {

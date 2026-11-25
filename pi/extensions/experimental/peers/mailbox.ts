@@ -63,7 +63,7 @@ const takeOne = async (file: string): Promise<Letter | undefined> => {
   }
 };
 
-export const take = async (
+export const takeAtMostOnce = async (
   dir: string,
   sessionId: string
 ): Promise<Letter[]> => {

@@ -9,7 +9,7 @@ import { createActor } from "xstate";
 import type { Actor } from "xstate";
 
 import { WakeGate } from "./gate.js";
-import { ENDED, labelOf, liveWaits, OPENED } from "./journal.js";
+import { ENDED, labelOf, liveWaitsAcrossBranches, OPENED } from "./journal.js";
 import type { Ended, Opened } from "./journal.js";
 import { waitMachine } from "./machine.js";
 import type { WaitSnapshot } from "./machine.js";
@@ -57,7 +57,10 @@ export class WaitRuntime {
 
     const owner = ctx.sessionManager.getSessionId();
 
-    for (const wait of liveWaits(ctx.sessionManager.getEntries(), owner)) {
+    for (const wait of liveWaitsAcrossBranches(
+      ctx.sessionManager.getEntries(),
+      owner
+    )) {
       this.start(wait);
     }
 

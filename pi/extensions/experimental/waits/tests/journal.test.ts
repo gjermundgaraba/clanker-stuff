@@ -1,7 +1,7 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ENDED, liveWaits, OPENED } from "../journal.js";
+import { ENDED, liveWaitsAcrossBranches, OPENED } from "../journal.js";
 import type { Opened } from "../journal.js";
 
 let sequence = 0;
@@ -34,9 +34,9 @@ const opened = (id: string, owner = "s1"): Opened => ({
 });
 
 const ids = (entries: SessionEntry[]) =>
-  liveWaits(entries, "s1").map((wait) => wait.id);
+  liveWaitsAcrossBranches(entries, "s1").map((wait) => wait.id);
 
-describe("liveWaits", () => {
+describe("liveWaitsAcrossBranches", () => {
   it("returns the session's waits that have not ended, in opening order", () => {
     expect(
       ids([

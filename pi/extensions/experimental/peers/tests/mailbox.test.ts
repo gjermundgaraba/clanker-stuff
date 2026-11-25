@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { createTempDir } from "../../../../tests/helpers/fs.js";
-import { post, take } from "../mailbox.js";
+import { post, takeAtMostOnce } from "../mailbox.js";
 
 describe("the mailbox", () => {
   let dir = "";
@@ -34,9 +34,12 @@ describe("the mailbox", () => {
 
     await post(dir, "s2", { from: "a", to: "c", text: "other", sentAt: 1 });
 
-    await expect(take(dir, "s1")).resolves.toStrictEqual([earlier, later]);
-    await expect(take(dir, "s1")).resolves.toStrictEqual([]);
-    await expect(take(dir, "s2")).resolves.toHaveLength(1);
+    await expect(takeAtMostOnce(dir, "s1")).resolves.toStrictEqual([
+      earlier,
+      later,
+    ]);
+    await expect(takeAtMostOnce(dir, "s1")).resolves.toStrictEqual([]);
+    await expect(takeAtMostOnce(dir, "s2")).resolves.toHaveLength(1);
   });
 
   it("deletes and skips a file that is not a letter", async () => {
@@ -51,11 +54,11 @@ describe("the mailbox", () => {
       sentAt: 5,
     });
 
-    await expect(take(dir, "s1")).resolves.toStrictEqual([letter]);
+    await expect(takeAtMostOnce(dir, "s1")).resolves.toStrictEqual([letter]);
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
   });
 
   it("has nothing for a session that never got mail", async () => {
-    await expect(take(dir, "nobody")).resolves.toStrictEqual([]);
+    await expect(takeAtMostOnce(dir, "nobody")).resolves.toStrictEqual([]);
   });
 });
