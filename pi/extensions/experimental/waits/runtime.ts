@@ -190,6 +190,9 @@ export class WaitRuntime {
   }
 
   private deliver(): void {
+    // Why: each wait is journaled as ended before the wake, so a Pi that dies
+    // in between loses the wake rather than repeating it; a repeated wake can
+    // act on a result twice.
     const delivered: WaitSnapshot[] = [];
 
     try {

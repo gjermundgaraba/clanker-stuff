@@ -33,6 +33,8 @@ export const runCondition = async (
     try {
       process.kill(-child.pid, "SIGKILL");
     } catch {
+      // Why: macOS refuses to signal a group of zombies with EPERM, so kill
+      // the shell instead.
       child.kill("SIGKILL");
     }
   };
