@@ -167,12 +167,10 @@ describe("time", () => {
   });
 
   it("adds the date only when the time is not today", () => {
-    const now = new Date(2026, 10, 21, 12, 0).getTime();
-
-    expect(clock(new Date(2026, 10, 21, 20, 42).getTime(), now)).toMatch(
+    expect(clock(new Date(2026, 10, 21, 20, 42).getTime(), noon)).toMatch(
       /^20:42$/u
     );
-    expect(clock(new Date(2026, 10, 22, 9, 5).getTime(), now)).toMatch(
+    expect(clock(new Date(2026, 10, 22, 9, 5).getTime(), noon)).toMatch(
       /22.*09:05$/u
     );
   });
