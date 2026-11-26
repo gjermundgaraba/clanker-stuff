@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -5,6 +6,16 @@ import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import { runCondition } from "../check.js";
+
+// Why: the killed sleep is an orphan, and it stays a zombie that
+// kill(pid, 0) still finds until PID 1 reaps it, which can lag under load.
+const stillRunning = (pid: number): boolean => {
+  const stat = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  return stat !== "" && !stat.startsWith("Z");
+};
 
 const run = async (command: string, timeoutMs = 5000, cwd = "/") =>
   await runCondition({ command, cwd, timeoutMs }, new AbortController().signal);
@@ -41,7 +52,8 @@ describe("runCondition", () => {
       ).resolves.toBe("timeout");
 
       const pid = Number(await readFile(pidFile, "utf8"));
-      expect(() => process.kill(pid, 0)).toThrow(/ESRCH/u);
+      expect(pid).toBeGreaterThan(0);
+      await expect.poll(() => stillRunning(pid)).toBe(false);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
