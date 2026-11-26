@@ -39,7 +39,6 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
   vite-plus: 1.7.0
   xstate: 6.0.0-beta.4
-  effect: 4.1.4
 peerDependencyRules:
   allowAny:
     - vite
