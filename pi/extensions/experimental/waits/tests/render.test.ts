@@ -2,7 +2,15 @@ import { stripVTControlCharacters } from "node:util";
 
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { CustomEntry } from "@earendil-works/pi-coding-agent";
-import { beforeAll, describe, expect, it } from "vite-plus/test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { ENDED, OPENED } from "../journal.js";
@@ -36,6 +44,8 @@ const entry = (customType: string, data: unknown): CustomEntry => ({
   timestamp: new Date(0).toISOString(),
 });
 
+const noon = new Date(2026, 10, 21, 12, 0).getTime();
+
 const opened: Opened = {
   id: "w_1a2b3c4d",
   owner: "s1",
@@ -47,7 +57,7 @@ const opened: Opened = {
     intervalSeconds: 15,
     checkTimeoutSeconds: 30,
   },
-  expiresAt: Date.now() + 3_600_000,
+  expiresAt: noon + 3_600_000,
 };
 
 const wake = (waits: WakeDetails["waits"]) => ({
@@ -69,6 +79,13 @@ describe("wait cards", () => {
   beforeAll(() => {
     initTheme("dark");
   });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(noon);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("draws an opened wait with its condition, cadence and id, and the instruction only when expanded", () => {
     const collapsed = rows(
@@ -85,7 +102,7 @@ describe("wait cards", () => {
 
     expect(collapsed[0]).toMatch(/^ ⏳ waiting on job result +w_1a2b3c4d$/u);
     expect(collapsed[1]).toBe("   test -f result.json");
-    expect(collapsed[2]).toMatch(/^ {3}every 15s · expires \d\d:\d\d$/u);
+    expect(collapsed[2]).toBe("   every 15s · expires 13:00");
     expect(collapsed.join("\n")).not.toContain("Consume");
     expect(expanded.join("\n")).toContain("Consume the result once.");
   });
