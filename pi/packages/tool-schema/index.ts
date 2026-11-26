@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import type { TSchema } from "typebox";
+import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 
 const Constraints = Type.Partial(
@@ -21,6 +21,18 @@ const Constraints = Type.Partial(
 
 const VALUE_CONSTRAINTS = new Set(Object.keys(Constraints.properties));
 
+const SchemaNode = Type.Object({
+  additionalProperties: Type.Optional(Type.Unknown()),
+  anyOf: Type.Optional(Type.Unknown()),
+  description: Type.Optional(Type.Unknown()),
+  items: Type.Optional(Type.Unknown()),
+  properties: Type.Optional(Type.Unknown()),
+});
+
+type SchemaNode = Static<typeof SchemaNode>;
+
+const Properties = Type.Record(Type.String(), Type.Unknown());
+
 const range = (
   min: number | undefined,
   max: number | undefined,
@@ -37,8 +49,7 @@ const range = (
   return [min === max ? `exactly ${min}${unit}` : `${min}–${max}${unit}`];
 };
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- JSON Schema nodes are open records; the constraint keywords are parsed before use.
-const limits = (node: Record<string, unknown>): string[] => {
+const limits = (node: SchemaNode): string[] => {
   if (!Value.Check(Constraints, node)) {
     return [];
   }
@@ -62,10 +73,6 @@ const limits = (node: Record<string, unknown>): string[] => {
   ];
 };
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- JSON Schema is an open tree: keyword values are schemas, arrays or plain data, and only object nodes are traversed.
-const isSchemaNode = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
 const strip = (node: unknown): void => {
   if (Array.isArray(node)) {
     for (const child of node) {
@@ -75,7 +82,7 @@ const strip = (node: unknown): void => {
     return;
   }
 
-  if (!isSchemaNode(node)) {
+  if (!Value.Check(SchemaNode, node)) {
     return;
   }
 
@@ -87,22 +94,22 @@ const strip = (node: unknown): void => {
 
   if (summary.length > 0) {
     const description =
-      typeof node["description"] === "string"
-        ? `${node["description"].replace(/[.\s]*$/u, "")}. `
+      typeof node.description === "string"
+        ? `${node.description.replace(/[.\s]*$/u, "")}. `
         : "";
 
-    node["description"] = `${description}Limits: ${summary.join("; ")}.`;
+    node.description = `${description}Limits: ${summary.join("; ")}.`;
   }
 
-  if (isSchemaNode(node["properties"])) {
-    for (const child of Object.values(node["properties"])) {
+  if (Value.Check(Properties, node.properties)) {
+    for (const child of Object.values(node.properties)) {
       strip(child);
     }
   }
 
-  strip(node["items"]);
-  strip(node["anyOf"]);
-  strip(node["additionalProperties"]);
+  strip(node.items);
+  strip(node.anyOf);
+  strip(node.additionalProperties);
 };
 
 /**

@@ -1,4 +1,4 @@
-#!/usr/bin/env swift  // Run on macOS: swift scripts/check-coretext.swift [font.ttf [shapes.json]]
+#!/usr/bin/env swift
 import CoreGraphics
 import CoreText
 import Foundation

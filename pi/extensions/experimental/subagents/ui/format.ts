@@ -13,7 +13,6 @@ type AgentStatus = AgentNode["status"];
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/** How often live surfaces redraw; each mark picks its frame from the clock. */
 export const FRAME_MS = 100;
 
 const spinner = (now: number): string =>
@@ -40,7 +39,6 @@ export const statusTone = (status: DisplayStatus) => STATUS_LOOK[status].tone;
 export const isDisplayStatus = (value: string): value is DisplayStatus =>
   Object.hasOwn(STATUS_LOOK, value);
 
-/** A status as one glyph; tool results are snapshots, so a running agent keeps a dot. */
 export const statusGlyph = (theme: Theme, status: DisplayStatus): string =>
   theme.fg(STATUS_LOOK[status].tone, STATUS_LOOK[status].glyph);
 
@@ -64,10 +62,6 @@ const ORB_COLORS = [
   "yellow",
 ] as const;
 
-/**
- * Shape-spinner's orb, in one color per top-level agent that its descendants share; root's is gray.
- * Its inks are part of the artwork, so the theme only picks the background they suit.
- */
 export const orbMarks = (nodes: () => readonly AgentNode[]): Marks => ({
   running: (theme, path, now) => {
     const tops = nodes().filter(
@@ -87,7 +81,6 @@ export const orbMarks = (nodes: () => readonly AgentNode[]): Marks => ({
   width: 2,
 });
 
-/** An agent's mark on a live surface; root has no node and shows a ring while idle. */
 export const statusMark = (
   theme: Theme,
   marks: Marks,
@@ -131,7 +124,6 @@ export const duration = (ms: number): string => {
   return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 };
 
-/** How long the latest turn ran, or has been running; unknown for a turn a restart cut short. */
 export const elapsed = (node: AgentNode, now: number): string => {
   if (node.status === "running") {
     return duration(now - node.startedAt);
@@ -154,7 +146,6 @@ const tokens = (count: number): string => {
   return `${(count / 1_000_000).toFixed(1)}M`;
 };
 
-/** Input counts cached reads and writes too: all of them are context the agent sent. */
 export const usageText = (usage: AgentUsage): string => {
   const input = usage.input + usage.cacheRead + usage.cacheWrite;
 
@@ -171,7 +162,6 @@ export const usageText = (usage: AgentUsage): string => {
 export const agentName = (path: string): string =>
   path === ROOT_AGENT_PATH ? "root" : path.slice(path.lastIndexOf("/") + 1);
 
-/** The model id without its provider, which rarely fits and rarely matters at a glance. */
 export const modelText = (
   node: Pick<AgentNode, "model" | "thinking">
 ): string => {
@@ -215,16 +205,11 @@ export const outcomeText = (theme: Theme, node: AgentNode): string => {
 };
 
 export interface TreeRow<Item> {
-  /** Undefined for the root and for ancestors the listing does not include. */
   item: Item | undefined;
   path: string;
   prefix: string;
 }
 
-/**
- * Lays out items depth-first under the root, siblings in input order. Ancestors of every included
- * item get a row, so each row hangs from a visible parent.
- */
 export const treeRows = <Item extends { path: string }>(
   items: readonly Item[],
   include: (item: Item) => boolean = () => true
@@ -305,10 +290,6 @@ export const countsText = (theme: Theme, counts: StatusCounts): string =>
     .filter(Boolean)
     .join(theme.fg("dim", " · "));
 
-/**
- * A titled frame top, "╭─ title ──── right ─╮", spanning exactly `width` columns. The right text
- * goes first when space runs out, then the title is cut.
- */
 export const frameTop = (
   theme: Theme,
   width: number,

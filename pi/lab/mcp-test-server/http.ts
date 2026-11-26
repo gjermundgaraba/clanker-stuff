@@ -24,7 +24,13 @@ export const serveHttp = async (
   const validateOrigin = localhostOriginValidation();
 
   const server = createServer((req, res) => {
-    if (new URL(req.url ?? "/", "http://localhost").pathname !== "/mcp") {
+    const { method, url } = req;
+
+    if (
+      method === undefined ||
+      url === undefined ||
+      new URL(url, "http://localhost").pathname !== "/mcp"
+    ) {
       res.writeHead(404).end();
 
       return;
@@ -34,8 +40,7 @@ export const serveHttp = async (
       return;
     }
 
-    // @ts-expect-error -- @modelcontextprotocol/node 2.1.2 declares `method?: string` and `url?: string`, which exactOptionalPropertyTypes rejects for IncomingMessage's `string | undefined`; toNodeHandler defaults both when undefined.
-    void handle(req, res);
+    void handle(Object.assign(req, { method, url }), res);
   });
 
   server.listen(options.port, options.host);

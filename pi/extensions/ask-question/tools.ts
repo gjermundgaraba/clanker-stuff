@@ -35,7 +35,6 @@ export const registerQuestionTool = (
   });
 };
 
-/** Questionnaires need the interactive TUI; elsewhere the tool is withdrawn so nothing can activate it. */
 export const withdrawOutsideTui = (
   pi: ExtensionAPI,
   coordinator: Coordinator,

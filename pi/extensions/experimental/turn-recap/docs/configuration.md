@@ -50,8 +50,6 @@ The secondary request has no tools, uses independent request state, and has a ha
 
 Recaps keep generating while you start another run or navigate the session tree, and each fills in its own card; several can be in flight at once. A recap that finishes after tree navigation is saved on the branch you are on, where it stays hidden and out of model context. Shutting down (quit, reload, or session replacement) abandons pending recaps; those cards keep no recap. A crash while a recap is pending loses only the recap. No in-progress timing is recovered after a crash.
 
-## Replacement of recap and timer
+## Session files and modes
 
-Turn-recap replaces both extensions. Remove the old extension paths/packages from your Pi configuration and load only turn-recap. If you want generated text, create `turn-recap.json` with the model settings previously used for recap. There is no `recap.json` fallback.
-
-Old session files are never rewritten. Entries from versions that lack a current field, including cards recorded before model and tool time, remain in those files but are not rendered. Non-TUI modes still record run cards, but do not mount the live row or run timers.
+Session files are never rewritten. A saved card's fields that the current version does not know are ignored. An older card that lacks a field the current version requires is not rendered. Non-TUI modes still record run cards, but do not mount the live row or run timers.

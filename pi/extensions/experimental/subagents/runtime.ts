@@ -40,7 +40,6 @@ type HistoryMessage = Parameters<SessionManager["appendMessage"]>[0];
 
 export type AgentMessage = AgentSession["state"]["messages"][number];
 
-/** What a viewer opened mid-turn needs to catch up before following live events. */
 export interface ChildSnapshot {
   /** The session's current branch, which includes history that compaction removed from context. */
   branch: readonly SessionEntry[];
@@ -71,25 +70,16 @@ export type ChildTurnOutcome =
   | { status: "errored"; error: string };
 
 export interface ChildRuntime {
-  /** Requests cancellation of the current turn without waiting for it to settle. */
   abort: () => void;
-  /** Appends passive mail now, or at the end of the current turn while one is running. */
   deliver: (mail: Mail) => void;
   dispose: () => Promise<void>;
-  /** Disposes a failed new child and removes only its owned session directory. */
   discard: () => Promise<void>;
   readonly model: string;
   readonly sessionFile: string;
   snapshot: () => ChildSnapshot;
-  /**
-   * Queues a task for the current turn, or returns undefined without one. Resolves once the turn
-   * reads it, or with false when the turn settles without reading it.
-   */
   steer: (task: Envelope) => Promise<boolean> | undefined;
-  /** Runs one prompt to settlement. */
   startTurn: (text: string) => Promise<ChildTurnOutcome>;
   readonly thinkingLevel: AgentThinkingLevel;
-  /** How the child's own session would draw calls to `name`, including its extensions' tools. */
   toolRenderers: (name: string) => ToolRenderers | undefined;
 }
 
@@ -102,7 +92,6 @@ export interface ChildRuntimeRequest {
   modelRegistry: ModelRegistry;
   onDelivered: (mailId: string) => void;
   onError: (cause: unknown) => void;
-  /** Receives every session event, for presentation; a failure goes to `onError`. */
   onEvent: (event: AgentSessionEvent) => void;
   prompt: string;
   promptOptions: BuildSystemPromptOptions | undefined;

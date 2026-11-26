@@ -27,7 +27,6 @@ export interface UsageRequest<S extends TSchema> extends UsageAuth {
   schema: S;
 }
 
-/** Request headers carrying the provider's credential, or why it cannot be used. */
 export const usageHeaders = (
   { token, oauth }: UsageCredential,
   auth: UsageAuth

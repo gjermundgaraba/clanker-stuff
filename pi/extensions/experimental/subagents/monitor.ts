@@ -1,6 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
-/** What a running child is doing right now; it lives only as long as the child's runtime. */
 export type Activity =
   | {
       kind: "phase";
@@ -28,7 +27,6 @@ const TARGET_KEYS = [
   "message",
 ];
 
-/** Picks the argument that best names a call's target. The text is raw; sanitize it where rendered. */
 export const callTarget = (args: unknown): string | undefined => {
   if (typeof args !== "object" || args === null) {
     return undefined;
@@ -53,14 +51,12 @@ const WAITING: Activity = { kind: "phase", label: "waiting" };
 
 const RETRYING: Activity = { kind: "phase", label: "retrying" };
 
-/** One agent's run: what it is doing between tool calls, and the top-level calls executing now. */
 export interface Track {
   /** Calls in start order; Pi runs a response's tool calls in parallel. */
   executing: ReadonlyMap<string, Activity>;
   phase: Activity;
 }
 
-/** The latest call still executing, or the phase between calls. */
 export const trackActivity = (track: Track): Activity =>
   [...track.executing.values()].at(-1) ?? track.phase;
 
@@ -69,7 +65,6 @@ const withPhase = (track: Track, phase: Activity): Track => ({
   phase,
 });
 
-/** Folds one session event into an agent's run; undefined once the run ends. */
 export const nextTrack = (
   track: Track | undefined,
   event: AgentSessionEvent
@@ -182,17 +177,11 @@ export const nextTrack = (
   return track;
 };
 
-/**
- * Fans child session events out to presentation. Change listeners hear about tree changes, while
- * activity is read as drawn, since it changes only while a child runs and its views animate;
- * followers of one agent receive its raw events.
- */
 export class Monitor {
   readonly #followers = new Map<string, Set<AgentEventListener>>();
   readonly #listeners = new Set<() => void>();
   readonly #tracks = new Map<string, Track>();
 
-  /** Receives change listener failures, which must not fail the change being announced. */
   private readonly onError: (cause: unknown) => void;
 
   constructor(onError: (cause: unknown) => void) {
@@ -223,7 +212,6 @@ export class Monitor {
     };
   }
 
-  /** Throws the first follower failure, after every follower has run; a failing follower is dropped. */
   record(path: string, event: AgentSessionEvent): void {
     const track = nextTrack(this.#tracks.get(path), event);
 

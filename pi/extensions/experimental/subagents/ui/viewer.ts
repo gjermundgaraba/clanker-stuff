@@ -171,7 +171,6 @@ const layoutViewer = (width: number, height: number): Layout => {
   };
 };
 
-/** A read-only overlay: the agent tree beside the selected agent's live transcript. */
 export class AgentsViewer implements Component {
   readonly #builtIns: Map<string, ToolDisplay>;
   readonly #timer: ReturnType<typeof setInterval>;

@@ -12,7 +12,6 @@ export interface Unread {
   outcome?: Outcome;
 }
 
-/** Bounded task data, with independent inspection and wake-attempt watermarks. */
 export class TaskNotices {
   private retained: Array<{ event: TaskEvent; bytes: number }> = [];
   private last = 0;
@@ -64,7 +63,6 @@ export class TaskNotices {
       : undefined;
   }
 
-  /** Only updates neither inspected nor covered by an earlier wake need a new attempt. */
   wake(outcome: Outcome | undefined): Unread | undefined {
     const events =
       this.last > Math.max(this.inspectedThrough, this.wakeThrough);
@@ -77,7 +75,6 @@ export class TaskNotices {
       : undefined;
   }
 
-  /** Cover current updates on a wake attempt or Stop, without marking them inspected. */
   cover(outcome: boolean): void {
     this.wakeThrough = this.last;
     this.outcomeCovered ||= outcome;

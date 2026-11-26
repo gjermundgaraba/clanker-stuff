@@ -74,4 +74,4 @@ Keep detailed configuration, behavior, security notes, and examples in a package
 
 ## Enforcement
 
-README validation must check the canonical title, summary, installation command, required section order, allowed optional section, 30-line limit, and the conditional root `Experimental pi extensions` section. Keep this repository-specific validation in `scripts/check-readmes.ts`; general Markdown linters do not understand package metadata or this exact template.
+`scripts/check-readmes.ts` enforces this format. Keep the validation there: general Markdown linters do not understand package metadata or this exact template.

@@ -26,6 +26,9 @@ BASE = 0xF2000
 STEPS = 8
 TIMESTAMP = 3660681600
 
+COPYRIGHT, TRADEMARK, MANUFACTURER, DESIGNER, LICENSE, LICENSE_URL = 0, 7, 8, 9, 13, 14
+SOURCE_NOTICE_NAME_IDS = (COPYRIGHT, TRADEMARK, MANUFACTURER, DESIGNER, LICENSE, LICENSE_URL)
+
 
 def serialize(font):
     output = io.BytesIO()
@@ -150,9 +153,8 @@ def build(source_bytes, pairs):
     font.setGlyphOrder(order)
     FontBuilder(font=font).setupCharacterMap(mapping)
 
-    # Retain source copyright/license/trademark metadata, not its family identity.
     notices = [
-        record for record in font["name"].names if record.nameID in (0, 7, 8, 9, 13, 14)
+        record for record in font["name"].names if record.nameID in SOURCE_NOTICE_NAME_IDS
     ]
     font["name"] = newTable("name")
     font["name"].names = notices

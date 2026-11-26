@@ -7,15 +7,8 @@ export interface CheckInput {
   readonly timeoutMs: number;
 }
 
-/** The condition's exit code, or "timeout" when its check ran out of time. */
 export type CheckResult = number | "timeout";
 
-/**
- * Runs a condition with `/bin/sh -c` in its own process group, output
- * discarded. Abort and timeout kill the whole group, or the shell when the
- * group cannot be signalled (macOS refuses a group of zombies with EPERM).
- * Rejects when the shell cannot start or something else kills it.
- */
 export const runCondition = async (
   input: CheckInput,
   signal: AbortSignal
@@ -40,6 +33,8 @@ export const runCondition = async (
     try {
       process.kill(-child.pid, "SIGKILL");
     } catch {
+      // Why: macOS refuses to signal a group of zombies with EPERM, so kill
+      // the shell instead.
       child.kill("SIGKILL");
     }
   };

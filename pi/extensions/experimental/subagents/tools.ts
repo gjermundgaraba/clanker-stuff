@@ -276,7 +276,6 @@ const TOOLS = {
 export const isCollaborationTool = (name: string): boolean =>
   Object.hasOwn(TOOLS, name);
 
-/** Registers the collaboration tools for one agent; `caller` is its canonical path. */
 export const registerTools = (
   pi: ExtensionAPI,
   controller: ToolController,

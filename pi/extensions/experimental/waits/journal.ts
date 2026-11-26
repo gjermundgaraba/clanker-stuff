@@ -35,13 +35,7 @@ export type Opened = Static<typeof openedSchema>;
 
 export type Ended = Static<typeof endedSchema>;
 
-/**
- * The waits `owner` opened that have not ended, in opening order. It reads
- * the whole session, across branches, because an outcome happened in the
- * world, not on a branch. A fork or clone copies entries under a new session
- * id, so it inherits none.
- */
-export const liveWaits = (
+export const liveWaitsAcrossBranches = (
   entries: readonly SessionEntry[],
   owner: string
 ): Opened[] => {
@@ -69,7 +63,6 @@ export const liveWaits = (
   return [...opened.values()].filter((wait) => !ended.has(wait.id));
 };
 
-/** The label a wait opened with, wherever in the session it was opened. */
 export const labelOf = (
   entries: readonly SessionEntry[],
   id: string

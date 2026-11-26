@@ -9,7 +9,7 @@ import { createActor } from "xstate";
 import type { Actor } from "xstate";
 
 import { WakeGate } from "./gate.js";
-import { ENDED, labelOf, liveWaits, OPENED } from "./journal.js";
+import { ENDED, labelOf, liveWaitsAcrossBranches, OPENED } from "./journal.js";
 import type { Ended, Opened } from "./journal.js";
 import { waitMachine } from "./machine.js";
 import type { WaitSnapshot } from "./machine.js";
@@ -31,12 +31,6 @@ interface LiveWait {
 const outlivesPrompt = (ctx: ExtensionContext): boolean =>
   ctx.mode === "tui" || ctx.mode === "rpc";
 
-/**
- * Owns this session's live waits. Each opening and each outcome is journaled
- * before it takes effect, and on session start the journal alone decides
- * which waits run, so reload, quit and relaunch, and a killed Pi all resume
- * the same way.
- */
 export class WaitRuntime {
   private readonly pi: ExtensionAPI;
   private readonly waits = new Map<string, LiveWait>();
@@ -63,7 +57,10 @@ export class WaitRuntime {
 
     const owner = ctx.sessionManager.getSessionId();
 
-    for (const wait of liveWaits(ctx.sessionManager.getEntries(), owner)) {
+    for (const wait of liveWaitsAcrossBranches(
+      ctx.sessionManager.getEntries(),
+      owner
+    )) {
       this.start(wait);
     }
 
@@ -195,12 +192,10 @@ export class WaitRuntime {
     });
   }
 
-  /**
-   * Journals each finished wait as ended, then hands one wake for them to
-   * Pi. A process that dies between the two loses the wake rather than
-   * repeating it: a repeated wake can act on a result twice.
-   */
   private deliver(): void {
+    // Why: each wait is journaled as ended before the wake, so a Pi that dies
+    // in between loses the wake rather than repeating it; a repeated wake can
+    // act on a result twice.
     const delivered: WaitSnapshot[] = [];
 
     try {
@@ -231,7 +226,6 @@ export class WaitRuntime {
     }
   }
 
-  /** Runs whenever the set of live waits changes: redraws the widget. */
   private changed(): void {
     this.view.update(this.ctx);
   }

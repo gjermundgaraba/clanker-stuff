@@ -4,7 +4,6 @@ import {
 } from "@clanker-stuff/model-history";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-/** Providers whose usage the extension requests with the provider's pi credential. */
 export const FETCHED_PROVIDERS = [
   "anthropic",
   "openai-codex",

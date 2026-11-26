@@ -26,7 +26,6 @@ export const recordState = (pi: Writer, item: Interaction): void => {
   });
 };
 
-/** Projects open questionnaires and recorded outcomes on the active branch. */
 export const project = (branch: SessionEntry[]) => {
   const requests = new Map<string, RequestRecord>();
   const items = new Map<string, Interaction>();

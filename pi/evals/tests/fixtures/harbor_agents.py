@@ -6,9 +6,7 @@ from harbor.models.job.config import JobConfig
 
 
 def start_agents(config: dict, logs_dir: Path) -> list[BaseAgent]:
-    """Check each agent as `harbor job start` does, then build our adapters.
-
-    `--print-config` and `JobPlan.build_trial_configs` stop before Harbor
+    """`--print-config` and `JobPlan.build_trial_configs` stop before Harbor
     validates agent kwargs, so neither catches an option Harbor rejects.
     Harbor's own agents, such as the oracle, need a trial to construct.
     """

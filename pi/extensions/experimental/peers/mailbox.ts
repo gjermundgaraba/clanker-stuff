@@ -25,7 +25,6 @@ export type Letter = Static<typeof letterSchema>;
 const inboxOf = (dir: string, sessionId: string): string =>
   path.join(dir, encodeURIComponent(sessionId));
 
-/** Drops a letter into a session's inbox. File names sort in sending order. */
 export const post = async (
   dir: string,
   sessionId: string,
@@ -64,12 +63,7 @@ const takeOne = async (file: string): Promise<Letter | undefined> => {
   }
 };
 
-/**
- * Removes and returns every letter waiting for a session, oldest first. Each
- * file is deleted before its letter is returned, so a letter is taken at most
- * once. A file that is not a letter is deleted and skipped.
- */
-export const take = async (
+export const takeAtMostOnce = async (
   dir: string,
   sessionId: string
 ): Promise<Letter[]> => {

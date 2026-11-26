@@ -49,7 +49,6 @@ export const parseGitDetails = (output: string): GitDetails => {
   return details;
 };
 
-/** Rejects on timeout, truncated output, or failure; Pi reports a timed-out process as exit code 0 with `killed`. */
 export const readGitDetails = async (
   runtime: Pick<ExtensionAPI, "exec">,
   cwd: string

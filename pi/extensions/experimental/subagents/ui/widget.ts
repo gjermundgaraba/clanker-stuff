@@ -39,10 +39,6 @@ export interface WidgetSource {
   rootRunning: () => boolean;
 }
 
-/**
- * A live tree of the agents taking part in the current burst of work: those running, those that
- * finished since the widget appeared, and their ancestors.
- */
 export class AgentsWidget implements Component {
   readonly #timer: ReturnType<typeof setInterval>;
 

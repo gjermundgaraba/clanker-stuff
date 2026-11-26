@@ -27,7 +27,6 @@ const writeAtomically = async (
   }
 };
 
-/** Writes whole trees in call order; nothing touches disk before the first mutation. */
 export class TreeStore {
   readonly #file: string | undefined;
 
@@ -61,7 +60,6 @@ const fresh = (store: TreeStore, warning?: string): OpenedTree => ({
   warning,
 });
 
-/** Opens the tree for a root session; an unreadable tree is reported and replaced by a fresh one. */
 export const openTree = async (
   dataDir: string,
   sessionId: string,

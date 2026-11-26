@@ -103,7 +103,6 @@ export interface SpawnInput {
   model: string | undefined;
   taskName: string;
   thinking: AgentThinkingLevel | undefined;
-  /** The caller's active tools, which the child starts with. */
   tools: readonly string[];
 }
 
@@ -122,7 +121,6 @@ export interface ControllerDependencies {
   config: SubagentsConfig;
   createRuntime?: ChildRuntimeFactory;
   dataDir: string;
-  /** Hands root mail to the root session; the manager acknowledges it once transcribed. */
   deliverRoot: (mail: Mail) => void;
   onBackgroundError: (cause: unknown) => void;
   rootRunning: () => boolean;
@@ -170,7 +168,6 @@ export class Controller {
     this.#promptOptions = options;
   }
 
-  /** Replaces the tree; agents that were running when it was last saved are now interrupted. */
   async open(store: TreeStore, tree: Tree): Promise<void> {
     await this.shutdown();
     this.#store = store;
@@ -562,7 +559,6 @@ export class Controller {
       );
   }
 
-  /** The tree's agents, for presentation; callers must not mutate them. */
   nodes(): readonly AgentNode[] {
     return this.#tree.nodes;
   }
@@ -571,14 +567,12 @@ export class Controller {
     return this.#rootRunning();
   }
 
-  /** The runtime of an agent whose turn is still live, for viewers that follow it. */
   live(path: string): ChildRuntime | undefined {
     const agent = this.#phase(path);
 
     return agent.value === "running" ? agent.context.turn.runtime : undefined;
   }
 
-  /** Waits until mail reaches `caller`, new user input arrives, or the timeout passes. */
   async wait(
     caller: string,
     timeoutMs: number,
@@ -637,7 +631,6 @@ export class Controller {
     }
   }
 
-  /** New input reached `path`; a pending wait returns so the agent can respond. */
   notify(path: string): void {
     for (const wake of this.#waiters.get(path) ?? []) {
       wake("steered");
@@ -865,7 +858,6 @@ export class Controller {
     turn.retired.resolve(undefined);
   }
 
-  /** Persists mail before handing it to a resident target; delivery acknowledges it. */
   async #post(mail: Mail, epoch: symbol): Promise<void> {
     this.#tree.outbox.push(mail);
     await this.#save();

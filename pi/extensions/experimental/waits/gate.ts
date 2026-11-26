@@ -12,11 +12,6 @@ export interface GateTarget {
   readonly deliver: () => void;
 }
 
-/**
- * Hands work to Pi only while it is idle, with no queued message and no
- * extension dialog open. Delivery is attempted on settle; while Pi is busy,
- * the gate rechecks every second.
- */
 export class WakeGate {
   private prompting = false;
   private readonly target: GateTarget;

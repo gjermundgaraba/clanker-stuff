@@ -58,7 +58,6 @@ export const startParameters = Type.Object(
 
 export type StartRequest = Static<typeof startParameters>;
 
-/** What a wait checks and how, fixed when it opens and journaled with it. */
 export const specSchema = Type.Object(
   {
     label,
