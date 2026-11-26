@@ -46,6 +46,20 @@ const entry = (customType: string, data: unknown): CustomEntry => ({
 
 const noon = new Date(2026, 10, 21, 12, 0).getTime();
 
+// Why: the cards write times in the reader's locale, so the expected text is
+// what this machine's locale writes, such as 13.00 under fi_FI.
+const hhmm = (at: Date | number) =>
+  new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
+
+const monthDay = (at: Date) =>
+  new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+    at
+  );
+
 const opened: Opened = {
   id: "w_1a2b3c4d",
   owner: "s1",
@@ -102,7 +116,9 @@ describe("wait cards", () => {
 
     expect(collapsed[0]).toMatch(/^ ⏳ waiting on job result +w_1a2b3c4d$/u);
     expect(collapsed[1]).toBe("   test -f result.json");
-    expect(collapsed[2]).toBe("   every 15s · expires 13:00");
+    expect(collapsed[2]).toBe(
+      `   every 15s · expires ${hhmm(noon + 3_600_000)}`
+    );
     expect(collapsed.join("\n")).not.toContain("Consume");
     expect(expanded.join("\n")).toContain("Consume the result once.");
   });
@@ -167,11 +183,12 @@ describe("time", () => {
   });
 
   it("adds the date only when the time is not today", () => {
-    expect(clock(new Date(2026, 10, 21, 20, 42).getTime(), noon)).toMatch(
-      /^20:42$/u
-    );
-    expect(clock(new Date(2026, 10, 22, 9, 5).getTime(), noon)).toMatch(
-      /22.*09:05$/u
+    const evening = new Date(2026, 10, 21, 20, 42);
+    const tomorrow = new Date(2026, 10, 22, 9, 5);
+
+    expect(clock(evening.getTime(), noon)).toBe(hhmm(evening));
+    expect(clock(tomorrow.getTime(), noon)).toBe(
+      `${monthDay(tomorrow)} ${hhmm(tomorrow)}`
     );
   });
 });
