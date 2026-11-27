@@ -17,6 +17,7 @@ Third-party sources and licenses are listed below. Skill provenance is recorded 
 | Maintain-verification skill | [`skills/maintain-verification-skill/`](skills/maintain-verification-skill/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/maintain-verification-skill/LICENSE) |
 | No-comments skill | [`skills/no-comments/`](skills/no-comments/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/no-comments/LICENSE) |
 | Principle-explain-the-number skill | [`skills/principle-explain-the-number/`](skills/principle-explain-the-number/SKILL.md) | [cursor/plugins](https://github.com/cursor/plugins) | [MIT](skills/principle-explain-the-number/LICENSE) |
+| Security-audit skill | [`skills/security-audit/`](skills/security-audit/SKILL.md) | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) | [MIT](skills/security-audit/LICENSE) |
 | Show-me skill | [`skills/show-me/`](skills/show-me/SKILL.md) | [humanlayer/skills](https://github.com/humanlayer/skills) | [MIT](skills/show-me/LICENSE) |
 | Taste skill | [`skills/taste/`](skills/taste/SKILL.md) | [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | [MIT](skills/taste/LICENSE) |
 | Taste impeccable guidance | [`skills/taste/`](skills/taste/SKILL.md) | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | [Apache-2.0](skills/taste/LICENSE.impeccable), [NOTICE](skills/taste/NOTICE.impeccable.md) |
