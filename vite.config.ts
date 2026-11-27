@@ -25,7 +25,7 @@ export default defineConfig({
       "check:readmes": { command: "node ./scripts/check-readmes.ts" },
       "check:skills": {
         command:
-          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/no-comments/scripts",
+          "python3 -B -m unittest discover -s skills/diagram-design/scripts && python3 -B -m unittest discover -s skills/no-comments/scripts && node --test skills/security-audit/validate-findings.test.cjs skills/security-audit/validate-coverage-ledger.test.cjs",
       },
       "check:static": { command: "vp check" },
       "check:tests": { command: "node ./scripts/check-tests.ts" },

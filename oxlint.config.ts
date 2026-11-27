@@ -4,7 +4,13 @@ export const thirdPartyEvalRuns = "**/.harbor/**";
 
 const evalTaskStartingWorkspaces = "pi/evals/suites/*/tasks/**/environment/**";
 
-export const ignorePatterns = [thirdPartyEvalRuns, evalTaskStartingWorkspaces];
+const verbatimSecurityAudit = "skills/security-audit/**";
+
+export const ignorePatterns = [
+  thirdPartyEvalRuns,
+  evalTaskStartingWorkspaces,
+  verbatimSecurityAudit,
+];
 
 export default config({
   assertFunctions: ["expectPrefix", "inspect", "open"],
