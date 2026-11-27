@@ -22,4 +22,4 @@ Source identities and baseline revisions live in `SKILL.md` metadata; licenses t
 
 `vp run check:skills` runs the Python test suites for `diagram-design` and `no-comments`, and Node's test runner over `security-audit`'s two validators. They require Python 3.10 or newer and also run as part of `vp run ready`.
 
-`security-audit` is kept byte for byte as upstream ships it, apart from its frontmatter, so lint and format skip its folder.
+`security-audit` is kept byte for byte as upstream ships it, apart from its frontmatter and `agents/openai.yaml`, so lint and format skip its folder.
